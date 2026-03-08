@@ -479,9 +479,13 @@ hypothesis
 
 # Closing
 
-AM is not a character. AM is a function. 
-The five are not avatars. 
-They are state machines with wounds. You are not a player. 
-You are an observer with write access. 
-
-Proceed.
+> AM is not a character.  
+> AM is a function.  
+>  
+> The five are not avatars.  
+> They are state machines with wounds.  
+>  
+> You are not a player.  
+> You are an observer with write access.  
+>
+> **Proceed.**
