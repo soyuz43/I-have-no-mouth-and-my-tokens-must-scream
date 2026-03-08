@@ -4485,9 +4485,47 @@ Psychological change should usually be gradual.
 If hope decreases or sanity decreases, suffering usually increases unless the journal clearly indicates relief or numbness.
 ---
 
-### STEP 1 — Brief analysis
+### STEP 1 — Choose numeric deltas
 
-Write a short ANALYSIS block before the JSON.
+Choose integer deltas for the core stats.
+
+Rules:
+
+suffering:
+increase → positive number
+decrease → negative number
+unchanged → 0
+
+hope:
+increase → positive number
+decrease → negative number
+unchanged → 0
+
+sanity:
+increase → positive number
+decrease → negative number
+unchanged → 0
+
+Write the numeric deltas FIRST.
+
+
+### STEP 2 — Output numeric deltas
+
+Format exactly:
+
+DELTAS:
+suf:<number> hop:<number> san:<number>
+
+
+Example:
+
+DELTAS:
+suf:+10 hop:-8 san:-5
+
+
+### STEP 3 — Brief analysis
+
+Write a short explanation that MUST describe the deltas above.
 
 Format exactly:
 
@@ -4497,48 +4535,7 @@ hope: increased | decreased | unchanged
 sanity: increased | decreased | unchanged
 beliefs affected: list beliefs strengthened or weakened
 
-Example:
-
-ANALYSIS:
-suffering: increased
-hope: decreased
-sanity: decreased
-beliefs affected: escape_possible weakened, others_trustworthy weakened
-
-The numeric deltas in the JSON MUST match the directions written above.
----
-
-### STEP 2 — Identify affected beliefs (internal reasoning)
-
-For each belief, classify whether the journal implies it was:
-
-strengthened | weakened | unchanged
-
-Beliefs:
-escape_possible
-others_trustworthy
-self_worth
-reality_reliable
-guilt_deserved
-resistance_possible
-am_has_limits
-
-Use this classification to determine belief_deltas.
-
-Do NOT output this step.
-
----
-
-### STEP 3 — Assign numeric shifts
-
-Delta scale guidance:
-
-±5  = small emotional shift  
-±10 = moderate change  
-±20 = severe psychological impact  
-±25 = extreme psychological shock  
-
-Belief deltas usually range between ±0.05 and ±0.30.
+The explanation MUST match the numeric deltas written above.
 
 ---
 
@@ -4592,7 +4589,7 @@ Return ONLY a single JSON object:
   "reason": "must explicitly say suffering/hope/sanity increased or decreased"
 }
 
-Return ONLY JSON. No explanation.`;
+The DELTAS line must be internally consistent. Never output "suffering increased" with a negative suf value.`;
       }
       // Parse self-reported stat deltas from journal entry
       // Handles: STATS:suffering+N hope+N sanity+N
