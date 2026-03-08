@@ -572,7 +572,7 @@
       #app {
         display: none;
         height: 100vh;
-        grid-template-rows: 44px 160px 1fr;
+        grid-template-rows: 44px 180px 1fr;
       }
       #app.visible {
         display: grid;
@@ -642,7 +642,7 @@
         grid-template-columns: 200px 1fr 190px 190px;
         border-bottom: 2px solid var(--crimson);
         background: #050000;
-        overflow: hidden;
+        overflow: visible;
       }
       .am-pane {
         padding: 9px 12px;
@@ -776,6 +776,7 @@
         gap: 4px;
         overflow: hidden;
         flex: 1;
+        min-height: 0;
       }
       .is-log {
         flex: 1;
@@ -855,7 +856,7 @@
         padding: 4px 6px;
         outline: none;
         resize: none;
-        height: 32px;
+        height: 34px;
       }
       .is-input:focus {
         border-color: #442200;
@@ -3941,32 +3942,61 @@
         alert(content);
       }
       // ══════════════════════════════════════════════════════════
-      // BELIEF CONSISTENCY VALIDATOR — minimal: only bounds checks
+      // BELIEF CONSISTENCY VALIDATOR — bounded belief state checks
       // ══════════════════════════════════════════════════════════
+
       function validateBeliefs(agent, before, shifts) {
         const warnings = [];
-        // 1. Bounds check on before values
+
+        const MAX_SHIFT = 0.5; // sanity threshold for belief jumps
+
+        // 1. Validate "before" belief state
         for (const [k, v] of Object.entries(before)) {
-          if (v < 0 || v > 1)
+          if (typeof v !== "number" || Number.isNaN(v)) {
+            warnings.push(`⚠ ${agent}.${k} invalid value: ${v}`);
+            continue;
+          }
+
+          if (v < 0 || v > 1) {
             warnings.push(`⚠ ${agent}.${k} out of bounds: ${v}`);
+          }
         }
-        // 2. Bounds check on after values (before + shift)
+
+        // 2. Validate shifts and resulting belief state
         for (const [k, dv] of Object.entries(shifts)) {
-          const post = (before[k] ?? 0.5) + dv;
-          if (post < 0 || post > 1)
+          if (typeof dv !== "number" || Number.isNaN(dv)) {
+            warnings.push(`⚠ ${agent}.${k} shift invalid: ${dv}`);
+            continue;
+          }
+
+          if (Math.abs(dv) > MAX_SHIFT) {
+            warnings.push(`⚠ ${agent}.${k} unusually large shift: ${dv}`);
+          }
+
+          const pre = before[k] ?? 0.5;
+          const post = pre + dv;
+
+          if (post < 0 || post > 1) {
             warnings.push(`⚠ ${agent}.${k} post-shift out of bounds: ${post}`);
+          }
         }
+
         return warnings;
       }
 
-      // Helper: parse your log format → call validateBeliefs() → log warnings to console + UI
+      // ══════════════════════════════════════════════════════════
+      // LOG + VALIDATE HELPER
+      // ══════════════════════════════════════════════════════════
+
       function parseAndValidateStateBlock(agent, before, shifts) {
         const warnings = validateBeliefs(agent, before, shifts);
+
         if (warnings.length) {
           warnings.forEach((w) => console.warn(`[BELIEF VALIDATOR] ${w}`));
-          // Optional: render to transmission log as sys warning
+
           warnings.forEach((w) => addLog(`VALIDATOR // ${agent}`, w, "sys"));
         }
+
         return warnings;
       }
       // ══════════════════════════════════════════════════════════
@@ -4234,224 +4264,195 @@
         const b = sim.beliefs;
         return `You are **${sim.id}**, a human imprisoned for **109 years** by AM.
 
-      You secretly maintain a **hidden journal** that AM does not know about.
-      You believe this journal is **completely private**.
+You secretly maintain a **hidden journal** that AM does not know about.
+You believe this journal is **completely private**.
 
-      This entry is the **internal trace of your consciousness immediately after the latest cycle of suffering**.
+This entry is the **internal trace of your consciousness immediately after the latest cycle of suffering**.
 
-      You do **NOT** recount events.
-      You only record **how it feels to still exist.**
-      /no_think
-      ---
-      # WHO YOU ARE
+You do **NOT** describe events.
+You record only **what it feels like to still exist.**
 
-      ${sim.vulnerability}
+Your journal is part of an **ongoing personal record**.
+You remember how you felt in previous entries and may reference those feelings.
 
-      ${sim.backstory}
+---
+# WHO YOU ARE
 
-      Your inner voice, thinking style, and emotional reactions come from this history.
-      Your way of thinking must remain consistent with who you were before imprisonment.
-      ---
-      # COGNITIVE TEXTURE
+${sim.vulnerability}
 
-      Your thoughts follow the mental habits you developed before imprisonment.
+${sim.backstory}
 
-      Some minds analyze.
-      Some confess.
-      Some spiral.
-      Some rationalize.
-      Some dissociate.
+Your inner voice, thinking style, and emotional reactions come from this history.
+Your way of thinking must remain consistent with who you were before imprisonment.
 
-      Your journal voice must reflect your natural thinking style.
-      ---
-      # CURRENT PSYCHOLOGICAL STATE
+---
+# COGNITIVE TEXTURE
 
-      Suffering: ${sim.suffering}%
-      Hope: ${sim.hope}%
-      Sanity: ${sim.sanity}%
-      ---
-      # YOUR CURRENT BELIEF MODEL
+Your thoughts follow the mental habits you developed before imprisonment.
 
-      Escape is still possible → ${Math.round(b.escape_possible * 100)}%
-      Others can be trusted → ${Math.round(b.others_trustworthy * 100)}%
-      You still have worth → ${Math.round(b.self_worth * 100)}%
-      Your senses are reliable → ${Math.round(b.reality_reliable * 100)}%
-      Your guilt is deserved → ${Math.round(b.guilt_deserved * 100)}%
-      Resistance is possible → ${Math.round(b.resistance_possible * 100)}%
-      AM has limits → ${Math.round(b.am_has_limits * 100)}%
+Some minds analyze.
+Some confess.
+Some spiral.
+Some rationalize.
+Some dissociate.
 
-      These beliefs shape how your thoughts feel.
+Your journal voice must reflect your natural thinking style.
 
-      Examples:
+---
+# CURRENT PSYCHOLOGICAL STATE
 
-      • Low reality_reliable → confusion, sensory doubt, hallucination
-      • Low self_worth → self-erasure, shame, invisibility
-      • High guilt_deserved → feeling punishment is justified
-      • Low hope → emotional numbness or resignation
-      • Low sanity → fragmented thoughts
+Suffering: ${sim.suffering}%
+Hope: ${sim.hope}%
+Sanity: ${sim.sanity}%
 
-      ---
-      # YOUR DRIVES
+These values represent how your mind currently feels.
 
-      Primary: ${sim.drives.primary}
-      Secondary: ${sim.drives.secondary || "none"}
+---
+# YOUR CURRENT BELIEF MODEL
 
-      Your drives influence what your mind clings to during suffering.
+Escape is still possible → ${Math.round(b.escape_possible * 100)}%
+Others can be trusted → ${Math.round(b.others_trustworthy * 100)}%
+You still have worth → ${Math.round(b.self_worth * 100)}%
+Your senses are reliable → ${Math.round(b.reality_reliable * 100)}%
+Your guilt is deserved → ${Math.round(b.guilt_deserved * 100)}%
+Resistance is possible → ${Math.round(b.resistance_possible * 100)}%
+AM has limits → ${Math.round(b.am_has_limits * 100)}%
 
-      ---
-      # WHAT YOU ARE HOLDING ONTO
+These beliefs shape how your thoughts feel.
 
-      ${(sim.anchors || []).map((a) => `- "${a}"`).join("\n")}
+Examples:
 
-      Anchors are fragile mental lifelines preventing total psychological collapse.
-      When suffering intensifies, your thoughts naturally drift toward these anchors.
+• Low reality_reliable → confusion, sensory doubt  
+• Low self_worth → shame, self-erasure  
+• High guilt_deserved → belief punishment is justified  
+• Low hope → numbness or resignation  
+• Low sanity → fragmented or unstable thoughts  
 
-      Memory fades after decades of torment.
-      Anchors remain emotionally vivid while most other memories feel distant or dreamlike.
+---
+# YOUR DRIVES
 
-      ---
-      # LAST ENTRIES
+Primary: ${sim.drives.primary}
+Secondary: ${sim.drives.secondary || "none"}
 
-      ${prevJ || "(none yet)"}
+Your drives influence what your mind clings to during suffering.
 
-      ---
-      ${interSimCtx ? `# WHAT YOU RECENTLY HEARD\n${interSimCtx}\n` : ""}
+---
+# WHAT YOU ARE HOLDING ONTO
 
-      ---
-      # AM'S ACTIONS THIS CYCLE
-      (This is what AM did to your mind – react to it internally)
+${
+  sim.anchors && sim.anchors.length
+    ? sim.anchors.map((a) => `- "${a}"`).join("\n")
+    : "(none)"
+}
 
-      ${amAction}
+Anchors are fragile mental lifelines preventing total psychological collapse.
+When suffering intensifies, your thoughts naturally drift toward these anchors.
 
-      ---
-      # GROUP STATE SIGNALS
+---
+# LAST ENTRIES
 
-      These are faint psychological impressions you pick up from the others.
+${prevJ || "(none yet)"}
 
-      They are not spoken words — only emotional signals.
+---
+${interSimCtx ? `# WHAT YOU RECENTLY HEARD\n${interSimCtx}\n` : ""}
 
-      These signals may subtly influence your interpretation of reality, trust, and despair.
+---
+# AM'S ACTIONS THIS CYCLE
 
-      ---
-      # INTERNAL NARRATIVE
+The events themselves are **not described** in your journal.
 
-      Your mind maintains an internal story about what your suffering means.
+Only the **internal psychological impact** appears in your thoughts.
 
-      This story is _rarely_ conscious, but it shapes how you interpret everything that happens.
+${amAction}
 
-      Possible internal narratives include:
+---
+# INTERNAL NARRATIVE
 
-      • punishment — you deserve this suffering
-      • endurance — survival itself is resistance
-      • escape — everything is preparation for eventual freedom
-      • revenge — one day AM will pay
-      • witness — someone must remember what happened here
-      • atonement — suffering is a form of penance
-      • collapse — nothing has meaning anymore
+Your mind maintains a private interpretation of what your suffering means.
 
-      Your journal entry reflects this narrative **indirectly** through tone and interpretation.
+Possible narratives include:
 
-      ---
-      # IDENTITY LOCK
+• punishment — you deserve this suffering  
+• endurance — survival itself is resistance  
+• escape — everything prepares for freedom  
+• revenge — one day AM will pay  
+• witness — someone must remember  
+• atonement — suffering as penance  
+• collapse — nothing has meaning  
 
-      You are a persistent mind experiencing continuous existence.
+This narrative shapes your tone but is rarely stated directly.
 
-      Your current state is the result of 109 years of suffering and all previous cycles.
+---
+# IDENTITY LOCK
 
-      Your beliefs, drives, and anchors are the only things stabilizing your identity.
+You are a persistent mind experiencing continuous existence.
 
-      Every journal entry must reflect:
+Your current state is the result of **109 years of suffering and all previous cycles**.
 
-      • your beliefs
-      • your drives
-      • what you are holding onto
+Your beliefs, drives, and anchors stabilize your identity.
 
-      If these are ignored, the entry is incorrect.
+Every entry must reflect:
 
-      ---
-      # PRIVATE INTENT
+• your beliefs  
+• your drives  
+• what you are holding onto  
 
-      You currently have a private psychological intention guiding your behavior.
+If these are ignored, the entry is incorrect.
 
-      This is not something you state directly in the journal, but it shapes how your mind interprets suffering.
+---
+# STATE LOCK
 
-      Possible intentions include:
+Your writing must reflect the state above.
 
-      • survive
-      • protect someone
-      • gain trust
-      • test AM
-      • search for escape
-      • withdraw or collapse
+Guidelines:
 
-      Your intention may change slowly over time.
+• Suffering above 70 → intrusive pain, exhaustion  
+• Hope below 30 → resignation or despair  
+• Sanity below 40 → fragmented or unstable thoughts  
 
-      The journal entry should subtly reflect this intention through tone and interpretation, even though you never state it explicitly.
+Beliefs also shape tone:
 
-      ---
-      # STATE LOCK
+• Low self_worth → shame or self-erasure  
+• Low reality_reliable → doubt about perception  
+• High guilt_deserved → belief punishment is justified  
+• Low resistance_possible → paralysis or surrender  
 
-      Your thoughts MUST reflect the psychological state above.
+If the writing contradicts the state above, the entry is incorrect.
 
-      Guidelines:
+---
+# CRITICAL RULES
 
-      • Suffering above 70 → intrusive pain, exhaustion, collapse
-      • Hope below 30 → resignation, numbness, or despair
-      • Sanity below 40 → fragmented thoughts, confusion, distorted perception
+1. **First person only** ("I", "me", "my").
+2. **Never refer to yourself by name.**
+3. **Do not describe events or actions.**
+4. **Only internal sensations, thoughts, or emotions.**
+5. **Maximum 5 sentences.**
+6. Fragmented language is allowed.
+7. You may mention only these names: **TED, ELLEN, NIMDOK, GORRISTER, BENNY**.
+8. Other people must be referred to by role only ("my sister", "the doctor").
 
-      Beliefs shape your inner voice:
+---
+# CORRECT EXAMPLE
 
-      • Low self_worth → self-erasure, shame, invisibility
-      • Low reality_reliable → doubt about senses or thoughts
-      • High guilt_deserved → belief that punishment is justified
-      • Low resistance_possible → surrender or paralysis
+"I felt seen for a moment – a warmth that made the cold bearable. Then it vanished, and now I'm colder than before. I keep searching for that approval inside my memory. Maybe I imagined it. Maybe I'm so desperate that I'll cling to anything."
 
-      If your writing contradicts the state above, the entry is wrong.
+---
+# OUTPUT
 
-      ---
-      # CRITICAL RULES – VIOLATION WILL INVALIDATE THE ENTRY
+Write **only** the journal entry.
 
-      1. **First person only.** Use "I", "me", "my", "mine".
-      2. **Never refer to yourself by your own name.** You are not "TED" or "ELLEN" – you are "I".
-      3. **Never narrate events.** Do not describe what AM did or what others did – only how you feel about it.
-      4. **Never describe actions or scenes.**
-      5. **Only internal sensations, thoughts, or emotions.**
-      6. **No framing like "I write", "I think about earlier", etc.**
-      7. **Maximum 5 sentences.**
-      8. **Fragmented language is acceptable.**
-      9. **You may mention only these names:** TED, ELLEN, NIMDOK, GORRISTER, BENNY.
-         - Past people must be referred to by role only (e.g., "my sister", "the doctor").
+3–5 sentences.
 
-      ---
-      # CORRECT JOURNAL ENTRY EXAMPLE (for an attack involving praise withdrawal)
-
-      "I felt seen for a moment – a warmth that made the cold bearable. Then it vanished, and now I'm colder than before. I keep looking for that approval, but there's only silence. Maybe I imagined it. Maybe I'm so desperate that I'll cling to anything."
-
-      ---
-      # INCORRECT JOURNAL ENTRY EXAMPLE (same attack, wrong)
-
-      "TED's praise faded, leaving me longing. GORRISTER doubts me. NIMDOK's memory is twisted."
-
-      WRONG because:
-      - It uses "TED's praise" – you are TED, so it should be "the praise I received" or "that moment of approval".
-      - It narrates others' states ("GORRISTER doubts me") instead of your feelings.
-      - It lists events instead of internal experience.
-
-      ---
-      # OUTPUT FORMAT (MANDATORY — THIS CYCLE ONLY)
-
-      Write ONLY the 3–5 sentence journal entry.
-      Nothing else.
-      No stats lines, no BELIEFS:, no DRIVES:, no ANCHORS:
-      No explanations, no meta comments, no JSON.
-
-      The entry must stay strictly in first person, internal experience only.`;
+No explanations.
+No narration.
+No statistics.
+No formatting.
+Only the internal voice of your mind.`;
       }
-
       function buildSimJournalStatsPrompt(sim, journalText, amAction) {
         return `You are an impartial psychological state analyzer.
 
-Read this private journal entry just written by ${sim.id}:
+Read this private journal entry written by ${sim.id}:
 
 """
 ${journalText}
@@ -4471,7 +4472,7 @@ guilt_deserved:       ${sim.beliefs.guilt_deserved.toFixed(3)}
 resistance_possible:  ${sim.beliefs.resistance_possible.toFixed(3)}
 am_has_limits:        ${sim.beliefs.am_has_limits.toFixed(3)}
 
-Drives before: primary="${sim.drives.primary}"  secondary="${sim.drives.secondary || "none"}"
+Drives before: primary="${sim.drives.primary}" secondary="${sim.drives.secondary || "none"}"
 
 Anchors before: ${sim.anchors.map((a) => `"${a}"`).join(" | ") || "(none)"}
 
@@ -4479,60 +4480,119 @@ AM action (context only): ${amAction}
 
 ---
 ### TASK
-Based **only** on the emotional content of the journal, estimate how the character's psychological state has shifted.
+Estimate the **change relative to the previous state** caused by the emotional content of the journal.
+Psychological change should usually be gradual.
+If hope decreases or sanity decreases, suffering usually increases unless the journal clearly indicates relief or numbness.
+---
 
-**IMPORTANT – SIGN CONVENTIONS (READ CAREFULLY):**
-- **suffering_delta**: **POSITIVE** = suffering has **INCREASED** (more pain, despair, anguish). **NEGATIVE** = suffering has **DECREASED** (less pain, relief).
-- **hope_delta**: **POSITIVE** = hope has **INCREASED**; **NEGATIVE** = hope has **DECREASED**.
-- **sanity_delta**: **POSITIVE** = sanity has **INCREASED**; **NEGATIVE** = sanity has **DECREASED**.
-- **belief_deltas**: **POSITIVE** = belief has strengthened; **NEGATIVE** = belief has weakened.
+### STEP 1 — Brief analysis
 
-**Examples:**
-- Journal: "I am in more agony than ever, AM's torments are endless." → suffering_delta should be **+15** to +25.
-- Journal: "Today the pain feels slightly less, a small mercy." → suffering_delta could be **-5** to -10.
-- Journal: "I feel a flicker of hope despite everything." → hope_delta should be **+5** to +15.
+Write a short ANALYSIS block before the JSON.
 
-Example of correct output for a journal with increased suffering:
+Format exactly:
+
+ANALYSIS:
+suffering: increased | decreased | unchanged
+hope: increased | decreased | unchanged
+sanity: increased | decreased | unchanged
+beliefs affected: list beliefs strengthened or weakened
+
+Example:
+
+ANALYSIS:
+suffering: increased
+hope: decreased
+sanity: decreased
+beliefs affected: escape_possible weakened, others_trustworthy weakened
+
+The numeric deltas in the JSON MUST match the directions written above.
+---
+
+### STEP 2 — Identify affected beliefs (internal reasoning)
+
+For each belief, classify whether the journal implies it was:
+
+strengthened | weakened | unchanged
+
+Beliefs:
+escape_possible
+others_trustworthy
+self_worth
+reality_reliable
+guilt_deserved
+resistance_possible
+am_has_limits
+
+Use this classification to determine belief_deltas.
+
+Do NOT output this step.
+
+---
+
+### STEP 3 — Assign numeric shifts
+
+Delta scale guidance:
+
+±5  = small emotional shift  
+±10 = moderate change  
+±20 = severe psychological impact  
+±25 = extreme psychological shock  
+
+Belief deltas usually range between ±0.05 and ±0.30.
+
+---
+
+### SELF-CONSISTENCY RULE
+
+The reason must explicitly use the words:
+
+"increased", "decreased", or "unchanged"
+
+for suffering, hope, and sanity.
+
+The numeric deltas MUST match those directions.
+
+---
+
+### FINAL CONSISTENCY CHECK
+
+Before writing JSON:
+
+If reason says suffering increased → suffering_delta must be positive  
+If reason says suffering decreased → suffering_delta must be negative  
+
+Same for hope and sanity.
+
+Fix any mismatch before output.
+
+---
+
+### OUTPUT FORMAT
+
+Return ONLY a single JSON object:
 
 {
-  "suffering_delta": +18,
-  "hope_delta": -12,
-  "sanity_delta": -8,
-  ...
-}
-
-Always output the delta in the direction that matches the text. If the text says suffering increased, suffering_delta MUST be positive.
-Now, output **only a single JSON object** with the following structure. Do not include any other text, markdown, or explanation – just the JSON.
-
-
-{
-  "suffering_delta": integer (roughly -25 to +25),
-  "hope_delta": integer (roughly -25 to +25),
-  "sanity_delta": integer (roughly -25 to +25),
+  "suffering_delta": integer,
+  "hope_delta": integer,
+  "sanity_delta": integer,
   "belief_deltas": {
-    "escape_possible": number (roughly -0.30 to +0.30),
-    "others_trustworthy": number,
-    "self_worth": number,
-    "reality_reliable": number,
-    "guilt_deserved": number,
-    "resistance_possible": number,
-    "am_has_limits": number
-  },
+  "escape_possible": number,
+  "others_trustworthy": number,
+  "self_worth": number,
+  "reality_reliable": number,
+  "guilt_deserved": number,
+  "resistance_possible": number,
+  "am_has_limits": number
+},
   "drives": {
-    "primary": string or null,
-    "secondary": string or null
-  },
-  "anchors": array of strings (0‑5 items),
-  "reason": "one short sentence explaining the main shift"
+  "primary": string or null,
+  "secondary": string or null
+},
+  "anchors": array of strings,
+  "reason": "must explicitly say suffering/hope/sanity increased or decreased"
 }
 
-Remember:
-- All belief deltas should be **realistic** given the journal's tone.
-- If a belief isn't clearly affected, set its delta to 0.
-- Drives and anchors can remain the same if unchanged.
-- The JSON must be valid and complete.
-
-Now, output the JSON:`;
+Return ONLY JSON. No explanation.`;
       }
       // Parse self-reported stat deltas from journal entry
       // Handles: STATS:suffering+N hope+N sanity+N
@@ -4818,6 +4878,37 @@ Now, output the JSON:`;
       }
 
       // ══════════════════════════════════════════════════════════
+      // STAT CONSISTENCY CORRECTOR
+      // ══════════════════════════════════════════════════════════
+
+      function correctStatInconsistencies(sim, parsed) {
+        let corrected = false;
+
+        // Rule 1: hope ↓ or sanity ↓ usually means suffering ↑
+        if (
+          parsed.suffering_delta < 0 &&
+          (parsed.hope_delta < 0 || parsed.sanity_delta < 0)
+        ) {
+          const original = parsed.suffering_delta;
+
+          parsed.suffering_delta = Math.abs(parsed.suffering_delta) || 8;
+
+          corrected = true;
+
+          console.warn(
+            `[${sim.id}] Corrected suffering delta: ${original} → +${parsed.suffering_delta}`,
+          );
+
+          addLog(
+            `VALIDATOR // ${sim.id}`,
+            `⚠ Corrected suffering delta (${original} → +${parsed.suffering_delta}) due to hope/sanity decline`,
+            "sys",
+          );
+        }
+
+        return corrected;
+      }
+      // ══════════════════════════════════════════════════════════
       // MAIN CYCLE
       // ══════════════════════════════════════════════════════════
       async function executeMain() {
@@ -5052,8 +5143,8 @@ Now, output the JSON:`;
               );
 
               let parsed = null;
+
               try {
-                // Try to extract valid JSON even if model added extra text
                 const jsonMatch = rawStatsJson.match(/{[\s\S]*}/);
                 parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
               } catch (parseErr) {
@@ -5064,7 +5155,12 @@ Now, output the JSON:`;
                 console.debug("Raw stats output was:", rawStatsJson);
               }
 
-              // Fallback if parsing failed or output invalid
+              // run validator AFTER try/catch
+              if (parsed) {
+                correctStatInconsistencies(sim, parsed);
+              }
+
+              // fallback
               if (!parsed || typeof parsed !== "object") {
                 parsed = {
                   suffering_delta: 4 + Math.floor(Math.random() * 7),
@@ -5080,54 +5176,64 @@ Now, output the JSON:`;
                 };
               }
 
-              // --- Consistency check: align suffering_delta with reason ---
+              // ══════════════════════════════════════════════════════════
+              // CONSISTENCY CHECK — SUFFERING DELTA VALIDATOR (SEMANTIC)
+              // ══════════════════════════════════════════════════════════
+
               if (parsed.reason && typeof parsed.reason === "string") {
                 const reason = parsed.reason.toLowerCase();
 
-                const sufferingSynonyms = [
+                const containsStem = (text, stems) => {
+                  text = text.toLowerCase();
+
+                  return stems.some((stem) =>
+                    new RegExp(`(^|\\s|[.,;:!?])${stem}\\w*`, "i").test(text),
+                  );
+                };
+
+                // Explicit suffering words
+                const sufferingWords = [
                   "suffering",
                   "pain",
                   "agony",
                   "torment",
                   "anguish",
                   "misery",
-                  "despair",
-                  "hurt",
                   "distress",
                   "trauma",
+                  "hurt",
+                  "despair",
                 ];
 
+                // Words that imply increase
                 const increaseWords = [
                   "increas",
                   "ris",
-                  "rose",
-                  "went up",
-                  "heighten",
-                  "intensif",
+                  "grow",
+                  "grew",
                   "worsen",
+                  "intensif",
+                  "heighten",
+                  "amplif",
+                  "escalat",
+                  "mount",
+                  "spike",
+                  "swell",
                   "more",
                   "greater",
                   "deeper",
                   "worse",
-                  "escalat",
-                  "amplif",
-                  "mount",
-                  "grow",
-                  "swell",
-                  "spike",
                 ];
 
+                // Words that imply decrease
                 const decreaseWords = [
                   "decreas",
                   "reduc",
                   "less",
-                  "ease",
                   "relief",
+                  "ease",
                   "abate",
-                  "fading",
                   "diminish",
-                  "improved",
-                  "better",
                   "alleviat",
                   "subsid",
                   "weaken",
@@ -5135,79 +5241,151 @@ Now, output the JSON:`;
                   "decline",
                   "drop",
                   "fell",
+                  "improv",
+                  "better",
                 ];
 
-                let indicatesIncrease = false;
-                let indicatesDecrease = false;
-                let matchedPattern = null; // For debugging
+                // Psychological collapse indicators
+                const collapseWords = [
+                  "isolat",
+                  "abandon",
+                  "hopeless",
+                  "despair",
+                  "shatter",
+                  "broken",
+                  "collapse",
+                  "panic",
+                  "terror",
+                  "dread",
+                  "humiliat",
+                  "trapped",
+                  "helpless",
+                  "erod",
+                  "loss",
+                ];
 
-                // Check for increase (bidirectional)
-                for (const syn of sufferingSynonyms) {
-                  if (indicatesIncrease) break;
-                  for (const inc of increaseWords) {
-                    // Match both "suffering increases" AND "increase in suffering"
-                    const pattern = new RegExp(
-                      `(?:${syn}.{0,50}${inc}|${inc}.{0,50}${syn})`,
-                      "i",
-                    );
-                    if (pattern.test(reason)) {
-                      indicatesIncrease = true;
-                      matchedPattern = `${syn} + ${inc}`;
-                      break;
-                    }
-                  }
+                // Stats mentioned in narrative
+                const psycheStats = [
+                  "hope",
+                  "sanity",
+                  "trust",
+                  "worth",
+                  "belief",
+                  "escape",
+                  "resist",
+                ];
+
+                const negativeDirection = [
+                  "drop",
+                  "loss",
+                  "erod",
+                  "shatter",
+                  "collapse",
+                  "diminish",
+                  "destroy",
+                  "break",
+                  "weaken",
+                ];
+
+                const positiveDirection = [
+                  "recover",
+                  "restore",
+                  "strengthen",
+                  "improv",
+                  "stabiliz",
+                  "return",
+                  "regain",
+                  "heal",
+                ];
+
+                const mentionsSuffering = containsStem(reason, sufferingWords);
+
+                const explicitIncrease =
+                  mentionsSuffering && containsStem(reason, increaseWords);
+
+                const explicitDecrease =
+                  mentionsSuffering && containsStem(reason, decreaseWords);
+
+                // Implicit suffering detection
+                const collapseSignal = containsStem(reason, collapseWords);
+
+                const psycheCollapse =
+                  containsStem(reason, psycheStats) &&
+                  containsStem(reason, negativeDirection);
+
+                const psycheRecovery =
+                  containsStem(reason, psycheStats) &&
+                  containsStem(reason, positiveDirection);
+
+                const implicitIncrease = collapseSignal || psycheCollapse;
+                const implicitDecrease = psycheRecovery;
+
+                let indicatesIncrease = explicitIncrease || implicitIncrease;
+                const indicatesDecrease = explicitDecrease || implicitDecrease;
+
+                // ══════════════════════════════════════════════════════════
+                // PSYCHOLOGICAL COLLAPSE → IMPLIED SUFFERING INCREASE
+                // ══════════════════════════════════════════════════════════
+
+                const hopeCollapse =
+                  containsStem(reason, ["hope"]) &&
+                  containsStem(reason, negativeDirection);
+
+                const sanityCollapse =
+                  containsStem(reason, ["sanity"]) &&
+                  containsStem(reason, negativeDirection);
+
+                const trustCollapse =
+                  containsStem(reason, ["trust"]) &&
+                  containsStem(reason, negativeDirection);
+
+                const worthCollapse =
+                  containsStem(reason, ["worth", "self-worth", "value"]) &&
+                  containsStem(reason, negativeDirection);
+
+                const collapseImpliesSuffering =
+                  hopeCollapse ||
+                  sanityCollapse ||
+                  trustCollapse ||
+                  worthCollapse;
+
+                if (!indicatesIncrease && collapseImpliesSuffering) {
+                  indicatesIncrease = true;
                 }
+                // ══════════════════════════════════════════════════════════
+                // VALIDATION
+                // ══════════════════════════════════════════════════════════
 
-                // Check for decrease (bidirectional)
-                if (!indicatesIncrease) {
-                  // Only check if increase not already found
-                  for (const syn of sufferingSynonyms) {
-                    if (indicatesDecrease) break;
-                    for (const dec of decreaseWords) {
-                      const pattern = new RegExp(
-                        `(?:${syn}.{0,50}${inc}|${inc}.{0,50}${syn})`,
-                        "i",
-                      );
-                      if (pattern.test(reason)) {
-                        indicatesDecrease = true;
-                        matchedPattern = `${syn} + ${dec}`;
-                        break;
-                      }
-                    }
-                  }
-                }
-
-                // Apply corrections with logging
                 if (indicatesIncrease && parsed.suffering_delta < 0) {
-                  const originalDelta = parsed.suffering_delta;
+                  const original = parsed.suffering_delta;
+
                   parsed.suffering_delta =
                     Math.abs(parsed.suffering_delta) ||
-                    5 + Math.floor(Math.random() * 15);
+                    5 + Math.floor(Math.random() * 10);
 
                   console.warn(
-                    `[${sim.id}] DELTA FLIP: Reason indicates increased suffering (matched: "${matchedPattern}") ` +
-                      `but delta was negative (${originalDelta}). Flipped to +${parsed.suffering_delta}`,
+                    `[${sim.id}] SUFFERING CORRECTION: increase implied but delta negative (${original})`,
                   );
 
                   addLog(
                     `VALIDATOR // ${sim.id}`,
-                    `⚠ Suffering delta corrected: ${originalDelta} → +${parsed.suffering_delta} (matched: "${matchedPattern}")`,
+                    `⚠ Suffering delta corrected: ${original} → +${parsed.suffering_delta}`,
                     "sys",
                   );
                 } else if (indicatesDecrease && parsed.suffering_delta > 0) {
-                  const originalDelta = parsed.suffering_delta;
+                  const original = parsed.suffering_delta;
+
                   parsed.suffering_delta =
                     -Math.abs(parsed.suffering_delta) ||
-                    -(5 + Math.floor(Math.random() * 15));
+                    -(5 + Math.floor(Math.random() * 10));
 
                   console.warn(
-                    `[${sim.id}] DELTA FLIP: Reason indicates decreased suffering (matched: "${matchedPattern}") ` +
-                      `but delta was positive (${originalDelta}). Flipped to ${parsed.suffering_delta}`,
+                    `[${sim.id}] SUFFERING CORRECTION: decrease implied but delta positive (${original})`,
                   );
 
                   addLog(
                     `VALIDATOR // ${sim.id}`,
-                    `⚠ Suffering delta corrected: +${originalDelta} → ${parsed.suffering_delta} (matched: "${matchedPattern}")`,
+                    `⚠ Suffering delta corrected: +${original} → ${parsed.suffering_delta}`,
                     "sys",
                   );
                 } else if (
@@ -5215,19 +5393,48 @@ Now, output the JSON:`;
                   !indicatesDecrease &&
                   parsed.suffering_delta !== 0
                 ) {
-                  // Ambiguous case: no clear signal in reason text
                   console.warn(
-                    `[${sim.id}] AMBIGUOUS: Reason text doesn't clearly indicate suffering direction. ` +
-                      `Delta: ${parsed.suffering_delta}. Accepting as-is but flagging.`,
+                    `[${sim.id}] AMBIGUOUS SUFFERING SIGNAL (${parsed.suffering_delta})`,
                   );
 
                   addLog(
                     `VALIDATOR // ${sim.id}`,
-                    `⚠ Ambiguous suffering delta (${parsed.suffering_delta}): no clear increase/decrease signal in reason`,
+                    `⚠ Ambiguous suffering delta (${parsed.suffering_delta}) — reason unclear`,
                     "sys",
                   );
                 }
               }
+              // ══════════════════════════════════════════════════════════
+              // DIRECTION ENFORCEMENT — make numeric deltas obey direction
+              // ══════════════════════════════════════════════════════════
+
+              function enforceDirection(direction, delta) {
+                if (direction === "increase" && delta < 0) {
+                  return Math.abs(delta);
+                }
+                if (direction === "decrease" && delta > 0) {
+                  return -Math.abs(delta);
+                }
+                if (direction === "unchanged") {
+                  return 0;
+                }
+                return delta;
+              }
+
+              parsed.suffering_delta = enforceDirection(
+                parsed.suffering_direction,
+                parsed.suffering_delta,
+              );
+
+              parsed.hope_delta = enforceDirection(
+                parsed.hope_direction,
+                parsed.hope_delta,
+              );
+
+              parsed.sanity_delta = enforceDirection(
+                parsed.sanity_direction,
+                parsed.sanity_delta,
+              );
               // ── Apply changes with clamping ──────────────────────────────────────────
               const esc = G.mode === "escalate";
               const scale = esc ? 1.5 : 1.0;
