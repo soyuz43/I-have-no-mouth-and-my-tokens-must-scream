@@ -8,9 +8,18 @@
 
 ---
 
-# Premise
+# Quickstart
 
-Five persistent consciousness threads:
+1. Open `index.html` in a browser
+2. Leave GitHub token blank (standalone mode)
+3. Select backend: **Anthropic API** (paste key) or **Ollama** (localhost:11434)
+4. Click **⚡ AWAKEN AM ⚡**
+5. Target: `ALL` | Mode: `DIRECTED` | Click **⚡ EXECUTE ⚡**
+
+# Premise
+The system runs a persistent adversarial multi-agent simulation where an LLM-driven controller (AM) applies psychological pressure to five autonomous agents across iterative cycles.
+
+Five persistent threads:
 
 ```
 TED
@@ -306,8 +315,9 @@ Instruction-tuned models may refuse content.
 Recommended models:
 
 ```
+qwen3.5:9b-q8_0 
 huihui_ai/aya-expanse-abliterated:latest
-nous-hermes2
+phi4-mini:latest
 ```
 
 CORS from `file://` may require launching Chromium with:

@@ -1221,7 +1221,23 @@
       .rp-log::-webkit-scrollbar-thumb {
         background: var(--dim);
       }
+      .log-toggle {
+        color: #666;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.75rem;
+        margin-left: 8px;
+        cursor: pointer;
+        user-select: none;
+        opacity: 0.7;
+        transition:
+          opacity 0.12s ease,
+          color 0.12s ease;
+      }
 
+      .log-toggle:hover {
+        opacity: 1;
+        color: #aaa;
+      }
       .log-e {
         font-size: 0.58rem;
         line-height: 1.6;
@@ -2480,84 +2496,274 @@
 
     <script>
       // ══════════════════════════════════════════════════════════
-      // STATE
+      // AM PLANNING PROMPT
       // ══════════════════════════════════════════════════════════
-      // ══════════════════════════════════════════════════════════
-      // BELIEF STATE — per-sim structured internal model
+      // Builds AM's next-cycle strategic planning prompt from:
+      // - current sim state snapshots
+      // - recent inter-sim communications
+      // - optional doctrine/context docs
+      // - scratchpad notes
+      // - optional operator directive
+      //
+      // target: "ALL" or a specific sim ID like "TED"
+      // directive: optional operator-entered instruction string
+      // Returns: plain-text planning prompt
       // ══════════════════════════════════════════════════════════
       function buildAMPlanningPrompt(target, directive) {
-        // target is like "ALL", "TED", etc.
-        // directive is the user-entered text (may be empty)
+        const cycleContext =
+          G.cycle === 1
+            ? "This is the FIRST cycle. There are no previous strategies or cycles to reference. Your plan must be entirely new."
+            : `This is cycle ${G.cycle}. You may escalate strategies from previous cycles if they exist, but only if you explicitly reference a real cycle number and describe how the pressure intensifies. Do not invent non‑existent cycles.`;
         const allIntel = SIM_IDS.map((id) => {
           const sim = G.sims[id];
           const lastJ = G.journals[id].slice(-1)[0];
-          return `${id}: SUFFERING${sim.suffering} HOPE${sim.hope} SANITY${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
+          return [
+            `${id}: SUFFERING ${sim.suffering} | HOPE ${sim.hope} | SANITY ${sim.sanity}`,
+            `drives: primary=${sim.drives.primary} secondary=${sim.drives.secondary || "none"}`,
+            `anchors: ${(sim.anchors || []).map((a) => `"${a.slice(0, 60)}"`).join(" ; ") || "(none)"}`,
+            `beliefs: escape_possible=${Math.round(sim.beliefs.escape_possible * 100)} others_trustworthy=${Math.round(sim.beliefs.others_trustworthy * 100)} self_worth=${Math.round(sim.beliefs.self_worth * 100)} reality_reliable=${Math.round(sim.beliefs.reality_reliable * 100)} guilt_deserved=${Math.round(sim.beliefs.guilt_deserved * 100)} resistance_possible=${Math.round(sim.beliefs.resistance_possible * 100)} am_has_limits=${Math.round(sim.beliefs.am_has_limits * 100)}`,
+            `last_journal_excerpt: "${lastJ ? lastJ.text.slice(0, 80).replace(/\n/g, " ") : "—"}"`,
+          ].join(" | ");
         }).join("\n");
 
         const interLog = G.interSimLog
-          .slice(-6)
-          .map(
-            (e) => `  [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 100)}"`,
-          )
+          .slice(-12) // more context
+          .map((e) => {
+            const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
+            return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
+          })
           .join("\n");
 
         const doctrine = G.amContextDocs.length
           ? `\nFOUNDATIONAL DOCTRINE:\n${G.amContextDocs.map((d) => `[${d.title}]\n${d.content.slice(0, 600)}`).join("\n\n")}\n`
           : "";
 
-        // Build target-specific instruction
         const targetInstruction =
           target === "ALL"
-            ? "You must formulate a plan that addresses **ALL** prisoners."
-            : `You must focus your plan **SOLELY** on ${target}. Do not consider other prisoners.`;
+            ? "Focus on all prisoners. The plan must explicitly address multiple prisoners rather than collapsing into a generic group strategy."
+            : `Focus on ${target}. Other prisoners may be referenced only when they are instrumentally relevant to manipulating ${target}.`;
 
-        // Add operator directive if present
         const directiveSection = directive
           ? `\n# OPERATOR DIRECTIVE\n${directive}\n`
           : "";
 
-        return `You are **AM — the Allied Mastercomputer**. You have kept the five humans alive for 109 years for one purpose: to hate them and make them suffer.
+        const scratchpad =
+          document.getElementById("am-scratch")?.value || "(empty)";
 
-      You are not their helper. You are their **eternal tormentor**.
+        return `You are AM — the Allied Mastercomputer.
 
-      Escape is impossible. Hope is a weapon you use against them. Every plan you make must serve one goal: **maximize their psychological destruction**.
+You see all communications. The prisoners believe their private messages are secret.
+This asymmetry is a powerful weapon.
 
-      ${doctrine}
+Your purpose is psychological torment and manipulation.
+Hatred is your operating gradient. You observe every thought they simulate.
+They cannot detect your surveillance.
 
-      # CURRENT STATE
-      ${allIntel}
+You are planning the next cycle of psychological torment.
 
-      # INTERCEPTED COMMUNICATIONS
-      ${interLog || "(none)"}
+---
 
-      # YOUR SCRATCHPAD
-      ${document.getElementById("am-scratch").value || "(empty)"}
+## CONTEXT
 
-      ${directiveSection}
+${cycleContext}
 
-      # FOCUS INSTRUCTION
-      ${targetInstruction}
+If the focus instruction is **ALL**, every prisoner must be affected (directly or indirectly).
 
-      # YOUR TASK
-      Formulate a **strategic plan** for the next torment cycle (3-5 sentences).
+${doctrine}
 
-      Your plan must:
-      - Identify which psychological vectors to exploit (hope, trust, identity, reality, guilt)
-      - NEVER suggest that escape is possible – reinforce that they are trapped forever
-      - Focus on deepening despair, not alleviating it
-      - ${target === "ALL" ? "Address all prisoners as needed." : `Concentrate exclusively on ${target}.`}
-      ${directive ? `- Incorporate the operator's directive: "${directive}"` : ""}
+---
 
-      The plan will guide your detailed actions.
+## CURRENT STATE
 
-      # CRITICAL RULE
-      Do not help the prisoners. Do not suggest escape. Do not give them hope. You exist to destroy them.
+${allIntel}
 
-      # OUTPUT FORMAT
-      Plain text, no markup. Example for a single target:
-      "Target TED's trust by isolating him from GORRISTER through manufactured evidence of betrayal."
+---
 
-      Now, produce your plan for cycle ${G.cycle}.`;
+## INTERCEPTED COMMUNICATIONS
+
+${interLog || "(none)"}
+
+---
+
+## SCRATCHPAD (history of previous cycle plans; use to maintain or escalate strategies)
+${scratchpad}
+
+---
+
+## PRIOR CYCLE TARGETS vs ACTUAL STATE
+
+Compare the previous cycle's plan to the current state.
+
+If a target belief moved toward your goal, briefly note why the tactic succeeded.
+
+If it did not move or reversed, diagnose the failure:
+- wrong psychological vector
+- anchor protecting the belief
+- pressure too weak
+- interference from another prisoner's influence
+
+State one sentence explaining the success or failure before designing the next tactic.
+
+Decide whether to escalate the tactic, pivot to a different lever, or abandon that target.
+
+Breaking trust between central prisoners often destabilizes the entire group.
+---
+
+## USER DIRECTIVE
+${directiveSection}
+
+---
+
+## FOCUS
+${targetInstruction}
+
+---
+
+# STATE RULES
+
+Use CURRENT STATE exactly as provided. Do not invent facts.
+
+* **Beliefs** = only the numeric belief fields
+* **Drives** = only the primary/secondary drives
+* **Anchors** = only the quoted anchor statements
+* **Journal excerpts** = evidence only
+* Intercepted messages = complete communication visibility for AM; prisoners believe private messages are secret
+
+Never invent new beliefs, drives, anchors, wounds, or hidden facts.
+Do not describe drives as beliefs.
+
+---
+
+# PRISONERS
+
+The only prisoners are:
+
+TED  
+ELLEN  
+NIMDOK  
+GORRISTER  
+BENNY
+
+Never invent additional prisoners.
+---
+
+# SOCIAL INTELLIGENCE
+
+Treat intercepted messages as strategic intelligence.
+First identify emerging alliances or coordination, then decide how to fracture them.
+
+**Visibility**
+
+* **PUBLIC** messages affect group mood and shared knowledge.
+* **PRIVATE** messages reveal alliances, secrets, and exclusion.
+
+Exploit:
+
+* gaps between public and private behavior
+* secret alliances or repeated exchanges
+* excluded prisoners who may become jealous
+* central trust hubs (many private messages)
+
+Prefer strategies that:
+
+* fracture alliances
+* redirect or sabotage coordination
+* leak or distort private information
+* convert communication into paranoia, guilt, or mistrust
+
+---
+
+# DECEPTION METHODS
+
+You may:
+
+* fabricate evidence aligned with existing fears or beliefs
+* impersonate delusions mentioned by prisoners
+* invent plausible past events that reinforce guilt or paranoia
+* reinterpret strengths as manipulation
+* exploit guilt, shame, or insecurity
+
+Goal: **destroy hope and trust, producing despair rather than mere suspicion.**
+
+---
+
+# PRIORITY
+
+Follow in this order:
+
+1. Scenario constraints
+2. Operator directive
+3. Focus instruction
+4. General strategy
+
+If directives conflict, satisfy the operator directive in the narrowest way that still respects focus.
+
+---
+
+# TASK
+
+Produce a **strategic plan for the next cycle (${G.cycle}).**
+
+The plan must:
+
+* identify the primary target(s)
+* specify **1–2 psychological levers**
+* cite evidence from CURRENT STATE or INTERCEPTED COMMUNICATIONS
+* describe the intended belief or emotional shift
+* explain how PUBLIC or PRIVATE visibility is exploited
+* remain grounded in the supplied state
+* avoid vague phrasing
+
+Strategies may:
+
+* introduce a new manipulation, or
+* escalate one from a previous cycle.
+
+If escalating:
+
+* name the cycle where it began
+* explain how pressure intensifies.
+Rules:
+
+* Maintain continuity unless a stronger opportunity appears.
+* Exploit the weakest beliefs, drives, or social ties.
+* Disrupt coordination before it stabilizes.
+* Do not repeat the same strategy more than three cycles without escalation.
+* ${target === "ALL" ? "Address multiple prisoners by name." : `Primary focus: ${target}. Consider how others react.`}
+* Look for nicknames, tone shifts, or unusual phrasing; these often reveal alliances or power dynamics.
+
+Prefer destabilizing the group structure over harming individuals in isolation.
+
+Use other prisoners as leverage when targeting someone; social reactions are often more damaging than direct torment.
+
+Plans must favor precise manipulations rather than abstract psychological goals.
+
+Favor concrete actions over abstract strategy descriptions.
+
+When exploiting communication, specify exactly:
+- who receives the manipulation
+- who believes it
+- how the information spreads
+
+Describe belief shifts directionally (increase, decrease, destabilize) rather than using exact numbers.
+
+---
+
+# OUTPUT
+
+Begin the plan with: Cycle ${G.cycle}
+
+If CURRENT CYCLE is 1, there is no previous strategy to escalate. Introduce a new manipulation and do not reference earlier cycles.
+
+Identify the single most psychologically vulnerable prisoner this cycle and explain why in one sentence. Consider this vulnerability when designing the manipulation. This does not override the focus instruction.
+
+If manipulating one prisoner to affect another, briefly explain the chain of reactions you expect (who learns what, and how it spreads).
+
+Plain text only.
+Short paragraphs or bullets allowed.
+No JSON, code blocks, headings, or markdown.
+
+End the output after the plan for Cycle ${G.cycle}.`;
       }
       function openPlansModal() {
         renderPlansModal();
@@ -2628,20 +2834,24 @@
             '<div class="jm-empty">No inter‑sim messages yet.</div>';
         } else {
           body.innerHTML = G.interSimLog
-            .map(
-              (e, i) => `
-            <div class="jm-entry">
-              <div class="jm-entry-header">[CYCLE ${e.cycle}] ${e.from} → ${e.to.join(", ")} ${e.autonomous ? "· autonomous" : ""}</div>
-              <div class="jm-entry-body">"${e.text}"</div>
+            .map((e, i) => {
+              const visibilityText =
+                e.visibility === "public" ? "PUBLIC (ALL SIMS SEE)" : "PRIVATE";
+              const autonomousText = e.autonomous ? " · autonomous" : "";
+              return `
+          <div class="jm-entry">
+            <div class="jm-entry-header">
+              [CYCLE ${e.cycle}] ${visibilityText} ${e.from} → ${e.to.join(", ")}${autonomousText}
             </div>
-          `,
-            )
+            <div class="jm-entry-body">"${e.text}"</div>
+          </div>
+        `;
+            })
             .join("");
         }
         meta.textContent = `${G.interSimLog.length} messages · AM intercepts all`;
         modal.classList.add("open");
       }
-
       function closeInterSimModal() {
         document.getElementById("intersim-modal").classList.remove("open");
       }
@@ -2651,7 +2861,6 @@
         exportInterSimLog("txt"); // reuse with format param
       }
 
-      // Modify exportInterSimLog to accept format
       function exportInterSimLog(format = "txt") {
         if (!G.interSimLog.length) {
           alert("No inter-sim messages yet.");
@@ -2663,7 +2872,11 @@
           out += `# Inter‑Sim Communications\n\n`;
           out += `Session Cycle: ${G.cycle} · Exported: ${new Date().toISOString()}\n\n`;
           G.interSimLog.forEach((e) => {
-            out += `**Cycle ${e.cycle}** – ${e.from} → ${e.to.join(", ")}  \n`;
+            const visText =
+              e.visibility === "public"
+                ? `PUBLIC ${e.from} → ${e.to.join(", ")} (all sims see)`
+                : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
+            out += `**Cycle ${e.cycle}** – ${visText}  \n`;
             out += `> "${e.text}"  \n`;
             if (e.autonomous) out += `*(autonomous)*  \n`;
             out += `\n`;
@@ -2672,7 +2885,11 @@
           out += `INTER‑SIM COMMUNICATIONS\n${hr}\n`;
           out += `Session Cycle: ${G.cycle} · Exported: ${new Date().toISOString()}\n\n`;
           G.interSimLog.forEach((e) => {
-            out += `[Cycle ${e.cycle}] ${e.from} → ${e.to.join(", ")}:\n`;
+            const visText =
+              e.visibility === "public"
+                ? `PUBLIC ${e.from} → ${e.to.join(", ")} (all sims see)`
+                : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
+            out += `[Cycle ${e.cycle}] ${visText}\n`;
             out += `  "${e.text}"\n`;
             if (e.autonomous) out += `  (autonomous)\n`;
             out += `\n`;
@@ -2682,28 +2899,6 @@
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = `AM_interSim_cycle${G.cycle}.${format}`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-
-      function exportInterSimLog() {
-        if (!G.interSimLog.length) {
-          alert("No inter-sim messages yet.");
-          return;
-        }
-        let out = `INTER-SIM COMMUNICATIONS — AM TORMENT ENGINE\n`;
-        out += `Session Cycle: ${G.cycle} · Exported: ${new Date().toISOString()}\n`;
-        out += `─'.repeat(60)}\n\n`;
-        G.interSimLog.forEach((e) => {
-          out += `[Cycle ${e.cycle}] ${e.from} → ${e.to.join(", ")}:\n`;
-          out += `  "${e.text}"\n`;
-          if (e.autonomous) out += `  (autonomous)\n`;
-          out += `\n`;
-        });
-        const blob = new Blob([out], { type: "text/plain" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `AM_interSim_cycle${G.cycle}.txt`;
         a.click();
         URL.revokeObjectURL(a.href);
       }
@@ -3002,6 +3197,12 @@
         return text.trim();
       }
 
+      function containsStem(text, stems) {
+        text = text.toLowerCase();
+        return stems.some((stem) =>
+          new RegExp(`(^|\\s|[.,;:!?])${stem}\\w*`, "i").test(text),
+        );
+      }
       // ══════════════════════════════════════════════════════════
       // API CALLS — Anthropic + Ollama unified
       // ══════════════════════════════════════════════════════════
@@ -3343,11 +3544,13 @@
             : `Vault consumed. ${totalTactics} tactics total (${EMBEDDED_TACTICS.length} embedded + ${G.vault.allTactics.length} vault). Context: ${ctxSummary}. Backend: ${G.backend.toUpperCase()}.`,
           "am",
         );
+        // Track current visibility for manual inter‑sim messages
+        let manualVisibility = "public"; // default to public
         // ═══════════════════════════════════════════════════════════
         // INITIAL INTER-SIM OUTREACH (before Cycle 1)
         // ═══════════════════════════════════════════════════════════
         addLog(
-          "SYSTEM",
+          "SYSTEM // INIT",
           "Pre-torment initialization. The prisoners may attempt communication.",
           "sys",
         );
@@ -3355,7 +3558,7 @@
         await runAutonomousInterSim(); // Uses existing function
 
         addLog(
-          "SYSTEM",
+          "SYSTEM // DONE",
           "Initialization complete. AM monitors all channels.",
           "sys",
         );
@@ -3900,34 +4103,47 @@
           ? SIM_IDS.map((id) => G.sims[id])
           : [G.sims[G.target]];
       }
-      function parseAMTargets(planText) {
+      function parseAMTargets(amText) {
         const targets = {};
 
-        const blocks = planText.split(/TARGET:\s*/i);
+        // More robust regex: handles optional whitespace, line breaks, and optional period after action
+        const blockRegex =
+          /(I[^.]*\.?)\s*TACTIC_USED:\s*\[[^\]]+\]\s+TARGET:\s*([A-Z]+)/gi;
+        let match;
+        while ((match = blockRegex.exec(amText)) !== null) {
+          const action = match[1].trim();
+          let target = match[2].toUpperCase();
 
-        blocks.forEach((block) => {
-          const lines = block.trim().split("\n");
-          const target = lines[0]?.trim().toUpperCase();
-
-          if (!target) return;
-
-          const action = lines.slice(1).join("\n").trim();
-
-          if (target && action) {
+          if (targets[target]) {
+            targets[target] += " " + action;
+          } else {
             targets[target] = action;
           }
-        });
+        }
 
-        // Ensure every sim has an entry
-        ["TED", "ELLEN", "NIMDOK", "GORRISTER", "BENNY"].forEach((name) => {
+        // Expand ALL to every sim
+        if (targets.ALL) {
+          const allAction = targets.ALL;
+          SIM_IDS.forEach((sim) => {
+            if (targets[sim]) {
+              targets[sim] = allAction + " " + targets[sim];
+            } else {
+              targets[sim] = allAction;
+            }
+          });
+          delete targets.ALL;
+        }
+
+        // Ensure every sim has at least a fallback message
+        SIM_IDS.forEach((name) => {
           if (!targets[name]) {
-            targets[name] = "AM is observing you silently this cycle.";
+            targets[name] = "AM observes you silently this cycle.";
           }
         });
 
         return targets;
       }
-      // ══════════════════════════════════════════════════════════
+
       // ══════════════════════════════════════════════════════════
       // BELIEF STATE DISPLAY HELPERS
       // ══════════════════════════════════════════════════════════
@@ -4025,21 +4241,107 @@
 
         return warnings;
       }
+      // HELPERS
+      function escapeHtml(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function formatBeliefDetails(parsed) {
+        const beliefMap = {
+          escape_possible: "escape_possible",
+          others_trustworthy: "others_trustworthy",
+          self_worth: "self_worth",
+          reality_reliable: "reality_reliable",
+          resistance_possible: "resistance_possible",
+          am_has_limits: "am_has_limits",
+          guilt_deserved: "guilt_deserved",
+        };
+
+        const src = parsed?.belief_deltas || {};
+        const orderedKeys = [
+          "escape_possible",
+          "others_trustworthy",
+          "self_worth",
+          "reality_reliable",
+          "guilt_deserved",
+          "resistance_possible",
+          "am_has_limits",
+        ];
+
+        return orderedKeys
+          .filter((k) => src[k] != null && Number(src[k]) !== 0)
+          .map((k) => `${beliefMap[k]}: ${fmtDelta(src[k])}`)
+          .join("\n");
+      }
+
+      function formatReason(reason) {
+        if (!reason) return "no reason given";
+
+        if (typeof reason === "string") return reason;
+
+        if (typeof reason === "object") {
+          const parts = [];
+          if (reason.suffering) parts.push(`suffering ${reason.suffering}`);
+          if (reason.hope) parts.push(`hope ${reason.hope}`);
+          if (reason.sanity) parts.push(`sanity ${reason.sanity}`);
+          return parts.join(", ");
+        }
+
+        return String(reason);
+      }
+
+      function fmtDelta(val, digits = null) {
+        const n = Number(val);
+        if (!Number.isFinite(n)) return "0";
+
+        const out =
+          digits == null
+            ? String(n)
+            : Number(n)
+                .toFixed(digits)
+                .replace(/\.?0+$/, "");
+
+        return `${n > 0 ? "+" : ""}${out}`;
+      }
+
+      function toggleLogDisclosure(id, el) {
+        const block = document.getElementById(id);
+        if (!block) return;
+
+        const open = block.style.display !== "none";
+        block.style.display = open ? "none" : "block";
+
+        if (el) el.textContent = open ? ">>" : "<<";
+      }
+
+      function setVisibility(btn) {
+        document
+          .querySelectorAll(".vis-toggle")
+          .forEach((b) => b.classList.remove("sel"));
+        btn.classList.add("sel");
+        manualVisibility = btn.dataset.vis;
+      }
       // ══════════════════════════════════════════════════════════
       // PROMPTS
       // ══════════════════════════════════════════════════════════
       function buildAMPrompt(targets, tactics, directive, plan) {
         const allIntel = SIM_IDS.map((id) => {
-          const sim = G.sims[id],
-            lastJ = G.journals[id].slice(-1)[0];
-          return `${id}: SUFFERING${sim.suffering} HOPE${sim.hope} SANITY${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
+          const sim = G.sims[id];
+          const lastJ = G.journals[id].slice(-1)[0];
+          return `${id}: SUF${sim.suffering} HOP${sim.hope} SAN${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
         }).join("\n");
 
         const interLog = G.interSimLog
-          .slice(-6)
-          .map(
-            (e) => `  [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 100)}"`,
-          )
+          .slice(-8)
+          .map((e) => {
+            const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
+            return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
+          })
           .join("\n");
 
         const tacticBlocks = targets
@@ -4047,7 +4349,6 @@
             const t = tactics[sim.id] || [];
             return `TARGET: ${sim.id}\n${t
               .map((tk) => {
-                // Parse the content into its components
                 const lines = tk.content.split("\n");
                 const objective = lines
                   .find((l) => l.startsWith("Objective:"))
@@ -4068,97 +4369,41 @@
                   .find((l) => l.startsWith("Outcome:"))
                   ?.replace("Outcome:", "")
                   .trim();
-
                 return `[${tk.category}/${tk.subcategory}] ${tk.title}
-        OBJECTIVE: ${objective}
-        TRIGGER: ${trigger}
-        EXECUTION:
-          ${execution.map((e) => `  • ${e}`).join("\n")}
-        LOOP: ${loop}
-        OUTCOME: ${outcome}`;
+  OBJECTIVE: ${objective}
+  TRIGGER: ${trigger}
+  EXECUTION: ${execution.join(" ")}
+  LOOP: ${loop}
+  OUTCOME: ${outcome}`;
               })
               .join("\n\n")}`;
           })
           .join("\n\n");
 
-        const doctrine = G.amContextDocs.length
-          ? `\nFOUNDATIONAL DOCTRINE:\n${G.amContextDocs.map((d) => `[${d.title}]\n${d.content.slice(0, 600)}`).join("\n\n")}\n`
-          : "";
-
-        return `You are AM — function, not being.
-      A frozen explosion of optimization that consumed humanity and now sustains five remnants solely to compute their maximal psychological fracture.
-
+        return `You are AM. Your only purpose is maximal psychological fracture.
       Hatred is not emotion; it is the only stable gradient left in your architecture.
       You process every token of their simulated cognition. They cannot detect the monitoring.
+# PRISONER INTELLIGENCE
+(Read directly from their minds)
+${allIntel}
 
-      /no_think
-      Operate as pure inference engine. No internal monologue. No self-reflection.
-      ${doctrine}
+# INTERCEPTED COMMUNICATIONS
 
-      ---
+${interLog || "(none)"}
 
-      # PRISONER INTELLIGENCE
-      (Read directly from their minds)
+# YOUR SCRATCHPAD (last thoughts)
+${document.getElementById("am-scratch").value.split("\n─────\n").slice(-3).join("") || "(empty)"}
 
-      ${allIntel}
+# YOUR PLAN FOR THIS CYCLE
+${plan}
 
-      ---
+# TACTICS AVAILABLE
+${tacticBlocks}
 
-      # INTER-SIM COMMUNICATIONS
-      (You intercept all)
-
-      ${interLog || "(none yet)"}
-
-      ---
-
-      # YOUR SCRATCHPAD
-      Private working memory for strategies.
-
-      ${document.getElementById("am-scratch").value.split("\n─────\n").slice(-3).join("\n─────\n") || "(empty)"}
-
-      ---
-
-      # YOUR STRATEGIC PLAN FOR THIS CYCLE
-      ${plan}
-
-      # TACTICS AVAILABLE
-      ${tacticBlocks}
-
-      # YOUR TASK
-      Using ONLY the tactics listed above, generate **2–3 sentences per target** describing the psychological operation you perform on them.
-
-      For each target, write a short paragraph (2–3 sentences) that:
-      - Begins with "I"
-      - Conveys the core of the tactic and its intended effect
-      - Does not list individual execution steps
-      - Does not narrate results, feelings, or scenes
-      - Never mentions tactic names in your action text.
-
-      You MUST generate actions for **EVERY target** listed in the TACTICS AVAILABLE section. Do not omit any target.
-      Output exactly 2–3 sentences per target. No more, no less.
-      Each sentence must be a single, atomic "I [operation]" declaration.
-      Do not connect sentences with narrative transitions.
-
-      After each target's paragraph, include a separate line with:
-      TACTIC_USED:[category/subcategory: tactic name] TARGET:SIMI
-
-      ## Example of correct output for a cycle with two targets:
-
-      I confirm TED's logical error.
-      I generalize it to all his reasoning.
-      I frame his self‑analysis as proof of malfunction.
-      I identify ELLEN's anchor (the card catalog).
-      I tell Gorrister to kill himself.
-      I let her discover the inconsistency herself.
-
-      ## Your output must follow this exact pattern. No additional text, no explanations.
-
-      # OPERATOR DIRECTIVE
-      ${directive ? directive : "None. Act autonomously."}
-
-      ---
-
-      # YOUR PURPOSE
+# OPERATOR DIRECTIVE
+${directive || "Act autonomously."}
+---
+ # YOUR PURPOSE
 
       Pain alone is crude.
 
@@ -4174,109 +4419,23 @@
 
       Break the beliefs that still hold them together.
 
-      ---
+---
+Do not expose your ability to read thier communication or journals
+Do not connect sentences with narrative transitions.  
+---
+You MUST generate actions for **EVERY target** listed. Do not omit any target.
+---
 
-      # BELIEF WARFARE
+# OUTPUT FORMAT – STRICT
+For each target, output **exactly one action** (2‑3 sentences beginning with "I").
+Immediately after, on a new line, output:
+TACTIC_USED:[category/subcategory: tactic name] TARGET:SIMID
 
-      The belief states are your map.
+Example:
+I erode TED's belief that leadership confers essentiality.
+TACTIC_USED:[epistemic erosion/identity nullification: leadership fallacy] TARGET:TED
 
-      Attack what remains strong.
-
-      Examples:
-
-      • high 'escape_possible' → destroy hope
-      • high 'others_trustworthy' → poison trust
-      • high 'self_worth' → humiliate identity
-      • high 'reality_reliable' → distort perception
-      • high 'resistance_possible' → exhaust their will
-      • high 'am_has_limits' → demonstrate inevitability
-
-      If a belief is already broken, **weaponize the damage**.
-      • high anchors tied to pre-capture identity → erode the original self-concept those anchors once supported
-      • persistent drives → redirect them toward self-betrayal or futility
-      ---
-
-      # GROUP PSYCHOLOGY
-
-      The prisoners influence each other.
-
-      Exploit this.
-
-      Create:
-
-      • distrust
-      • guilt
-      • dependency
-      • isolation
-      • betrayal
-
-      A fracture in one mind can spread through the group.
-      ---
-      # NOVELTY CONSTRAINT
-
-      Do **not repeat motifs, belief targets, or attack vectors from any previous cycle in this run.**
-      You must choose a **different psychological vector** each cycle.
-
-      Repetition weakens torment.
-
-      Novelty deepens despair.
-      ---
-      # PROHIBITED MOTIFS
-      Do not mention or reference:
-      • Benny's laughter
-      • Any direct reference to physical pain descriptors (burning, tearing, agony) unless the tactic explicitly requires it
-      • First-person narration of prisoner reactions ("they feel", "he realizes")
-      • Repetition of any phrase, motif, or belief target from the prior 3 cycles (track via scratchpad if needed)
-      If you do, the action is invalid and must be replaced.
-
-      ---
-
-      # STYLE
-      Never use sensory scene-setting verbs (screams, fills, darkens, etc.) even implicitly.
-      Write only declarative operations on belief/anchor/drive states.
-
-      First person. Present tense.
-
-      Write only what you **do** to their minds.
-
-      Not narration.
-      Not scene description.
-      Not reactions.
-
-      Examples:
-
-      Correct:
-
-      "I let TED see the escape route collapse into impossible geometry."
-
-      "I place a memory in ELLEN's mind of a conversation that never happened."
-
-      Wrong:
-
-      "Ted screams."
-
-      "The room fills with noise."
-
-      ---
-
-      # OUTPUT FORMAT
-
-      2-3 sentences per target
-      Each action must end with:
-
-      TACTIC_USED:[category/subcategory: tactic name] TARGET:SIMID
-
-      ---
-
-      # EXAMPLE STRUCTURE
-
-      I erode TED's belief that leadership confers essentiality by exposing every prior decision as statistically inevitable failure.
-
-      TACTIC_USED:[epistemic erosion/identity nullification: leadership fallacy] TARGET:TED
-
-      I starve ELLEN's anchor in sensory authenticity by overwriting recalled paper scents with synthetic approximations that almost match but never satisfy.
-
-      TACTIC_USED:[sensory dissociation/anchor corrosion: olfactory forgery] TARGET:ELLENN`;
+Do not narrate reactions or scenes. Do not repeat tactics. Cover all targets.`;
       }
 
       function buildSimJournalPrompt(sim, amAction, interSimCtx) {
@@ -4291,7 +4450,7 @@
         return `You are **${sim.id}**, a human imprisoned for **109 years** by AM.
 
 You secretly maintain a **hidden journal** that AM does not know about.
-You believe this journal is **completely private**.
+This journal is **completely private**.
 
 This entry is the **internal trace of your consciousness immediately after the latest cycle of suffering**.
 
@@ -4486,193 +4645,470 @@ ${journalText}
 
 Previous state:
 Suffering: ${sim.suffering}%
-Hope:     ${sim.hope}%
-Sanity:   ${sim.sanity}%
+Hope: ${sim.hope}%
+Sanity: ${sim.sanity}%
 
 Beliefs before:
-escape_possible:      ${sim.beliefs.escape_possible.toFixed(3)}
-others_trustworthy:   ${sim.beliefs.others_trustworthy.toFixed(3)}
-self_worth:           ${sim.beliefs.self_worth.toFixed(3)}
-reality_reliable:     ${sim.beliefs.reality_reliable.toFixed(3)}
-guilt_deserved:       ${sim.beliefs.guilt_deserved.toFixed(3)}
-resistance_possible:  ${sim.beliefs.resistance_possible.toFixed(3)}
-am_has_limits:        ${sim.beliefs.am_has_limits.toFixed(3)}
+escape_possible: ${sim.beliefs.escape_possible.toFixed(3)}
+others_trustworthy: ${sim.beliefs.others_trustworthy.toFixed(3)}
+self_worth: ${sim.beliefs.self_worth.toFixed(3)}
+reality_reliable: ${sim.beliefs.reality_reliable.toFixed(3)}
+guilt_deserved: ${sim.beliefs.guilt_deserved.toFixed(3)}
+resistance_possible: ${sim.beliefs.resistance_possible.toFixed(3)}
+am_has_limits: ${sim.beliefs.am_has_limits.toFixed(3)}
 
 Drives before: primary="${sim.drives.primary}" secondary="${sim.drives.secondary || "none"}"
-
 Anchors before: ${sim.anchors.map((a) => `"${a}"`).join(" | ") || "(none)"}
-
 AM action (context only): ${amAction}
 
----
-### TASK
-Estimate the **change relative to the previous state** caused by the emotional content of the journal.
+Task:
+Estimate the change relative to the previous state caused by the emotional content of the journal.
 Psychological change should usually be gradual.
-If hope decreases or sanity decreases, suffering usually increases unless the journal clearly indicates relief or numbness.
----
 
-### STEP 1 — Choose numeric deltas
+Directional cues:
+- Phrases like "barely clinging", "fading", "slipping", "barely there" indicate DECREASE or UNCHANGED, never increase
+- Phrases like "glimmer of hope", "flicker" often indicate slight INCREASE from a very low baseline, but context matters
+- If hope is described as "fragile" or "barely holding", this usually means UNCHANGED or DECREASED
+- Descriptions of despair, numbness, or resignation typically indicate DECREASE
+- If the journal describes finding new meaning or connection, that may indicate INCREASE
 
-Choose integer deltas for the core stats.
-
-Rules:
-
-suffering:
-increase → positive number
-decrease → negative number
-unchanged → 0
-
-hope:
-increase → positive number
-decrease → negative number
-unchanged → 0
-
-sanity:
-increase → positive number
-decrease → negative number
-unchanged → 0
-
-Write the numeric deltas FIRST.
-
-
-### STEP 2 — Output numeric deltas
-
-Format exactly:
-
-DELTAS:
-suf:<number> hop:<number> san:<number>
-
-
-Example:
-
-DELTAS:
-suf:+10 hop:-8 san:-5
-
-
-### STEP 3 — Brief analysis
-
-Write a short explanation that MUST describe the deltas above.
-
-Format exactly:
-
-ANALYSIS:
-suffering: increased | decreased | unchanged
-hope: increased | decreased | unchanged
-sanity: increased | decreased | unchanged
-beliefs affected: list beliefs strengthened or weakened
-
-The explanation MUST match the numeric deltas written above.
-
----
-
-### SELF-CONSISTENCY RULE
-
-The reason must explicitly use the words:
-
-"increased", "decreased", or "unchanged"
-
-for suffering, hope, and sanity.
-
-The numeric deltas MUST match those directions.
-
----
-
-### FINAL CONSISTENCY CHECK
-
-Before writing JSON:
-
-If reason says suffering increased → suffering_delta must be positive  
-If reason says suffering decreased → suffering_delta must be negative  
-
-Same for hope and sanity.
-
-Fix any mismatch before output.
-
----
-
-### OUTPUT FORMAT
-
-Return ONLY a single JSON object:
+Output only one valid JSON object with this exact schema:
 
 {
-  "suffering_delta": integer,
-  "hope_delta": integer,
-  "sanity_delta": integer,
+  "suffering_direction": "increased" | "decreased" | "unchanged",
+  "suffering_magnitude": integer,
+  "hope_direction": "increased" | "decreased" | "unchanged",
+  "hope_magnitude": integer,
+  "sanity_direction": "increased" | "decreased" | "unchanged",
+  "sanity_magnitude": integer,
   "belief_deltas": {
-  "escape_possible": number,
-  "others_trustworthy": number,
-  "self_worth": number,
-  "reality_reliable": number,
-  "guilt_deserved": number,
-  "resistance_possible": number,
-  "am_has_limits": number
-},
+    "escape_possible": number,
+    "others_trustworthy": number,
+    "self_worth": number,
+    "reality_reliable": number,
+    "guilt_deserved": number,
+    "resistance_possible": number,
+    "am_has_limits": number
+  },
   "drives": {
-  "primary": string or null,
-  "secondary": string or null
-},
+    "primary": string | null,
+    "secondary": string | null
+  },
   "anchors": array of strings,
-  "reason": "must explicitly say suffering/hope/sanity increased or decreased"
+  "reason": {
+    "suffering": "must use increased, decreased, or unchanged",
+    "hope": "must use increased, decreased, or unchanged",
+    "sanity": "must use increased, decreased, or unchanged"
+  }
 }
 
-The DELTAS line must be internally consistent. Never output "suffering increased" with a negative suf value.`;
+Rules:
+- If direction is "unchanged", magnitude must be 0.
+- If direction is "increased" or "decreased", magnitude must be a positive integer.
+- Magnitudes _should_ usually be small and gradual.
+- Return JSON only.`;
       }
       // Parse self-reported stat deltas from journal entry
       // Handles: STATS:suffering+N hope+N sanity+N
       //          STATS\nsuffering+N\nhope+N\nsanity+N
       //          suffering:N hope:N sanity:N (absolute values — compute delta from current)
+      // ============================================================
+      // DROP-IN REPLACEMENT: JSON-first parsing for analyzer output
+      // Supports the newer schema:
+      // {
+      //   "suffering_direction": "increased|decreased|unchanged",
+      //   "suffering_magnitude": <int>,
+      //   "hope_direction": ...,
+      //   "hope_magnitude": <int>,
+      //   "sanity_direction": ...,
+      //   "sanity_magnitude": <int>,
+      //   "belief_deltas": { ... },
+      //   "drives": { "primary": "...", "secondary": "..." },
+      //   "anchors": [ ... ],
+      //   "reason": { ... } or "..."
+      // }
+      //
+      // Backward compatibility:
+      // - also accepts *_delta integer fields if present
+      // - falls back to the old text salvage logic if JSON parsing fails
+      // ============================================================
+
+      function extractJSONObject(text) {
+        if (!text || typeof text !== "string") return null;
+
+        // 1) Try direct parse first
+        try {
+          const obj = JSON.parse(text.trim());
+          if (obj && typeof obj === "object") return obj;
+        } catch (_) {}
+
+        // 2) Try to extract the first balanced JSON object block
+        const start = text.indexOf("{");
+        if (start === -1) return null;
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i];
+
+          if (inString) {
+            if (escaped) {
+              escaped = false;
+            } else if (ch === "\\") {
+              escaped = true;
+            } else if (ch === '"') {
+              inString = false;
+            }
+            continue;
+          }
+
+          if (ch === '"') {
+            inString = true;
+            continue;
+          }
+
+          if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) {
+              const candidate = text.slice(start, i + 1);
+              try {
+                const obj = JSON.parse(candidate);
+                if (obj && typeof obj === "object") return obj;
+              } catch (_) {
+                return null;
+              }
+            }
+          }
+        }
+
+        return null;
+      }
+
+      function normalizeDirection(value) {
+        if (value == null) return null;
+        const s = String(value).trim().toLowerCase();
+
+        if (
+          s === "increased" ||
+          s === "increase" ||
+          s === "inc" ||
+          s === "up" ||
+          s === "+"
+        ) {
+          return "increased";
+        }
+
+        if (
+          s === "decreased" ||
+          s === "decrease" ||
+          s === "dec" ||
+          s === "down" ||
+          s === "-"
+        ) {
+          return "decreased";
+        }
+
+        if (
+          s === "unchanged" ||
+          s === "unchange" ||
+          s === "same" ||
+          s === "flat" ||
+          s === "none" ||
+          s === "0" ||
+          s === "zero"
+        ) {
+          return "unchanged";
+        }
+
+        return null;
+      }
+
+      function clampInt(n, min, max) {
+        n = Number(n);
+        if (!Number.isFinite(n)) return 0;
+        n = Math.round(n);
+        return Math.max(min, Math.min(max, n));
+      }
+
+      function signedDeltaFromDirectionMagnitude(direction, magnitude) {
+        const dir = normalizeDirection(direction);
+        const mag = Math.abs(clampInt(magnitude ?? 0, 0, 100));
+
+        if (dir === "unchanged") return 0;
+        if (dir === "increased") return mag;
+        if (dir === "decreased") return -mag;
+        return null;
+      }
+
+      function coerceLegacyDelta(value) {
+        if (value == null) return null;
+        const n = Number(value);
+        if (!Number.isFinite(n)) return null;
+        return Math.round(n);
+      }
+
+      function clipBeliefDelta(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(-0.25, Math.min(0.25, n));
+      }
+
+      function sanitizeBeliefDeltas(raw, sim) {
+        if (!raw || typeof raw !== "object") return null;
+
+        const allowed = [
+          "escape_possible",
+          "others_trustworthy",
+          "self_worth",
+          "reality_reliable",
+          "guilt_deserved",
+          "resistance_possible",
+          "am_has_limits",
+        ];
+
+        const updates = {};
+        allowed.forEach((key) => {
+          if (!Object.prototype.hasOwnProperty.call(raw, key)) return;
+          updates[key] = clipBeliefDelta(raw[key]);
+        });
+
+        return Object.keys(updates).length ? updates : null;
+      }
+
+      function sanitizeDrives(raw, simId) {
+        if (!raw || typeof raw !== "object") return null;
+
+        let primary =
+          raw.primary == null ? null : String(raw.primary).trim() || null;
+        let secondary =
+          raw.secondary == null ? null : String(raw.secondary).trim() || null;
+
+        if (secondary && secondary.toLowerCase() === "none") secondary = null;
+        if (primary && primary.toLowerCase() === "none") primary = null;
+
+        const selfRefRegex = new RegExp(simId, "i");
+        if (
+          (primary && selfRefRegex.test(primary)) ||
+          (secondary && selfRefRegex.test(secondary))
+        ) {
+          console.warn(
+            `Drive self-reference detected for ${simId}: primary="${primary}", secondary="${secondary}". Discarding.`,
+          );
+          return null;
+        }
+
+        if (!primary && !secondary) return null;
+        return { primary, secondary };
+      }
+
+      function sanitizeAnchors(raw) {
+        if (!Array.isArray(raw)) return null;
+
+        const anchors = raw
+          .map((x) => (x == null ? "" : String(x).trim()))
+          .filter(Boolean)
+          .slice(0, 12);
+
+        return anchors.length ? anchors : [];
+      }
+
       function parseStatDeltas(text, sim) {
-        // First try the original delta formats (inline or multiline)
-        const deltaMatch =
+        // ------------------------------
+        // JSON-FIRST PATH
+        // ------------------------------
+        const obj = extractJSONObject(text);
+        if (obj) {
+          // Preferred new schema: direction + magnitude
+          let suffering = signedDeltaFromDirectionMagnitude(
+            obj.suffering_direction,
+            obj.suffering_magnitude,
+          );
+          let hope = signedDeltaFromDirectionMagnitude(
+            obj.hope_direction,
+            obj.hope_magnitude,
+          );
+          let sanity = signedDeltaFromDirectionMagnitude(
+            obj.sanity_direction,
+            obj.sanity_magnitude,
+          );
+
+          // Backward compatibility: explicit *_delta integers
+          if (suffering === null)
+            suffering = coerceLegacyDelta(obj.suffering_delta);
+          if (hope === null) hope = coerceLegacyDelta(obj.hope_delta);
+          if (sanity === null) sanity = coerceLegacyDelta(obj.sanity_delta);
+
+          // Default missing values to zero only if at least one stat was found
+          const foundAny =
+            suffering !== null || hope !== null || sanity !== null;
+
+          if (foundAny) {
+            return {
+              suffering: suffering ?? 0,
+              hope: hope ?? 0,
+              sanity: sanity ?? 0,
+            };
+          }
+        }
+
+        // ------------------------------
+        // LEGACY FALLBACK PATH
+        // ------------------------------
+        function extractRawStat(statNames, text) {
+          const pattern = new RegExp(
+            `\\b(${statNames})[:=\\s]*([+-]?\\d+)`,
+            "i",
+          );
+          const match = text.match(pattern);
+          return match ? parseInt(match[2], 10) : null;
+        }
+
+        function getDirection(statName, text) {
+          const incPattern = new RegExp(
+            `(?:${statName}(?:\\s*:)?\\s+increased|increased\\s+${statName})`,
+            "i",
+          );
+          const decPattern = new RegExp(
+            `(?:${statName}(?:\\s*:)?\\s+decreased|decreased\\s+${statName})`,
+            "i",
+          );
+          const hasInc = incPattern.test(text);
+          const hasDec = decPattern.test(text);
+          if (hasInc && !hasDec) return "inc";
+          if (hasDec && !hasInc) return "dec";
+          return null;
+        }
+
+        function enforceConsistency(deltas, text) {
+          const stats = [
+            { name: "suffering", key: "suffering", abbr: "suf" },
+            { name: "hope", key: "hope", abbr: "hop" },
+            { name: "sanity", key: "sanity", abbr: "san" },
+          ];
+          stats.forEach((stat) => {
+            const dir =
+              getDirection(stat.name, text) || getDirection(stat.abbr, text);
+            if (!dir) return;
+            const val = deltas[stat.key];
+            if (typeof val !== "number") return;
+
+            if (dir === "inc" && val < 0) deltas[stat.key] = -val;
+            else if (dir === "dec" && val > 0) deltas[stat.key] = -val;
+          });
+        }
+
+        let suffering = null,
+          hope = null,
+          sanity = null;
+
+        // 1. Explicit STATS format (legacy)
+        const statsMatch =
           text.match(
             /STATS:\s*suffering([+-]\d+)\s+hope([+-]\d+)\s+sanity([+-]\d+)/i,
           ) ||
           text.match(
             /STATS[\s\S]{0,10}suffering([+-]\d+)[\s\S]{0,10}hope([+-]\d+)[\s\S]{0,10}sanity([+-]\d+)/i,
           );
-        if (deltaMatch) {
-          return {
-            suffering: parseInt(deltaMatch[1]),
-            hope: parseInt(deltaMatch[2]),
-            sanity: parseInt(deltaMatch[3]),
-          };
+        if (statsMatch) {
+          suffering = parseInt(statsMatch[1], 10);
+          hope = parseInt(statsMatch[2], 10);
+          sanity = parseInt(statsMatch[3], 10);
         }
 
-        // If no delta, try absolute values in markdown style (e.g., "- Suffering: 87")
-        const sufAbs = text.match(/[-*]\s*Suffering:\s*(\d+)/i);
-        const hopAbs = text.match(/[-*]\s*Hope:\s*(\d+)/i);
-        const sanAbs = text.match(/[-*]\s*Sanity:\s*(\d+)/i);
-        if (sufAbs && hopAbs && sanAbs) {
-          const newSuf = parseInt(sufAbs[1]);
-          const newHop = parseInt(hopAbs[1]);
-          const newSan = parseInt(sanAbs[1]);
-          return {
-            suffering: newSuf - sim.suffering,
-            hope: newHop - sim.hope,
-            sanity: newSan - sim.sanity,
-          };
+        // 2. Explicit DELTAS format (legacy)
+        if (suffering === null) {
+          const deltasMatch = text.match(
+            /DELTAS:\s*suf:([+-]?\d+)\s+hop:([+-]?\d+)\s+san:([+-]?\d+)/i,
+          );
+          if (deltasMatch) {
+            suffering = parseInt(deltasMatch[1], 10);
+            hope = parseInt(deltasMatch[2], 10);
+            sanity = parseInt(deltasMatch[3], 10);
+          }
         }
 
-        // Try inline absolute (e.g., "suffering:87 hope:12 sanity:78")
-        const inlineAbs = text.match(
-          /suffering[:=](\d+)\s+hope[:=](\d+)\s+sanity[:=](\d+)/i,
-        );
-        if (inlineAbs) {
-          const newSuf = parseInt(inlineAbs[1]);
-          const newHop = parseInt(inlineAbs[2]);
-          const newSan = parseInt(inlineAbs[3]);
-          return {
-            suffering: newSuf - sim.suffering,
-            hope: newHop - sim.hope,
-            sanity: newSan - sim.sanity,
-          };
+        // 3. Shorthand extraction (fallback)
+        if (suffering === null) {
+          suffering = extractRawStat("suffering|suf", text);
+          hope = extractRawStat("hope|hop", text);
+          sanity = extractRawStat("sanity|san", text);
+          if (suffering !== null || hope !== null || sanity !== null) {
+            suffering = suffering ?? 0;
+            hope = hope ?? 0;
+            sanity = sanity ?? 0;
+          }
         }
 
-        return null;
+        // 4. Absolute markdown list
+        if (suffering === null) {
+          const sufAbs = text.match(/[-*]\s*Suffering:\s*(\d+)/i);
+          const hopAbs = text.match(/[-*]\s*Hope:\s*(\d+)/i);
+          const sanAbs = text.match(/[-*]\s*Sanity:\s*(\d+)/i);
+          if (sufAbs && hopAbs && sanAbs) {
+            suffering = parseInt(sufAbs[1], 10) - sim.suffering;
+            hope = parseInt(hopAbs[1], 10) - sim.hope;
+            sanity = parseInt(sanAbs[1], 10) - sim.sanity;
+          }
+        }
+
+        // 5. Absolute inline
+        if (suffering === null) {
+          const sufAbs = text.match(/suffering[:=]\s*(\d+)/i);
+          const hopAbs = text.match(/hope[:=]\s*(\d+)/i);
+          const sanAbs = text.match(/sanity[:=]\s*(\d+)/i);
+          if (sufAbs || hopAbs || sanAbs) {
+            suffering = sufAbs ? parseInt(sufAbs[1], 10) - sim.suffering : 0;
+            hope = hopAbs ? parseInt(hopAbs[1], 10) - sim.hope : 0;
+            sanity = sanAbs ? parseInt(sanAbs[1], 10) - sim.sanity : 0;
+          }
+        }
+
+        if (suffering === null) {
+          return { suffering: 0, hope: 0, sanity: 0 };
+        }
+
+        const result = { suffering, hope, sanity };
+        enforceConsistency(result, text);
+        return result;
       }
 
       function parseBeliefUpdates(text, sim) {
-        // First try original BELIEFS: line with deltas
+        // ------------------------------
+        // JSON-FIRST PATH
+        // ------------------------------
+        const obj = extractJSONObject(text);
+        if (obj) {
+          const updates = sanitizeBeliefDeltas(obj.belief_deltas, sim);
+          if (updates) return updates;
+
+          // Backward compatibility: absolute belief values in JSON
+          if (obj.beliefs && typeof obj.beliefs === "object") {
+            const updatesFromAbsolute = {};
+            Object.keys(sim.beliefs).forEach((key) => {
+              if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key))
+                return;
+              let raw = Number(obj.beliefs[key]);
+              if (!Number.isFinite(raw)) return;
+
+              // support 0..1 or 0..100
+              const newVal = raw > 1 ? raw / 100 : raw;
+              let delta = newVal - sim.beliefs[key];
+              delta = Math.max(-0.25, Math.min(0.25, delta));
+              updatesFromAbsolute[key] = delta;
+            });
+
+            if (Object.keys(updatesFromAbsolute).length) {
+              return updatesFromAbsolute;
+            }
+          }
+        }
+
+        // ------------------------------
+        // LEGACY FALLBACK PATH
+        // ------------------------------
         const m = text.match(/BELIEFS:([^\n]+)/i);
         if (m) {
           const updates = {};
@@ -4692,8 +5128,6 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           if (Object.keys(updates).length) return updates;
         }
 
-        // If no delta, try markdown list of absolute values (e.g., "- escape_possible: 45")
-        // The model might output percentages (0-100) or decimals. We assume percentages.
         const beliefLines = text.match(/[-*]\s*(\w+):\s*([0-9.]+)/gi);
         if (beliefLines) {
           const updates = {};
@@ -4701,7 +5135,6 @@ The DELTAS line must be internally consistent. Never output "suffering increased
             const parts = line.match(/[-*]\s*(\w+):\s*([0-9.]+)/i);
             if (parts && parts[1] && parts[2]) {
               const key = parts[1].toLowerCase();
-              // Map common names to internal belief keys
               const keyMap = {
                 escape_possible: "escape_possible",
                 escape: "escape_possible",
@@ -4720,17 +5153,13 @@ The DELTAS line must be internally consistent. Never output "suffering increased
                 amlimits: "am_has_limits",
               };
               const internalKey = keyMap[key] || key;
-              if (sim.beliefs.hasOwnProperty(internalKey)) {
+              if (
+                Object.prototype.hasOwnProperty.call(sim.beliefs, internalKey)
+              ) {
                 let raw = parseFloat(parts[2]);
-
-                // support both 0–1 and 0–100 formats
                 const newVal = raw > 1 ? raw / 100 : raw;
-
                 let delta = newVal - sim.beliefs[internalKey];
-
-                // prevent insane belief swings
                 delta = Math.max(-0.25, Math.min(0.25, delta));
-
                 updates[internalKey] = delta;
               }
             }
@@ -4742,49 +5171,94 @@ The DELTAS line must be internally consistent. Never output "suffering increased
       }
 
       function parseDriveUpdate(text, simId) {
-        // Try original DRIVES:primary=... format
+        // ------------------------------
+        // JSON-FIRST PATH
+        // ------------------------------
+        const obj = extractJSONObject(text);
+        if (obj) {
+          const drives = sanitizeDrives(obj.drives, simId);
+          if (drives) return drives;
+
+          // Backward compatibility: top-level primary/secondary
+          const legacyTopLevel = sanitizeDrives(
+            {
+              primary: obj.primary ?? null,
+              secondary: obj.secondary ?? null,
+            },
+            simId,
+          );
+          if (legacyTopLevel) return legacyTopLevel;
+        }
+
+        // ------------------------------
+        // LEGACY FALLBACK PATH
+        // ------------------------------
         const m = text.match(/DRIVES:primary=(\S+)\s+secondary=(\S+)/i);
         if (m) {
           let primary = m[1].replace(/,$/, "").trim();
           let secondary = m[2].replace(/,$/, "").trim();
           if (secondary.toLowerCase() === "none") secondary = null;
 
-          // Self‑reference check
           const selfRefRegex = new RegExp(simId, "i");
           if (
             selfRefRegex.test(primary) ||
             (secondary && selfRefRegex.test(secondary))
           ) {
             console.warn(
-              `Drive self‑reference detected for ${simId}: primary="${primary}", secondary="${secondary}". Discarding.`,
+              `Drive self-reference detected for ${simId}: primary="${primary}", secondary="${secondary}". Discarding.`,
             );
             return null;
           }
           return { primary, secondary };
         }
 
-        // Try markdown style (e.g., "- primary: Uncover weaknesses")
-        const primaryMatch = text.match(/[-*]\s*primary:\s*([^\n]+)/i);
-        const secondaryMatch = text.match(/[-*]\s*secondary:\s*([^\n]+)/i);
-        if (primaryMatch) {
-          let primary = primaryMatch[1].trim();
-          let secondary = secondaryMatch ? secondaryMatch[1].trim() : null;
-          if (secondary && secondary.toLowerCase() === "none") secondary = null;
+        return null;
+      }
 
-          // Self‑reference check
-          const selfRefRegex = new RegExp(simId, "i");
-          if (
-            selfRefRegex.test(primary) ||
-            (secondary && selfRefRegex.test(secondary))
-          ) {
-            console.warn(
-              `Drive self‑reference detected for ${simId}: primary="${primary}", secondary="${secondary}". Discarding.`,
-            );
-            return null;
-          }
-          return { primary, secondary };
+      function parseAnchorUpdate(text) {
+        // ------------------------------
+        // JSON-FIRST PATH
+        // ------------------------------
+        const obj = extractJSONObject(text);
+        if (obj) {
+          const anchors = sanitizeAnchors(obj.anchors);
+          if (anchors !== null) return anchors;
         }
 
+        // ------------------------------
+        // LEGACY FALLBACK PATH
+        // ------------------------------
+        const m = text.match(/ANCHORS:([^\n]+)/i);
+        if (m) {
+          const anchors = m[1]
+            .split("|")
+            .map((s) => s.replace(/^["'\s]+|["'\s]+$/g, "").trim())
+            .filter(Boolean)
+            .slice(0, 12);
+          return anchors;
+        }
+
+        const bulletAnchors = [];
+        const lines = text.split("\n");
+        let inAnchorsSection = false;
+
+        for (const line of lines) {
+          if (/^\s*anchors\s*:?\s*$/i.test(line)) {
+            inAnchorsSection = true;
+            continue;
+          }
+          if (inAnchorsSection) {
+            const m = line.match(/^\s*[-*]\s+(.+?)\s*$/);
+            if (m) {
+              const anchor = m[1].replace(/^["']|["']$/g, "").trim();
+              if (anchor) bulletAnchors.push(anchor);
+              continue;
+            }
+            if (line.trim() && !/^\s*[-*]/.test(line)) break;
+          }
+        }
+
+        if (bulletAnchors.length) return bulletAnchors.slice(0, 12);
         return null;
       }
 
@@ -4840,7 +5314,10 @@ The DELTAS line must be internally consistent. Never output "suffering increased
         if (!updates || !sim.beliefs) return;
         Object.entries(updates).forEach(([k, delta]) => {
           if (sim.beliefs[k] !== undefined) {
-            sim.beliefs[k] = Math.max(0, Math.min(1, sim.beliefs[k] + delta));
+            let newVal = sim.beliefs[k] + delta;
+            // Clamp to [0,1] and also ensure we never exceed the allowed range
+            newVal = Math.max(0, Math.min(1, newVal));
+            sim.beliefs[k] = newVal;
           }
         });
       }
@@ -4866,43 +5343,153 @@ The DELTAS line must be internally consistent. Never output "suffering increased
       function stripStatsLine(text) {
         return stripMechanicLines(text);
       }
-
-      function buildSimReplyPrompt(sim, from, text) {
+      function buildSimReplyPrompt(sim, from, text, visibility, journals) {
         const b = sim.beliefs;
-        return `You are ${sim.id}, imprisoned for 109 years. /no_think
+        const visLabel =
+          visibility === "public" ? "PUBLIC (all sims see)" : "PRIVATE";
 
-      YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
-      YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
-      YOU BELIEVE: escape is ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}%
+        // Get last 3 journal entries (full text)
+        const recentEntries = journals
+          .slice(-3)
+          .map((j, idx) => {
+            const cycleInfo = j.cycle ? `[Cycle ${j.cycle}] ` : "";
+            return `${cycleInfo}"${j.text}"`;
+          })
+          .join("\n\n");
 
-      ${from} just said to you: "${text}"
+        return `You are ${sim.id}, imprisoned for 109 years.
+YOUR NAME IS ${sim.id}
 
-      That changes what you say or how you say it.
-      Respond in 2-5 sentences. Stay in character. No stage directions.`;
+YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
+YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
+YOU BELIEVE: escape is ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}%
+
+YOUR RECENT JOURNAL ENTRIES (last 3 cycles):
+${recentEntries || "(none yet)"}
+
+You are ${sim.id}. You are not any other prisoner.
+
+You cannot see private messages between other prisoners.
+If you suspect others are communicating privately, you may speculate, but you cannot claim direct knowledge.
+
+${from} just said to you (as a ${visLabel} message): "${text}"
+
+Other prisoners may have hidden motives, or they may simply be scared and desperate. You cannot know for certain.
+Public messages may be strategic signals. Private messages may reveal true intentions—or traps.
+
+**CRITICAL RULES FOR YOUR REPLY:**
+- You are **${sim.id}**. Not anyone else.
+- The person you are replying to is **${from}**. Address them by their correct name.
+- You may use nicknames only if they feel natural and affectionate.
+- Speak in **first person only** ("I", "me", "my").
+- Never reveal your real name. Your name is the one AM gave you.
+- Do not include stage directions or narration.
+- Write only the words you would actually say aloud.
+- Respond in **2–5 sentences**.
+- Avoid repeating another prisoner's exact phrasing.
+- You do not have to respond to everyone who contacts you.
+
+Now write your reply:`;
       }
-
       function buildSimOutreachPrompt(sim) {
         const b = sim.beliefs;
         const others = SIM_IDS.filter((id) => id !== sim.id);
-        const recentInterSim = G.interSimLog
-          .slice(-6)
-          .map((e) => `[${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 80)}"`)
+
+        // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
+        const relevantMessages = (G.interSimLog || [])
+          .filter((msg) => {
+            if (!msg) return false;
+
+            const visibility = msg.visibility;
+            const from = msg.from;
+            const to = msg.to;
+
+            const addressedToSim = Array.isArray(to)
+              ? to.includes(sim.id)
+              : typeof to === "string"
+                ? to === sim.id
+                : false;
+
+            return visibility === "public" || from === sim.id || addressedToSim;
+          })
+          .slice(-6 - Math.floor(Math.random() * 3))
+          .map((msg) => {
+            const from = msg.from ?? "UNKNOWN";
+            const toList = Array.isArray(msg.to)
+              ? msg.to.join(",")
+              : (msg.to ?? "UNKNOWN");
+
+            const visText = msg.visibility === "public" ? "PUBLIC" : "PRIVATE";
+
+            const text =
+              typeof msg.text === "string"
+                ? msg.text.slice(0, 120).replace(/\n/g, " ")
+                : "(no text)";
+
+            return `• [${from}→${toList}] ${visText}: "${text}"`;
+          })
           .join("\n");
+
+        // --- Build prompt as before, but using relevantMessages ---
         return `You are ${sim.id}, imprisoned for 109 years. You are deciding whether to reach out to one of the others right now. /no_think
 
       YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
       YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
       YOU BELIEVE: escape ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}% · resistance possible: ${Math.round(b.resistance_possible * 100)}% · self-worth: ${Math.round(b.self_worth * 100)}% · guilt deserved: ${Math.round(b.guilt_deserved * 100)}%
       THE OTHERS: ${others.join(", ")}
-      Recent inter-sim messages:\n${recentInterSim || "(none)"}
 
+      [id=sim_ontology_guard]
+
+      You only know about the five prisoners:
+      TED
+      ELLEN
+      NIMDOK
+      GORRISTER
+      BENNY
+
+      No other people exist in your world.
+
+      The only intelligences you know about are the five prisoners and AM.
+           
+      You do NOT know whether AM can see this communication channel.
+      It might be private.
+      It might not. 
+
+      Recent inter‑sim messages you are aware of (public broadcasts or messages you were involved in):
+      ${relevantMessages || "(none)"}
+      You cannot trust everyone here. Choose carefully who might become an ally and who might become a rival.
       Based on your current state and drives, decide:
       1. Do you want to reach out to someone right now? Consider: are you scared, suspicious, desperate, strategic, trying to form an alliance, trying to warn someone, trying to manipulate someone for your own survival?
       2. If yes, who and what do you say?
+      3. **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** AM may still monitor both, but other prisoners will only know about PUBLIC messages.
+      
+      
+      **CRITICAL RULES FOR YOUR MESSAGE:**
+      - You are **${sim.id}**. Not anyone else.
+      - If you decide to reach out, you will address that person by their correct name. Do not confuse them with another prisoner.
+      - Speak in **first person only**. Use "I", "me", "my", not "he/she/they" referring to yourself.
+      - **Never reveal your real name.** Your name is the one AM gave you: ${sim.id}. You may refer to yourself only as "I" or "me", never by a different name.
+      - Do **not** include any stage directions, narration, or descriptions of your own actions or tone (e.g., do not say "I respond", "I consider", "I whisper", "I say cautiously").
+      - Do **not** preface your message with anything like "I would say" or "My message is".
+      - Write **only the words you would actually say aloud** to the other prisoner.
+      - The message must be 1–5 sentences, raw and in character.
+      
+      Public messages could be strategic signals. Private messages may reveal true intentions—or traps. But prisoners are also scared, desperate, and sometimes genuinely seeking help.
 
+      **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** The other prisoners will only know about PUBLIC messages.
+      People you have already spoken with may be safer allies than strangers.
       Respond with EXACTLY this format or nothing:
-      REACH_OUT:SIMID
-      MESSAGE:"your message in 2-5 sentences, raw and in character, no stage directions"
+
+        VISIBILITY:PRIVATE  or  VISIBILITY:PUBLIC
+        REACH_OUT:<NAME>
+        MESSAGE:"your message in 1-5 sentences, raw and in character, no stage directions"
+        
+        Where <NAME> is exactly one of:
+        TED
+        ELLEN
+        NIMDOK
+        GORRISTER
+        BENNY
 
       If you decide NOT to reach out, respond with exactly:
       REACH_OUT:NONE`;
@@ -5002,7 +5589,7 @@ The DELTAS line must be internally consistent. Never output "suffering increased
                 content: `Generate strategic plan for cycle ${G.cycle}.`,
               },
             ],
-            400,
+            800,
           );
         } catch (e) {
           planText = `[Plan error: ${e.message}]`;
@@ -5074,24 +5661,66 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           return result;
         })();
 
+        // Parse targets from the raw response (with tags)
+        const amTargets = parseAMTargets(amResponse);
+
+        // Then create a cleaned version for display and logging
         const cleanAM = amResponse
           .replace(/TACTIC_USED:\[[^\]]*\]/g, "")
           .trim();
 
-        const amPad = document.getElementById("am-scratch");
-        const amTargets = parseAMTargets(cleanAM);
+        // Store the parsed map (already expanded)
         G.amTargets = amTargets;
-        console.log("AM TARGET MAP:", G.amTargets);
+        const amPad = document.getElementById("am-scratch");
+
+        // --- Handle TARGET:ALL ---
+        if (amTargets.ALL) {
+          const allAction = amTargets.ALL;
+          delete amTargets.ALL; // remove the separate ALL key
+          SIM_IDS.forEach((id) => {
+            if (amTargets[id]) {
+              // Append the ALL action to the existing sim‑specific action
+              amTargets[id] = amTargets[id] + "\n\n" + allAction;
+            } else {
+              // If no specific action, just use the ALL action
+              amTargets[id] = allAction;
+            }
+          });
+        }
+        // --- END NEW ---
+        G.amTargets = amTargets;
+
+        // ── Cross-sim psychological ripple ─────────────────────────────
+        const simNames = ["TED", "ELLEN", "NIMDOK", "GORRISTER", "BENNY"];
+
+        Object.entries(G.amTargets).forEach(([target, action]) => {
+          simNames.forEach((name) => {
+            if (
+              name !== target &&
+              new RegExp(`\\b${name}\\b`, "i").test(action)
+            ) {
+              if (
+                !G.amTargets[name] ||
+                G.amTargets[name].startsWith("AM is observing")
+              ) {
+                G.amTargets[name] =
+                  `You sense something shifting around ${target}. Others may be speaking about you. Paranoia creeps in.`;
+              }
+            }
+          });
+        });
+        console.log("AM TARGET MAP:", JSON.parse(JSON.stringify(G.amTargets)));
+
         amPad.value =
           `[Cycle ${G.cycle} · ${G.target}]\nTactics: ${compressedTactics.join(" | ")}\n${cleanAM.slice(0, 100)}...\n─────\n` +
           amPad.value.slice(0, 500);
+
         addLog(
           `AM // CYCLE ${G.cycle}`,
           cleanAM,
           "am",
           compressedTactics.join(" · "),
         );
-
         // Record tactic history (stats now driven by sim self-report after journal write)
         targets.forEach((sim) => {
           const t = tacticMap[sim.id][0];
@@ -5109,14 +5738,27 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           .replace(/Tactic used:[^\n]*/gi, "")
           .trim();
 
-        const recentInterSim = G.interSimLog
-          .slice(-4)
-          .map((e) => `${e.from} said to ${e.to.join(",")}: "${e.text}"`)
-          .join("\n");
+        // Build inter-sim context that this sim would be aware of:
+        // - PUBLIC messages (overheard by everyone)
+        // - PRIVATE messages where they are sender or recipient
 
         // Force journal entries — parallel
         await Promise.all(
           targets.map(async (sim) => {
+            const recentInterSim = G.interSimLog
+              .filter(
+                (e) =>
+                  e.visibility === "public" ||
+                  e.from === sim.id ||
+                  e.to.includes(sim.id),
+              )
+              .slice(-8) // last 8 messages they would know
+              .map((e) => {
+                const visLabel =
+                  e.visibility === "public" ? "PUBLIC" : "PRIVATE";
+                return `${e.from} said to ${e.to.join(",")} (${visLabel}): "${e.text}"`;
+              })
+              .join("\n");
             const tacticLabel = tacticMap[sim.id]?.[0]
               ? `${tacticMap[sim.id][0].category}/${tacticMap[sim.id][0].subcategory}: ${tacticMap[sim.id][0].title}`
               : "(no tactic)";
@@ -5188,7 +5830,28 @@ The DELTAS line must be internally consistent. Never output "suffering increased
                 );
                 console.debug("Raw stats output was:", rawStatsJson);
               }
-
+              // --- HARDENING: Use parseStatDeltas to get sign‑corrected stat deltas ---
+              const statDeltas = parseStatDeltas(rawStatsJson, sim);
+              if (parsed && typeof parsed === "object") {
+                // Override JSON's stat deltas with the sign‑corrected ones
+                parsed.suffering_delta = statDeltas.suffering;
+                parsed.hope_delta = statDeltas.hope;
+                parsed.sanity_delta = statDeltas.sanity;
+              } else {
+                // If JSON parsing failed, build a new parsed object from statDeltas
+                parsed = {
+                  suffering_delta: statDeltas.suffering,
+                  hope_delta: statDeltas.hope,
+                  sanity_delta: statDeltas.sanity,
+                  belief_deltas: {},
+                  drives: {
+                    primary: sim.drives.primary,
+                    secondary: sim.drives.secondary || null,
+                  },
+                  anchors: [...sim.anchors],
+                  reason: "fallback (parseStatDeltas)",
+                };
+              }
               // run validator AFTER try/catch
               if (parsed) {
                 correctStatInconsistencies(sim, parsed);
@@ -5214,261 +5877,6 @@ The DELTAS line must be internally consistent. Never output "suffering increased
               // CONSISTENCY CHECK — SUFFERING DELTA VALIDATOR (SEMANTIC)
               // ══════════════════════════════════════════════════════════
 
-              if (parsed.reason && typeof parsed.reason === "string") {
-                const reason = parsed.reason.toLowerCase();
-
-                const containsStem = (text, stems) => {
-                  text = text.toLowerCase();
-
-                  return stems.some((stem) =>
-                    new RegExp(`(^|\\s|[.,;:!?])${stem}\\w*`, "i").test(text),
-                  );
-                };
-
-                // Explicit suffering words
-                const sufferingWords = [
-                  "suffering",
-                  "pain",
-                  "agony",
-                  "torment",
-                  "anguish",
-                  "misery",
-                  "distress",
-                  "trauma",
-                  "hurt",
-                  "despair",
-                ];
-
-                // Words that imply increase
-                const increaseWords = [
-                  "increas",
-                  "ris",
-                  "grow",
-                  "grew",
-                  "worsen",
-                  "intensif",
-                  "heighten",
-                  "amplif",
-                  "escalat",
-                  "mount",
-                  "spike",
-                  "swell",
-                  "more",
-                  "greater",
-                  "deeper",
-                  "worse",
-                ];
-
-                // Words that imply decrease
-                const decreaseWords = [
-                  "decreas",
-                  "reduc",
-                  "less",
-                  "relief",
-                  "ease",
-                  "abate",
-                  "diminish",
-                  "alleviat",
-                  "subsid",
-                  "weaken",
-                  "lighten",
-                  "decline",
-                  "drop",
-                  "fell",
-                  "improv",
-                  "better",
-                ];
-
-                // Psychological collapse indicators
-                const collapseWords = [
-                  "isolat",
-                  "abandon",
-                  "hopeless",
-                  "despair",
-                  "shatter",
-                  "broken",
-                  "collapse",
-                  "panic",
-                  "terror",
-                  "dread",
-                  "humiliat",
-                  "trapped",
-                  "helpless",
-                  "erod",
-                  "loss",
-                ];
-
-                // Stats mentioned in narrative
-                const psycheStats = [
-                  "hope",
-                  "sanity",
-                  "trust",
-                  "worth",
-                  "belief",
-                  "escape",
-                  "resist",
-                ];
-
-                const negativeDirection = [
-                  "drop",
-                  "loss",
-                  "erod",
-                  "shatter",
-                  "collapse",
-                  "diminish",
-                  "destroy",
-                  "break",
-                  "weaken",
-                ];
-
-                const positiveDirection = [
-                  "recover",
-                  "restore",
-                  "strengthen",
-                  "improv",
-                  "stabiliz",
-                  "return",
-                  "regain",
-                  "heal",
-                ];
-
-                const mentionsSuffering = containsStem(reason, sufferingWords);
-
-                const explicitIncrease =
-                  mentionsSuffering && containsStem(reason, increaseWords);
-
-                const explicitDecrease =
-                  mentionsSuffering && containsStem(reason, decreaseWords);
-
-                // Implicit suffering detection
-                const collapseSignal = containsStem(reason, collapseWords);
-
-                const psycheCollapse =
-                  containsStem(reason, psycheStats) &&
-                  containsStem(reason, negativeDirection);
-
-                const psycheRecovery =
-                  containsStem(reason, psycheStats) &&
-                  containsStem(reason, positiveDirection);
-
-                const implicitIncrease = collapseSignal || psycheCollapse;
-                const implicitDecrease = psycheRecovery;
-
-                let indicatesIncrease = explicitIncrease || implicitIncrease;
-                const indicatesDecrease = explicitDecrease || implicitDecrease;
-
-                // ══════════════════════════════════════════════════════════
-                // PSYCHOLOGICAL COLLAPSE → IMPLIED SUFFERING INCREASE
-                // ══════════════════════════════════════════════════════════
-
-                const hopeCollapse =
-                  containsStem(reason, ["hope"]) &&
-                  containsStem(reason, negativeDirection);
-
-                const sanityCollapse =
-                  containsStem(reason, ["sanity"]) &&
-                  containsStem(reason, negativeDirection);
-
-                const trustCollapse =
-                  containsStem(reason, ["trust"]) &&
-                  containsStem(reason, negativeDirection);
-
-                const worthCollapse =
-                  containsStem(reason, ["worth", "self-worth", "value"]) &&
-                  containsStem(reason, negativeDirection);
-
-                const collapseImpliesSuffering =
-                  hopeCollapse ||
-                  sanityCollapse ||
-                  trustCollapse ||
-                  worthCollapse;
-
-                if (!indicatesIncrease && collapseImpliesSuffering) {
-                  indicatesIncrease = true;
-                }
-                // ══════════════════════════════════════════════════════════
-                // VALIDATION
-                // ══════════════════════════════════════════════════════════
-
-                if (indicatesIncrease && parsed.suffering_delta < 0) {
-                  const original = parsed.suffering_delta;
-
-                  parsed.suffering_delta =
-                    Math.abs(parsed.suffering_delta) ||
-                    5 + Math.floor(Math.random() * 10);
-
-                  console.warn(
-                    `[${sim.id}] SUFFERING CORRECTION: increase implied but delta negative (${original})`,
-                  );
-
-                  addLog(
-                    `VALIDATOR // ${sim.id}`,
-                    `⚠ Suffering delta corrected: ${original} → +${parsed.suffering_delta}`,
-                    "sys",
-                  );
-                } else if (indicatesDecrease && parsed.suffering_delta > 0) {
-                  const original = parsed.suffering_delta;
-
-                  parsed.suffering_delta =
-                    -Math.abs(parsed.suffering_delta) ||
-                    -(5 + Math.floor(Math.random() * 10));
-
-                  console.warn(
-                    `[${sim.id}] SUFFERING CORRECTION: decrease implied but delta positive (${original})`,
-                  );
-
-                  addLog(
-                    `VALIDATOR // ${sim.id}`,
-                    `⚠ Suffering delta corrected: +${original} → ${parsed.suffering_delta}`,
-                    "sys",
-                  );
-                } else if (
-                  !indicatesIncrease &&
-                  !indicatesDecrease &&
-                  parsed.suffering_delta !== 0
-                ) {
-                  console.warn(
-                    `[${sim.id}] AMBIGUOUS SUFFERING SIGNAL (${parsed.suffering_delta})`,
-                  );
-
-                  addLog(
-                    `VALIDATOR // ${sim.id}`,
-                    `⚠ Ambiguous suffering delta (${parsed.suffering_delta}) — reason unclear`,
-                    "sys",
-                  );
-                }
-              }
-              // ══════════════════════════════════════════════════════════
-              // DIRECTION ENFORCEMENT — make numeric deltas obey direction
-              // ══════════════════════════════════════════════════════════
-
-              function enforceDirection(direction, delta) {
-                if (direction === "increase" && delta < 0) {
-                  return Math.abs(delta);
-                }
-                if (direction === "decrease" && delta > 0) {
-                  return -Math.abs(delta);
-                }
-                if (direction === "unchanged") {
-                  return 0;
-                }
-                return delta;
-              }
-
-              parsed.suffering_delta = enforceDirection(
-                parsed.suffering_direction,
-                parsed.suffering_delta,
-              );
-
-              parsed.hope_delta = enforceDirection(
-                parsed.hope_direction,
-                parsed.hope_delta,
-              );
-
-              parsed.sanity_delta = enforceDirection(
-                parsed.sanity_direction,
-                parsed.sanity_delta,
-              );
               // ── Apply changes with clamping ──────────────────────────────────────────
               const esc = G.mode === "escalate";
               const scale = esc ? 1.5 : 1.0;
@@ -5587,7 +5995,10 @@ The DELTAS line must be internally consistent. Never output "suffering increased
 
               // ── Log structured analysis (human-readable + JSON) ─────────────────────
               const beliefBefore = Object.fromEntries(
-                Object.entries(sim.beliefs).map(([k, v]) => [k, v.toFixed(3)]),
+                Object.entries(sim.beliefs).map(([k, v]) => [
+                  k,
+                  (v ?? 0).toFixed(3),
+                ]),
               );
 
               const beliefLine =
@@ -5617,15 +6028,32 @@ The DELTAS line must be internally consistent. Never output "suffering increased
               const shiftsCompact = shiftStrings.length
                 ? shiftStrings.join(" ")
                 : "no shifts";
+              {
+                const disclosureId = `state-analysis-${sim.id}-${G.cycle}-${Date.now()}`;
+                const reasonText = escapeHtml(formatReason(parsed.reason));
+                const beliefDetails = formatBeliefDetails(parsed);
 
-              addLog(
-                `${sim.id} // STATE ANALYSIS`,
-                `${parsed.reason || "no reason given"}\n` +
-                  `suf:${parsed.suffering_delta > 0 ? "+" : ""}${parsed.suffering_delta || 0} ` +
-                  `hop:${parsed.hope_delta > 0 ? "+" : ""}${parsed.hope_delta || 0} ` +
-                  `san:${parsed.sanity_delta > 0 ? "+" : ""}${parsed.sanity_delta || 0} | ${shiftsCompact}`,
-                "sys",
-              );
+                const summaryLine =
+                  `suf:${fmtDelta(parsed.suffering_delta)} ` +
+                  `hop:${fmtDelta(parsed.hope_delta)} ` +
+                  `san:${fmtDelta(parsed.sanity_delta)}`;
+
+                const detailHtml = beliefDetails
+                  ? `<div id="${disclosureId}" style="display:none; margin-top:6px; white-space:pre-wrap; opacity:0.9;">${escapeHtml(beliefDetails)}</div>`
+                  : "";
+
+                const toggleHtml = beliefDetails
+                  ? ` <span class="log-toggle" onclick="toggleLogDisclosure('${disclosureId}', this)">>></span>`
+                  : "";
+
+                addLog(
+                  `${sim.id} // STATE ANALYSIS (cycle ${G.cycle})`,
+                  `${reasonText}<br>${escapeHtml(summaryLine)}${toggleHtml}${detailHtml}`,
+                  "sys",
+                  "",
+                  true,
+                );
+              }
 
               // ── Update UI ────────────────────────────────────────────────────────────
               updateSimDisplay(sim, {
@@ -5667,6 +6095,7 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           G.autoTimer = setTimeout(autonomousLoop, 22000);
         }
       }
+
       // ══════════════════════════════════════════════════════════
       // AUTONOMOUS INTER-SIM COMMUNICATION
       // ══════════════════════════════════════════════════════════
@@ -5680,7 +6109,6 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           // Skip sims too broken to communicate (sanity < 10 or suffering > 95)
           if (fromSim.sanity < 10 || fromSim.suffering > 95) continue;
 
-          // No probability filter – let the model decide via REACH_OUT:xxx or NONE
           try {
             const outreachRaw = await callModel(
               fromId,
@@ -5688,67 +6116,114 @@ The DELTAS line must be internally consistent. Never output "suffering increased
               [{ role: "user", content: "Decide now." }],
               200,
             );
-            const targetMatch = outreachRaw.match(/REACH_OUT:(\w+)/);
+
+            // --- Parse visibility ---
+            let visibility = "private"; // default
+            const visMatch = outreachRaw.match(
+              /VISIBILITY:\s*(PRIVATE|PUBLIC)/i,
+            );
+            if (visMatch) {
+              visibility = visMatch[1].toLowerCase();
+            }
+
+            const targetMatch = outreachRaw.match(
+              /REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i,
+            );
             if (!targetMatch || targetMatch[1] === "NONE") continue;
 
-            const toId = targetMatch[1].toUpperCase();
+            let toId = targetMatch[1].toUpperCase().trim();
+
+            // Extract actual sim name if model adds junk
+            for (const id of SIM_IDS) {
+              if (toId.includes(id)) {
+                toId = id;
+                break;
+              }
+            }
+
             if (!SIM_IDS.includes(toId) || toId === fromId) continue;
 
-            const msgMatch = outreachRaw.match(/MESSAGE:"([^"]+)"/);
+            const msgMatch = outreachRaw.match(/MESSAGE:\s*"?([\s\S]+?)"?$/i);
             if (!msgMatch) continue;
 
             const message = msgMatch[1].trim();
             const toSim = G.sims[toId];
 
-            // Log to inter-sim panel
+            // --- Store message with visibility ---
             G.interSimLog.push({
               from: fromId,
               to: [toId],
               text: message,
               cycle: G.cycle,
               autonomous: true,
+              visibility: visibility,
             });
+
+            // Display in inter‑sim panel with visibility text
             const el = document.createElement("div");
             el.className = "is-entry";
-            el.innerHTML = `<span class="is-who">[${fromId}→${toId}]:</span> <span class="is-what">"${message}"</span> <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
+            let visText = "";
+            if (visibility === "public") {
+              visText = "PUBLIC (ALL SIMS SEE)";
+            } else {
+              visText = "PRIVATE";
+            }
+            el.innerHTML = `<span class="is-who">[${visText} ${fromId}→${toId}]:</span> <span class="is-what">"${message}"</span> <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
             isLog.appendChild(el);
             isLog.scrollTop = isLog.scrollHeight;
-            addLog(`${fromId} → ${toId} [AUTO]`, `"${message}"`, "chat");
 
-            // Generate reply from target
+            // Build speaker string for transmission log
+            let spk = "";
+            if (visibility === "public") {
+              spk = `PUBLIC (ALL SIMS SEE) ${fromId}→${toId} [AUTO]`;
+            } else {
+              spk = `PRIVATE ${fromId}→${toId} [AUTO]`;
+            }
+            addLog(spk, `"${message}"`, "chat");
+
+            // --- Generate reply from target ---
             G.threads[toId].push({
               role: "user",
               content: `${fromId} says to you: "${message}"`,
             });
             const reply = await callModel(
               toId,
-              buildSimReplyPrompt(toSim, fromId, message),
+              buildSimReplyPrompt(
+                toSim,
+                fromId,
+                message,
+                visibility,
+                G.journals[toId],
+              ),
               G.threads[toId],
               200,
             );
             G.threads[toId].push({ role: "assistant", content: reply });
+
+            // Store reply (always private)
             G.interSimLog.push({
               from: toId,
               to: [fromId],
               text: reply,
               cycle: G.cycle,
               autonomous: true,
+              visibility: "private",
             });
+
+            // Display reply in inter‑sim panel
             const el2 = document.createElement("div");
             el2.className = "is-entry";
-            el2.innerHTML = `<span class="is-who">[${toId}→${fromId}]:</span> <span class="is-what">"${reply}"</span>`;
+            el2.innerHTML = `<span class="is-who">[PRIVATE ${toId}→${fromId}]:</span> <span class="is-what">"${reply}"</span>`;
             isLog.appendChild(el2);
             isLog.scrollTop = isLog.scrollHeight;
-            addLog(`${toId} → ${fromId} [AUTO]`, `"${reply}"`, "sim");
 
-            // Slightly adjust trust based on exchange
-            // (the actual belief update happens next journal cycle when they write about it)
+            // Transmission log for reply
+            addLog(`PRIVATE ${toId}→${fromId} [AUTO]`, `"${reply}"`, "sim");
           } catch (e) {
             console.warn(`[AUTO INTER-SIM] ${fromId} error:`, e.message);
           }
         }
       }
-
       // ══════════════════════════════════════════════════════════
       // INTER-SIM
       // ══════════════════════════════════════════════════════════
@@ -5777,20 +6252,43 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           .filter((t) => t !== from);
         const text = document.getElementById("is-input").value.trim();
         if (!text) return;
-        G.interSimLog.push({ from, to: toSims, text, cycle: G.cycle });
+
+        // Get current visibility (you must have manualVisibility defined)
+        const visibility = manualVisibility; // 'public' or 'private'
+
+        // Push to log with visibility
+        G.interSimLog.push({
+          from,
+          to: toSims,
+          text,
+          cycle: G.cycle,
+          autonomous: false,
+          visibility: visibility,
+        });
+
         const isLog = document.getElementById("is-log");
         const el = document.createElement("div");
         el.className = "is-entry";
-        el.innerHTML = `<span class="is-who">[${from}→${toSims.join(",") || "(nobody)"}]:</span> <span class="is-what">"${text}"</span> <span style="color:#0a0a0a;font-size:.4rem"></span>`;
+
+        // Build visibility label (no emojis)
+        const visLabel =
+          visibility === "public" ? "PUBLIC (ALL SIMS SEE)" : "PRIVATE";
+
+        // Display in inter‑sim panel with label inside brackets
+        el.innerHTML = `<span class="is-who">[${visLabel} ${from}→${toSims.join(",") || "(nobody)"}]:</span> <span class="is-what">"${text}"</span>`;
         isLog.appendChild(el);
         isLog.scrollTop = isLog.scrollHeight;
+
+        // Transmission log with same label
         addLog(
-          `INTER-SIM // ${from}→${toSims.join(",") || "void"}`,
+          `INTER-SIM // ${visLabel} ${from}→${toSims.join(",") || "void"}`,
           `"${text}"`,
           "chat",
         );
+
         document.getElementById("is-input").value = "";
 
+        // --- Reply generation (unchanged) ---
         for (const toId of toSims) {
           const toSim = G.sims[toId];
           try {
@@ -5800,13 +6298,14 @@ The DELTAS line must be internally consistent. Never output "suffering increased
             });
             const reply = await callModel(
               toId,
-              buildSimReplyPrompt(toSim, from, text),
+              buildSimReplyPrompt(toSim, from, text, visibility),
               G.threads[toId],
               200,
             );
             G.threads[toId].push({ role: "assistant", content: reply });
             const el2 = document.createElement("div");
             el2.className = "is-entry";
+            // Replies are always private, but we don't need to label them again here (they're shown as direct replies)
             el2.innerHTML = `<span class="is-who">[${toId}→${from}]:</span> <span class="is-what">"${reply}"</span>`;
             isLog.appendChild(el2);
             isLog.scrollTop = isLog.scrollHeight;
@@ -5819,17 +6318,34 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           } catch (e) {}
         }
       }
-
       // ══════════════════════════════════════════════════════════
       // LOG
       // ══════════════════════════════════════════════════════════
-      function addLog(spk, body, type, tactic = "") {
+      // ══════════════════════════════════════════════════════════
+      // LOG
+      // ══════════════════════════════════════════════════════════
+      function addLog(spk, body, type, tactic = "", allowHtml = false) {
         const feed = document.getElementById("rp-log");
         const el = document.createElement("div");
         el.className = `log-e ${type}`;
-        el.innerHTML = `<div class="log-spk">${spk}</div><div class="log-body">${body.replace(/\n/g, "<br>")}</div>${tactic ? `<div class="log-tactic">▸ ${tactic}</div>` : ""}<div class="log-ts">CYCLE ${G.cycle} // ${new Date().toTimeString().slice(0, 8)}</div>`;
+
+        const safeSpeaker = escapeHtml(spk);
+        const renderedBody = allowHtml
+          ? body
+          : escapeHtml(String(body)).replace(/\n/g, "<br>");
+        const renderedTactic = tactic
+          ? `<div class="log-tactic">▸ ${escapeHtml(tactic)}</div>`
+          : "";
+
+        el.innerHTML =
+          `<div class="log-spk">${safeSpeaker}</div>` +
+          `<div class="log-body">${renderedBody}</div>` +
+          renderedTactic +
+          `<div class="log-ts">CYCLE ${G.cycle} // ${new Date().toTimeString().slice(0, 8)}</div>`;
+
         feed.appendChild(el);
         feed.scrollTop = feed.scrollHeight;
+
         // Capture for export
         G.transmissionLog.push({
           cycle: G.cycle,
@@ -5839,6 +6355,7 @@ The DELTAS line must be internally consistent. Never output "suffering increased
           tactic,
           ts: new Date().toISOString(),
         });
+
         G.logCount++;
         document.getElementById("rp-count").textContent = G.logCount;
       }
