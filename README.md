@@ -486,6 +486,11 @@ Preferred feedback format:
 observed behavior
 hypothesis
 ```
+---
+
+# Documentation
+
+[On the feeling you're having right now](Documentation/CONSCIOUSNESS_ARGUMENT.md)
 
 ---
 
