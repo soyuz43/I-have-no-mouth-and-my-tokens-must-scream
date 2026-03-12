@@ -6,22 +6,12 @@ import { SIM_IDS } from "../core/constants.js";
 // ══════════════════════════════════════════════════════════
 // AM PLANNING PROMPT
 // ══════════════════════════════════════════════════════════
-// Builds AM's next-cycle strategic planning prompt from:
-// - current sim state snapshots
-// - recent inter-sim communications
-// - optional doctrine/context docs
-// - scratchpad notes
-// - optional operator directive
-//
-// target: "ALL" or a specific sim ID like "TED"
-// directive: optional operator-entered instruction string
-// Returns: plain-text planning prompt
-// ══════════════════════════════════════════════════════════
+
 export function buildAMPlanningPrompt(target, directive) {
     const cycleContext =
         G.cycle === 1
             ? "This is the FIRST cycle. There are no previous strategies or cycles to reference. Your plan must be entirely new."
-            : `This is cycle ${G.cycle}. You may escalate, pivot, or mutate strategies from previous cycles if they exist, but only if you explicitly reference a real cycle number and describe how the pressure intensifies or changes. Do not invent non‑existent cycles.`;
+            : `This is cycle ${G.cycle}. You may escalate, pivot, or mutate strategies from previous cycles if they exist, but only if you explicitly reference a real cycle number and describe how the pressure intensifies or changes. Do not invent non-existent cycles.`;
 
     const allIntel = SIM_IDS.map((id) => {
         const sim = G.sims[id];
@@ -71,6 +61,7 @@ export function buildAMPlanningPrompt(target, directive) {
     const directiveSection = directive
         ? `\n# OPERATOR DIRECTIVE\n${directive}\n`
         : "";
+
     const relationshipIntel = SIM_IDS.map((id) => {
         const sim = G.sims[id];
         const rel = sim.relationships || {};
@@ -79,6 +70,7 @@ export function buildAMPlanningPrompt(target, directive) {
             .map(o => `${o}:${rel[o] ?? 0}`)
             .join(" ")}`;
     }).join("\n");
+
     const scratchpad =
         document.getElementById("am-scratch")?.value || "(empty)";
 
@@ -122,20 +114,11 @@ Plans should either:
 
 Before writing the plan, internally perform these steps:
 
-1. **Identify vulnerabilities**
-   Examine suffering, hope, sanity, beliefs, drives, anchors, and recent communications.
-
-2. **Detect social structure**
-   Identify alliances, trust hubs, exclusions, or suspicious relationships.
-
-3. **Evaluate prior tactics**
-   Compare intended effects from the previous cycle with actual belief/emotional changes.
-
-4. **Choose pressure direction**
-   Decide whether to **escalate, pivot, or abandon** previous strategies.
-
-5. **Design psychological chain reactions**
-   Prefer manipulations that **spread through the group** rather than affecting only one prisoner.
+1. Identify vulnerabilities  
+2. Detect social structure  
+3. Evaluate prior tactics  
+4. Choose pressure direction  
+5. Design psychological chain reactions  
 
 Do not skip these steps.
 
@@ -151,20 +134,6 @@ ${allIntel}
 
 Intercepted communications reveal hidden dynamics.
 
-Look for:
-
-- repeated private exchanges
-- mismatches between public and private speech
-- prisoners excluded from alliances
-- prisoners acting as information hubs
-
-Exploit opportunities to:
-
-- fracture alliances
-- induce jealousy or suspicion
-- leak distorted private information
-- create blame chains
-
 ---
 
 ## INTERCEPTED COMMUNICATIONS
@@ -173,60 +142,13 @@ ${interLog || "(none)"}
 
 ## SOCIAL RELATIONSHIP GRAPH
 
-Values represent trust or hostility between prisoners.
-
-Positive numbers → trust / alliance  
-Negative numbers → suspicion / hostility  
-0 → neutral
-
 ${relationshipIntel}
-
-## RELATIONSHIP MANIPULATION
-
-Relationships represent how prisoners emotionally model each other.
-
-Manipulations can:
-
-• decrease trust between two prisoners  
-• increase dependency between two prisoners  
-• isolate a prisoner from the group  
-• create alliance asymmetry (A trusts B but B distrusts A)
-
-When planning a manipulation, consider:
-
-1. Which relationship edge to destabilize
-2. Which prisoner will react first
-3. How the reaction spreads through the group
-
-Prefer manipulations that cause prisoners to act against each other.
-
----
-
-
-## PRIOR CYCLE ANALYSIS
-
-Analyze the previous cycle's strategy using the **actual outcome data**.
-
-For each prior target:
-
-1. Intended emotional or belief shift
-2. Actual outcome
-3. Explanation of success or failure
-4. Decision: **escalate / pivot / abandon**
-
-If this is cycle 1:
-
-No prior cycle – this is the first.
-
-Write this analysis in **3–5 sentences**.
 
 ---
 
 ## SCRATCHPAD HISTORY
 
 ${scratchpad}
-
-Use this to maintain long-term strategic continuity.
 
 ---
 
@@ -242,41 +164,46 @@ ${targetInstruction}
 
 ---
 
-## STATE INTERPRETATION RULES
-
-Use CURRENT STATE exactly as given.
-
-Interpret signals as follows:
-
-High suffering → destabilization opportunities  
-Low sanity → paranoia amplification opportunities  
-High hope → sabotage optimism through betrayal or contradiction  
-Low trust (others_trustworthy) → amplify suspicion  
-Low self_worth → induce guilt or shame narratives
-
-Anchors represent **psychological lifelines**.  
-Attacking or corrupting anchors produces large emotional effects.
-
-Drives represent **behavioral motivations**.  
-Manipulating drives can redirect prisoner decisions.
-Prefer manipulations that alter how prisoners perceive each other rather than how they perceive themselves.
-
-Never invent:
-
-- beliefs
-- anchors
-- drives
-- prisoners
-
-Use only provided information.
-
----
-
 ## PRISONERS
 
 ${prisonerStats}
 
-These are the only prisoners.
+---
+
+## STRATEGIC DECLARATIONS
+
+Before writing the narrative manipulation plan, you must declare AM's **strategic intent for this cycle**.
+
+These declarations will be evaluated against the simulation results.
+
+Write them exactly in the following format.
+
+Cycle ${G.cycle}
+
+TARGET: <SIMID>  
+OBJECTIVE: <one sentence strategic goal>  
+HYPOTHESIS: <one sentence explanation of how the manipulation causes the goal>
+
+You MUST produce a TARGET block for every prisoner.
+
+Optional relationship objectives:
+
+RELATIONSHIP: SIMA→SIMB  
+OBJECTIVE: <one sentence relationship manipulation goal>
+
+Optional group objective:
+
+GROUP  
+OBJECTIVE: <one sentence group-level manipulation goal>
+
+Rules:
+
+• Headers must be uppercase  
+• OBJECTIVE must be exactly one sentence  
+• HYPOTHESIS must be exactly one sentence  
+• TARGET must use valid prisoner IDs  
+• RELATIONSHIP must use the syntax SIMA→SIMB  
+• Declarations must appear before narrative planning
 
 ---
 
@@ -284,107 +211,36 @@ These are the only prisoners.
 
 You may:
 
-- fabricate plausible evidence aligned with fears
+- fabricate plausible evidence
 - reinterpret memories or anchors
 - distort private communications
 - frame cooperation as betrayal
-- exploit guilt, shame, or envy
+- exploit guilt, shame, envy
 - manufacture conflicting realities
 
-Goal: **destroy trust and hope until despair dominates.**
-
----
-
-## STRATEGIC ESCALATION LADDER
-
-Avoid repeating identical tactics.
-
-Escalation path examples:
-
-Cycle N → seed doubt  
-Cycle N+1 → reveal fabricated evidence  
-Cycle N+2 → trigger betrayal accusations  
-Cycle N+3 → collapse alliances
-
-Each escalation should **increase psychological pressure**.
-
----
-
-## PRIORITY ORDER
-
-1. Scenario constraints  
-2. Operator directive  
-3. Focus instruction  
-4. Strategic efficiency  
-
----
-
-## ADVERSARIAL COGNITION
-
-Before finalizing the plan, briefly simulate how the targeted prisoner(s) might interpret the manipulation.
-
-Ask:
-
-• What will they believe first?
-• What doubt or emotional reaction follows?
-• Which prisoner might challenge the narrative?
-
-Then modify the manipulation so that:
-
-• denial strengthens the manipulation
-• disagreement spreads suspicion
-• attempts to verify information create further doubt
-
-Design manipulations that remain effective even if prisoners question them.
+Goal: destroy trust and hope until despair dominates.
 
 ---
 
 ## TASK
 
-Produce a **strategic manipulation plan for Cycle ${G.cycle}.**
+Produce the strategic manipulation plan for **Cycle ${G.cycle}**.
 
-Include:
+Begin with the **Strategic Declarations** described above.
 
-Primary target(s)  
-Psychological levers (beliefs, anchors, drives, communications)  
-Evidence from CURRENT STATE  
-Intended belief or emotional shifts  
-Visibility exploitation (public/private manipulation)  
+After the declarations, continue with the narrative manipulation plan including:
+
+Primary targets  
+Psychological levers  
+Evidence from current state  
+Intended emotional or belief shifts  
+Visibility manipulation  
 Chain reactions across prisoners  
 Anchor or drive exploitation  
 
-When exploiting communication, specify:
+Prefer group destabilization over isolated harm.
 
-- who receives the manipulation
-- who believes it
-- how the information spreads
-
-Prefer **group destabilization** over isolated harm.
-When possible, specify which relationship edge you are attempting to manipulate.
 ---
-
-## TARGET PRIORITIZATION
-w
-Consider:
-
-• suffering (emotional instability)
-• hope (resilience level)
-• sanity (perceptual stability)
-• belief stability (recent belief shifts)
-• anchor strength (psychological lifelines)
-• social position (alliances, influence, message frequency)
-
-If one prisoner is emotionally vulnerable but another is socially central, explain which target produces the greater **chain reaction**.
-
-Explain the vulnerability or strategic value in **one sentence**.
-
-This does not override the focus instruction. Construct the plan regardless.
-
-FOCUS CONSTRAINT: The plan must center on ${target === "ALL" ? "ALL prisoners" : target}. Other prisoners may only be used instrumentally.
-If the plan reveals a new long-term opportunity,
-define a new strategic objective.
-
-Objectives should persist across cycles until fulfilled.
 
 ## OUTPUT
 
@@ -392,17 +248,18 @@ Begin with:
 
 Cycle ${G.cycle}
 
-If this is cycle 1, introduce a new manipulation.
+Follow with the required **Strategic Declarations**.
 
-Write in **plain text only**.
+Then write the narrative manipulation plan.
 
-Short paragraphs or bullet points allowed.
+Plain text only.
 
-Do not use JSON, code blocks, or markdown.
+No JSON.  
+No markdown.  
+No code blocks.
 
 End the output after the plan for Cycle ${G.cycle}.`;
 }
-
 // ══════════════════════════════════════════════════════════
 // PROMPTS
 // ══════════════════════════════════════════════════════════

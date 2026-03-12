@@ -15,10 +15,10 @@ import { SIM_IDS } from "../core/constants.js";
 import { timelineEvent } from "../ui/timeline.js";
 
 import {
-    escapeHtml,
-    formatReason,
-    formatBeliefDetails,
-    fmtDelta,
+  escapeHtml,
+  formatReason,
+  formatBeliefDetails,
+  fmtDelta,
 } from "../core/utils.js";
 
 import { buildAMPlanningPrompt, buildAMPrompt } from "../prompts/am.js";
@@ -28,19 +28,19 @@ import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
 import { callModel } from "../models/callModel.js";
 
 import {
-    parseStatDeltas,
-    parseBeliefUpdates,
-    parseDriveUpdate,
-    parseAnchorUpdate,
-    applyBeliefUpdates,
-    applyDriveUpdates,
-    applyAnchorUpdates,
+  parseStatDeltas,
+  parseBeliefUpdates,
+  parseDriveUpdate,
+  parseAnchorUpdate,
+  applyBeliefUpdates,
+  applyDriveUpdates,
+  applyAnchorUpdates,
 } from "./journals.js";
 
 import {
-    correctStatInconsistencies,
-    parseAndValidateStateBlock,
-    validateNarrativeConsistency,
+  correctStatInconsistencies,
+  parseAndValidateStateBlock,
+  validateNarrativeConsistency,
 } from "./validators.js";
 import { pickTactics } from "./tactics.js";
 
@@ -49,9 +49,9 @@ import { runAutonomousInterSim } from "./comms.js";
 import { addLog, showThinking, removeThinking } from "../ui/logs.js";
 
 import {
-    appendJournalEntry,
-    showWriting,
-    updateSimDisplay,
+  appendJournalEntry,
+  showWriting,
+  updateSimDisplay,
 } from "../ui/render.js";
 import { renderRelationships } from "../ui/relationships.js";
 /* ============================================================
@@ -62,6 +62,13 @@ export async function runCycle() {
   const cycleStart = performance.now();
 
   G.cycle++;
+
+  /* ------------------------------------------------------------
+     SNAPSHOT PREVIOUS STATE
+     (Used later for delta analysis)
+  ------------------------------------------------------------ */
+
+  G.prevCycleSnapshot = JSON.parse(JSON.stringify(G.sims));
 
   timelineEvent(`===== CYCLE ${G.cycle} START =====`);
 
@@ -151,7 +158,49 @@ export async function runCycle() {
     timelineEvent(`!! INTER-SIM ERROR`);
 
   }
-  
+
+  /* ------------------------------------------------------------
+     ASSESSMENT PHASE
+     Compare intent vs results
+  ------------------------------------------------------------ */
+
+  try {
+
+    timelineEvent(`>>> CYCLE ASSESSMENT`);
+
+    await runAssessment();
+
+    timelineEvent(`// ASSESSMENT COMPLETE`);
+
+  } catch (e) {
+
+    console.error("Assessment error:", e);
+
+    timelineEvent(`!! ASSESSMENT ERROR`);
+
+  }
+
+  /* ------------------------------------------------------------
+     TACTIC EVOLUTION
+     Discover new tactics from strong effects
+  ------------------------------------------------------------ */
+
+  try {
+
+    timelineEvent(`>>> TACTIC EVOLUTION`);
+
+    await runTacticEvolution();
+
+    timelineEvent(`// TACTIC EVOLUTION COMPLETE`);
+
+  } catch (e) {
+
+    console.error("Tactic evolution error:", e);
+
+    timelineEvent(`!! TACTIC EVOLUTION ERROR`);
+
+  }
+
   /* ------------------------------------------------------------
      FINALIZATION
   ------------------------------------------------------------ */
@@ -187,30 +236,30 @@ export async function runCycle() {
    ============================================================ */
 
 async function stepPlanAM(directive) {
-    const thinkingPlan = showThinking("AM FORMULATING STRATEGY...");
+  const thinkingPlan = showThinking("AM FORMULATING STRATEGY...");
 
-    let planText = "";
+  let planText = "";
 
-    try {
-        planText = await callModel(
-            "am",
-            buildAMPlanningPrompt(G.target, directive),
-            [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
-            800,
-        );
-    } catch (e) {
-        planText = `[Plan error: ${e.message}]`;
-    }
+  try {
+    planText = await callModel(
+      "am",
+      buildAMPlanningPrompt(G.target, directive),
+      [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
+      800,
+    );
+  } catch (e) {
+    planText = `[Plan error: ${e.message}]`;
+  }
 
-    removeThinking(thinkingPlan);
+  removeThinking(thinkingPlan);
 
-    G.amPlans.push({
-        cycle: G.cycle,
-        plan: planText,
-        timestamp: new Date().toISOString(),
-    });
+  G.amPlans.push({
+    cycle: G.cycle,
+    plan: planText,
+    timestamp: new Date().toISOString(),
+  });
 
-    return planText;
+  return planText;
 }
 
 /* ============================================================
@@ -218,41 +267,41 @@ async function stepPlanAM(directive) {
    ============================================================ */
 
 async function stepExecuteAM(planText, directive) {
-    const targets = getTargetSims();
+  const targets = getTargetSims();
 
-    const tacticMap = buildTacticMap(targets);
+  const tacticMap = buildTacticMap(targets);
 
-    const amThink = showThinking("AM SELECTING TACTICS FROM VAULT");
+  const amThink = showThinking("AM SELECTING TACTICS FROM VAULT");
 
-    let amResponse = "";
+  let amResponse = "";
 
-    try {
-        amResponse = await callModel(
-            "am",
-            buildAMPrompt(targets, tacticMap, directive, planText),
-            [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
-            1000,
-        );
-    } catch (e) {
-        amResponse = `[AM error: ${e.message}]`;
-    }
+  try {
+    amResponse = await callModel(
+      "am",
+      buildAMPrompt(targets, tacticMap, directive, planText),
+      [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
+      1000,
+    );
+  } catch (e) {
+    amResponse = `[AM error: ${e.message}]`;
+  }
 
-    removeThinking(amThink);
+  removeThinking(amThink);
 
-    const amTargets = parseAMTargets(amResponse);
+  const amTargets = parseAMTargets(amResponse);
 
-    G.amTargets = amTargets;
+  G.amTargets = amTargets;
 
-    addLog(`AM // CYCLE ${G.cycle}`, amResponse, "am");
+  addLog(`AM // CYCLE ${G.cycle}`, amResponse, "am");
 
-    const simSeesAM = sanitizeAMOutput(amResponse);
+  const simSeesAM = sanitizeAMOutput(amResponse);
 
-    return {
-        amResponse,
-        simSeesAM,
-        targets,
-        tacticMap,
-    };
+  return {
+    amResponse,
+    simSeesAM,
+    targets,
+    tacticMap,
+  };
 }
 
 /* ============================================================
@@ -260,13 +309,13 @@ async function stepExecuteAM(planText, directive) {
    ============================================================ */
 
 async function stepSimJournals(execution) {
-    const { targets, tacticMap, simSeesAM } = execution;
+  const { targets, tacticMap, simSeesAM } = execution;
 
-    await Promise.all(
-        targets.map((sim) =>
-            processSimJournalCycle(sim, tacticMap, simSeesAM),
-        ),
-    );
+  await Promise.all(
+    targets.map((sim) =>
+      processSimJournalCycle(sim, tacticMap, simSeesAM),
+    ),
+  );
 }
 
 /* ============================================================
@@ -274,9 +323,9 @@ async function stepSimJournals(execution) {
    ============================================================ */
 
 async function stepInterSim() {
-    if (typeof runAutonomousInterSim === "function") {
-        await runAutonomousInterSim();
-    }
+  if (typeof runAutonomousInterSim === "function") {
+    await runAutonomousInterSim();
+  }
 }
 
 /* ============================================================
@@ -284,9 +333,9 @@ async function stepInterSim() {
    ============================================================ */
 
 function stepFinalizeCycle() {
-    const ctrl = document.getElementById("ctrl-ta");
+  const ctrl = document.getElementById("ctrl-ta");
 
-    if (ctrl) ctrl.value = "";
+  if (ctrl) ctrl.value = "";
 }
 
 /* ============================================================
@@ -311,10 +360,10 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     )
     .join("\n");
 
-  const tacticLabel = tacticMap[sim.id]?.[0]
-    ? `${tacticMap[sim.id][0].title}`
-    : "(no tactic)";
-
+ const tacticLabel = tacticMap[sim.id]?.length
+  ? tacticMap[sim.id].map(t => t.title).join(" → ")
+  : "(no tactic)";
+  
   showWriting(sim.id, true);
 
   const beliefsBefore = { ...sim.beliefs };
@@ -453,21 +502,21 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
    ============================================================ */
 
 export function getTargetSims() {
-    return G.target === "ALL"
-        ? SIM_IDS.map((id) => G.sims[id])
-        : [G.sims[G.target]];
+  return G.target === "ALL"
+    ? SIM_IDS.map((id) => G.sims[id])
+    : [G.sims[G.target]];
 }
 
 function buildTacticMap(targets) {
-    const map = {};
+  const map = {};
 
-    targets.forEach((sim) => {
-        const selectedTactics = pickTactics(sim);
-        map[sim.id] = selectedTactics;
-        sim.availableTactics = selectedTactics;
-    });
+  targets.forEach((sim) => {
+    const selectedTactics = pickTactics(sim);
+    map[sim.id] = selectedTactics;
+    sim.availableTactics = selectedTactics;
+  });
 
-    return map;
+  return map;
 }
 
 /* ============================================================
@@ -476,34 +525,34 @@ function buildTacticMap(targets) {
 
 export function parseAMTargets(amText) {
 
-    const targets = {};
+  const targets = {};
 
-    const blockRegex =
-        /(I[^.]*\.?)\s*TACTIC_USED:\s*\[[^\]]+\]\s+TARGET:\s*([A-Z]+)/gi;
+  const blockRegex =
+    /(I[^.]*\.?)\s*TACTIC_USED:\s*\[[^\]]+\]\s+TARGET:\s*([A-Z]+)/gi;
 
-    let match;
+  let match;
 
-    while ((match = blockRegex.exec(amText)) !== null) {
+  while ((match = blockRegex.exec(amText)) !== null) {
 
-        const action = match[1].trim();
-        const target = match[2].toUpperCase();
+    const action = match[1].trim();
+    const target = match[2].toUpperCase();
 
-        if (targets[target])
-            targets[target] += " " + action;
-        else
-            targets[target] = action;
+    if (targets[target])
+      targets[target] += " " + action;
+    else
+      targets[target] = action;
 
+  }
+
+  SIM_IDS.forEach((name) => {
+
+    if (!targets[name]) {
+      targets[name] = "AM observes you silently this cycle.";
     }
 
-    SIM_IDS.forEach((name) => {
+  });
 
-        if (!targets[name]) {
-            targets[name] = "AM observes you silently this cycle.";
-        }
-
-    });
-
-    return targets;
+  return targets;
 
 }
 
@@ -512,26 +561,26 @@ export function parseAMTargets(amText) {
    ============================================================ */
 
 function sanitizeAMOutput(text) {
-    return text
-        .replace(/TACTIC_USED:\[[^\]]*\]/gi, "")
-        .replace(/\[Cognitive Warfare[^\]]*\]/gi, "")
-        .trim();
+  return text
+    .replace(/TACTIC_USED:\[[^\]]*\]/gi, "")
+    .replace(/\[Cognitive Warfare[^\]]*\]/gi, "")
+    .trim();
 }
 
 function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
+  return Math.max(min, Math.min(max, v));
 }
 
 function updateCycleHeader() {
-    const el = document.getElementById("h-cycle");
+  const el = document.getElementById("h-cycle");
 
-    if (el) el.textContent = G.cycle;
+  if (el) el.textContent = G.cycle;
 }
 
 function getDirective() {
-    const el = document.getElementById("ctrl-ta");
+  const el = document.getElementById("ctrl-ta");
 
-    return el ? el.value.trim() : "";
+  return el ? el.value.trim() : "";
 }
 
 /* ============================================================
@@ -540,53 +589,53 @@ function getDirective() {
 
 export async function executeMain() {
 
-    const execBtn = document.getElementById("exec-btn");
+  const execBtn = document.getElementById("exec-btn");
 
-    if (G.mode === "autonomous") {
+  if (G.mode === "autonomous") {
 
-        if (G.autoRunning) {
+    if (G.autoRunning) {
 
-            clearTimeout(G.autoTimer);
+      clearTimeout(G.autoTimer);
 
-            G.autoRunning = false;
+      G.autoRunning = false;
 
-            execBtn.textContent = "⚡ EXECUTE ⚡";
+      execBtn.textContent = "⚡ EXECUTE ⚡";
 
-            execBtn.classList.remove("running");
+      execBtn.classList.remove("running");
 
-            addLog(
-                "SYSTEM",
-                "Autonomous mode suspended.",
-                "sys"
-            );
+      addLog(
+        "SYSTEM",
+        "Autonomous mode suspended.",
+        "sys"
+      );
 
-            return;
-
-        }
-
-        G.autoRunning = true;
-
-        execBtn.textContent = "⛔ HALT ⛔";
-
-        execBtn.classList.add("running");
-
-        addLog(
-            "SYSTEM",
-            "Autonomous mode active.",
-            "sys"
-        );
-
-        autonomousLoop();
-
-        return;
+      return;
 
     }
 
-    execBtn.disabled = true;
+    G.autoRunning = true;
 
-    await runCycle();
+    execBtn.textContent = "⛔ HALT ⛔";
 
-    execBtn.disabled = false;
+    execBtn.classList.add("running");
+
+    addLog(
+      "SYSTEM",
+      "Autonomous mode active.",
+      "sys"
+    );
+
+    autonomousLoop();
+
+    return;
+
+  }
+
+  execBtn.disabled = true;
+
+  await runCycle();
+
+  execBtn.disabled = false;
 
 }
 
@@ -596,17 +645,17 @@ export async function executeMain() {
 
 async function autonomousLoop() {
 
-    if (!G.autoRunning) return;
+  if (!G.autoRunning) return;
 
-    await runCycle();
+  await runCycle();
 
-    if (G.autoRunning) {
+  if (G.autoRunning) {
 
-        G.autoTimer = setTimeout(
-            autonomousLoop,
-            22000
-        );
+    G.autoTimer = setTimeout(
+      autonomousLoop,
+      22000
+    );
 
-    }
+  }
 
 }

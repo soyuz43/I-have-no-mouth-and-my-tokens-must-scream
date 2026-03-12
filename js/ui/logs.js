@@ -29,11 +29,31 @@ export function addLog(spk, body, type = "sys", tactic = "", allowHtml = false) 
       ? body
       : escapeHtml(String(body)).replace(/\n/g, "<br>");
 
-  const renderedTactic =
-    tactic
-      ? `<div class="log-tactic">▸ ${escapeHtml(tactic)}</div>`
-      : "";
+  
+let renderedTactic = "";
 
+if (tactic) {
+
+  const parts = String(tactic).split("→").map(s => s.trim());
+
+  if (parts.length === 1) {
+
+    renderedTactic =
+      `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>`;
+
+  } else {
+
+    renderedTactic =
+      `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>` +
+      parts.slice(1)
+        .map(t =>
+          `<div class="log-tactic-sub">↳ ${escapeHtml(t)}</div>`
+        )
+        .join("");
+
+  }
+
+}
   el.innerHTML =
       `<div class="log-spk">${safeSpeaker}</div>` +
       `<div class="log-body">${renderedBody}</div>` +

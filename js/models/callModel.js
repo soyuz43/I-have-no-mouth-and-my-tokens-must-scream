@@ -159,11 +159,11 @@ function debugRequest(role, model, systemPrompt, messages) {
     "color:#cc3300;font-weight:bold"
   );
 
-  console.log(
-    "%cSYSTEM PROMPT",
-    "color:#884400;font-weight:bold",
-    systemPrompt
-  );
+  // console.log(
+  //   "%cSYSTEM PROMPT",
+  //   "color:#884400;font-weight:bold",
+  //   systemPrompt
+  // );
 
   console.log(
     "%cMESSAGES",

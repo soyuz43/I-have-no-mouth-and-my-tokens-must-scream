@@ -25,12 +25,20 @@ export const G = {
   token: "",
 
   repo: "soyuz43/Cognitive-Warfare-A-Practical-Guide-for-Semiotic-Tacticians",
-/* ============================================================
-     AM STRATEGIC MEMORY
-  ============================================================ */
+  /* ============================================================
+       AM STRATEGIC MEMORY
+    ============================================================ */
 
   strategicObjectives: [],
+  /* ============================================================
+     AM OPERATIONAL STRATEGY MEMORY
+     ============================================================ */
 
+  amStrategy: {
+    targets: {},         // per-prisoner objectives
+    relationships: {},   // directional relationship objectives
+    group: []            // group-level strategic goals
+  },
   INGEST_DIRS: [
     "0. Weapons",
     "1. Fundamentals",
@@ -71,6 +79,7 @@ export const G = {
   vault: {
     categories: {},
     allTactics: [],
+    derivedTactics: [],   // dynamically discovered tactics
     fileCount: 0,
   },
 
@@ -89,6 +98,9 @@ export const G = {
   autoRunning: false,
 
   autoTimer: null,
+
+
+  prevCycleSnapshot: null,
 
   /* ============================================================
      TIMELINE EVENT STORE

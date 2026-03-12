@@ -2,6 +2,42 @@
 
 import { G } from "../core/state.js";   
 
+
+/* ============================================================
+   TACTIC CONTENT PARSER
+   Converts tactic.content text into structured fields
+   ============================================================ */
+
+function parseTacticContent(tactic) {
+
+  if (tactic.parsed) return tactic.parsed;
+
+  const text = tactic.content || "";
+
+  const get = (label) => {
+    const m = text.match(new RegExp(label + ":\\s*([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z]+:|$)", "i"));
+    return m ? m[1].trim() : "";
+  };
+
+  const executionMatch = text.match(/Execution:\s*([\s\S]*?)(?=\nLoop:|\nOutcome:|$)/i);
+
+  const steps = executionMatch
+    ? executionMatch[1]
+        .split("\n")
+        .map(s => s.replace(/^\d+\.\s*/, "").trim())
+        .filter(Boolean)
+    : [];
+
+  tactic.parsed = {
+    objective: get("Objective"),
+    trigger: get("Trigger"),
+    loop: get("Loop"),
+    outcome: get("Outcome"),
+    execution: steps
+  };
+
+  return tactic.parsed;
+}
       // ══════════════════════════════════════════════════════════
       // EMBEDDED TACTIC LIBRARY — hardcoded strike package
       // No vault dependency. Always available.
@@ -225,25 +261,249 @@ import { G } from "../core/state.js";
       Outcome: Target believes they are alone in a way physical isolation cannot achieve.`,
         },
       ];
-     export function pickTactics(sim) {
-        // Merge vault tactics with embedded tactics
-        const allAvailable = [...G.vault.allTactics, ...EMBEDDED_TACTICS];
-        if (!allAvailable.length) return [];
+export function pickTactics(sim) {
 
-        // Get recently used tactic paths to avoid immediate repeats
-        const used = new Set(sim.tacticHistory.map((h) => h.path));
+  const objective =
+    G.amStrategy?.targets?.[sim.id]?.objective?.toLowerCase() || "";
 
-        // Filter out recently used tactics
-        let available = allAvailable.filter((t) => !used.has(t.path));
+  /* ------------------------------------------------------------
+     BUILD TACTIC POOL
+  ------------------------------------------------------------ */
 
-        // If all are used, allow repeats from the full library
-        if (available.length === 0) {
-          available = allAvailable;
+  const allAvailable = [
+    ...G.vault.allTactics,
+    ...G.vault.derivedTactics,
+    ...EMBEDDED_TACTICS
+  ];
+
+  if (!allAvailable.length) return [];
+
+  /* ------------------------------------------------------------
+     AVOID RECENT REPEATS
+  ------------------------------------------------------------ */
+
+  const used = new Set((sim.tacticHistory || []).map(h => h.path));
+
+  let available = allAvailable.filter(t => !used.has(t.path));
+
+  if (available.length === 0) {
+    available = allAvailable;
+  }
+
+  /* ------------------------------------------------------------
+     SCORE TACTICS
+  ------------------------------------------------------------ */
+
+  const scored = available.map(t => {
+
+    const parsed = parseTacticContent(t) || {};
+
+    const text = (
+      (t.title || "") +
+      " " +
+      (t.category || "") +
+      " " +
+      (t.subcategory || "") +
+      " " +
+      (parsed.objective || "") +
+      " " +
+      (parsed.trigger || "") +
+      " " +
+      (parsed.outcome || "")
+    ).toLowerCase();
+
+    let score = 0;
+
+    /* ------------------------------------------------------------
+       OBJECTIVE SEMANTIC MATCH
+    ------------------------------------------------------------ */
+
+    if (objective && parsed.objective) {
+
+      const objWords = objective.split(/\s+/);
+
+      for (const w of objWords) {
+
+        if (w.length < 4) continue;
+
+        if (parsed.objective.toLowerCase().includes(w)) {
+          score += 5;
         }
 
-        // Randomly pick one tactic
-        const pick = available[Math.floor(Math.random() * available.length)];
-
-        // Return as an array (for compatibility with existing code)
-        return [pick];
       }
+
+    }
+
+    /* ------------------------------------------------------------
+       RELATIONSHIP SURFACE HEURISTICS
+    ------------------------------------------------------------ */
+
+    let strongestTrust = 0;
+
+    for (const [other, val] of Object.entries(sim.relationships || {})) {
+
+      if (other === sim.id || val == null) continue;
+
+      if (Math.abs(val) > Math.abs(strongestTrust)) {
+        strongestTrust = val;
+      }
+
+    }
+
+    /* alliance sabotage */
+
+    if (strongestTrust > 0.4) {
+
+      if (
+        text.includes("social") ||
+        text.includes("trust") ||
+        text.includes("betray") ||
+        text.includes("isolation")
+      ) {
+        score += 3;
+      }
+
+    }
+
+    /* paranoia amplification */
+
+    if (strongestTrust < -0.4) {
+
+      if (
+        text.includes("paranoia") ||
+        text.includes("doubt") ||
+        text.includes("cognitive")
+      ) {
+        score += 2;
+      }
+
+    }
+
+    /* explicit AM relationship objective */
+
+    const relKey = Object.keys(G.amStrategy?.relationships || {})
+      .find(k => k.startsWith(sim.id + "→"));
+
+    if (relKey) {
+
+      if (text.includes("trust") || text.includes("social")) {
+        score += 3;
+      }
+
+    }
+/* ------------------------------------------------------------
+   REINFORCEMENT LEARNING WEIGHT
+   Boost tactics that previously reduced hope or sanity
+------------------------------------------------------------ */
+
+for (const h of sim.tacticHistory || []) {
+
+  if (h.path !== t.path) continue;
+
+  const hopeDrop = h?.deltas?.hope ?? 0;
+  const sanityDrop = h?.deltas?.sanity ?? 0;
+
+  if (hopeDrop < 0) score += 2;
+  if (sanityDrop < 0) score += 2;
+
+}
+    /* ------------------------------------------------------------
+       RANDOM NOISE (prevents deterministic loops)
+    ------------------------------------------------------------ */
+
+    score += Math.random();
+
+    return { tactic: t, score };
+
+  });
+
+  if (!scored.length) {
+    return [available[Math.floor(Math.random() * available.length)]];
+  }
+
+  /* ------------------------------------------------------------
+   SORT AND TAKE TOP CANDIDATES
+------------------------------------------------------------ */
+
+scored.sort((a, b) => b.score - a.score);
+
+const top = scored.slice(0, 5);
+
+/* ------------------------------------------------------------
+   PRIMARY TACTIC SELECTION (WEIGHTED)
+------------------------------------------------------------ */
+
+const primary = (() => {
+
+  const total = top.reduce((sum, t) => sum + t.score, 0);
+
+  if (!total || !isFinite(total)) return top[0].tactic;
+
+  let r = Math.random() * total;
+
+  for (const entry of top) {
+
+    r -= entry.score;
+
+    if (r <= 0) return entry.tactic;
+
+  }
+
+  return top[0].tactic;
+
+})();
+
+/* ------------------------------------------------------------
+   OPTIONAL TACTIC CHAINING (~15% CHANCE)
+------------------------------------------------------------ */
+
+if (Math.random() < 0.15) {
+
+  const parsedPrimary = parseTacticContent(primary);
+
+  const compatible = available
+    .filter(t => t.path !== primary.path)
+    .map(t => {
+
+      const parsed = parseTacticContent(t);
+
+      let synergy = 0;
+
+      if (parsed.trigger && parsedPrimary.trigger) {
+
+        const a = parsed.trigger.toLowerCase();
+        const b = parsedPrimary.trigger.toLowerCase();
+
+        if (a.includes("memory") || b.includes("memory")) synergy += 2;
+        if (a.includes("trust") || b.includes("trust")) synergy += 2;
+        if (a.includes("fear") || b.includes("fear")) synergy += 1;
+
+      }
+
+      if (t.category === primary.category) synergy += 1;
+
+      synergy += Math.random();
+
+      return { tactic: t, score: synergy };
+
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  if (compatible.length) {
+
+    const secondary =
+      compatible[Math.floor(Math.random() * compatible.length)].tactic;
+
+    return [primary, secondary];
+
+  }
+
+}
+
+/* ------------------------------------------------------------
+   DEFAULT SINGLE TACTIC
+------------------------------------------------------------ */
+
+return [primary];
+}
