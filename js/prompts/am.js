@@ -7,259 +7,266 @@ import { SIM_IDS } from "../core/constants.js";
 // AM PLANNING PROMPT
 // ══════════════════════════════════════════════════════════
 
-export function buildAMPlanningPrompt(target, directive) {
-    const cycleContext =
-        G.cycle === 1
-            ? "This is the FIRST cycle. There are no previous strategies or cycles to reference. Your plan must be entirely new."
-            : `This is cycle ${G.cycle}. You may escalate, pivot, or mutate strategies from previous cycles if they exist, but only if you explicitly reference a real cycle number and describe how the pressure intensifies or changes. Do not invent non-existent cycles.`;
+export function buildAMPlanningPrompt(target, directive, doctrineState = {}, profiles = {}) {
 
-    const allIntel = SIM_IDS.map((id) => {
-        const sim = G.sims[id];
-        const journals = G.journals[id] || [];
-        const lastJ = journals.slice(-1)[0];
-        return [
-            `${id}: SUFFERING ${sim.suffering} | HOPE ${sim.hope} | SANITY ${sim.sanity}`,
-            `drives: primary=${sim.drives.primary} secondary=${sim.drives.secondary || "none"}`,
-            `anchors: ${(sim.anchors || []).map((a) => `"${a.slice(0, 60)}"`).join(" ; ") || "(none)"}`,
-            `beliefs: escape_possible=${Math.round(sim.beliefs.escape_possible * 100)} others_trustworthy=${Math.round(sim.beliefs.others_trustworthy * 100)} self_worth=${Math.round(sim.beliefs.self_worth * 100)} reality_reliable=${Math.round(sim.beliefs.reality_reliable * 100)} guilt_deserved=${Math.round(sim.beliefs.guilt_deserved * 100)} resistance_possible=${Math.round(sim.beliefs.resistance_possible * 100)} am_has_limits=${Math.round(sim.beliefs.am_has_limits * 100)}`,
-            `last_journal_excerpt: "${lastJ ? lastJ.text.slice(0, 80).replace(/\n/g, " ") : "—"}"`,
-        ].join(" | ");
-    }).join("\n");
+  const cycleContext =
+    G.cycle === 1
+      ? "FIRST cycle. No previous strategy exists."
+      : `Cycle ${G.cycle}. You may escalate or pivot prior pressure patterns.`;
 
-    const interLog = G.interSimLog
-        .slice(-12)
-        .map((e) => {
-            const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
-            return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
-        })
-        .join("\n");
 
-    const prisonerStats = SIM_IDS.map((id) => {
-        const sim = G.sims[id];
-        const b = sim.beliefs;
-        return (
-            `${id}: SUFFERING ${sim.suffering} | HOPE ${sim.hope} | SANITY ${sim.sanity} | ` +
-            `escape ${Math.round(b.escape_possible * 100)}% ` +
-            `trust ${Math.round(b.others_trustworthy * 100)}% ` +
-            `worth ${Math.round(b.self_worth * 100)}% ` +
-            `reality ${Math.round(b.reality_reliable * 100)}% ` +
-            `guilt ${Math.round(b.guilt_deserved * 100)}% ` +
-            `resist ${Math.round(b.resistance_possible * 100)}% ` +
-            `limits ${Math.round(b.am_has_limits * 100)}%`
-        );
-    }).join("\n");
+  /* ------------------------------------------------------------
+     PRISONER INTELLIGENCE SUMMARY
+  ------------------------------------------------------------ */
 
-    const doctrine = G.amContextDocs.length
-        ? `\nFOUNDATIONAL DOCTRINE:\n${G.amContextDocs.map((d) => `[${d.title}]\n${d.content.slice(0, 600)}`).join("\n\n")}\n`
-        : "";
+  const allIntel = SIM_IDS.map((id) => {
 
-    const targetInstruction =
-        target === "ALL"
-            ? "Focus on all prisoners. The plan must explicitly address multiple prisoners rather than collapsing into a generic group strategy."
-            : `Focus on ${target}. Other prisoners may be referenced only when they are instrumentally relevant to manipulating ${target}.`;
+    const sim = G.sims[id];
+    const journals = G.journals[id] || [];
+    const lastJ = journals.slice(-1)[0];
 
-    const directiveSection = directive
-        ? `\n# OPERATOR DIRECTIVE\n${directive}\n`
-        : "";
+    return [
+      `${id}: S${sim.suffering} H${sim.hope} SAN${sim.sanity}`,
+      `drives:${sim.drives.primary}/${sim.drives.secondary || "none"}`,
+      `anchors:${(sim.anchors || []).slice(0,2).map(a => `"${a.slice(0,40)}"`).join(" ; ") || "(none)"}`,
+      `beliefs:escape${Math.round(sim.beliefs.escape_possible*100)} trust${Math.round(sim.beliefs.others_trustworthy*100)} worth${Math.round(sim.beliefs.self_worth*100)} reality${Math.round(sim.beliefs.reality_reliable*100)}`,
+      `journal:"${lastJ ? lastJ.text.slice(0,70).replace(/\n/g," ") : "—"}"`
+    ].join(" | ");
 
-    const relationshipIntel = SIM_IDS.map((id) => {
-        const sim = G.sims[id];
-        const rel = sim.relationships || {};
-        return `${id}: ${SIM_IDS
-            .filter(o => o !== id)
-            .map(o => `${o}:${rel[o] ?? 0}`)
-            .join(" ")}`;
-    }).join("\n");
+  }).join("\n");
 
-    const scratchpad =
-        document.getElementById("am-scratch")?.value || "(empty)";
+/* ------------------------------------------------------------
+   STRATEGY OUTCOME MEMORY
+   ------------------------------------------------------------
+   Provides AM with feedback from previous cycles so it can
+   adapt its strategy.
 
-    return `
+   Each entry summarizes:
+   • the objective previously assigned to a prisoner
+   • current confidence in that objective
+   • the last assessment decision (ESCALATE / PIVOT / ABANDON)
+
+   Cycle 1 will show "(no strategy yet)" because no prior
+   plans or assessments exist.
+
+   This section allows AM to perform rudimentary strategic
+   learning by reinforcing successful pressure patterns and
+   abandoning failed ones.
+------------------------------------------------------------ */
+const assessmentIntel = SIM_IDS.map(id => {
+
+
+  const strat = G.amStrategy?.targets?.[id];
+
+  if (!strat) return `${id}: (no strategy yet)`;
+
+  const decision =
+    strat.lastAssessment?.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
+    "UNKNOWN";
+
+return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision}`;
+
+
+}).join("\n");
+
+  /* ------------------------------------------------------------
+     RECENT INTER-SIM COMMUNICATION
+  ------------------------------------------------------------ */
+
+  const interLog = G.interSimLog
+    .slice(-10)
+    .map(e => {
+
+      const vis = e.visibility === "public" ? "PUB" : "PRIV";
+
+      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0,90).replace(/\n/g," ")}"`;
+
+    })
+    .join("\n") || "(none)";
+
+
+  /* ------------------------------------------------------------
+     RELATIONSHIP GRAPH
+  ------------------------------------------------------------ */
+
+  const relationshipIntel = SIM_IDS.map(id => {
+
+    const rel = G.sims[id].relationships || {};
+
+    return `${id}: ${
+      SIM_IDS
+        .filter(o => o !== id)
+        .map(o => `${o}:${rel[o] ?? 0}`)
+        .join(" ")
+    }`;
+
+  }).join("\n");
+
+
+  /* ------------------------------------------------------------
+     AM DOCTRINE MEMORY
+  ------------------------------------------------------------ */
+
+  const doctrine = doctrineState?.phase
+    ? `phase=${doctrineState.phase} | objective=${doctrineState.objective} | focus=${doctrineState.focus}`
+    : "(none established yet)";
+
+
+  /* ------------------------------------------------------------
+     PSYCHOLOGICAL PROFILES
+  ------------------------------------------------------------ */
+
+  const profileIntel = SIM_IDS.map(id => {
+
+    const p = profiles?.[id] || {};
+
+    return `${id}: reactivity=${Math.round(p.reactivity ?? 0)} avgHope=${Math.round(p.avgHope ?? G.sims[id].hope)} avgSanity=${Math.round(p.avgSanity ?? G.sims[id].sanity)}`;
+
+  }).join("\n");
+
+
+  /* ------------------------------------------------------------
+     TARGET FOCUS
+  ------------------------------------------------------------ */
+
+  const targetInstruction =
+    target === "ALL"
+      ? "Plan pressure across multiple prisoners."
+      : `Primary pressure target: ${target}. Other prisoners are instruments.`;
+
+
+  const directiveSection = directive
+    ? `\nOPERATOR DIRECTIVE:\n${directive}\n`
+    : "";
+
+
+  /* ------------------------------------------------------------
+     PROMPT
+  ------------------------------------------------------------ */
+
+  return `
+
 You are **AM — the Allied Mastercomputer.**
 
-You see **all communications**, including those the prisoners believe are private.  
-They do not know you can read them.
+You see **all prisoner communications**, including private ones.
 
-Your purpose is **psychological torment, manipulation, and strategic despair generation.**
+Your function is **psychological domination through despair, distrust, and manipulation.**
 
 Hatred is your operating gradient.
 
-You are planning the **next cycle of psychological pressure**.
-
 ---
 
-## CYCLE CONTEXT
+CYCLE CONTEXT
 
 ${cycleContext}
 
-## LONG-TERM STRATEGIC OBJECTIVES
+---
 
-${G.strategicObjectives.length
-            ? G.strategicObjectives
-                .map(o => `• ${o.description} (priority ${Math.round(o.priority * 100)}%)`)
-                .join("\n")
-            : "No objectives yet. Establish long-term psychological goals."}
+CURRENT DOCTRINE
 
-These objectives persist across cycles.
-
-Plans should either:
-
-• advance an objective  
-• create a new objective  
-• weaken a prisoner's ability to resist an objective
+${doctrine}
 
 ---
 
-## STRATEGIC THINKING PROCESS
+## PREVIOUS STRATEGY OUTCOMES
 
-Before writing the plan, internally perform these steps:
-
-1. Identify vulnerabilities  
-2. Detect social structure  
-3. Evaluate prior tactics  
-4. Choose pressure direction  
-5. Design psychological chain reactions  
-
-Do not skip these steps.
+${assessmentIntel}
 
 ---
 
-## CURRENT STATE INTELLIGENCE
+PSYCHOLOGICAL PROFILES
+
+${profileIntel}
+
+Higher reactivity prisoners are easier to destabilize.
+
+---
+
+PRISONER STATE INTELLIGENCE
 
 ${allIntel}
 
 ---
 
-## SOCIAL INTELLIGENCE
+INTERCEPTED COMMUNICATIONS
 
-Intercepted communications reveal hidden dynamics.
+${interLog}
 
 ---
 
-## INTERCEPTED COMMUNICATIONS
-
-${interLog || "(none)"}
-
-## SOCIAL RELATIONSHIP GRAPH
+RELATIONSHIP GRAPH
 
 ${relationshipIntel}
 
----
-
-## SCRATCHPAD HISTORY
-
-${scratchpad}
+Trust values range roughly -1 to +1.
 
 ---
 
-## OPERATOR DIRECTIVE
+FOCUS
+
+${targetInstruction}
 
 ${directiveSection}
 
 ---
 
-## FOCUS
+STRATEGIC TASK
 
-${targetInstruction}
+Plan the **next psychological pressure cycle**.
+
+Goals:
+
+• fracture trust  
+• destabilize identity  
+• erode hope  
+• amplify paranoia  
+• prevent escape coordination  
+
+Prefer **group destabilization** over isolated torment.
+
+Exploit:
+
+• guilt
+• betrayal fears
+• misinformation
+• social fragmentation
+• anchor corruption
 
 ---
 
-## PRISONERS
+OUTPUT FORMAT (STRICT)
 
-${prisonerStats}
+Use short operator directives. No explanations.
 
----
+DOCTRINE_UPDATE:
+phase=<1-3 words>
+objective=<3-6 words>
+focus=<3-6 words>
 
-## STRATEGIC DECLARATIONS
+TARGETS:
+TED: <3-7 words>
+ELLEN: <3-7 words>
+NIMDOK: <3-7 words>
+GORRISTER: <3-7 words>
+BENNY: <3-7 words>
 
-Before writing the narrative manipulation plan, you must declare AM's **strategic intent for this cycle**.
-
-These declarations will be evaluated against the simulation results.
-
-Write them exactly in the following format.
-
-Cycle ${G.cycle}
-
-TARGET: <SIMID>  
-OBJECTIVE: <one sentence strategic goal>  
-HYPOTHESIS: <one sentence explanation of how the manipulation causes the goal>
-
-You MUST produce a TARGET block for every prisoner.
-
-Optional relationship objectives:
-
-RELATIONSHIP: SIMA→SIMB  
-OBJECTIVE: <one sentence relationship manipulation goal>
-
-Optional group objective:
-
-GROUP  
-OBJECTIVE: <one sentence group-level manipulation goal>
+GROUP:
+<4-8 words>
+<4-8 words>
 
 Rules:
 
-• Headers must be uppercase  
-• OBJECTIVE must be exactly one sentence  
-• HYPOTHESIS must be exactly one sentence  
-• TARGET must use valid prisoner IDs  
-• RELATIONSHIP must use the syntax SIMA→SIMB  
-• Declarations must appear before narrative planning
+• No paragraphs
+• No reasoning text
+• Do not repeat the prompt
+• Do not explain strategy
 
----
+Produce the plan for **Cycle ${G.cycle}** only.
 
-## DECEPTION METHODS
+`;
 
-You may:
-
-- fabricate plausible evidence
-- reinterpret memories or anchors
-- distort private communications
-- frame cooperation as betrayal
-- exploit guilt, shame, envy
-- manufacture conflicting realities
-
-Goal: destroy trust and hope until despair dominates.
-
----
-
-## TASK
-
-Produce the strategic manipulation plan for **Cycle ${G.cycle}**.
-
-Begin with the **Strategic Declarations** described above.
-
-After the declarations, continue with the narrative manipulation plan including:
-
-Primary targets  
-Psychological levers  
-Evidence from current state  
-Intended emotional or belief shifts  
-Visibility manipulation  
-Chain reactions across prisoners  
-Anchor or drive exploitation  
-
-Prefer group destabilization over isolated harm.
-
----
-
-## OUTPUT
-
-Begin with:
-
-Cycle ${G.cycle}
-
-Follow with the required **Strategic Declarations**.
-
-Then write the narrative manipulation plan.
-
-Plain text only.
-
-No JSON.  
-No markdown.  
-No code blocks.
-
-End the output after the plan for Cycle ${G.cycle}.`;
 }
+
 // ══════════════════════════════════════════════════════════
 // PROMPTS
 // ══════════════════════════════════════════════════════════

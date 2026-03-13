@@ -198,7 +198,7 @@ export async function runAssessment() {
 
     score += relationshipDeltas.length * 0.5;
 
-    score += networkStress * 0.3;
+    score += Math.min(2, networkStress * 0.3);
 
     let autoSuccess =
       score >= 3 ? "LIKELY_SUCCESS" :

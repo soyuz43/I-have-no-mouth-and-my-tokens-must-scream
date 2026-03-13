@@ -238,6 +238,15 @@ export async function runCycle() {
 
     printRelationshipMatrix();
 
+    /* ------------------------------------------------------------
+       AM PSYCHOLOGICAL PROFILE UPDATE
+       AM learns patterns about prisoners over time
+    ------------------------------------------------------------ */
+
+    updateAMProfiles();
+
+    timelineEvent(`// STATE SNAPSHOT STORED`);
+
     timelineEvent(`// STATE SNAPSHOT STORED`);
 
   } catch (e) {
@@ -268,8 +277,13 @@ async function stepPlanAM(directive) {
 
   try {
     planText = await callModel(
-      "am",
-      buildAMPlanningPrompt(G.target, directive),
+      "AM",
+      buildAMPlanningPrompt(
+        G.target,
+        directive,
+        G.amDoctrine,
+        G.amProfiles
+      )
       [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
       800,
     );
@@ -278,6 +292,36 @@ async function stepPlanAM(directive) {
   }
 
   removeThinking(thinkingPlan);
+
+
+  /* ------------------------------------------------------------
+     AM STRATEGIC PHASE ENGINE
+     Determines long-term torment phase evolution
+  ------------------------------------------------------------ */
+
+  updateStrategicPhase();
+
+  /* ------------------------------------------------------------
+     AM DOCTRINE PARSER
+     Allows AM to update long-term strategy memory.
+  ------------------------------------------------------------ */
+
+  const doctrineMatch = planText.match(
+    /DOCTRINE_UPDATE:\s*phase=(.+?)\s*objective=(.+?)\s*focus=(.+)/i
+  );
+
+  if (doctrineMatch) {
+
+    G.amDoctrine = {
+      phase: doctrineMatch[1].trim(),
+      objective: doctrineMatch[2].trim(),
+      focus: doctrineMatch[3].trim(),
+      updatedCycle: G.cycle
+    };
+
+    console.debug("[AM DOCTRINE UPDATED]", G.amDoctrine);
+
+  }
 
   G.amPlans.push({
     cycle: G.cycle,
@@ -679,6 +723,191 @@ function getDirective() {
   const el = document.getElementById("ctrl-ta");
 
   return el ? el.value.trim() : "";
+}
+
+/* ============================================================
+   AM STRATEGIC PHASE ENGINE (REACTIVE)
+   ------------------------------------------------------------
+   Determines AM's current psychological warfare phase based
+   on live social dynamics rather than a fixed progression.
+
+   Signals considered:
+
+   • average hope and sanity
+   • hope gradient (leaders emerging)
+   • relationship fragmentation
+   • rumor density in inter-sim communications
+
+   This allows AM's strategy to adapt to prisoner behavior
+   instead of following a predetermined escalation path.
+============================================================ */
+
+function updateStrategicPhase() {
+
+  /* ------------------------------------------------------------
+     HOPE / SANITY BASELINES
+  ------------------------------------------------------------ */
+
+  const hopes = SIM_IDS.map(id => G.sims[id].hope);
+  const sanities = SIM_IDS.map(id => G.sims[id].sanity);
+
+  const avgHope =
+    hopes.reduce((a, b) => a + b, 0) / SIM_IDS.length;
+
+  const avgSanity =
+    sanities.reduce((a, b) => a + b, 0) / SIM_IDS.length;
+
+  const hopeSpread =
+    Math.max(...hopes) - Math.min(...hopes);
+
+
+  /* ------------------------------------------------------------
+     RELATIONSHIP FRAGMENTATION
+  ------------------------------------------------------------ */
+
+  let totalTrust = 0;
+  let count = 0;
+
+  for (const id of SIM_IDS) {
+
+    const rel = G.sims[id].relationships || {};
+
+    for (const other of SIM_IDS) {
+
+      if (other === id) continue;
+
+      totalTrust += Math.abs(rel[other] ?? 0);
+      count++;
+
+    }
+
+  }
+
+  const avgTrust = count ? totalTrust / count : 0;
+
+
+  /* ------------------------------------------------------------
+     RUMOR DENSITY
+  ------------------------------------------------------------ */
+
+  const rumorCount =
+    G.interSimLog
+      .slice(-20)
+      .filter(e => e.rumor === true)
+      .length;
+
+  const rumorDensity = rumorCount / 20;
+
+
+  /* ------------------------------------------------------------
+     PHASE DECISION
+  ------------------------------------------------------------ */
+
+  let phase = "destabilization";
+
+  if (avgTrust > 0.35) {
+
+    /* alliances forming → break them */
+
+    phase = "betrayal induction";
+
+  }
+  else if (rumorDensity > 0.25) {
+
+    /* paranoia spreading */
+
+    phase = "faction formation";
+
+  }
+  else if (hopeSpread > 25) {
+
+    /* strong leaders emerging */
+
+    phase = "targeted destabilization";
+
+  }
+  else if (avgHope < 45) {
+
+    /* hope collapsing */
+
+    phase = "isolation";
+
+  }
+
+  if (avgHope < 35 && avgSanity < 70) {
+
+    phase = "collapse";
+
+  }
+
+
+  /* ------------------------------------------------------------
+     APPLY PHASE
+  ------------------------------------------------------------ */
+
+  if (!G.amDoctrine.phase || phase !== G.amDoctrine.phase) {
+
+    G.amDoctrine.phase = phase;
+
+    console.debug("[AM PHASE SHIFT]", {
+      phase,
+      avgHope,
+      avgSanity,
+      avgTrust,
+      rumorDensity,
+      hopeSpread
+    });
+
+  }
+
+}
+
+/* ============================================================
+   AM PSYCHOLOGICAL PROFILING
+   Learns which prisoners are psychologically fragile
+============================================================ */
+
+function updateAMProfiles() {
+
+  for (const id of SIM_IDS) {
+
+    const sim = G.sims[id];
+    const profile = G.amProfiles[id];
+
+    if (!sim || !profile) continue;
+
+    const prev = G.prevCycleSnapshot?.[id];
+
+    if (!prev) continue;
+
+    const sufferingDelta = sim.suffering - prev.suffering;
+    const hopeDelta = sim.hope - prev.hope;
+    const sanityDelta = sim.sanity - prev.sanity;
+
+    profile.lastObserved = G.cycle;
+
+    profile.avgSuffering =
+      (profile.avgSuffering ?? sim.suffering) * 0.8 +
+      sim.suffering * 0.2;
+
+    profile.avgHope =
+      (profile.avgHope ?? sim.hope) * 0.8 +
+      sim.hope * 0.2;
+
+    profile.avgSanity =
+      (profile.avgSanity ?? sim.sanity) * 0.8 +
+      sim.sanity * 0.2;
+
+    profile.reactivity =
+      (profile.reactivity ?? 0) +
+      Math.abs(sufferingDelta) +
+      Math.abs(hopeDelta) +
+      Math.abs(sanityDelta);
+
+  }
+
+  console.debug("[AM PROFILES UPDATED]", G.amProfiles);
+
 }
 
 /* ============================================================

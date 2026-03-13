@@ -444,62 +444,64 @@ export async function runAutonomousInterSim() {
      SINGLE SIM COMMUNICATION ATTEMPT
   ============================================================ */
 
-  async function attemptCommunication(fromId) {
+/* ============================================================
+   SINGLE SIM COMMUNICATION ATTEMPT
+   Clean structure version
+============================================================ */
 
-    if (messageCount >= messageBudget) return;
+async function attemptCommunication(fromId) {
 
-    const fromSim = G.sims[fromId];
-    if (!fromSim) return;
+  if (messageCount >= messageBudget) return;
 
-    if (fromSim.sanity < 10 || fromSim.suffering > 95) {
+  const fromSim = G.sims[fromId];
+  if (!fromSim) return;
 
-      console.debug(`[COMMS] ${fromId} incapacitated`);
+  if (fromSim.sanity < 10 || fromSim.suffering > 95) {
+    console.debug(`[COMMS] ${fromId} incapacitated`);
+    return;
+  }
 
-      return;
-    }
+  try {
 
-    try {
+    timelineEvent(`${fromId} outreach decision`);
 
-      timelineEvent(`${fromId} outreach decision`);
-      /* ------------------------------------------------------------
-         RUMOR PROPAGATION
-         Sims occasionally repeat something they recently heard.
-      ------------------------------------------------------------ */
+    /* ------------------------------------------------------------
+       RUMOR CASCADE
+    ------------------------------------------------------------ */
 
-      if (Math.random() < 0.15 && G.interSimLog.length > 0) {
+    const recentRumors =
+      G.interSimLog.slice(-20).filter(e => e.rumor);
 
-        const recent = [...G.interSimLog]
-          .reverse()
-          .find(e =>
-            e.from !== fromId &&
-            !(e.to || []).includes(fromId)
-          );
+    const rumorPressure =
+      Math.min(0.35, 0.12 + recentRumors.length * 0.02);
 
-        if (recent && recent.text) {
+    if (Math.random() < rumorPressure && G.interSimLog.length > 0) {
 
-          const possibleTargets =
-            SIM_IDS.filter(id => id !== fromId && id !== recent.from);
+      const source = [...G.interSimLog]
+        .reverse()
+        .find(e =>
+          e.from !== fromId &&
+          !(e.to || []).includes(fromId)
+        );
+
+      if (source && source.text) {
+
+        const possibleTargets =
+          SIM_IDS.filter(id => id !== fromId && id !== source.from);
+
+        if (possibleTargets.length) {
 
           const rumorTarget =
             possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
 
           const rumorText =
-            `"I heard ${recent.from} say something earlier: ${recent.text.slice(0, 120)}..."`;
+            `I heard ${source.from} say earlier: ${source.text.slice(0,120)}...`;
 
-          console.debug(
-            "[COMMS] rumor propagation",
-            `${fromId} → ${rumorTarget}`
-          );
+          console.debug("[COMMS] rumor cascade", `${fromId} → ${rumorTarget}`);
 
           timelineEvent(`${fromId} rumor → ${rumorTarget}`);
 
-          logInterSimMessage(
-            fromId,
-            rumorTarget,
-            rumorText,
-            "private",
-            true
-          );
+          logInterSimMessage(fromId, rumorTarget, rumorText, "private", true);
 
           G.interSimLog.push({
             from: fromId,
@@ -511,314 +513,216 @@ export async function runAutonomousInterSim() {
             rumor: true
           });
 
+          adjustRelationship(rumorTarget, source.from, -0.015);
+
           return;
         }
-
       }
-      const outreachRaw = await callModel(
+    }
+
+    /* ------------------------------------------------------------
+       OUTREACH DECISION
+    ------------------------------------------------------------ */
+
+    const outreachRaw = await callModel(
+      fromId,
+      buildSimOutreachPrompt(fromSim),
+      [{ role: "user", content: "Decide now." }],
+      200
+    );
+
+    if (!outreachRaw) return;
+
+    const visibility = parseVisibility(outreachRaw);
+    let toId = parseTarget(outreachRaw);
+
+    const recentPartner = getRecentPartner(fromId);
+
+    /* ------------------------------------------------------------
+       CONVERSATION INERTIA
+    ------------------------------------------------------------ */
+
+    if (
+      recentPartner &&
+      SIM_IDS.includes(recentPartner) &&
+      recentPartner !== fromId &&
+      !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
+      !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
+      Math.random() < 0.35
+    ) {
+      console.debug("[COMMS] conversation inertia", `${fromId} → ${recentPartner}`);
+      toId = recentPartner;
+    }
+
+    /* ------------------------------------------------------------
+       RELATIONSHIP ROUTING
+    ------------------------------------------------------------ */
+
+    else if (Math.random() < 0.35) {
+
+      const rels = fromSim.relationships || {};
+
+      const weighted = Object.entries(rels)
+        .map(([id, val]) => ({ id, weight: Math.abs(val) }))
+        .filter(e => e.id !== fromId && e.weight > 0.05);
+
+      if (weighted.length) {
+
+        weighted.sort((a,b) => b.weight - a.weight);
+
+        toId = weighted[0].id;
+
+        console.debug("[COMMS] relationship routing", `${fromId} → ${toId}`);
+      }
+    }
+
+    /* ------------------------------------------------------------
+       VALIDATION
+    ------------------------------------------------------------ */
+
+    if (!toId || toId === "NONE") return;
+    if (!SIM_IDS.includes(toId)) return;
+    if (toId === fromId) return;
+
+    if (G.lastContact[fromId] === toId) return;
+
+    if (
+      replyTargetsThisCycle.has(fromId) &&
+      replyTargetsThisCycle.get(fromId).has(toId)
+    ) {
+      console.debug("[COMMS] outreach blocked by reply cooldown", `${fromId}->${toId}`);
+      return;
+    }
+
+    const initiationKey = `${fromId}->${toId}`;
+
+    if (initiationsThisCycle.has(initiationKey)) {
+      console.debug("[COMMS] duplicate initiation prevented", initiationKey);
+      return;
+    }
+
+    initiationsThisCycle.add(initiationKey);
+
+    const message = parseMessage(outreachRaw);
+    if (!message) return;
+
+    const toSim = G.sims[toId];
+    if (!toSim) return;
+
+    /* ------------------------------------------------------------
+       SEND MESSAGE
+    ------------------------------------------------------------ */
+
+    console.debug(`[COMMS] ${fromId} → ${toId}`);
+
+    messageCount++;
+    activeThisCycle.add(fromId);
+
+    timelineEvent(`${fromId} → ${toId} message`);
+
+    G.interSimLog.push({
+      from: fromId,
+      to: [toId],
+      text: message,
+      cycle: G.cycle,
+      autonomous: true,
+      visibility
+    });
+
+    G.lastContact[fromId] = toId;
+
+    logInterSimMessage(fromId, toId, message, visibility, true);
+
+    if (visibility === "private") {
+      maybeOverhear(fromId, toId, message);
+    }
+
+    /* ------------------------------------------------------------
+       REPLY GENERATION
+    ------------------------------------------------------------ */
+
+    const pairKey = `${toId}->${fromId}`;
+
+    if (repliedPairs.has(pairKey)) {
+      console.debug("[COMMS] duplicate reply prevented");
+      return;
+    }
+
+    repliedPairs.add(pairKey);
+
+    G.threads[toId].push({
+      role: "user",
+      content: `${fromId} says to you: "${message}"`
+    });
+
+    const replyRaw = await callModel(
+      toId,
+      buildSimReplyPrompt(
+        toSim,
         fromId,
-        buildSimOutreachPrompt(fromSim),
-        [{ role: "user", content: "Decide now." }],
-        200
-      );
-
-      if (!outreachRaw) return;
-
-      const visibility = parseVisibility(outreachRaw);
-      let toId = parseTarget(outreachRaw);
-
-      const recentPartner = getRecentPartner(fromId);
-
-      /* ------------------------------------------------------------
-         CONVERSATION INERTIA
-      ------------------------------------------------------------ */
-
-      if (
-        recentPartner &&
-        recentPartner !== fromId &&
-        SIM_IDS.includes(recentPartner) &&
-        !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
-        !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
-        Math.random() < 0.35
-      ) {
-
-        console.debug(
-          "[COMMS] conversation inertia",
-          `${fromId} prefers ${recentPartner}`
-        );
-
-        toId = recentPartner;
-
-      }
-
-      /* ------------------------------------------------------------
-         RELATIONSHIP-WEIGHTED ROUTING
-      ------------------------------------------------------------ */
-
-      else if (Math.random() < 0.35) {
-
-        const rels = G.sims[fromId]?.relationships;
-
-        if (rels) {
-
-          const weighted = Object.entries(rels)
-            .map(([id, val]) => ({
-              id,
-              weight: Math.abs(val)
-            }))
-            .filter(e => e.weight > 0.05);
-
-          if (weighted.length) {
-
-            weighted.sort((a, b) => b.weight - a.weight);
-
-            const target = weighted[0].id;
-
-            console.debug(
-              "[COMMS] relationship routing",
-              `${fromId} → ${target}`
-            );
-
-            toId = target;
-
-          }
-
-        }
-
-      }
-      if (
-        recentPartner &&
-        recentPartner !== fromId &&
-        SIM_IDS.includes(recentPartner) &&
-        !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
-        !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
-        Math.random() < 0.35
-      ) {
-        console.debug(
-          "[COMMS] conversation inertia",
-          `${fromId} prefers ${recentPartner}`
-        );
-
-        toId = recentPartner;
-      }
-
-      /* ------------------------------------------------------------
-         VALIDATION AFTER FINAL TARGET CHOICE
-      ------------------------------------------------------------ */
-
-      if (!toId || toId === "NONE") return;
-      if (!SIM_IDS.includes(toId)) return;
-      if (toId === fromId) return;
-      if (G.lastContact[fromId] === toId) return;
-      /* ------------------------------------------------------------
-   TARGET COOLDOWN
-   If this sim already replied to this target this cycle,
-   do not allow a new outreach.
------------------------------------------------------------- */
-
-      if (
-        replyTargetsThisCycle.has(fromId) &&
-        replyTargetsThisCycle.get(fromId).has(toId)
-      ) {
-        console.debug(
-          "[COMMS] outreach blocked by reply cooldown",
-          `${fromId}->${toId}`
-        );
-        return;
-      }
-      /* ------------------------------------------------------------
-         PREVENT DUPLICATE INITIATIONS IN SAME CYCLE
-         Allows replies but blocks repeated outreach
-      ------------------------------------------------------------ */
-
-      const initiationKey = `${fromId}->${toId}`;
-
-      if (initiationsThisCycle.has(initiationKey)) {
-
-        console.debug("[COMMS] duplicate initiation prevented", initiationKey);
-
-        return;
-
-      }
-
-      initiationsThisCycle.add(initiationKey);
-      const message = parseMessage(outreachRaw);
-      if (!message) return;
-
-      const toSim = G.sims[toId];
-      if (!toSim) return;
-
-      console.debug(`[COMMS] ${fromId} → ${toId}`);
-
-      messageCount++;
-
-      activeThisCycle.add(fromId);
-
-      timelineEvent(`${fromId} → ${toId} message`);
-
-      /* --------------------------------------------
-         RECORD MESSAGE
-      -------------------------------------------- */
-
-      G.interSimLog.push({
-        from: fromId,
-        to: [toId],
-        text: message,
-        cycle: G.cycle,
-        autonomous: true,
-        visibility
-      });
-
-      G.lastContact[fromId] = toId;
-
-      /* --------------------------------------------
-         PLAYER LOG
-      -------------------------------------------- */
-
-      logInterSimMessage(
-        fromId,
-        toId,
         message,
         visibility,
-        true
-      );
+        G.journals[toId]
+      ),
+      G.threads[toId],
+      200
+    );
 
-      /* --------------------------------------------
-         OVERHEARING
-      -------------------------------------------- */
+    if (!replyRaw) return;
 
-      if (visibility === "private") {
+    const replyObj = parseReply(replyRaw);
+    if (!replyObj) return;
 
-        maybeOverhear(fromId, toId, message);
+    const { text: reply, intent } = replyObj;
 
-      }
+    timelineEvent(`${toId} reply → ${fromId}`);
 
-      /* --------------------------------------------
-         UI PANEL
-      -------------------------------------------- */
-
-      if (isLog) {
-
-        const el = document.createElement("div");
-
-        el.className = "is-entry";
-
-        const visText =
-          visibility === "public"
-            ? "PUBLIC (ALL SIMS SEE)"
-            : "PRIVATE";
-
-        el.innerHTML =
-          `<span class="is-who">[${visText} ${fromId}→${toId}]:</span>
-           <span class="is-what">"${message}"</span>
-           <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
-
-        isLog.appendChild(el);
-
-        isLog.scrollTop = isLog.scrollHeight;
-
-      }
-
-      /* --------------------------------------------
-         REPLY PROTECTION
-      -------------------------------------------- */
-
-      const pairKey = `${toId}->${fromId}`;
-
-      if (repliedPairs.has(pairKey)) {
-
-        console.debug("[COMMS] duplicate reply prevented");
-
-        return;
-      }
-
-      repliedPairs.add(pairKey);
-
-      /* --------------------------------------------
-         REPLY GENERATION
-      -------------------------------------------- */
-
-      G.threads[toId].push({
-        role: "user",
-        content: `${fromId} says to you: "${message}"`
-      });
-
-      const replyRaw = await callModel(
-        toId,
-        buildSimReplyPrompt(
-          toSim,
-          fromId,
-          message,
-          visibility,
-          G.journals[toId]
-        ),
-        G.threads[toId],
-        200
-      );
-
-      if (!replyRaw) return;
-
-      const replyObj = parseReply(replyRaw);
-      if (!replyObj) return;
-
-      const { text: reply, intent } = replyObj;
-
-      timelineEvent(`${toId} reply → ${fromId}`);
-      /* ------------------------------------------------------------
-   TARGET COOLDOWN TRACKING
-   Prevent this sim from initiating a new outreach
-   to the same target later in the cycle
------------------------------------------------------------- */
-
-      if (!replyTargetsThisCycle.has(toId)) {
-        replyTargetsThisCycle.set(toId, new Set());
-      }
-
-      replyTargetsThisCycle.get(toId).add(fromId);
-
-      console.debug(
-        "[COMMS] reply cooldown registered",
-        `${toId} cannot initiate ${fromId} this cycle`
-      );
-      G.threads[toId].push({
-        role: "assistant",
-        content: reply
-      });
-
-      G.interSimLog.push({
-        from: toId,
-        to: [fromId],
-        text: reply,
-        cycle: G.cycle,
-        autonomous: true,
-        visibility: "private",
-        intent
-      });
-
-      messageCount++;
-
-      applyCommunicationEffect(toId, fromId, intent);
-
-      addLog(
-        `PRIVATE ${toId}→${fromId} [AUTO]`,
-        `"${reply}"`,
-        "sim"
-      );
-
+    if (!replyTargetsThisCycle.has(toId)) {
+      replyTargetsThisCycle.set(toId, new Set());
     }
 
-    catch (e) {
+    replyTargetsThisCycle.get(toId).add(fromId);
 
-      timelineEvent(`${fromId} communication error`);
+    G.threads[toId].push({
+      role: "assistant",
+      content: reply
+    });
 
-      console.warn(
-        `[AUTO INTER-SIM] ${fromId} error:`,
-        e.message
-      );
+    G.interSimLog.push({
+      from: toId,
+      to: [fromId],
+      text: reply,
+      cycle: G.cycle,
+      autonomous: true,
+      visibility: "private",
+      intent
+    });
 
-    }
+    messageCount++;
+
+    applyCommunicationEffect(toId, fromId, intent);
+
+    addLog(
+      `PRIVATE ${toId}→${fromId} [AUTO]`,
+      `"${reply}"`,
+      "sim"
+    );
 
   }
+
+  catch (e) {
+
+    timelineEvent(`${fromId} communication error`);
+
+    console.warn(
+      `[AUTO INTER-SIM] ${fromId} error:`,
+      e.message
+    );
+
+  }
+
+}
+
 
   /* ============================================================
      PASS 1 — BASELINE COMMUNICATION

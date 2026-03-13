@@ -30,6 +30,12 @@ export const G = {
     ============================================================ */
 
   strategicObjectives: [],
+
+  /* ============================================================
+   AM DOCTRINE (LONG-TERM STRATEGY MEMORY)
+   ============================================================ */
+
+  amDoctrine: {},   // populated automatically during first planning cycle
   /* ============================================================
      AM OPERATIONAL STRATEGY MEMORY
      ============================================================ */
@@ -39,6 +45,21 @@ export const G = {
     relationships: {},   // directional relationship objectives
     group: []            // group-level strategic goals
   },
+
+  /* ============================================================
+   AM PSYCHOLOGICAL PROFILES
+   Persistent observations about each prisoner.
+   These evolve across cycles and help AM adapt tactics.
+   ============================================================ */
+
+  amProfiles: {
+    TED: {},
+    ELLEN: {},
+    NIMDOK: {},
+    GORRISTER: {},
+    BENNY: {}
+  },
+  
   INGEST_DIRS: [
     "0. Weapons",
     "1. Fundamentals",
