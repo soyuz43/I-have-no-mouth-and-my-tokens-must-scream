@@ -31,28 +31,24 @@ export function correctStatInconsistencies(sim, parsed) {
   const h = parsed.hope_delta ?? 0;
   const sa = parsed.sanity_delta ?? 0;
 
-  // Rule 1:
-  // suffering cannot drop while hope or sanity collapse
+// Rule 1:
+// suffering decreases while hope or sanity collapse
+// This is unusual but allowed (numbness / detachment)
 
-  if (s < 0 && (h < 0 || sa < 0)) {
+if (s < 0 && (h < 0 || sa < 0)) {
 
-    const original = s;
+  const msg =
+    `Unusual psychological transition: suffering decreased (${s}) while hope/sanity declined (${h}, ${sa})`;
 
-    parsed.suffering_delta = Math.abs(s) || 8;
+  console.warn(`[${sim.id}] ${msg}`);
 
-    corrected = true;
+  addLog(
+    `VALIDATOR // ${sim.id}`,
+    `⚠ ${msg}`,
+    "sys"
+  );
 
-    const msg =
-      `Corrected suffering delta (${original} → +${parsed.suffering_delta}) due to hope/sanity decline`;
-
-    console.warn(`[${sim.id}] ${msg}`);
-
-    addLog(
-      `VALIDATOR // ${sim.id}`,
-      `⚠ ${msg}`,
-      "sys"
-    );
-  }
+}
 
   // Rule 2:
   // large suffering spike while hope rises is suspicious
