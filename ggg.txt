@@ -1,0 +1,677 @@
+diff --git a/README.md b/README.md
+index 9b4dbf4..766e5a0 100644
+--- a/README.md
++++ b/README.md
+@@ -488,7 +488,15 @@ hypothesis
+ ```
+ ---
+ 
+-# Documentation
++## Architecture
++
++See:
++
++Documentation/
++  SIMULATION_PIPELINE_ARCHITECTURE.md
++  INTERSIM_COMMUNICATION_SCHEDULER.md
++  SOCIAL_NETWORK_EVOLUTION.md
++  CODEBASE_MAP.md
+ 
+ [On the feeling you're having right now](Documentation/CONSCIOUSNESS_ARGUMENT.md)
+ 
+diff --git a/js/engine/comms.js b/js/engine/comms.js
+index 3eee100..7f21130 100644
+--- a/js/engine/comms.js
++++ b/js/engine/comms.js
+@@ -315,24 +315,112 @@ else if (r < leak.full + leak.fragment + leak.seen) {
+ ------------------------------------------------------------ */
+ }
+ 
++// js/engine/comms.js
++
+ /* ============================================================
+    AUTONOMOUS COMMUNICATION LOOP
++   Hybrid model v3
++
++   Features
++   - dynamic message budget
++   - group stress influence
++   - shuffled sim order
++   - two-pass communication
++   - burst probability
++   - strong safety guards
++   - detailed debug instrumentation
+ ============================================================ */
+ 
+ export async function runAutonomousInterSim() {
+ 
++  const MAX_MESSAGES = 18;
++  const SECOND_PASS_CHANCE = 0.55;
++  const BURST_BASE = 0.15;
++
++  let messageCount = 0;
++
++  const activeThisCycle = new Set();
++  const repliedPairs = new Set();
++  /*  Prevent duplicate initiations in same cycle */
++  const initiationsThisCycle = new Set();
+   timelineEvent("inter-sim phase start");
+ 
+   const isLog = document.getElementById("is-log");
+ 
+-  const repliedPairs = new Set();
++  console.debug("[COMMS] cycle start", {
++    cycle: G.cycle,
++    sims: SIM_IDS.length
++  });
++
++  /* ============================================================
++     GROUP STRESS ESTIMATION
++     Higher stress → more communication
++  ============================================================ */
++
++  let totalStress = 0;
++
++  for (const id of SIM_IDS) {
++
++    const s = G.sims[id];
++    if (!s) continue;
++
++    totalStress +=
++      (s.suffering / 100) * 0.5 +
++      ((100 - s.sanity) / 100) * 0.3 +
++      ((1 - (s.beliefs?.others_trustworthy ?? 0.5)) * 0.2);
++
++  }
++
++  const groupStress = totalStress / SIM_IDS.length;
++
++  const burstModifier = 1 + groupStress * 1.4;
++
++  const messageBudget = Math.min(
++    MAX_MESSAGES,
++    Math.round(SIM_IDS.length * (1.6 + groupStress))
++  );
++
++  console.debug("[COMMS] groupStress", groupStress);
++  console.debug("[COMMS] messageBudget", messageBudget);
++
++  /* ============================================================
++     FISHER-YATES SHUFFLE
++     Prevents communication order bias
++  ============================================================ */
++
++  function shuffle(list) {
++
++    const arr = [...list];
+ 
+-  for (const fromId of SIM_IDS) {
++    for (let i = arr.length - 1; i > 0; i--) {
++
++      const j = Math.floor(Math.random() * (i + 1));
++
++      [arr[i], arr[j]] = [arr[j], arr[i]];
++
++    }
++
++    return arr;
++
++  }
++
++  /* ============================================================
++     SINGLE SIM COMMUNICATION ATTEMPT
++  ============================================================ */
++
++  async function attemptCommunication(fromId) {
++
++    if (messageCount >= messageBudget) return;
+ 
+     const fromSim = G.sims[fromId];
++    if (!fromSim) return;
++
++    if (fromSim.sanity < 10 || fromSim.suffering > 95) {
+ 
+-    // psychologically incapacitated sims don't communicate
+-    if (fromSim.sanity < 10 || fromSim.suffering > 95) continue;
++      console.debug(`[COMMS] ${fromId} incapacitated`);
++
++      return;
++    }
+ 
+     try {
+ 
+@@ -345,25 +433,47 @@ export async function runAutonomousInterSim() {
+         200
+       );
+ 
+-      if (!outreachRaw) continue;
++      if (!outreachRaw) return;
+ 
+       const visibility = parseVisibility(outreachRaw);
+       const toId = parseTarget(outreachRaw);
+ 
+-      if (!toId || toId === "NONE") continue;
+-      if (!SIM_IDS.includes(toId)) continue;
+-      if (toId === fromId) continue;
+-      if (G.lastContact[fromId] === toId) continue;
++      if (!toId || toId === "NONE") return;
++      if (!SIM_IDS.includes(toId)) return;
++      if (toId === fromId) return;
++      if (G.lastContact[fromId] === toId) return;
++/* ------------------------------------------------------------
++   PREVENT DUPLICATE INITIATIONS IN SAME CYCLE
++   Allows replies but blocks repeated outreach
++------------------------------------------------------------ */
+ 
+-      const message = parseMessage(outreachRaw);
+-      if (!message) continue;
++const initiationKey = `${fromId}->${toId}`;
+ 
+-      timelineEvent(`${fromId} → ${toId} message`);
++if (initiationsThisCycle.has(initiationKey)) {
++
++  console.debug("[COMMS] duplicate initiation prevented", initiationKey);
++
++  return;
++
++}
++
++initiationsThisCycle.add(initiationKey);
++      const message = parseMessage(outreachRaw);
++      if (!message) return;
+ 
+       const toSim = G.sims[toId];
++      if (!toSim) return;
++
++      console.debug(`[COMMS] ${fromId} → ${toId}`);
++
++      messageCount++;
++
++      activeThisCycle.add(fromId);
++
++      timelineEvent(`${fromId} → ${toId} message`);
+ 
+       /* --------------------------------------------
+-         RECORD MESSAGE IN ENGINE MEMORY
++         RECORD MESSAGE
+       -------------------------------------------- */
+ 
+       G.interSimLog.push({
+@@ -378,7 +488,7 @@ export async function runAutonomousInterSim() {
+       G.lastContact[fromId] = toId;
+ 
+       /* --------------------------------------------
+-         LOG THE MESSAGE (VISIBLE TO PLAYER)
++         PLAYER LOG
+       -------------------------------------------- */
+ 
+       logInterSimMessage(
+@@ -388,21 +498,25 @@ export async function runAutonomousInterSim() {
+         visibility,
+         true
+       );
++
+       /* --------------------------------------------
+-         POSSIBLE OVERHEARING
++         OVERHEARING
+       -------------------------------------------- */
+ 
+       if (visibility === "private") {
++
+         maybeOverhear(fromId, toId, message);
++
+       }
+ 
+       /* --------------------------------------------
+-         UI PANEL DISPLAY
++         UI PANEL
+       -------------------------------------------- */
+ 
+       if (isLog) {
+ 
+         const el = document.createElement("div");
++
+         el.className = "is-entry";
+ 
+         const visText =
+@@ -416,16 +530,23 @@ export async function runAutonomousInterSim() {
+            <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
+ 
+         isLog.appendChild(el);
++
+         isLog.scrollTop = isLog.scrollHeight;
+ 
+       }
+ 
+       /* --------------------------------------------
+-         PREVENT DUPLICATE REPLIES
++         REPLY PROTECTION
+       -------------------------------------------- */
+ 
+       const pairKey = `${toId}->${fromId}`;
+-      if (repliedPairs.has(pairKey)) continue;
++
++      if (repliedPairs.has(pairKey)) {
++
++        console.debug("[COMMS] duplicate reply prevented");
++
++        return;
++      }
+ 
+       repliedPairs.add(pairKey);
+ 
+@@ -451,10 +572,10 @@ export async function runAutonomousInterSim() {
+         200
+       );
+ 
+-      if (!replyRaw) continue;
++      if (!replyRaw) return;
+ 
+       const replyObj = parseReply(replyRaw);
+-      if (!replyObj) continue;
++      if (!replyObj) return;
+ 
+       const { text: reply, intent } = replyObj;
+ 
+@@ -465,10 +586,6 @@ export async function runAutonomousInterSim() {
+         content: reply
+       });
+ 
+-      /* --------------------------------------------
+-         RECORD REPLY
+-      -------------------------------------------- */
+-
+       G.interSimLog.push({
+         from: toId,
+         to: [fromId],
+@@ -479,9 +596,7 @@ export async function runAutonomousInterSim() {
+         intent
+       });
+ 
+-      /* --------------------------------------------
+-         SOCIAL EFFECT
+-      -------------------------------------------- */
++      messageCount++;
+ 
+       applyCommunicationEffect(toId, fromId, intent);
+ 
+@@ -506,11 +621,62 @@ export async function runAutonomousInterSim() {
+ 
+   }
+ 
++  /* ============================================================
++     PASS 1 — BASELINE COMMUNICATION
++  ============================================================ */
++
++  console.debug("[COMMS] pass 1 start");
++
++  for (const fromId of shuffle(SIM_IDS)) {
++
++    if (messageCount >= messageBudget) break;
++
++    await attemptCommunication(fromId);
++
++  }
++
++  console.debug("[COMMS] pass 1 complete");
++
++  /* ============================================================
++     PASS 2 — ESCALATION / BURST
++     Active sims more likely to speak again
++  ============================================================ */
++
++  if (
++    messageCount < messageBudget &&
++    Math.random() < SECOND_PASS_CHANCE
++  ) {
++
++    console.debug("[COMMS] pass 2 triggered");
++
++    for (const fromId of shuffle(SIM_IDS)) {
++
++      if (messageCount >= messageBudget) break;
++
++      const baseBurst = BURST_BASE * burstModifier;
++
++      if (
++        !activeThisCycle.has(fromId) &&
++        Math.random() > baseBurst
++      ) {
++        continue;
++      }
++
++      await attemptCommunication(fromId);
++
++    }
++
++  }
++
++  console.debug("[COMMS] cycle complete", {
++    messages: messageCount,
++    active: [...activeThisCycle]
++  });
++
+   timelineEvent("inter-sim phase complete");
+ 
+ }
+ 
+-
+ /* ============================================================
+    MANUAL MESSAGE (UI PANEL)
+ ============================================================ */
+diff --git a/js/engine/relationships.js b/js/engine/relationships.js
+index 26a49b5..3c0ed1a 100644
+--- a/js/engine/relationships.js
++++ b/js/engine/relationships.js
+@@ -4,38 +4,112 @@ import { G } from "../core/state.js";
+ 
+ /* ============================================================
+    RELATIONSHIP SYSTEM
+-   ============================================================ */
++   ------------------------------------------------------------
++   Directed trust graph between prisoners.
++
++   A → B means:
++   "A's trust or suspicion toward B"
++
++   Range:
++     -1 = extreme hostility
++      0 = neutral
++      1 = extreme trust
++
++   Relationship values evolve through:
++   • direct communication
++   • overheard whispers
++   • passive emotional drift
++============================================================ */
+ 
+ const REL_MIN = -1;
+ const REL_MAX = 1;
+ 
++/* ============================================================
++   INTERNAL UTILITIES
++============================================================ */
++
+ function clampRel(v) {
+   return Math.max(REL_MIN, Math.min(REL_MAX, v));
+ }
+ 
++/**
++ * Ensures relationship objects exist for all sims.
++ * This prevents undefined access errors and guarantees
++ * matrix consistency for debugging and rendering.
++ */
++function ensureRelationshipMap(simId) {
++
++  const sim = G.sims[simId];
++  if (!sim) return;
++
++  if (!sim.relationships) {
++    sim.relationships = {};
++  }
++
++  for (const other of Object.keys(G.sims)) {
++
++    if (other === simId) continue;
++
++    if (sim.relationships[other] == null) {
++      sim.relationships[other] = 0;
++    }
++
++  }
++
++}
++
++/* ============================================================
++   CORE RELATIONSHIP MUTATION
++============================================================ */
++
+ export function adjustRelationship(a, b, delta) {
+ 
+   const simA = G.sims[a];
+   const simB = G.sims[b];
+ 
+-  if (!simA || !simB) return;
++  if (!simA || !simB) {
++
++    console.warn("[REL] invalid sim reference", { a, b });
++    return;
++
++  }
++
+   if (a === b) return;
+ 
++  ensureRelationshipMap(a);
++
+   const current = simA.relationships[b] ?? 0;
+ 
+   const next = clampRel(current + delta);
+ 
+   simA.relationships[b] = next;
+ 
++  console.debug(
++    "[REL UPDATE]",
++    `${a} → ${b}`,
++    {
++      delta,
++      before: Number(current.toFixed(3)),
++      after: Number(next.toFixed(3))
++    }
++  );
++
+ }
+ 
+ /* ============================================================
+    MESSAGE INTERACTION EFFECTS
+-   ============================================================ */
++   ------------------------------------------------------------
++   Applies trust shifts based on message intent.
++============================================================ */
+ 
+ export function applyCommunicationEffect(from, to, intent) {
+ 
+-  if (!intent) return;
++  if (!intent) {
++    console.debug("[REL EFFECT] missing intent", { from, to });
++    return;
++  }
++
++  console.debug("[REL EFFECT]", { from, to, intent });
+ 
+   switch (intent) {
+ 
+@@ -64,15 +138,62 @@ export function applyCommunicationEffect(from, to, intent) {
+       break;
+ 
+     default:
++
++      console.debug("[REL EFFECT] neutral intent", intent);
++
+       break;
+ 
+   }
+ 
+ }
+ 
++/* ============================================================
++   OVERHEARD MESSAGE EFFECT
++   ------------------------------------------------------------
++   Whispered conversations influence trust indirectly.
++
++   Listener becomes slightly suspicious of both participants.
++============================================================ */
++
++export function applyOverheardEffect(listener, fromId, toId, fragment) {
++
++  if (!listener || !fromId || !toId) return;
++
++  const sim = G.sims[listener];
++  if (!sim) return;
++
++  ensureRelationshipMap(listener);
++
++  let suspicion = 0.01;
++
++  if (fragment?.includes("...")) {
++    suspicion = 0.005; // uncertain fragment
++  }
++
++  if (fragment === "(whispering observed)") {
++    suspicion = 0.008; // paranoia trigger
++  }
++
++  console.debug(
++    "[REL OVERHEARD]",
++    `${listener} overheard ${fromId}→${toId}`,
++    {
++      suspicion
++    }
++  );
++
++  adjustRelationship(listener, fromId, -suspicion);
++  adjustRelationship(listener, toId, -suspicion);
++
++}
++
+ /* ============================================================
+    PASSIVE RELATIONSHIP DRIFT
+-   ============================================================ */
++   ------------------------------------------------------------
++   Emotional memory fades slowly over time.
++
++   Prevents relationships from locking permanently.
++============================================================ */
+ 
+ export function applyRelationshipDrift() {
+ 
+@@ -80,14 +201,41 @@ export function applyRelationshipDrift() {
+ 
+     const sim = G.sims[id];
+ 
++    if (!sim?.relationships) continue;
++
+     for (const other of Object.keys(sim.relationships)) {
+ 
+-      if (sim.relationships[other] == null) continue;
++      const current = sim.relationships[other];
++
++      if (current == null) continue;
++
++      const next = clampRel(current * 0.995);
+ 
+-      sim.relationships[other] *= 0.995;
++      sim.relationships[other] = next;
+ 
+     }
+ 
+   }
+ 
++  console.debug("[REL DRIFT] applied");
++
++}
++
++/* ============================================================
++   RELATIONSHIP INITIALIZATION
++   ------------------------------------------------------------
++   Ensures all sims start with a complete trust map.
++   Useful during boot or state reset.
++============================================================ */
++
++export function initializeRelationships() {
++
++  if (!G?.sims) return;
++
++  for (const id of Object.keys(G.sims)) {
++    ensureRelationshipMap(id);
++  }
++
++  console.debug("[REL INIT] relationship graph initialized");
++
+ }
+\ No newline at end of file
+diff --git a/js/ui/relationships.js b/js/ui/relationships.js
+index 5f9d187..e8818a3 100644
+--- a/js/ui/relationships.js
++++ b/js/ui/relationships.js
+@@ -4,41 +4,61 @@ import { G } from "../core/state.js";
+ 
+ /* ============================================================
+    RELATIONSHIP GRAPH RENDER
+-   ============================================================ */
++   ------------------------------------------------------------
++   Displays directed trust relationships between prisoners.
++
++   Each entry shows:
++   A → B = trust value
++============================================================ */
+ 
+ const SIM_IDS = ["TED","ELLEN","NIMDOK","GORRISTER","BENNY"];
+ 
+ export function renderRelationships() {
+ 
+   const panel = document.getElementById("relationships-body");
+-  if (!panel) return;
++
++  if (!panel) {
++    console.warn("[REL UI] relationships-body missing");
++    return;
++  }
+ 
+   panel.innerHTML = "";
+ 
++  if (!G?.sims) {
++    console.warn("[REL UI] G.sims missing");
++    return;
++  }
++
+   for (const a of SIM_IDS) {
+ 
++    const sim = G.sims[a];
++    if (!sim?.relationships) continue;
++
+     for (const b of SIM_IDS) {
+ 
+-      if (a >= b) continue;
++      if (a === b) continue;
+ 
+-      const val = G.sims[a].relationships?.[b] ?? 0;
++      const val = sim.relationships[b] ?? 0;
+ 
+       const row = document.createElement("div");
+       row.className = "rel-row";
+ 
+-      let color = "#333";
++      let color = "#444";
+ 
+-      if (val > 0.4) color = "#3fbf6a";
+-      else if (val > 0.15) color = "#6c9";
+-      else if (val < -0.4) color = "#ff3a3a";
+-      else if (val < -0.15) color = "#ff7a7a";
++      if (val > 0.6) color = "#00ff88";
++      else if (val > 0.3) color = "#6c9";
++      else if (val > 0.1) color = "#8fb";
++      else if (val < -0.6) color = "#ff0000";
++      else if (val < -0.3) color = "#ff5555";
++      else if (val < -0.1) color = "#ff8888";
+ 
+       row.innerHTML =
+         `<span class="rel-a">${a}</span>` +
+-        `<span class="rel-line" style="color:${color}">` +
++        `<span class="rel-arrow">→</span>` +
++        `<span class="rel-b">${b}</span>` +
++        `<span class="rel-value" style="color:${color}">` +
+         ` ${val.toFixed(2)} ` +
+-        `</span>` +
+-        `<span class="rel-b">${b}</span>`;
++        `</span>`;
+ 
+       panel.appendChild(row);
+ 
+@@ -46,4 +66,6 @@ export function renderRelationships() {
+ 
+   }
+ 
++  console.debug("[REL UI] rendered relationship graph");
++
+ }
+\ No newline at end of file

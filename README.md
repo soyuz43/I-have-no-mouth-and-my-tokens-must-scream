@@ -488,7 +488,15 @@ hypothesis
 ```
 ---
 
-# Documentation
+## Architecture
+
+See:
+
+Documentation/
+  SIMULATION_PIPELINE_ARCHITECTURE.md
+  INTERSIM_COMMUNICATION_SCHEDULER.md
+  SOCIAL_NETWORK_EVOLUTION.md
+  CODEBASE_MAP.md
 
 [On the feeling you're having right now](Documentation/CONSCIOUSNESS_ARGUMENT.md)
 

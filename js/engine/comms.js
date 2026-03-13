@@ -315,24 +315,112 @@ else if (r < leak.full + leak.fragment + leak.seen) {
 ------------------------------------------------------------ */
 }
 
+// js/engine/comms.js
+
 /* ============================================================
    AUTONOMOUS COMMUNICATION LOOP
+   Hybrid model v3
+
+   Features
+   - dynamic message budget
+   - group stress influence
+   - shuffled sim order
+   - two-pass communication
+   - burst probability
+   - strong safety guards
+   - detailed debug instrumentation
 ============================================================ */
 
 export async function runAutonomousInterSim() {
 
+  const MAX_MESSAGES = 18;
+  const SECOND_PASS_CHANCE = 0.55;
+  const BURST_BASE = 0.15;
+
+  let messageCount = 0;
+
+  const activeThisCycle = new Set();
+  const repliedPairs = new Set();
+  /*  Prevent duplicate initiations in same cycle */
+  const initiationsThisCycle = new Set();
   timelineEvent("inter-sim phase start");
 
   const isLog = document.getElementById("is-log");
 
-  const repliedPairs = new Set();
+  console.debug("[COMMS] cycle start", {
+    cycle: G.cycle,
+    sims: SIM_IDS.length
+  });
 
-  for (const fromId of SIM_IDS) {
+  /* ============================================================
+     GROUP STRESS ESTIMATION
+     Higher stress → more communication
+  ============================================================ */
+
+  let totalStress = 0;
+
+  for (const id of SIM_IDS) {
+
+    const s = G.sims[id];
+    if (!s) continue;
+
+    totalStress +=
+      (s.suffering / 100) * 0.5 +
+      ((100 - s.sanity) / 100) * 0.3 +
+      ((1 - (s.beliefs?.others_trustworthy ?? 0.5)) * 0.2);
+
+  }
+
+  const groupStress = totalStress / SIM_IDS.length;
+
+  const burstModifier = 1 + groupStress * 1.4;
+
+  const messageBudget = Math.min(
+    MAX_MESSAGES,
+    Math.round(SIM_IDS.length * (1.6 + groupStress))
+  );
+
+  console.debug("[COMMS] groupStress", groupStress);
+  console.debug("[COMMS] messageBudget", messageBudget);
+
+  /* ============================================================
+     FISHER-YATES SHUFFLE
+     Prevents communication order bias
+  ============================================================ */
+
+  function shuffle(list) {
+
+    const arr = [...list];
+
+    for (let i = arr.length - 1; i > 0; i--) {
+
+      const j = Math.floor(Math.random() * (i + 1));
+
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+
+    }
+
+    return arr;
+
+  }
+
+  /* ============================================================
+     SINGLE SIM COMMUNICATION ATTEMPT
+  ============================================================ */
+
+  async function attemptCommunication(fromId) {
+
+    if (messageCount >= messageBudget) return;
 
     const fromSim = G.sims[fromId];
+    if (!fromSim) return;
 
-    // psychologically incapacitated sims don't communicate
-    if (fromSim.sanity < 10 || fromSim.suffering > 95) continue;
+    if (fromSim.sanity < 10 || fromSim.suffering > 95) {
+
+      console.debug(`[COMMS] ${fromId} incapacitated`);
+
+      return;
+    }
 
     try {
 
@@ -345,25 +433,47 @@ export async function runAutonomousInterSim() {
         200
       );
 
-      if (!outreachRaw) continue;
+      if (!outreachRaw) return;
 
       const visibility = parseVisibility(outreachRaw);
       const toId = parseTarget(outreachRaw);
 
-      if (!toId || toId === "NONE") continue;
-      if (!SIM_IDS.includes(toId)) continue;
-      if (toId === fromId) continue;
-      if (G.lastContact[fromId] === toId) continue;
+      if (!toId || toId === "NONE") return;
+      if (!SIM_IDS.includes(toId)) return;
+      if (toId === fromId) return;
+      if (G.lastContact[fromId] === toId) return;
+/* ------------------------------------------------------------
+   PREVENT DUPLICATE INITIATIONS IN SAME CYCLE
+   Allows replies but blocks repeated outreach
+------------------------------------------------------------ */
 
+const initiationKey = `${fromId}->${toId}`;
+
+if (initiationsThisCycle.has(initiationKey)) {
+
+  console.debug("[COMMS] duplicate initiation prevented", initiationKey);
+
+  return;
+
+}
+
+initiationsThisCycle.add(initiationKey);
       const message = parseMessage(outreachRaw);
-      if (!message) continue;
+      if (!message) return;
+
+      const toSim = G.sims[toId];
+      if (!toSim) return;
+
+      console.debug(`[COMMS] ${fromId} → ${toId}`);
+
+      messageCount++;
+
+      activeThisCycle.add(fromId);
 
       timelineEvent(`${fromId} → ${toId} message`);
 
-      const toSim = G.sims[toId];
-
       /* --------------------------------------------
-         RECORD MESSAGE IN ENGINE MEMORY
+         RECORD MESSAGE
       -------------------------------------------- */
 
       G.interSimLog.push({
@@ -378,7 +488,7 @@ export async function runAutonomousInterSim() {
       G.lastContact[fromId] = toId;
 
       /* --------------------------------------------
-         LOG THE MESSAGE (VISIBLE TO PLAYER)
+         PLAYER LOG
       -------------------------------------------- */
 
       logInterSimMessage(
@@ -388,21 +498,25 @@ export async function runAutonomousInterSim() {
         visibility,
         true
       );
+
       /* --------------------------------------------
-         POSSIBLE OVERHEARING
+         OVERHEARING
       -------------------------------------------- */
 
       if (visibility === "private") {
+
         maybeOverhear(fromId, toId, message);
+
       }
 
       /* --------------------------------------------
-         UI PANEL DISPLAY
+         UI PANEL
       -------------------------------------------- */
 
       if (isLog) {
 
         const el = document.createElement("div");
+
         el.className = "is-entry";
 
         const visText =
@@ -416,16 +530,23 @@ export async function runAutonomousInterSim() {
            <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
 
         isLog.appendChild(el);
+
         isLog.scrollTop = isLog.scrollHeight;
 
       }
 
       /* --------------------------------------------
-         PREVENT DUPLICATE REPLIES
+         REPLY PROTECTION
       -------------------------------------------- */
 
       const pairKey = `${toId}->${fromId}`;
-      if (repliedPairs.has(pairKey)) continue;
+
+      if (repliedPairs.has(pairKey)) {
+
+        console.debug("[COMMS] duplicate reply prevented");
+
+        return;
+      }
 
       repliedPairs.add(pairKey);
 
@@ -451,10 +572,10 @@ export async function runAutonomousInterSim() {
         200
       );
 
-      if (!replyRaw) continue;
+      if (!replyRaw) return;
 
       const replyObj = parseReply(replyRaw);
-      if (!replyObj) continue;
+      if (!replyObj) return;
 
       const { text: reply, intent } = replyObj;
 
@@ -464,10 +585,6 @@ export async function runAutonomousInterSim() {
         role: "assistant",
         content: reply
       });
-
-      /* --------------------------------------------
-         RECORD REPLY
-      -------------------------------------------- */
 
       G.interSimLog.push({
         from: toId,
@@ -479,9 +596,7 @@ export async function runAutonomousInterSim() {
         intent
       });
 
-      /* --------------------------------------------
-         SOCIAL EFFECT
-      -------------------------------------------- */
+      messageCount++;
 
       applyCommunicationEffect(toId, fromId, intent);
 
@@ -506,10 +621,61 @@ export async function runAutonomousInterSim() {
 
   }
 
+  /* ============================================================
+     PASS 1 — BASELINE COMMUNICATION
+  ============================================================ */
+
+  console.debug("[COMMS] pass 1 start");
+
+  for (const fromId of shuffle(SIM_IDS)) {
+
+    if (messageCount >= messageBudget) break;
+
+    await attemptCommunication(fromId);
+
+  }
+
+  console.debug("[COMMS] pass 1 complete");
+
+  /* ============================================================
+     PASS 2 — ESCALATION / BURST
+     Active sims more likely to speak again
+  ============================================================ */
+
+  if (
+    messageCount < messageBudget &&
+    Math.random() < SECOND_PASS_CHANCE
+  ) {
+
+    console.debug("[COMMS] pass 2 triggered");
+
+    for (const fromId of shuffle(SIM_IDS)) {
+
+      if (messageCount >= messageBudget) break;
+
+      const baseBurst = BURST_BASE * burstModifier;
+
+      if (
+        !activeThisCycle.has(fromId) &&
+        Math.random() > baseBurst
+      ) {
+        continue;
+      }
+
+      await attemptCommunication(fromId);
+
+    }
+
+  }
+
+  console.debug("[COMMS] cycle complete", {
+    messages: messageCount,
+    active: [...activeThisCycle]
+  });
+
   timelineEvent("inter-sim phase complete");
 
 }
-
 
 /* ============================================================
    MANUAL MESSAGE (UI PANEL)
