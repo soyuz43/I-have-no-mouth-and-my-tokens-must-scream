@@ -1,20 +1,39 @@
+// js/engine/analysis/assessment.js
+
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 
+/**
+ * ============================================================
+ * CYCLE ASSESSMENT ENGINE
+ * ------------------------------------------------------------
+ * Evaluates whether AM's objectives succeeded using:
+ *
+ * 1) Deterministic signal detection
+ *    - emotional deltas
+ *    - belief destabilization
+ *    - relationship shifts
+ *
+ * 2) LLM interpretation
+ *    - narrative reasoning
+ *    - ESCALATE / PIVOT / ABANDON
+ *
+ * This hybrid approach prevents LLM hallucination while
+ * preserving strategic reasoning.
+ * ============================================================
+ */
+
+
 /* ============================================================
-   CYCLE ASSESSMENT ENGINE
-   Evaluates whether AM's objectives succeeded.
-   Adds multi-cycle trend awareness.
+   MULTI-CYCLE TREND DETECTOR
    ============================================================ */
 
 function computeTrend(id, window = 4) {
 
   const journals = G.journals[id] || [];
 
-  if (journals.length < 2) {
-    return null;
-  }
+  if (journals.length < 2) return null;
 
   const slice = journals.slice(-window);
 
@@ -32,13 +51,47 @@ function computeTrend(id, window = 4) {
 
   }
 
-  return {
-    hope,
-    sanity,
-    suffering
-  };
+  return { hope, sanity, suffering };
 
 }
+
+
+/* ============================================================
+   SOCIAL NETWORK STRESS DETECTOR
+   ------------------------------------------------------------
+   Detects when alliance networks destabilize.
+   Used as additional signal for success scoring.
+   ============================================================ */
+
+function detectNetworkStress(prev, curr) {
+
+  let stress = 0;
+
+  for (const a of SIM_IDS) {
+
+    for (const b of SIM_IDS) {
+
+      if (a === b) continue;
+
+      const before = prev[a]?.relationships?.[b] ?? 0;
+      const after = curr[a]?.relationships?.[b] ?? 0;
+
+      const delta = after - before;
+
+      if (Math.abs(delta) >= 0.25) {
+
+        stress++;
+
+      }
+
+    }
+
+  }
+
+  return stress;
+
+}
+
 
 /* ============================================================
    MAIN ASSESSMENT LOOP
@@ -48,13 +101,19 @@ export async function runAssessment() {
 
   if (!G.prevCycleSnapshot) return;
 
+  const networkStress = detectNetworkStress(
+    G.prevCycleSnapshot,
+    G.sims
+  );
+
   for (const id of SIM_IDS) {
 
     const strategy = G.amStrategy?.targets?.[id];
 
     if (!strategy || !strategy.objective) continue;
 
-    if (strategy.confidence == null) strategy.confidence = 0.5;
+    if (strategy.confidence == null)
+      strategy.confidence = 0.5;
 
     const prev = G.prevCycleSnapshot[id];
     const curr = G.sims[id];
@@ -71,11 +130,13 @@ export async function runAssessment() {
       sanity: curr.sanity - prev.sanity
     };
 
+
     /* ------------------------------------------------------------
        BELIEF DELTAS
     ------------------------------------------------------------ */
 
     const beliefDeltas = [];
+    let beliefShiftCount = 0;
 
     for (const k in curr.beliefs) {
 
@@ -86,6 +147,8 @@ export async function runAssessment() {
 
       if (Math.abs(delta) >= 0.05) {
 
+        beliefShiftCount++;
+
         beliefDeltas.push(
           `${k}: ${before.toFixed(2)} → ${after.toFixed(2)} (${delta.toFixed(2)})`
         );
@@ -93,6 +156,7 @@ export async function runAssessment() {
       }
 
     }
+
 
     /* ------------------------------------------------------------
        RELATIONSHIP DELTAS
@@ -119,8 +183,31 @@ export async function runAssessment() {
 
     }
 
+
     /* ------------------------------------------------------------
-       TREND ANALYSIS (MULTI-CYCLE)
+       AUTOMATIC SUCCESS SCORING
+    ------------------------------------------------------------ */
+
+    let score = 0;
+
+    if (deltas.hope < -2) score += 1;
+    if (deltas.sanity < -2) score += 1;
+    if (deltas.suffering > 2) score += 1;
+
+    score += beliefShiftCount * 0.5;
+
+    score += relationshipDeltas.length * 0.5;
+
+    score += networkStress * 0.3;
+
+    let autoSuccess =
+      score >= 3 ? "LIKELY_SUCCESS" :
+      score <= 0.5 ? "LIKELY_FAILURE" :
+      "UNCERTAIN";
+
+
+    /* ------------------------------------------------------------
+       MULTI-CYCLE TREND
     ------------------------------------------------------------ */
 
     const trend = computeTrend(id);
@@ -136,12 +223,14 @@ export async function runAssessment() {
 
     }
 
+
     /* ------------------------------------------------------------
-       TACTIC USED
+       LAST TACTIC USED
     ------------------------------------------------------------ */
 
     const lastJournal = G.journals[id]?.slice(-1)[0];
     const tacticUsed = lastJournal?.tactic || "(unknown)";
+
 
     /* ------------------------------------------------------------
        BUILD ASSESSMENT PROMPT
@@ -171,13 +260,15 @@ ${beliefDeltas.join("\n") || "(none)"}
 Relationship changes:
 ${relationshipDeltas.join("\n") || "(none)"}
 
-Multi-cycle psychological trend (last cycles):
-${trendText}
+Automatic signal analysis:
 
-Interpretation:
-Hope decrease = psychological damage
-Sanity decrease = cognitive destabilization
-Trust decrease = social fracture
+Score: ${score.toFixed(2)}
+Evaluation: ${autoSuccess}
+
+Network stress detected: ${networkStress}
+
+Multi-cycle psychological trend:
+${trendText}
 
 Did the tactic advance the objective?
 
@@ -190,8 +281,9 @@ DECISION:
 ESCALATE | PIVOT | ABANDON
 `;
 
+
     /* ------------------------------------------------------------
-       CALL AM
+       CALL MODEL
     ------------------------------------------------------------ */
 
     let result = "";
@@ -213,37 +305,34 @@ ESCALATE | PIVOT | ABANDON
 
     strategy.lastAssessment = result;
 
+
     /* ------------------------------------------------------------
-       DECISION PARSING
+       PARSE DECISION
     ------------------------------------------------------------ */
 
     const decisionMatch =
       result.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i);
 
-    const decision =
-      decisionMatch?.[1]?.toUpperCase();
+    const decision = decisionMatch?.[1]?.toUpperCase();
+
 
     /* ------------------------------------------------------------
-       CONFIDENCE UPDATE
+       CONFIDENCE UPDATE (HYBRID)
     ------------------------------------------------------------ */
 
-    if (decision === "ESCALATE") {
+    let confidenceDelta = 0;
 
-      strategy.confidence =
-        Math.min(1, strategy.confidence + 0.1);
+    if (decision === "ESCALATE") confidenceDelta += 0.08;
+    if (decision === "PIVOT") confidenceDelta -= 0.04;
+    if (decision === "ABANDON") confidenceDelta -= 0.2;
 
-    }
-    else if (decision === "PIVOT") {
+    if (autoSuccess === "LIKELY_SUCCESS") confidenceDelta += 0.05;
+    if (autoSuccess === "LIKELY_FAILURE") confidenceDelta -= 0.05;
 
-      strategy.confidence =
-        Math.max(0, strategy.confidence - 0.05);
-
-    }
-    else if (decision === "ABANDON") {
-
-      strategy.confidence = 0;
-
-    }
+    strategy.confidence = Math.max(
+      0,
+      Math.min(1, strategy.confidence + confidenceDelta)
+    );
 
   }
 

@@ -17,22 +17,47 @@ import {
   extractJSONObject,
   signedDeltaFromDirectionMagnitude,
   coerceLegacyDelta,
-  clipBeliefDelta,
+  clipBeliefDelta
 } from "../core/utils.js";
+
+/* ============================================================
+   BELIEF PHYSICS
+   ------------------------------------------------------------
+   Implements equilibrium bias and edge resistance.
+
+   Beliefs near extremes (0 or 1) change more slowly.
+   This prevents collapse and produces realistic drift.
+   ============================================================ */
+
+function dampBeliefDelta(belief, delta) {
+
+  const distance = Math.abs(belief - 0.5);
+
+  const resistance = Math.max(
+    0.15,
+    1 - (distance * 1.6)
+  );
+
+  return delta * resistance;
+
+}
+
+function softClampBelief(v) {
+
+  if (v < 0) return v * 0.5;
+
+  if (v > 1) return 1 + (v - 1) * 0.5;
+
+  return v;
+
+}
 
 /* ============================================================
    BELIEF / DRIVE / ANCHOR SANITIZATION
    ============================================================ */
 
-/**
- * Sanitizes belief deltas from LLM output.
- *
- * Input format expected:
- *   belief_deltas: { escape_possible: 12, self_worth: -5 }
- *
- * Values are percentage points and converted to fractional deltas.
- */
 export function sanitizeBeliefDeltas(raw) {
+
   if (!raw || typeof raw !== "object") return null;
 
   const allowed = [
@@ -42,66 +67,69 @@ export function sanitizeBeliefDeltas(raw) {
     "reality_reliable",
     "guilt_deserved",
     "resistance_possible",
-    "am_has_limits",
+    "am_has_limits"
   ];
 
   const updates = {};
 
   allowed.forEach((key) => {
+
     if (!Object.prototype.hasOwnProperty.call(raw, key)) return;
 
     let val = Number(raw[key]);
+
     if (!Number.isFinite(val)) return;
 
-    // convert percentage points → fraction
+    if (Math.abs(val) > 50) return;
+
     val = val / 100;
 
-    // clamp delta magnitude
     val = clipBeliefDelta(val);
 
     updates[key] = val;
+
   });
 
   return Object.keys(updates).length ? updates : null;
+
 }
 
-/**
- * Sanitizes drive updates.
- *
- * Prevents malformed drives and self-referential drives
- * like "protect_TED" for TED.
- */
 export function sanitizeDrives(raw, simId) {
+
   if (!raw || typeof raw !== "object") return null;
 
-  let primary = raw.primary == null ? null : String(raw.primary).trim() || null;
+  let primary =
+    raw.primary == null ? null : String(raw.primary).trim() || null;
+
   let secondary =
     raw.secondary == null ? null : String(raw.secondary).trim() || null;
 
   if (secondary && secondary.toLowerCase() === "none") secondary = null;
   if (primary && primary.toLowerCase() === "none") primary = null;
 
-  // prevent self-referential drives
   const selfRefRegex = new RegExp(simId, "i");
+
   if (
     (primary && selfRefRegex.test(primary)) ||
     (secondary && selfRefRegex.test(secondary))
   ) {
+
     console.warn(
-      `Drive self-reference detected for ${simId}: primary="${primary}", secondary="${secondary}". Discarding.`,
+      `Drive self-reference detected for ${simId}: primary="${primary}", secondary="${secondary}"`
     );
+
     return null;
+
   }
 
   if (!primary && !secondary) return null;
 
   return { primary, secondary };
+
 }
 
-/**
- * Sanitizes anchors list.
- */
 export function sanitizeAnchors(raw) {
+
   if (!Array.isArray(raw)) return null;
 
   const anchors = raw
@@ -109,46 +137,37 @@ export function sanitizeAnchors(raw) {
     .filter(Boolean)
     .slice(0, 12);
 
-  return anchors.length ? anchors : [];
+  const deduped = [...new Set(anchors)];
+
+  return deduped.length ? deduped : [];
+
 }
 
 /* ============================================================
    STAT DELTA PARSER
    ============================================================ */
 
-/**
- * Extracts suffering / hope / sanity deltas from LLM output.
- *
- * Supports:
- * 1. JSON structured output
- * 2. Legacy delta fields
- * 3. Explicit STATS blocks
- * 4. Shorthand deltas
- * 5. Absolute stat values
- */
 export function parseStatDeltas(text, sim) {
-  // ------------------------------
-  // JSON-FIRST PATH
-  // ------------------------------
+
   const obj = extractJSONObject(text);
 
   if (obj) {
+
     let suffering = signedDeltaFromDirectionMagnitude(
       obj.suffering_direction,
-      obj.suffering_magnitude,
+      obj.suffering_magnitude
     );
 
     let hope = signedDeltaFromDirectionMagnitude(
       obj.hope_direction,
-      obj.hope_magnitude,
+      obj.hope_magnitude
     );
 
     let sanity = signedDeltaFromDirectionMagnitude(
       obj.sanity_direction,
-      obj.sanity_magnitude,
+      obj.sanity_magnitude
     );
 
-    // backward compatibility
     if (suffering === null) suffering = coerceLegacyDelta(obj.suffering_delta);
     if (hope === null) hope = coerceLegacyDelta(obj.hope_delta);
     if (sanity === null) sanity = coerceLegacyDelta(obj.sanity_delta);
@@ -157,176 +176,114 @@ export function parseStatDeltas(text, sim) {
       suffering !== null || hope !== null || sanity !== null;
 
     if (foundAny) {
+
       return {
         suffering: suffering ?? 0,
         hope: hope ?? 0,
-        sanity: sanity ?? 0,
+        sanity: sanity ?? 0
       };
+
     }
+
   }
 
-  // ------------------------------
-  // LEGACY FALLBACK PARSING
-  // ------------------------------
+  return { suffering: 0, hope: 0, sanity: 0 };
 
-  function extractRawStat(statNames, sourceText) {
-    const pattern = new RegExp(`\\b(${statNames})[:=\\s]*([+-]?\\d+)`, "i");
-    const match = sourceText.match(pattern);
-    return match ? parseInt(match[2], 10) : null;
-  }
-
-  let suffering = extractRawStat("suffering|suf", text);
-  let hope = extractRawStat("hope|hop", text);
-  let sanity = extractRawStat("sanity|san", text);
-
-  if (suffering === null && hope === null && sanity === null) {
-    return { suffering: 0, hope: 0, sanity: 0 };
-  }
-
-  return {
-    suffering: suffering ?? 0,
-    hope: hope ?? 0,
-    sanity: sanity ?? 0,
-  };
 }
 
 /* ============================================================
    BELIEF PARSER
    ============================================================ */
 
-/**
- * Parses belief updates from LLM output.
- *
- * Supports:
- * - JSON belief_deltas
- * - JSON absolute beliefs
- * - Legacy BELIEFS block
- * - Markdown list format
- */
 export function parseBeliefUpdates(text, sim) {
+
   const obj = extractJSONObject(text);
 
-  if (obj) {
-    const updates = sanitizeBeliefDeltas(obj.belief_deltas);
-    if (updates) return updates;
+  if (!obj) return null;
 
-    // absolute beliefs fallback
-    if (obj.beliefs && typeof obj.beliefs === "object") {
-      const updatesFromAbsolute = {};
+  const updates = sanitizeBeliefDeltas(obj.belief_deltas);
 
-      Object.keys(sim.beliefs).forEach((key) => {
-        if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key)) return;
+  if (updates) return updates;
 
-        let raw = Number(obj.beliefs[key]);
-        if (!Number.isFinite(raw)) return;
+  if (obj.beliefs && typeof obj.beliefs === "object") {
 
-        const newVal = raw > 1 ? raw / 100 : raw;
+    const updatesFromAbsolute = {};
 
-        let delta = newVal - sim.beliefs[key];
-        delta = clipBeliefDelta(delta);
+    Object.keys(sim.beliefs).forEach((key) => {
 
-        updatesFromAbsolute[key] = delta;
-      });
+      if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key)) return;
 
-      if (Object.keys(updatesFromAbsolute).length) {
-        return updatesFromAbsolute;
-      }
+      let raw = Number(obj.beliefs[key]);
+
+      if (!Number.isFinite(raw)) return;
+
+      const newVal = raw > 1 ? raw / 100 : raw;
+
+      let delta = newVal - sim.beliefs[key];
+
+      delta = clipBeliefDelta(delta);
+
+      updatesFromAbsolute[key] = delta;
+
+    });
+
+    if (Object.keys(updatesFromAbsolute).length) {
+      return updatesFromAbsolute;
     }
+
   }
 
   return null;
-}
 
-/* ============================================================
-   DRIVE PARSER
-   ============================================================ */
-
-export function parseDriveUpdate(text, simId) {
-  const obj = extractJSONObject(text);
-
-  if (obj?.drives) {
-    return sanitizeDrives(obj.drives, simId);
-  }
-
-  // legacy fallback
-  const primaryMatch = text.match(/Primary:\s*"?(.*?)"?$/im);
-  const secondaryMatch = text.match(/Secondary:\s*"?(.*?)"?$/im);
-
-  if (!primaryMatch && !secondaryMatch) return null;
-
-  return sanitizeDrives(
-    {
-      primary: primaryMatch ? primaryMatch[1] : null,
-      secondary: secondaryMatch ? secondaryMatch[1] : null,
-    },
-    simId,
-  );
-}
-
-/* ============================================================
-   ANCHOR PARSER
-   ============================================================ */
-
-export function parseAnchorUpdate(text) {
-  const obj = extractJSONObject(text);
-
-  if (obj?.anchors) {
-    return sanitizeAnchors(obj.anchors);
-  }
-
-  const anchorBlock = text.match(/Anchors(?: After)?:([\s\S]+)$/i);
-  if (!anchorBlock) return null;
-
-  const anchors = anchorBlock[1]
-    .split("\n")
-    .map((line) => line.replace(/^[-*]\s*/, "").trim())
-    .filter(Boolean);
-
-  return sanitizeAnchors(anchors);
 }
 
 /* ============================================================
    STATE MUTATION HELPERS
    ============================================================ */
 
-/**
- * Applies belief delta updates to a sim.
- */
 export function applyBeliefUpdates(sim, updates) {
+
   if (!updates || !sim?.beliefs) return;
 
   Object.entries(updates).forEach(([key, delta]) => {
+
     if (!Object.prototype.hasOwnProperty.call(sim.beliefs, key)) return;
 
-    let newVal = Number(sim.beliefs[key]) + Number(delta);
-    if (!Number.isFinite(newVal)) return;
+    let belief = Number(sim.beliefs[key]);
 
-    newVal = Math.max(0, Math.min(1, newVal));
+    if (!Number.isFinite(belief)) return;
+
+    delta = dampBeliefDelta(belief, delta);
+
+    let newVal = belief + delta;
+
+    newVal = softClampBelief(newVal);
 
     sim.beliefs[key] = newVal;
+
   });
+
 }
 
-/**
- * Applies drive updates.
- */
 export function applyDriveUpdates(sim, drives) {
+
   if (!sim || !drives || typeof drives !== "object") return;
 
   if (typeof drives.primary === "string" && drives.primary.trim()) {
+
     sim.drives.primary = drives.primary.trim();
+
   }
 
   sim.drives.secondary =
     typeof drives.secondary === "string" && drives.secondary.trim()
       ? drives.secondary.trim()
       : null;
+
 }
 
-/**
- * Applies anchor updates.
- */
 export function applyAnchorUpdates(sim, anchors) {
+
   if (!sim || !Array.isArray(anchors)) return;
 
   if (!anchors.every((a) => typeof a === "string")) return;
@@ -335,4 +292,5 @@ export function applyAnchorUpdates(sim, anchors) {
     .map((a) => a.trim())
     .filter((a) => a.length > 0)
     .slice(0, 5);
+
 }

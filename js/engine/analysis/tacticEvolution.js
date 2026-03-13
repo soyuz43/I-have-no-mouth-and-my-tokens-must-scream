@@ -1,25 +1,45 @@
+// js/engine/analysis/tacticEvolution.js
+
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 
-/* ============================================================
-   TACTIC EVOLUTION ENGINE
-   Discovers new tactics from strong psychological effects.
-   ============================================================ */
+/**
+ * ============================================================
+ * TACTIC EVOLUTION ENGINE
+ * ------------------------------------------------------------
+ * Detects unusually strong psychological effects and asks
+ * AM whether a reusable manipulation tactic has emerged.
+ *
+ * Derived tactics:
+ * - automatically expire after 15 cycles
+ * - are deduplicated by title and content
+ * - join the tactic pool used by the execution engine
+ * ============================================================
+ */
+
 
 export async function runTacticEvolution() {
 
   if (!G.prevCycleSnapshot) return;
 
+
   /* ------------------------------------------------------------
      Remove expired derived tactics
   ------------------------------------------------------------ */
 
-  G.vault.derivedTactics = G.vault.derivedTactics.filter(
-    t => t.expiresCycle >= G.cycle
-  );
+  G.vault.derivedTactics =
+    G.vault.derivedTactics.filter(
+      t => t.expiresCycle >= G.cycle
+    );
+
 
   const discoveries = [];
+
+
+  /* ------------------------------------------------------------
+     SCAN FOR STRONG PSYCHOLOGICAL EFFECTS
+  ------------------------------------------------------------ */
 
   for (const id of SIM_IDS) {
 
@@ -53,13 +73,19 @@ export async function runTacticEvolution() {
 
     }
 
-    const strongEffect =
-      Math.abs(deltaHope) >= 10 ||
-      Math.abs(deltaSanity) >= 8 ||
-      Math.abs(deltaSuffering) >= 10 ||
-      relationshipShifts.length > 0;
 
-    if (!strongEffect) continue;
+    /* ------------------------------------------------------------
+       EFFECT MAGNITUDE SCORE
+    ------------------------------------------------------------ */
+
+    const magnitude =
+      Math.abs(deltaHope) * 0.6 +
+      Math.abs(deltaSanity) * 0.7 +
+      Math.abs(deltaSuffering) * 0.5 +
+      relationshipShifts.length * 2;
+
+    if (magnitude < 10) continue;
+
 
     discoveries.push({
       sim: id,
@@ -71,13 +97,16 @@ export async function runTacticEvolution() {
 
   }
 
+
   if (discoveries.length === 0) return;
+
 
   /* ------------------------------------------------------------
      Limit discoveries per cycle
   ------------------------------------------------------------ */
 
   const sample = discoveries.slice(0, 2);
+
 
   for (const effect of sample) {
 
@@ -95,17 +124,13 @@ Suffering delta: ${effect.deltaSuffering}
 Relationship shifts:
 ${effect.relationshipShifts.join("\n") || "(none)"}
 
-Question:
-
 Did this reveal a repeatable psychological manipulation tactic?
 
-If NO:
-Respond with
+If NO respond:
 
 NONE
 
-If YES:
-Define the tactic using this format exactly.
+If YES define the tactic exactly as:
 
 TITLE:
 CATEGORY:
@@ -129,6 +154,7 @@ Outcome:
 <short explanation>
 `;
 
+
     let response = "";
 
     try {
@@ -147,28 +173,51 @@ Outcome:
 
     }
 
-    if (!response || response.trim().startsWith("NONE")) continue;
+
+    if (!response || response.trim().startsWith("NONE"))
+      continue;
+
 
     /* ------------------------------------------------------------
-       Parse tactic
+       PARSE TACTIC
     ------------------------------------------------------------ */
 
     const titleMatch = response.match(/TITLE:\s*(.+)/i);
     const categoryMatch = response.match(/CATEGORY:\s*(.+)/i);
     const subMatch = response.match(/SUBCATEGORY:\s*(.+)/i);
 
-    if (!titleMatch || !categoryMatch || !subMatch) continue;
+    if (!titleMatch || !categoryMatch || !subMatch)
+      continue;
 
     const title = titleMatch[1].trim();
 
-    /* Avoid duplicates */
+
+    /* ------------------------------------------------------------
+       DEDUPLICATION
+    ------------------------------------------------------------ */
 
     if (
       G.vault.derivedTactics.some(t => t.title === title) ||
       G.vault.allTactics.some(t => t.title === title)
-    ) {
-      continue;
-    }
+    ) continue;
+
+    if (
+      G.vault.derivedTactics.some(
+        t => t.content.slice(0,120) === response.slice(0,120)
+      )
+    ) continue;
+
+
+    /* ------------------------------------------------------------
+       SAFETY LIMIT
+    ------------------------------------------------------------ */
+
+    if (G.vault.derivedTactics.length > 50) return;
+
+
+    /* ------------------------------------------------------------
+       BUILD TACTIC OBJECT
+    ------------------------------------------------------------ */
 
     const slug = title
       .toLowerCase()
@@ -192,6 +241,7 @@ Outcome:
       expiresCycle: G.cycle + 15
 
     };
+
 
     G.vault.derivedTactics.push(tactic);
 

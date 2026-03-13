@@ -25,7 +25,7 @@ import {
 import { buildAMPlanningPrompt, buildAMPrompt } from "../prompts/am.js";
 import { buildSimJournalPrompt } from "../prompts/journal.js";
 import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
-
+import { runBeliefContagion } from "./social/beliefContagion.js";
 import { callModel } from "../models/callModel.js";
 
 import {
@@ -55,6 +55,7 @@ import {
   updateSimDisplay,
 } from "../ui/render.js";
 import { renderRelationships } from "../ui/relationships.js";
+import { runBeliefContagion } from "./social/beliefContagion.js";
 /* ============================================================
    MAIN CYCLE CONTROLLER
    ============================================================ */
@@ -159,6 +160,28 @@ export async function runCycle() {
     timelineEvent(`!! INTER-SIM ERROR`);
 
   }
+
+  /* ------------------------------------------------------------
+     BELIEF CONTAGION
+     Propagate beliefs across trust network
+  ------------------------------------------------------------ */
+
+  try {
+
+    timelineEvent(`>>> BELIEF CONTAGION`);
+
+    runBeliefContagion();
+
+    timelineEvent(`// BELIEF CONTAGION COMPLETE`);
+
+  } catch (e) {
+
+    console.error("Belief contagion error:", e);
+
+    timelineEvent(`!! BELIEF CONTAGION ERROR`);
+
+  }
+
 
   /* ------------------------------------------------------------
      ASSESSMENT PHASE
