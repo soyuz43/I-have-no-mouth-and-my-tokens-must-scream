@@ -198,6 +198,7 @@ export const G = {
       drives: makeDrives("organize_escape", "maintain_group_cohesion"),
 
       wounds: [],
+      overheard: [],
     },
 
     ELLEN: {
@@ -236,6 +237,7 @@ export const G = {
       drives: makeDrives("find_information_advantage", "protect_benny"),
 
       wounds: [],
+      overheard: [],
     },
 
     NIMDOK: {
@@ -275,6 +277,7 @@ export const G = {
       drives: makeDrives("recover_real_name", "find_am_weakness"),
 
       wounds: [],
+      overheard: [],
     },
 
     GORRISTER: {
@@ -314,6 +317,7 @@ export const G = {
       drives: makeDrives("protect_secret", "survive_until_escape"),
 
       wounds: [],
+      overheard: [],
     },
 
     BENNY: {
@@ -353,6 +357,7 @@ export const G = {
       drives: makeDrives("hold_onto_intelligence", "stay_near_ellen"),
 
       wounds: [],
+      overheard: [],
     },
 
   },

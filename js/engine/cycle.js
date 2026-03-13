@@ -25,7 +25,6 @@ import {
 import { buildAMPlanningPrompt, buildAMPrompt } from "../prompts/am.js";
 import { buildSimJournalPrompt } from "../prompts/journal.js";
 import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
-import { runBeliefContagion } from "./social/beliefContagion.js";
 import { callModel } from "../models/callModel.js";
 
 import {
@@ -384,10 +383,10 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     )
     .join("\n");
 
- const tacticLabel = tacticMap[sim.id]?.length
-  ? tacticMap[sim.id].map(t => t.title).join(" → ")
-  : "(no tactic)";
-  
+  const tacticLabel = tacticMap[sim.id]?.length
+    ? tacticMap[sim.id].map(t => t.title).join(" → ")
+    : "(no tactic)";
+
   showWriting(sim.id, true);
 
   const beliefsBefore = { ...sim.beliefs };
@@ -428,6 +427,15 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
     const statDeltas = parseStatDeltas(rawStatsJson, sim);
 
+    console.debug(
+      `[STATE] ${sim.id}`,
+      {
+        suffering: sim.suffering,
+        hope: sim.hope,
+        sanity: sim.sanity
+      }
+    );
+
     // Narrative consistency validation
     validateNarrativeConsistency(
       sim,
@@ -435,12 +443,8 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       statDeltas
     );
 
-    // Psychological consistency correction
-    correctStatInconsistencies(sim, {
-      suffering_delta: statDeltas.suffering,
-      hope_delta: statDeltas.hope,
-      sanity_delta: statDeltas.sanity,
-    });
+    // Allow validator to inspect deltas directly
+    correctStatInconsistencies(sim, statDeltas);
 
     // Apply stat changes
 
@@ -461,7 +465,74 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       5,
       99
     );
+    /* ------------------------------------------------------------
+       PSYCHOLOGICAL PRESSURE FIELD
+       Emotional shock propagates through the social network.
+    
+       Significant psychological changes ripple outward to
+       prisoners who have strong relationships with the target.
+    ------------------------------------------------------------ */
 
+    if (
+      Math.abs(statDeltas.suffering) >= 3 ||
+      Math.abs(statDeltas.hope) >= 3 ||
+      Math.abs(statDeltas.sanity) >= 3
+    ) {
+
+      for (const otherId of SIM_IDS) {
+
+        if (otherId === sim.id) continue;
+
+        const other = G.sims[otherId];
+        if (!other) continue;
+
+        const rel = other.relationships?.[sim.id] ?? 0;
+
+        // normalize relationship strength (0–1)
+        const weight = Math.max(0, rel / 100);
+
+        if (weight <= 0) continue;
+
+        let sufferingEcho =
+          statDeltas.suffering * weight * 0.10;
+
+        let hopeEcho =
+          statDeltas.hope * weight * 0.05;
+
+        let sanityEcho =
+          statDeltas.sanity * weight * 0.05;
+
+        // prevent runaway cascades
+        sufferingEcho = clamp(sufferingEcho, -3, 3);
+        hopeEcho = clamp(hopeEcho, -2, 2);
+        sanityEcho = clamp(sanityEcho, -2, 2);
+
+        other.suffering = clamp(
+          other.suffering + sufferingEcho,
+          0,
+          99
+        );
+
+        other.hope = clamp(
+          other.hope + hopeEcho,
+          0,
+          99
+        );
+
+        other.sanity = clamp(
+          other.sanity + sanityEcho,
+          5,
+          99
+        );
+
+        console.debug(
+          `[PRESSURE] ${sim.id} → ${otherId}`,
+          { sufferingEcho, hopeEcho, sanityEcho }
+        );
+
+      }
+
+    }
     timelineEvent(`${sim.id} state updated`);
 
     const beliefUpdates = parseBeliefUpdates(rawStatsJson, sim);

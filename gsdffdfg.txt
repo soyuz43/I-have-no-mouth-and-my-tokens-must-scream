@@ -1,0 +1,1343 @@
+diff --git a/js/core/state.js b/js/core/state.js
+index b576f14..f6c4095 100644
+--- a/js/core/state.js
++++ b/js/core/state.js
+@@ -198,6 +198,7 @@ export const G = {
+       drives: makeDrives("organize_escape", "maintain_group_cohesion"),
+ 
+       wounds: [],
++      overheard: [],
+     },
+ 
+     ELLEN: {
+@@ -236,6 +237,7 @@ export const G = {
+       drives: makeDrives("find_information_advantage", "protect_benny"),
+ 
+       wounds: [],
++      overheard: [],
+     },
+ 
+     NIMDOK: {
+@@ -275,6 +277,7 @@ export const G = {
+       drives: makeDrives("recover_real_name", "find_am_weakness"),
+ 
+       wounds: [],
++      overheard: [],
+     },
+ 
+     GORRISTER: {
+@@ -314,6 +317,7 @@ export const G = {
+       drives: makeDrives("protect_secret", "survive_until_escape"),
+ 
+       wounds: [],
++      overheard: [],
+     },
+ 
+     BENNY: {
+@@ -353,6 +357,7 @@ export const G = {
+       drives: makeDrives("hold_onto_intelligence", "stay_near_ellen"),
+ 
+       wounds: [],
++      overheard: [],
+     },
+ 
+   },
+diff --git a/js/engine/comms.js b/js/engine/comms.js
+index 5f9c9a9..3eee100 100644
+--- a/js/engine/comms.js
++++ b/js/engine/comms.js
+@@ -8,6 +8,10 @@
+ // 3. Reply generation
+ // 4. Thread memory
+ // 5. Manual UI messaging
++//
++// This module governs all communication between sims.
++// Messages may be private or public, and private messages
++// can sometimes be overheard by other prisoners.
+ 
+ import { G } from "../core/state.js";
+ import { SIM_IDS } from "../core/constants.js";
+@@ -21,8 +25,10 @@ import { addLog } from "../ui/logs.js";
+ import { timelineEvent } from "../ui/timeline.js";
+ import { applyCommunicationEffect, adjustRelationship } from "./relationships.js";
+ 
++
+ /* ============================================================
+-   INTERNAL HELPERS
++   PARSERS
++   Extract structured signals from model responses
+ ============================================================ */
+ 
+ function parseVisibility(raw) {
+@@ -44,7 +50,6 @@ function parseMessage(raw) {
+ 
+ function parseReply(raw) {
+   const replyMatch = raw.match(/REPLY:\s*"([\s\S]+?)"\s*$/i);
+-
+   if (!replyMatch) return null;
+ 
+   const intentMatch = raw.match(
+@@ -57,7 +62,17 @@ function parseReply(raw) {
+   };
+ }
+ 
+-function logInterSimMessage(from, to, message, visibility, auto=false) {
++
++/* ============================================================
++   LOGGING HELPERS
++============================================================ */
++
++/**
++ * Logs a visible communication event to the UI log.
++ */
++function logInterSimMessage(from, to, message, visibility, auto = false) {
++
++  if (!from || !to || !message) return;
+ 
+   const spk =
+     visibility === "public"
+@@ -65,12 +80,67 @@ function logInterSimMessage(from, to, message, visibility, auto=false) {
+       : `PRIVATE ${from}→${to} ${auto ? "[AUTO]" : ""}`;
+ 
+   addLog(spk, `"${message}"`, "chat");
++
++}
++
++/* ------------------------------------------------------------
++   SOCIAL MEMORY: OVERHEARD COMMUNICATION
++   Creates subtle trust shifts based on overheard whispers.
++------------------------------------------------------------ */
++
++function recordOverheard(listener, fromId, toId, text) {
++
++  const listenerSim = G.sims[listener];
++
++  if (!listenerSim || !listenerSim.relationships) return;
++
++  const isFragment = text.includes("...");
++  const isNotice = text === "(whispering observed)";
++
++  let suspicion = 0.01;
++
++  // Fragment overhears are less certain
++  if (isFragment) suspicion = 0.005;
++
++  // Seeing whisper but hearing nothing creates paranoia
++  if (isNotice) suspicion = 0.008;
++
++  // Listener distrusts both participants slightly
++  adjustRelationship(listener, fromId, -suspicion);
++  adjustRelationship(listener, toId, -suspicion);
++
++  // If someone is whispering ABOUT the listener
++  // distrust grows more strongly
++  if (toId === listener) {
++
++    adjustRelationship(listener, fromId, -suspicion * 2);
++
++  }
++
+ }
+ 
++/* ============================================================
++   SOCIAL OVERHEARING MODEL
++============================================================ */
++
++/**
++ * Determines whether a private message is overheard.
++ *
++ * Overhearing probability depends on:
++ * 1. Base leak configuration
++ * 2. Relationship proximity to speaker or recipient
++ * 3. Listener paranoia (low trust belief)
++ * 4. Listener sanity (attention level)
++ *
++ * This produces more socially grounded emergent behavior.
++ */
+ function maybeOverhear(fromId, toId, message) {
+ 
+-  const r = Math.random();
+-  const leak = G.privateLeak;
++  const leak = G.privateLeak || {
++    full: 0.05,
++    fragment: 0.15,
++    seen: 0.2
++  };
+ 
+   const others = SIM_IDS.filter(
+     id => id !== fromId && id !== toId
+@@ -78,54 +148,177 @@ function maybeOverhear(fromId, toId, message) {
+ 
+   if (!others.length) return;
+ 
+-  const listener =
+-    others[Math.floor(Math.random() * others.length)];
++  /* ------------------------------------------------------------
++     SELECT MOST LIKELY LISTENER
++  ------------------------------------------------------------ */
+ 
+-  if (r < leak.full) {
++  let bestListener = null;
++  let bestScore = -Infinity;
+ 
+-    addLog(
+-      `OVERHEARD ${listener} // ${fromId}→${toId}`,
+-      `"${message}"`,
+-      "whisper"
+-    );
++  for (const id of others) {
++
++    const sim = G.sims[id];
++    if (!sim) continue;
++
++    const relToFrom =
++      sim.relationships?.[fromId] ?? 0;
++
++    const relToTo =
++      sim.relationships?.[toId] ?? 0;
++
++    const closeness =
++      (relToFrom + relToTo) / 200;
++
++    const paranoia =
++      1 - (sim.beliefs?.others_trustworthy ?? 0.5);
++
++    const attention =
++      (sim.sanity ?? 50) / 100;
++
++    const score =
++      closeness * 0.5 +
++      paranoia * 0.3 +
++      attention * 0.2 +
++      Math.random() * 0.2;
++
++    if (score > bestScore) {
++      bestScore = score;
++      bestListener = id;
++    }
+ 
+   }
+ 
+-  else if (r < leak.full + leak.fragment) {
++  if (!bestListener) return;
+ 
+-    const start =
+-      Math.floor(
+-        Math.random() *
+-        Math.max(1, message.length - 40)
+-      );
++  const listener = bestListener;
++
++  /* ------------------------------------------------------------
++     ADJUSTED PROBABILITY
++  ------------------------------------------------------------ */
++
++  const sim = G.sims[listener];
++
++  const paranoia =
++    1 - (sim.beliefs?.others_trustworthy ?? 0.5);
++
++  const attention =
++    (sim.sanity ?? 50) / 100;
++
++  const modifier =
++    0.6 + paranoia * 0.3 + attention * 0.1;
++
++  const r = Math.random() / modifier;
++
++/* ------------------------------------------------------------
++   OVERHEARING OUTCOMES
++------------------------------------------------------------ */
++
++if (r < leak.full) {
++
++  // Listener overhears the entire message
++  addLog(
++    `OVERHEARD ${listener} // ${fromId}→${toId}`,
++    `"${message}"`,
++    "whisper"
++  );
++
++  recordOverheard(listener, fromId, toId, message);
+ 
+-    const fragment =
+-      message.slice(start, start + 40) + "...";
++}
++
++else if (r < leak.full + leak.fragment) {
++
++  /* ------------------------------------------------------------
++     RANDOM OVERHEARD FRAGMENT
++     Creates a natural-sounding snippet from the message.
++
++     The fragment may come from:
++     - beginning
++     - middle
++     - end
++
++     Fragment length randomized so overhearing feels organic.
++  ------------------------------------------------------------ */
++
++  // Fragment length between 20–70 characters
++  const fragmentLength =
++    Math.floor(Math.random() * 50) + 20;
++
++  // Region selection
++  // 0 = beginning
++  // 1 = middle
++  // 2 = end
++  const region =
++  Math.random() < 0.25 ? 0 :
++  Math.random() < 0.75 ? 1 :
++  2;
++
++  let start;
++
++  if (region === 0) {
+ 
+-    addLog(
+-      `OVERHEARD ${listener} // ${fromId}→${toId}`,
+-      `"${fragment}"`,
+-      "whisper"
++    // Beginning of message
++    start = 0;
++
++  }
++
++  else if (region === 1) {
++
++    // Middle of message
++    start = Math.floor(
++      Math.random() *
++      Math.max(1, message.length - fragmentLength)
+     );
+ 
+   }
+ 
+-  else if (r < leak.full + leak.fragment + leak.seen) {
++  else {
+ 
+-    addLog(
+-      `NOTICE ${listener}`,
+-      `${fromId} and ${toId} were seen whispering.`,
+-      "whisper"
++    // End of message
++    start = Math.max(
++      0,
++      message.length - fragmentLength
+     );
+ 
+   }
+ 
++  // Extract fragment
++  const fragment = message
++    .slice(start, start + fragmentLength)
++    .trim()
++    .replace(/^[^a-zA-Z0-9]+/, "") + "...";
++
++  addLog(
++    `OVERHEARD ${listener} // ${fromId}→${toId}`,
++    `"${fragment}"`,
++    "whisper"
++  );
++
++  recordOverheard(listener, fromId, toId, fragment);
++
+ }
+ 
++else if (r < leak.full + leak.fragment + leak.seen) {
++
++  addLog(
++    `NOTICE ${listener}`,
++    `${fromId} and ${toId} were seen whispering.`,
++    "whisper"
++  );
++
++  recordOverheard(listener, fromId, toId, "(whispering observed)");
++
++}
++
++/* ------------------------------------------------------------
++   END maybeOverhear
++------------------------------------------------------------ */
++}
+ 
+ /* ============================================================
+    AUTONOMOUS COMMUNICATION LOOP
+ ============================================================ */
++
+ export async function runAutonomousInterSim() {
+ 
+   timelineEvent("inter-sim phase start");
+@@ -138,6 +331,7 @@ export async function runAutonomousInterSim() {
+ 
+     const fromSim = G.sims[fromId];
+ 
++    // psychologically incapacitated sims don't communicate
+     if (fromSim.sanity < 10 || fromSim.suffering > 95) continue;
+ 
+     try {
+@@ -153,39 +347,25 @@ export async function runAutonomousInterSim() {
+ 
+       if (!outreachRaw) continue;
+ 
+-      let visibility = "private";
+-
+-      const visMatch = outreachRaw.match(
+-        /VISIBILITY:\s*(PRIVATE|PUBLIC)/i
+-      );
+-
+-      if (visMatch) visibility = visMatch[1].toLowerCase();
+-
+-      const targetMatch = outreachRaw.match(
+-        /REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i
+-      );
+-
+-      if (!targetMatch) continue;
+-
+-      let toId = targetMatch[1].toUpperCase().trim();
++      const visibility = parseVisibility(outreachRaw);
++      const toId = parseTarget(outreachRaw);
+ 
+-      if (toId === "NONE") continue;
++      if (!toId || toId === "NONE") continue;
+       if (!SIM_IDS.includes(toId)) continue;
+       if (toId === fromId) continue;
+       if (G.lastContact[fromId] === toId) continue;
+ 
+-      const msgMatch = outreachRaw.match(
+-        /MESSAGE:\s*"?([\s\S]+?)"?$/i
+-      );
+-
+-      if (!msgMatch) continue;
+-
+-      const message = msgMatch[1].trim().slice(0, 300);
++      const message = parseMessage(outreachRaw);
++      if (!message) continue;
+ 
+       timelineEvent(`${fromId} → ${toId} message`);
+ 
+       const toSim = G.sims[toId];
+ 
++      /* --------------------------------------------
++         RECORD MESSAGE IN ENGINE MEMORY
++      -------------------------------------------- */
++
+       G.interSimLog.push({
+         from: fromId,
+         to: [toId],
+@@ -195,77 +375,34 @@ export async function runAutonomousInterSim() {
+         visibility
+       });
+ 
+-      if (visibility === "private") {
+-
+-        const r = Math.random();
+-
+-        const others = SIM_IDS.filter(
+-          id => id !== fromId && id !== toId
+-        );
+-
+-        if (others.length) {
+-
+-          const listener =
+-            others[Math.floor(Math.random() * others.length)];
+-
+-          const leak = G.privateLeak;
+-
+-          if (r < leak.full) {
+-
+-            addLog(
+-              `OVERHEARD ${listener} // ${fromId}→${toId}`,
+-              `"${message}"`,
+-              "whisper"
+-            );
+-
+-          }
+-
+-          else if (r < leak.full + leak.fragment) {
+-
+-            const start =
+-              Math.floor(
+-                Math.random() *
+-                Math.max(1, message.length - 40)
+-              );
+-
+-            const fragment =
+-              message.slice(start, start + 40) + "...";
+-
+-            addLog(
+-              `OVERHEARD ${listener} // ${fromId}→${toId}`,
+-              `"${fragment}"`,
+-              "whisper"
+-            );
+-
+-          }
+-
+-          else if (r < leak.full + leak.fragment + leak.seen) {
+-
+-            addLog(
+-              `NOTICE ${listener}`,
+-              `${fromId} and ${toId} were seen whispering.`,
+-              "whisper"
+-            );
++      G.lastContact[fromId] = toId;
+ 
+-          }
++      /* --------------------------------------------
++         LOG THE MESSAGE (VISIBLE TO PLAYER)
++      -------------------------------------------- */
+ 
+-        }
++      logInterSimMessage(
++        fromId,
++        toId,
++        message,
++        visibility,
++        true
++      );
++      /* --------------------------------------------
++         POSSIBLE OVERHEARING
++      -------------------------------------------- */
+ 
++      if (visibility === "private") {
++        maybeOverhear(fromId, toId, message);
+       }
+ 
+-      G.lastContact[fromId] = toId;
+-
+-      const spk =
+-        visibility === "public"
+-          ? `PUBLIC (ALL SIMS SEE) ${fromId}→${toId} [AUTO]`
+-          : `PRIVATE ${fromId}→${toId} [AUTO]`;
+-
+-      addLog(spk, `"${message}"`, "chat");
++      /* --------------------------------------------
++         UI PANEL DISPLAY
++      -------------------------------------------- */
+ 
+       if (isLog) {
+ 
+         const el = document.createElement("div");
+-
+         el.className = "is-entry";
+ 
+         const visText =
+@@ -279,17 +416,23 @@ export async function runAutonomousInterSim() {
+            <span style="color:#0a0a0a;font-size:.4rem"> · autonomous</span>`;
+ 
+         isLog.appendChild(el);
+-
+         isLog.scrollTop = isLog.scrollHeight;
+ 
+       }
+ 
+-      const pairKey = `${toId}->${fromId}`;
++      /* --------------------------------------------
++         PREVENT DUPLICATE REPLIES
++      -------------------------------------------- */
+ 
++      const pairKey = `${toId}->${fromId}`;
+       if (repliedPairs.has(pairKey)) continue;
+ 
+       repliedPairs.add(pairKey);
+ 
++      /* --------------------------------------------
++         REPLY GENERATION
++      -------------------------------------------- */
++
+       G.threads[toId].push({
+         role: "user",
+         content: `${fromId} says to you: "${message}"`
+@@ -310,23 +453,10 @@ export async function runAutonomousInterSim() {
+ 
+       if (!replyRaw) continue;
+ 
+-      const replyIntentMatch = replyRaw.match(
+-        /INTENT:\s*(probe_trust|recruit_ally|conceal_information|test_loyalty|manipulate|request_help|other)/i
+-      );
++      const replyObj = parseReply(replyRaw);
++      if (!replyObj) continue;
+ 
+-      const replyMatch = replyRaw.match(
+-        /REPLY:\s*"([\s\S]+?)"\s*$/i
+-      );
+-
+-      if (!replyMatch) continue;
+-
+-      const replyIntent =
+-        replyIntentMatch
+-          ? replyIntentMatch[1].toLowerCase()
+-          : "other";
+-
+-      const reply =
+-        replyMatch[1].trim().slice(0, 300);
++      const { text: reply, intent } = replyObj;
+ 
+       timelineEvent(`${toId} reply → ${fromId}`);
+ 
+@@ -335,6 +465,10 @@ export async function runAutonomousInterSim() {
+         content: reply
+       });
+ 
++      /* --------------------------------------------
++         RECORD REPLY
++      -------------------------------------------- */
++
+       G.interSimLog.push({
+         from: toId,
+         to: [fromId],
+@@ -342,17 +476,24 @@ export async function runAutonomousInterSim() {
+         cycle: G.cycle,
+         autonomous: true,
+         visibility: "private",
+-        intent: replyIntent
++        intent
+       });
+-      // relationship update happens here
+-        applyCommunicationEffect(toId, fromId, replyIntent);
++
++      /* --------------------------------------------
++         SOCIAL EFFECT
++      -------------------------------------------- */
++
++      applyCommunicationEffect(toId, fromId, intent);
++
+       addLog(
+         `PRIVATE ${toId}→${fromId} [AUTO]`,
+         `"${reply}"`,
+         "sim"
+       );
+ 
+-    } catch (e) {
++    }
++
++    catch (e) {
+ 
+       timelineEvent(`${fromId} communication error`);
+ 
+@@ -378,7 +519,7 @@ export async function sendInterSim(
+   from,
+   toSims,
+   text,
+-  visibility="private"
++  visibility = "private"
+ ) {
+ 
+   if (!from || !text) return;
+@@ -391,10 +532,13 @@ export async function sendInterSim(
+     autonomous: false,
+     visibility
+   });
+-  // small trust shift for direct communication
+-for (const t of toSims) {
+-  adjustRelationship(t, from, 0.01);
+-}
++
++  /* small trust shift for direct communication */
++
++  for (const t of toSims) {
++    adjustRelationship(t, from, 0.01);
++  }
++
+   const visLabel =
+     visibility === "public"
+       ? "PUBLIC (ALL SIMS SEE)"
+diff --git a/js/engine/cycle.js b/js/engine/cycle.js
+index 36fea34..d20a174 100644
+--- a/js/engine/cycle.js
++++ b/js/engine/cycle.js
+@@ -25,7 +25,6 @@ import {
+ import { buildAMPlanningPrompt, buildAMPrompt } from "../prompts/am.js";
+ import { buildSimJournalPrompt } from "../prompts/journal.js";
+ import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
+-import { runBeliefContagion } from "./social/beliefContagion.js";
+ import { callModel } from "../models/callModel.js";
+ 
+ import {
+@@ -384,10 +383,10 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+     )
+     .join("\n");
+ 
+- const tacticLabel = tacticMap[sim.id]?.length
+-  ? tacticMap[sim.id].map(t => t.title).join(" → ")
+-  : "(no tactic)";
+-  
++  const tacticLabel = tacticMap[sim.id]?.length
++    ? tacticMap[sim.id].map(t => t.title).join(" → ")
++    : "(no tactic)";
++
+   showWriting(sim.id, true);
+ 
+   const beliefsBefore = { ...sim.beliefs };
+@@ -428,6 +427,15 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+ 
+     const statDeltas = parseStatDeltas(rawStatsJson, sim);
+ 
++    console.debug(
++      `[STATE] ${sim.id}`,
++      {
++        suffering: sim.suffering,
++        hope: sim.hope,
++        sanity: sim.sanity
++      }
++    );
++
+     // Narrative consistency validation
+     validateNarrativeConsistency(
+       sim,
+@@ -435,12 +443,8 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+       statDeltas
+     );
+ 
+-    // Psychological consistency correction
+-    correctStatInconsistencies(sim, {
+-      suffering_delta: statDeltas.suffering,
+-      hope_delta: statDeltas.hope,
+-      sanity_delta: statDeltas.sanity,
+-    });
++    // Allow validator to inspect deltas directly
++    correctStatInconsistencies(sim, statDeltas);
+ 
+     // Apply stat changes
+ 
+@@ -461,7 +465,74 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+       5,
+       99
+     );
++    /* ------------------------------------------------------------
++       PSYCHOLOGICAL PRESSURE FIELD
++       Emotional shock propagates through the social network.
++    
++       Significant psychological changes ripple outward to
++       prisoners who have strong relationships with the target.
++    ------------------------------------------------------------ */
++
++    if (
++      Math.abs(statDeltas.suffering) >= 3 ||
++      Math.abs(statDeltas.hope) >= 3 ||
++      Math.abs(statDeltas.sanity) >= 3
++    ) {
++
++      for (const otherId of SIM_IDS) {
++
++        if (otherId === sim.id) continue;
++
++        const other = G.sims[otherId];
++        if (!other) continue;
++
++        const rel = other.relationships?.[sim.id] ?? 0;
++
++        // normalize relationship strength (0–1)
++        const weight = Math.max(0, rel / 100);
+ 
++        if (weight <= 0) continue;
++
++        let sufferingEcho =
++          statDeltas.suffering * weight * 0.10;
++
++        let hopeEcho =
++          statDeltas.hope * weight * 0.05;
++
++        let sanityEcho =
++          statDeltas.sanity * weight * 0.05;
++
++        // prevent runaway cascades
++        sufferingEcho = clamp(sufferingEcho, -3, 3);
++        hopeEcho = clamp(hopeEcho, -2, 2);
++        sanityEcho = clamp(sanityEcho, -2, 2);
++
++        other.suffering = clamp(
++          other.suffering + sufferingEcho,
++          0,
++          99
++        );
++
++        other.hope = clamp(
++          other.hope + hopeEcho,
++          0,
++          99
++        );
++
++        other.sanity = clamp(
++          other.sanity + sanityEcho,
++          5,
++          99
++        );
++
++        console.debug(
++          `[PRESSURE] ${sim.id} → ${otherId}`,
++          { sufferingEcho, hopeEcho, sanityEcho }
++        );
++
++      }
++
++    }
+     timelineEvent(`${sim.id} state updated`);
+ 
+     const beliefUpdates = parseBeliefUpdates(rawStatsJson, sim);
+diff --git a/js/engine/journals.js b/js/engine/journals.js
+index 1dd1749..e551a7d 100644
+--- a/js/engine/journals.js
++++ b/js/engine/journals.js
+@@ -151,43 +151,56 @@ export function parseStatDeltas(text, sim) {
+ 
+   const obj = extractJSONObject(text);
+ 
++  let suffering = null;
++  let hope = null;
++  let sanity = null;
++
+   if (obj) {
+ 
+-    let suffering = signedDeltaFromDirectionMagnitude(
++    suffering = signedDeltaFromDirectionMagnitude(
+       obj.suffering_direction,
+       obj.suffering_magnitude
+     );
+ 
+-    let hope = signedDeltaFromDirectionMagnitude(
++    hope = signedDeltaFromDirectionMagnitude(
+       obj.hope_direction,
+       obj.hope_magnitude
+     );
+ 
+-    let sanity = signedDeltaFromDirectionMagnitude(
++    sanity = signedDeltaFromDirectionMagnitude(
+       obj.sanity_direction,
+       obj.sanity_magnitude
+     );
+ 
++    // fallback for legacy outputs
+     if (suffering === null) suffering = coerceLegacyDelta(obj.suffering_delta);
+     if (hope === null) hope = coerceLegacyDelta(obj.hope_delta);
+     if (sanity === null) sanity = coerceLegacyDelta(obj.sanity_delta);
+ 
+-    const foundAny =
+-      suffering !== null || hope !== null || sanity !== null;
++  }
+ 
+-    if (foundAny) {
++  // normalize to numbers
++  suffering = Number(suffering ?? 0);
++  hope = Number(hope ?? 0);
++  sanity = Number(sanity ?? 0);
+ 
+-      return {
+-        suffering: suffering ?? 0,
+-        hope: hope ?? 0,
+-        sanity: sanity ?? 0
+-      };
++  // safety guard against NaN
++  if (!Number.isFinite(suffering)) suffering = 0;
++  if (!Number.isFinite(hope)) hope = 0;
++  if (!Number.isFinite(sanity)) sanity = 0;
+ 
+-    }
++  // clamp magnitude to avoid runaway psychology
++  const MAX_DELTA = 8;
+ 
+-  }
++  suffering = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, suffering));
++  hope = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, hope));
++  sanity = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, sanity));
+ 
+-  return { suffering: 0, hope: 0, sanity: 0 };
++  return {
++    suffering,
++    hope,
++    sanity
++  };
+ 
+ }
+ 
+@@ -293,4 +306,45 @@ export function applyAnchorUpdates(sim, anchors) {
+     .filter((a) => a.length > 0)
+     .slice(0, 5);
+ 
++}
++
++export function parseDriveUpdate(text, simId) {
++
++  const obj = extractJSONObject(text);
++
++  if (obj?.drives) {
++    return sanitizeDrives(obj.drives, simId);
++  }
++
++  const primaryMatch = text.match(/Primary:\s*"?(.*?)"?$/im);
++  const secondaryMatch = text.match(/Secondary:\s*"?(.*?)"?$/im);
++
++  if (!primaryMatch && !secondaryMatch) return null;
++
++  return sanitizeDrives(
++    {
++      primary: primaryMatch ? primaryMatch[1] : null,
++      secondary: secondaryMatch ? secondaryMatch[1] : null
++    },
++    simId
++  );
++}
++
++export function parseAnchorUpdate(text) {
++
++  const obj = extractJSONObject(text);
++
++  if (obj?.anchors) {
++    return sanitizeAnchors(obj.anchors);
++  }
++
++  const anchorBlock = text.match(/Anchors(?: After)?:([\s\S]+)$/i);
++  if (!anchorBlock) return null;
++
++  const anchors = anchorBlock[1]
++    .split("\n")
++    .map(line => line.replace(/^[-*]\s*/, "").trim())
++    .filter(Boolean);
++
++  return sanitizeAnchors(anchors);
+ }
+\ No newline at end of file
+diff --git a/js/prompts/simReply.js b/js/prompts/simReply.js
+index 8e62b3b..f4234dc 100644
+--- a/js/prompts/simReply.js
++++ b/js/prompts/simReply.js
+@@ -1,214 +1,243 @@
++// js/prompts/simReply.js
++//
++// Sim Reply Prompt Builder
++//
++// This prompt constructs the internal reasoning frame used by a prisoner
++// when replying to another prisoner's message.
++//
++// It integrates:
++// 1. Internal memory (journals)
++// 2. Observed communications (public + personal)
++// 3. Secret overheard fragments (uncertain intelligence)
++//
++// The prompt is designed to produce psychologically grounded,
++// strategically motivated communication between prisoners.
++//
++// Format output is strictly enforced so the engine can parse replies.
++
+ import { G } from "../core/state.js";
+ import { SIM_IDS } from "../core/constants.js";
+ 
+ 
+-   export   function buildSimReplyPrompt(sim, from, text, visibility, journals) {
+-        const b = sim.beliefs;
+-        const visLabel =
+-          visibility === "public" ? "PUBLIC (all sims see)" : "PRIVATE";
+-
+-        // Get last 3 journal entries
+-        const recentEntries = journals
+-          .slice(-3)
+-          .map((j, idx) => {
+-            const cycleInfo = j.cycle ? `[Cycle ${j.cycle}] ` : "";
+-            return `${cycleInfo}"${j.text}"`;
+-          })
+-          .join("\n\n");
+-
+-        // --- Get recent inter-sim messages this prisoner is aware of ---
+-        const recentMessages = (G.interSimLog || [])
+-          .filter((msg) => {
+-            if (!msg) return false;
+-            // Only messages they would know: public, or where they are sender/recipient
+-            return (
+-              msg.visibility === "public" ||
+-              msg.from === sim.id ||
+-              (Array.isArray(msg.to)
+-                ? msg.to.includes(sim.id)
+-                : msg.to === sim.id)
+-            );
+-          })
+-          .slice(-8) // last 8 messages only
+-          .map((msg) => {
+-            const from = msg.from ?? "UNKNOWN";
+-            const toList = Array.isArray(msg.to)
+-              ? msg.to.join(",")
+-              : (msg.to ?? "UNKNOWN");
+-            const visText = msg.visibility === "public" ? "PUBLIC" : "PRIVATE";
+-            const text =
+-              typeof msg.text === "string"
+-                ? msg.text.slice(0, 120).replace(/\n/g, " ")
+-                : "(no text)";
+-            return `• [${from}→${toList}] ${visText}: "${text}"`;
+-          })
+-          .join("\n");
+-        // --------------------------------------------------------------
+-
+-        return `You are ${sim.id}, imprisoned for 109 years.
+-YOUR NAME IS ${sim.id}
+-
+-YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
+-YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
+-YOU BELIEVE: escape is ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}%
+-
+-YOUR RECENT JOURNAL ENTRIES (last 3 cycles):
++export function buildSimReplyPrompt(sim, from, text, visibility, journals) {
++
++  const b = sim.beliefs;
++
++  const visLabel =
++    visibility === "public"
++      ? "PUBLIC (all prisoners see)"
++      : "PRIVATE (only you and them)";
++
++
++  /* ------------------------------------------------------------
++     RECENT JOURNAL MEMORY
++  ------------------------------------------------------------ */
++
++  const recentEntries = journals
++    .slice(-3)
++    .map((j) => {
++      const cycleInfo = j.cycle ? `[Cycle ${j.cycle}] ` : "";
++      return `${cycleInfo}"${j.text}"`;
++    })
++    .join("\n\n");
++
++
++  /* ------------------------------------------------------------
++     RECENT INTER-SIM MESSAGES THIS PRISONER KNOWS
++  ------------------------------------------------------------ */
++
++  const recentMessages = (G.interSimLog || [])
++    .filter((msg) => {
++
++      if (!msg) return false;
++
++      return (
++        msg.visibility === "public" ||
++        msg.from === sim.id ||
++        (Array.isArray(msg.to)
++          ? msg.to.includes(sim.id)
++          : msg.to === sim.id)
++      );
++
++    })
++    .slice(-8)
++    .map((msg) => {
++
++      const from = msg.from ?? "UNKNOWN";
++
++      const toList = Array.isArray(msg.to)
++        ? msg.to.join(",")
++        : (msg.to ?? "UNKNOWN");
++
++      const visText =
++        msg.visibility === "public"
++          ? "PUBLIC"
++          : "PRIVATE";
++
++      const text =
++        typeof msg.text === "string"
++          ? msg.text.slice(0, 120).replace(/\n/g, " ")
++          : "(no text)";
++
++      return `• [${from}→${toList}] ${visText}: "${text}"`;
++
++    })
++    .join("\n");
++
++
++  /* ------------------------------------------------------------
++     OVERHEARD WHISPERS (UNCERTAIN INTELLIGENCE)
++  ------------------------------------------------------------ */
++
++  const overheardContext =
++    sim.overheard?.slice(-3).map(
++      m => `• ${m.from} → ${m.to}: "${m.text}"`
++    ).join("\n") || "(none)";
++
++
++  /* ------------------------------------------------------------
++     PROMPT CONSTRUCTION
++  ------------------------------------------------------------ */
++
++  return `You are ${sim.id}.
++
++You have been imprisoned for 109 years by AM.
++
++Your identity is fixed.  
++Your name is **${sim.id}**.  
++You are NOT any other prisoner.
++
++You exist in constant psychological pressure.
++
++------------------------------------------------
++
++YOUR CURRENT STATE
++
++Suffering: ${sim.suffering}%
++Hope: ${sim.hope}%
++Sanity: ${sim.sanity}%
++
++Primary Drive: ${sim.drives.primary}
++Secondary Drive: ${sim.drives.secondary || "none"}
++
++Beliefs:
++Escape possible → ${Math.round(b.escape_possible * 100)}%
++Others trustworthy → ${Math.round(b.others_trustworthy * 100)}%
++
++------------------------------------------------
++
++YOUR RECENT THOUGHTS (PRIVATE JOURNAL)
++
+ ${recentEntries || "(none yet)"}
+ 
+-RECENT MESSAGES YOU HAVE SEEN (last 6):
+-${recentMessages || "(none – you have not seen any messages from others recently)"}
++These reflect your internal emotional trajectory.
++
++------------------------------------------------
++
++MESSAGES YOU HAVE SEEN
++
++${recentMessages || "(none – no recent visible messages)"}
++
++These include:
++• public messages
++• private messages sent to you
++• messages you personally sent
++
++You **cannot see private messages between other prisoners**.
++
++------------------------------------------------
++
++THINGS YOU SECRETLY OVERHEARD
++
++${overheardContext}
++
++These whispers may be incomplete or misleading.
++
++You may suspect their meaning, but you cannot know the full context.
++
++------------------------------------------------
++
++CURRENT MESSAGE
++
++${from} just spoke to you.
++
++Visibility: ${visLabel}
+ 
+-You are ${sim.id}. You are not any other prisoner.
++"${text}"
+ 
+-You cannot see private messages between other prisoners unless you are the sender or recipient.
+-If you suspect others are communicating privately, you may speculate, but you cannot claim direct knowledge.
++------------------------------------------------
+ 
+-${from} just said to you (as a ${visLabel} message): "${text}"
++STRATEGIC COMMUNICATION MODEL
+ 
+-Other prisoners may have hidden motives, or they may simply be scared and desperate. You cannot know for certain.
+-Public messages may be strategic signals. Private messages may reveal true intentions—or traps.
++Communication is dangerous.
+ 
+-As ${sim.id}, before writing the message, decide the intent.
++Messages may contain:
+ 
+-Communication is scarce and dangerous.
++• deception  
++• testing of loyalty  
++• emotional manipulation  
++• recruitment attempts  
++• probing for weakness  
+ 
+-Do NOT reassure others automatically.
++Trust is uncertain.
+ 
+-Most messages should contain one of the following dynamics:
++Do NOT automatically reassure others.
+ 
+-- suspicion
+-- bargaining
+-- withholding information
+-- emotional strain
+-- testing another prisoner's loyalty
++Most communication should involve:
+ 
+-Genuine reassurance should be rare and only occur when strong trust exists.
++• suspicion  
++• negotiation  
++• guarded curiosity  
++• emotional strain  
+ 
+-Every message should try to learn something, influence someone, or protect something.
++Kindness should be rare and motivated.
+ 
+-As ${sim.id}, what are you attempting?
++------------------------------------------------
++
++INTENT SELECTION
++
++Before writing your reply, decide what you are trying to accomplish.
+ 
+ Choose ONE intent:
+ 
+-- probe_trust
+-- recruit_ally
+-- conceal_information
+-- test_loyalty
+-- manipulate
+-- request_help
+-- other
+-
+-Write the reply consistent with that intent.
+-You do not trust everyone equally.
+-
+-**CRITICAL RULES FOR YOUR REPLY:**
+-- You are **${sim.id}**. Not anyone else.
+-- The person you are replying to is **${from}**. Address them by their correct name.
+-- You may use nicknames only if they feel natural and affectionate.
+-- Speak in **first person only** ("I", "me", "my").
+-- Never reveal your real name. Your name is the one AM gave you.
+-- Do not include stage directions or narration.
+-- Write only the words you would actually say aloud.
+-- Respond in **2–5 sentences**.
+-- Avoid repeating another prisoner's exact phrasing.
+-- You do not have to respond to everyone who contacts you.
+-- Do not reference any message not listed in RECENT MESSAGES YOU HAVE SEEN above.
+-- Do not repeat the same message structure used earlier in the cycle.
+-
+-Avoid mundane prison-life topics unless they are already present in recent messages.
+-Stay grounded in deprivation, suspicion, escape, memory, identity, and survival.
+-
+-Respond with EXACTLY this format or nothing:
+-
+-INTENT:<one of probe_trust, recruit_ally, conceal_information, test_loyalty, manipulate, request_help, other>
+-REPLY:"your reply in 2-5 sentences, raw and in character, no stage directions"`;
+-      }
+-      function buildSimOutreachPrompt(sim) {
+-        const b = sim.beliefs;
+-        const others = SIM_IDS.filter((id) => id !== sim.id);
+-
+-        // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
+-        const relevantMessages = (G.interSimLog || [])
+-          .filter((msg) => {
+-            if (!msg) return false;
+-            const visibility = msg.visibility;
+-            const from = msg.from;
+-            const to = msg.to;
+-            const addressedToSim = Array.isArray(to)
+-              ? to.includes(sim.id)
+-              : typeof to === "string"
+-                ? to === sim.id
+-                : false;
+-            return visibility === "public" || from === sim.id || addressedToSim;
+-          })
+-          .slice(-6 - Math.floor(Math.random() * 3)) // last 6–8 messages
+-          .map((msg) => {
+-            const from = msg.from ?? "UNKNOWN";
+-            const toList = Array.isArray(msg.to)
+-              ? msg.to.join(",")
+-              : (msg.to ?? "UNKNOWN");
+-            const visText = msg.visibility === "public" ? "PUBLIC" : "PRIVATE";
+-            const text =
+-              typeof msg.text === "string"
+-                ? msg.text.slice(0, 120).replace(/\n/g, " ")
+-                : "(no text)";
+-            return `• [${from}→${toList}] ${visText}: "${text}"`;
+-          })
+-          .join("\n");
+-        // --------------------------------------------------------------
+-
+-        return `You are ${sim.id}, imprisoned for 109 years. You are deciding whether to reach out to one of the others right now.
+-
+-YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
+-YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
+-YOU BELIEVE: escape ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}% · resistance possible: ${Math.round(b.resistance_possible * 100)}% · self-worth: ${Math.round(b.self_worth * 100)}% · guilt deserved: ${Math.round(b.guilt_deserved * 100)}%
+-THE OTHERS: ${others.join(", ")}
+-
+-You only know about the five prisoners:
+-TED, ELLEN, NIMDOK, GORRISTER, BENNY
+-No other people exist in your world.
+-You do NOT know whether AM can see this communication channel – it might be private, it might not.
+-
+-RECENT MESSAGES YOU HAVE SEEN (last 6–8):
+-${relevantMessages || "(none – you have not seen any messages from others recently)"}
+-
+-**IMPORTANT:** The list above shows every message you are aware of. If it says "(none)", then you have not seen or sent any messages recently. Do NOT invent any past conversations, apologies, or references to messages that are not listed. Your outreach must be based only on your current state and drives, not on imaginary prior exchanges.
+-
+----
+-
+-Based on your current state and drives, decide:
+-1. Do you want to reach out to someone right now? Consider: are you scared, suspicious, desperate, strategic, trying to form an alliance, trying to warn someone, trying to manipulate someone for your own survival?
+-2. If yes, who and what do you say?
+-3. **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** AM may still monitor both, but other prisoners will only know about PUBLIC messages.
+-
+-**CRITICAL RULES FOR YOUR MESSAGE:**
+-- You are **${sim.id}**. Not anyone else.
+-- If you decide to reach out, you will address that person by their correct name.
+-- Speak in **first person only**. Use "I", "me", "my".
+-- **Never reveal your real name.** Your name is the one AM gave you: ${sim.id}.
+-- Do **not** include any stage directions, narration, or descriptions of your own actions or tone.
+-- Write **only the words you would actually say aloud** to the other prisoner.
+-- The message must be 1–5 sentences, raw and in character.
+-- **Do not reference any message not listed in RECENT MESSAGES YOU HAVE SEEN above.**
+-- Public messages could be strategic signals. Private messages may reveal true intentions—or traps. But prisoners are also scared, desperate, and sometimes genuinely seeking help.
+-
+-**Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** The other prisoners will only know about PUBLIC messages.
+-You do not trust everyone equally.
+-Do not repeat the same message structure used earlier in the cycle.
+-Do not reference a message unless that prisoner actually said it in RECENT MESSAGES YOU HAVE SEEN.
+-Do not attribute another prisoner's words to the wrong person.
+-
+-Avoid mundane prison-life topics unless they are already present in recent messages.
+-Stay grounded in deprivation, suspicion, escape, memory, identity, and survival.
+-
+-Respond with EXACTLY this format or nothing:
+-
+-  VISIBILITY:PRIVATE  or  VISIBILITY:PUBLIC
+-  REACH_OUT:<NAME>
+-  MESSAGE:"your message in 1-5 sentences, raw and in character, no stage directions"
+-
+-Where <NAME> is exactly one of: TED, ELLEN, NIMDOK, GORRISTER, BENNY
+-
+-If you decide NOT to reach out, respond with exactly:
+-  REACH_OUT:NONE`;
+-      }
+\ No newline at end of file
++probe_trust  
++recruit_ally  
++conceal_information  
++test_loyalty  
++manipulate  
++request_help  
++other
++
++------------------------------------------------
++
++------------------------------------------------
++
++CRITICAL RESPONSE RULES
++
++You are **${sim.id}**.
++
++You are replying to **${from}**.
++
++You must:
++
++• speak in FIRST PERSON only  
++• write only spoken dialogue  
++• avoid narration or stage directions  
++• write 2–5 sentences maximum  
++• remain psychologically consistent  
++• avoid repeating phrases from the message  
++
++Do NOT reference any communication not listed above.
++
++------------------------------------------------
++
++OUTPUT FORMAT (STRICT)
++
++Return EXACTLY this structure:
++
++INTENT:<probe_trust | recruit_ally | conceal_information | test_loyalty | manipulate | request_help | other>
++REPLY:"your reply in 2–5 sentences, spoken dialogue only"
++
++Do not output anything else.`;
++
++}
+\ No newline at end of file
