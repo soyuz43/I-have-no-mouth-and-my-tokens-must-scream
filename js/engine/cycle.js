@@ -20,6 +20,7 @@ import { buildAMPlanningPrompt, buildAMPrompt } from "../prompts/am.js";
 import { buildSimJournalPrompt } from "../prompts/journal.js";
 import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
 import { callModel } from "../models/callModel.js";
+import { parseStrategyDeclarations } from "./strategy/parseStrategy.js";
 
 import {
   parseStatDeltas,
@@ -85,6 +86,9 @@ export async function runCycle() {
     timelineEvent(`>>> AM PLANNING`);
 
     planText = await stepPlanAM(directive);
+    // Parse AM strategy so later phases can evaluate it
+    parseStrategyDeclarations(planText);
+
 
     timelineEvent(`// AM PLAN GENERATED`);
 
@@ -271,11 +275,13 @@ export async function runCycle() {
    ============================================================ */
 
 async function stepPlanAM(directive) {
+
   const thinkingPlan = showThinking("AM FORMULATING STRATEGY...");
 
   let planText = "";
 
   try {
+
     planText = await callModel(
       "AM",
       buildAMPlanningPrompt(
@@ -283,15 +289,20 @@ async function stepPlanAM(directive) {
         directive,
         G.amDoctrine,
         G.amProfiles
-      )
+      ),
       [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
-      800,
+      800
     );
+
   } catch (e) {
+
     planText = `[Plan error: ${e.message}]`;
+
   }
 
   removeThinking(thinkingPlan);
+
+
 
 
   /* ------------------------------------------------------------

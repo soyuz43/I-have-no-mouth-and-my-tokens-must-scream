@@ -138,9 +138,9 @@ export async function runAssessment() {
     const beliefDeltas = [];
     let beliefShiftCount = 0;
 
-    for (const k in curr.beliefs) {
+    for (const k in (curr.beliefs || {})) {
 
-      const before = prev.beliefs[k] ?? 0;
+      const before = prev.beliefs?.[k] ?? 0;
       const after = curr.beliefs[k];
 
       const delta = after - before;

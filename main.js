@@ -59,7 +59,9 @@ import {
   switchJournalSim,
   renderJournalModal,
   exportJournal,
-  exportSimJournal
+  exportSimJournal,
+  openAssessmentModal,
+  closeAssessmentModal,
 } from "./js/ui/render.js";
 
 
@@ -91,7 +93,8 @@ import {
   exportPlans,
   exportInterSimLog,
   exportInterSimLogTxt,
-  exportTransmissionLog
+  exportTransmissionLog,
+  exportAssessments
 } from "./js/ui/logs.js";
 
 
@@ -138,6 +141,8 @@ window.renderRelationships = renderRelationships;
 
 window.openPlansModal = openPlansModal;
 window.closePlansModal = closePlansModal;
+window.openAssessmentModal = openAssessmentModal;
+window.closeAssessmentModal = closeAssessmentModal;
 
 window.viewInterSimLog = viewInterSimLog;
 window.closeInterSimModal = closeInterSimModal;
@@ -163,6 +168,8 @@ window.exportSimJournal = exportSimJournal;
 window.addLog = addLog;
 
 window.exportPlans = exportPlans;
+window.exportAssessments = exportAssessments;
+
 window.exportInterSimLog = exportInterSimLog;
 window.exportInterSimLogTxt = exportInterSimLogTxt;
 window.exportTransmissionLog = exportTransmissionLog;

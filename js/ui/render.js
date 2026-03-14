@@ -233,6 +233,68 @@ export function renderPlansModal() {
     .join("");
 }
 
+/* ============================================================
+   AM ASSESSMENT MODAL
+   Displays evaluation results for AM strategies.
+============================================================ */
+
+export function openAssessmentModal() {
+  renderAssessmentModal();
+  const modal = document.getElementById("assessment-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+export function closeAssessmentModal() {
+  const modal = document.getElementById("assessment-modal");
+  if (modal) modal.style.display = "none";
+}
+
+export function renderAssessmentModal() {
+
+  const body = document.getElementById("assessment-body");
+  const meta = document.getElementById("assessment-meta");
+
+  if (!body || !meta) return;
+
+  const rows = [];
+
+  for (const id of SIM_IDS) {
+
+    const strat = G.amStrategy?.targets?.[id];
+
+    if (!strat?.lastAssessment) continue;
+
+    rows.push(`
+      <div class="jm-entry">
+        <div class="jm-entry-header">${id}</div>
+        <div class="jm-entry-body">
+          ${escapeHtml(strat.lastAssessment).replace(/\n/g,"<br>")}
+        </div>
+      </div>
+    `);
+
+  }
+
+  if (!rows.length) {
+
+    body.innerHTML =
+      '<div class="jm-empty">No assessments generated yet.</div>';
+
+    meta.textContent =
+      `Cycle ${G.cycle} · 0 assessments`;
+
+    return;
+
+  }
+
+  body.innerHTML = rows.join("");
+
+  meta.textContent =
+    `Cycle ${G.cycle} · ${rows.length} assessments`;
+
+}
+
+
 export function viewInterSimLog() {
   const modal = document.getElementById("intersim-modal");
   const body = document.getElementById("is-modal-body");

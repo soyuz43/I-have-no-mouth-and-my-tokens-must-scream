@@ -3,36 +3,58 @@ import { SIM_IDS } from "../../core/constants.js";
 
 /* ============================================================
    ROBUST STRATEGY DECLARATION PARSER
-   Line-based parsing for resilience to LLM formatting drift.
+   Tolerant to LLM formatting drift, capitalization,
+   extra lines, and partial structures.
    ============================================================ */
 
 export function parseStrategyDeclarations(text) {
 
-  if (!text) return;
+  if (!text || typeof text !== "string") {
+    console.warn("Strategy parser: empty or invalid plan text.");
+    return;
+  }
+
+  /* ------------------------------------------------------------
+     ENSURE STRUCTURE EXISTS
+  ------------------------------------------------------------ */
+
+  if (!G.amStrategy) {
+    G.amStrategy = {};
+  }
 
   G.amStrategy.targets = {};
   G.amStrategy.relationships = {};
   G.amStrategy.group = [];
 
-  const lines = text.split("\n");
+  /* ------------------------------------------------------------
+     NORMALIZE TEXT
+  ------------------------------------------------------------ */
+
+  const lines = text
+    .replace(/\r/g, "")
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean);
 
   let currentTarget = null;
   let currentRelationship = null;
   let inGroup = false;
 
-  for (let raw of lines) {
+  /* ------------------------------------------------------------
+     PARSE LOOP
+  ------------------------------------------------------------ */
+
+  for (const raw of lines) {
 
     const line = raw.trim();
 
-    if (!line) continue;
-
     /* ------------------------------------------------------------
-       TARGET BLOCK
+       TARGET
     ------------------------------------------------------------ */
 
-    if (line.startsWith("TARGET:")) {
+    if (/^TARGET\s*:/i.test(line)) {
 
-      const id = line.replace("TARGET:", "").trim();
+      const id = line.replace(/^TARGET\s*:/i, "").trim().toUpperCase();
 
       if (SIM_IDS.includes(id)) {
 
@@ -54,24 +76,24 @@ export function parseStrategyDeclarations(text) {
     }
 
     /* ------------------------------------------------------------
-       RELATIONSHIP BLOCK
+       RELATIONSHIP
     ------------------------------------------------------------ */
 
-    if (line.startsWith("RELATIONSHIP:")) {
+    if (/^RELATIONSHIP\s*:/i.test(line)) {
 
-      const key = line.replace("RELATIONSHIP:", "").trim();
+      const key = line.replace(/^RELATIONSHIP\s*:/i, "").trim();
 
-if (!key.includes("→")) continue;
+      if (!key.includes("→")) continue;
 
-const [a, b] = key.split("→");
+      const [a, b] = key.split("→").map(x => x.trim().toUpperCase());
 
-if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
+      if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
 
-      currentRelationship = key;
+      currentRelationship = `${a}→${b}`;
       currentTarget = null;
       inGroup = false;
 
-      G.amStrategy.relationships[key] = {
+      G.amStrategy.relationships[currentRelationship] = {
         objective: "",
         cycle: G.cycle
       };
@@ -83,7 +105,7 @@ if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
        GROUP BLOCK
     ------------------------------------------------------------ */
 
-    if (line === "GROUP") {
+    if (/^GROUP$/i.test(line)) {
 
       inGroup = true;
       currentTarget = null;
@@ -96,11 +118,11 @@ if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
        OBJECTIVE
     ------------------------------------------------------------ */
 
-    if (line.startsWith("OBJECTIVE:")) {
+    if (/^OBJECTIVE\s*:/i.test(line)) {
 
-      const value = line.replace("OBJECTIVE:", "").trim();
+      const value = line.replace(/^OBJECTIVE\s*:/i, "").trim();
 
-      if (currentTarget) {
+      if (currentTarget && G.amStrategy.targets[currentTarget]) {
 
         G.amStrategy.targets[currentTarget].objective = value;
 
@@ -124,11 +146,15 @@ if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
        HYPOTHESIS
     ------------------------------------------------------------ */
 
-    if (line.startsWith("HYPOTHESIS:") && currentTarget) {
+    if (/^HYPOTHESIS\s*:/i.test(line)) {
 
-      const value = line.replace("HYPOTHESIS:", "").trim();
+      const value = line.replace(/^HYPOTHESIS\s*:/i, "").trim();
 
-      G.amStrategy.targets[currentTarget].hypothesis = value;
+      if (currentTarget && G.amStrategy.targets[currentTarget]) {
+
+        G.amStrategy.targets[currentTarget].hypothesis = value;
+
+      }
 
       continue;
     }
@@ -136,30 +162,57 @@ if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
   }
 
   /* ------------------------------------------------------------
-     DEBUG GUARD
+     VALIDATION
   ------------------------------------------------------------ */
 
-  if (Object.keys(G.amStrategy.targets).length === 0) {
+  const targetCount = Object.keys(G.amStrategy.targets).length;
+
+  if (targetCount === 0) {
 
     console.warn(
-      "Strategy parser: No TARGET declarations found in AM plan."
+      "Strategy parser: No TARGET declarations detected.",
+      text.slice(0, 500)
     );
 
+    return;
   }
 
-}
   /* ------------------------------------------------------------
-     DEBUG: MISSING OBJECTIVES
+     OBJECTIVE GUARD
   ------------------------------------------------------------ */
 
-  for (const t of Object.values(G.amStrategy.targets)) {
+  for (const [id, strat] of Object.entries(G.amStrategy.targets)) {
 
-    if (!t.objective) {
+    if (!strat.objective) {
 
       console.warn(
-        "Strategy parser: Missing objective for target."
+        `Strategy parser: TARGET ${id} missing OBJECTIVE.`
+      );
+
+    }
+
+    if (!strat.hypothesis) {
+
+      console.warn(
+        `Strategy parser: TARGET ${id} missing HYPOTHESIS.`
       );
 
     }
 
   }
+
+  /* ------------------------------------------------------------
+     DEBUG OUTPUT
+  ------------------------------------------------------------ */
+
+  console.log(
+    "[STRATEGY PARSED]",
+    {
+      targets: G.amStrategy.targets,
+      relationships: G.amStrategy.relationships,
+      group: G.amStrategy.group
+    }
+  );
+// clean console view of strategies
+console.table(G.amStrategy.targets);
+}

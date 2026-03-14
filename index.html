@@ -469,6 +469,46 @@ Working reference build
         </div>
       </div>
     </div>
+<!-- AM ASSESSMENT MODAL -->
+<div
+  id="assessment-modal"
+  class="modal"
+  style="
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 650;
+    background: rgba(3, 3, 3, 0.95);
+    align-items: center;
+    justify-content: center;
+  "
+>
+  <div
+    class="jm-box"
+    style="width: 700px; max-height: 85vh; border-color: var(--amber)"
+  >
+    <div class="jm-header">
+      <div>
+        <div class="jm-title" style="color: var(--amber)">
+          // AM STRATEGY ASSESSMENTS
+        </div>
+        <div class="jm-meta" id="assessment-meta">
+          Cycle 0 · 0 assessments
+        </div>
+      </div>
+
+      <div class="jm-actions">
+        <button class="jm-btn close-btn" onclick="closeAssessmentModal()">
+          ✕ CLOSE
+        </button>
+      </div>
+    </div>
+
+    <div class="jm-body" id="assessment-body">
+      <div class="jm-empty">No assessments generated yet.</div>
+    </div>
+  </div>
+</div>
 
     <!-- ══════════════════════════════════════════════
      MAIN APP
@@ -615,62 +655,84 @@ Working reference build
             >
           </div>
         </div>
-        <div class="am-pane">
-          <div class="pane-label" style="justify-content: space-between">
-            AM SCRATCHPAD // CROSS-SIM INTELLIGENCE
-            <button
-              onclick="document.getElementById('am-scratch').value = ''"
-              style="
-                font-family: &quot;Share Tech Mono&quot;, monospace;
-                font-size: 0.38rem;
-                padding: 1px 6px;
-                border: 1px solid #1a0a0a;
-                background: #030303;
-                color: #2a1a1a;
-                cursor: pointer;
-                letter-spacing: 0.1em;
-                transition: all 0.15s;
-              "
-              onmouseover="
-                this.style.borderColor = 'var(--crimson)';
-                this.style.color = 'var(--red)';
-              "
-              onmouseout="
-                this.style.borderColor = '#1a0a0a';
-                this.style.color = '#2a1a1a';
-              "
-            >
-              CLEAR
-            </button>
-            <button
-              onclick="openPlansModal()"
-              style="
-                font-family: &quot;Share Tech Mono&quot;, monospace;
-                font-size: 0.38rem;
-                padding: 1px 6px;
-                border: 1px solid #1a2a00;
-                background: #030303;
-                color: #2a4a00;
-                cursor: pointer;
-              "
-              onmouseover="
-                this.style.borderColor = 'var(--green)';
-                this.style.color = 'var(--green)';
-              "
-              onmouseout="
-                this.style.borderColor = '#1a2a00';
-                this.style.color = '#2a4a00';
-              "
-            >
-              PLANS
-            </button>
-          </div>
-          <textarea
-            class="am-scratch"
-            id="am-scratch"
-            placeholder="...AM synthesizes patterns across all five inner monologues..."
-          ></textarea>
-        </div>
+<div class="am-pane">
+
+  <div class="pane-label" style="justify-content: space-between">
+    AM SCRATCHPAD // CROSS-SIM INTELLIGENCE
+
+    <div style="display:flex; gap:6px; align-items:center;">
+
+      <button
+        onclick="document.getElementById('am-scratch').value = ''"
+        style="
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 0.38rem;
+          padding: 1px 6px;
+          border: 1px solid #1a0a0a;
+          background: #030303;
+          color: #2a1a1a;
+          cursor: pointer;
+          letter-spacing: 0.1em;
+        "
+      >
+        CLEAR
+      </button>
+
+      <button
+        onclick="openPlansModal()"
+        style="
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 0.38rem;
+          padding: 1px 6px;
+          border: 1px solid #1a2a00;
+          background: #030303;
+          color: #2a4a00;
+          cursor: pointer;
+        "
+      >
+        PLANS
+      </button>
+
+      <button
+        onclick="openAssessmentModal()"
+        style="
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 0.38rem;
+          padding: 1px 6px;
+          border: 1px solid #2a1a00;
+          background: #030303;
+          color: #5a3a00;
+          cursor: pointer;
+        "
+      >
+        ASSESSMENT
+      </button>
+
+    </div>
+
+  </div>
+
+  <textarea
+    class="am-scratch"
+    id="am-scratch"
+    placeholder="...AM synthesizes patterns across all five inner monologues..."
+  ></textarea>
+<div id="assessment-modal" class="modal" style="display:none;">
+  <div class="jm-box">
+    <div class="jm-header">
+      <div class="jm-title">// AM STRATEGY ASSESSMENTS</div>
+      <button class="jm-btn close-btn" onclick="closeAssessmentModal()">✕</button>
+    </div>
+
+    <div class="jm-body" id="assessment-body">
+      <div class="jm-empty">No assessments generated yet.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+
         <div class="am-pane">
           <div class="pane-label">VAULT STATUS</div>
           <div class="vault-mini">

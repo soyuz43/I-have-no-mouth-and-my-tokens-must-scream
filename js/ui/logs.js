@@ -29,36 +29,36 @@ export function addLog(spk, body, type = "sys", tactic = "", allowHtml = false) 
       ? body
       : escapeHtml(String(body)).replace(/\n/g, "<br>");
 
-  
-let renderedTactic = "";
 
-if (tactic) {
+  let renderedTactic = "";
 
-  const parts = String(tactic).split("→").map(s => s.trim());
+  if (tactic) {
 
-  if (parts.length === 1) {
+    const parts = String(tactic).split("→").map(s => s.trim());
 
-    renderedTactic =
-      `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>`;
+    if (parts.length === 1) {
 
-  } else {
+      renderedTactic =
+        `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>`;
 
-    renderedTactic =
-      `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>` +
-      parts.slice(1)
-        .map(t =>
-          `<div class="log-tactic-sub">↳ ${escapeHtml(t)}</div>`
-        )
-        .join("");
+    } else {
+
+      renderedTactic =
+        `<div class="log-tactic">▸ ${escapeHtml(parts[0])}</div>` +
+        parts.slice(1)
+          .map(t =>
+            `<div class="log-tactic-sub">↳ ${escapeHtml(t)}</div>`
+          )
+          .join("");
+
+    }
 
   }
-
-}
   el.innerHTML =
-      `<div class="log-spk">${safeSpeaker}</div>` +
-      `<div class="log-body">${renderedBody}</div>` +
-      renderedTactic +
-      `<div class="log-ts">CYCLE ${G.cycle} // ${new Date().toTimeString().slice(0,8)}</div>`;
+    `<div class="log-spk">${safeSpeaker}</div>` +
+    `<div class="log-body">${renderedBody}</div>` +
+    renderedTactic +
+    `<div class="log-ts">CYCLE ${G.cycle} // ${new Date().toTimeString().slice(0, 8)}</div>`;
 
   feed.appendChild(el);
   feed.scrollTop = feed.scrollHeight;
@@ -134,8 +134,8 @@ export function exportInterSimLog(format = "txt") {
         e.visibility === "public"
           ? `PUBLIC ${e.from} → ${e.to.join(", ")} (all sims see)`
           : e.visibility === "overheard"
-          ? `OVERHEARD ${e.from} → ${e.to.join(", ")}`
-          : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
+            ? `OVERHEARD ${e.from} → ${e.to.join(", ")}`
+            : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
 
       out += `**Cycle ${e.cycle}** – ${visText}  \n`;
       out += `> "${e.text}"  \n`;
@@ -155,8 +155,8 @@ export function exportInterSimLog(format = "txt") {
         e.visibility === "public"
           ? `PUBLIC ${e.from} → ${e.to.join(", ")} (all sims see)`
           : e.visibility === "overheard"
-          ? `OVERHEARD ${e.from} → ${e.to.join(", ")}`
-          : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
+            ? `OVERHEARD ${e.from} → ${e.to.join(", ")}`
+            : `PRIVATE ${e.from} → ${e.to.join(", ")}`;
 
       out += `[Cycle ${e.cycle}] ${visText}\n`;
       out += `  "${e.text}"\n`;
@@ -190,6 +190,39 @@ export function exportPlans() {
 
   downloadTextFile(`AM_plans_cycle${G.cycle}.md`, content);
 }
+
+/* ============================================================
+   EXPORT — AM ASSESSMENTS
+============================================================ */
+
+export function exportAssessments() {
+
+  let content = "# AM Strategy Assessments\n\n";
+
+  let count = 0;
+
+  for (const id of Object.keys(G.amStrategy?.targets || {})) {
+
+    const strat = G.amStrategy.targets[id];
+
+    if (!strat?.lastAssessment) continue;
+
+    content += `## ${id}\n\n`;
+    content += strat.lastAssessment + "\n\n";
+    content += "---\n\n";
+
+    count++;
+  }
+
+  if (!count) {
+    alert("No assessments to export.");
+    return;
+  }
+
+  downloadTextFile(`AM_assessments_cycle${G.cycle}.md`, content);
+
+}
+
 
 /* ============================================================
    EXPORT — TRANSMISSION LOG
