@@ -2,9 +2,18 @@ import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
 /* ============================================================
-   ROBUST STRATEGY DECLARATION PARSER
-   Tolerant to LLM formatting drift, capitalization,
-   extra lines, and partial structures.
+   AM STRATEGY PARSER (PRODUCTION HARDENED)
+
+   Designed for LLM-generated plans where formatting may drift.
+
+   Features:
+   • tolerant of punctuation drift
+   • tolerant of markdown formatting
+   • tolerant of bullet lists
+   • case insensitive parsing
+   • block-based parsing (more stable than line state machines)
+   • automatic missing-target recovery
+   • strong debug output
    ============================================================ */
 
 export function parseStrategyDeclarations(text) {
@@ -15,7 +24,7 @@ export function parseStrategyDeclarations(text) {
   }
 
   /* ------------------------------------------------------------
-     ENSURE STRUCTURE EXISTS
+     ENSURE GLOBAL STRUCTURE
   ------------------------------------------------------------ */
 
   if (!G.amStrategy) {
@@ -28,136 +37,128 @@ export function parseStrategyDeclarations(text) {
 
   /* ------------------------------------------------------------
      NORMALIZE TEXT
+     Remove formatting artifacts common in LLM output
   ------------------------------------------------------------ */
 
-  const lines = text
+  const normalized = text
     .replace(/\r/g, "")
-    .split("\n")
-    .map(l => l.trim())
-    .filter(Boolean);
+    .replace(/\*\*/g, "")          // markdown bold
+    .replace(/__/g, "")
+    .replace(/`/g, "")
+    .replace(/\t/g, " ")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
 
-  let currentTarget = null;
-  let currentRelationship = null;
-  let inGroup = false;
+  if (!normalized.length) {
+    console.warn("Strategy parser: normalized text empty.");
+    return;
+  }
 
   /* ------------------------------------------------------------
-     PARSE LOOP
+     SPLIT INTO TARGET BLOCKS
+
+     Each block is parsed independently. This prevents
+     formatting drift from corrupting the entire parse.
   ------------------------------------------------------------ */
 
-  for (const raw of lines) {
+  const targetBlocks = normalized.split(
+    /(?=^\s*[-*•]?\s*TARGET\b)/gim
+  );
 
-    const line = raw.trim();
-
-    /* ------------------------------------------------------------
-       TARGET
-    ------------------------------------------------------------ */
-
-    if (/^TARGET\s*:/i.test(line)) {
-
-      const id = line.replace(/^TARGET\s*:/i, "").trim().toUpperCase();
-
-      if (SIM_IDS.includes(id)) {
-
-        currentTarget = id;
-        currentRelationship = null;
-        inGroup = false;
-
-        G.amStrategy.targets[id] = {
-          objective: "",
-          hypothesis: "",
-          confidence: 0.5,
-          lastAssessment: "",
-          cycle: G.cycle
-        };
-
-      }
-
-      continue;
-    }
+  for (const block of targetBlocks) {
 
     /* ------------------------------------------------------------
-       RELATIONSHIP
+       TARGET EXTRACTION
     ------------------------------------------------------------ */
 
-    if (/^RELATIONSHIP\s*:/i.test(line)) {
+    const targetMatch = block.match(
+      /^[-*•]?\s*TARGET\b[\s:=-→(]*([A-Z]+)/im
+    );
 
-      const key = line.replace(/^RELATIONSHIP\s*:/i, "").trim();
+    if (!targetMatch) continue;
 
-      if (!key.includes("→")) continue;
+    const id = targetMatch[1].toUpperCase();
 
-      const [a, b] = key.split("→").map(x => x.trim().toUpperCase());
-
-      if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
-
-      currentRelationship = `${a}→${b}`;
-      currentTarget = null;
-      inGroup = false;
-
-      G.amStrategy.relationships[currentRelationship] = {
-        objective: "",
-        cycle: G.cycle
-      };
-
-      continue;
-    }
+    if (!SIM_IDS.includes(id)) continue;
 
     /* ------------------------------------------------------------
-       GROUP BLOCK
+       OBJECTIVE EXTRACTION
     ------------------------------------------------------------ */
 
-    if (/^GROUP$/i.test(line)) {
+    const objectiveMatch = block.match(
+      /OBJECTIVE\s*[:=-]?\s*(.+)/i
+    );
 
-      inGroup = true;
-      currentTarget = null;
-      currentRelationship = null;
-
-      continue;
-    }
+    const objective = objectiveMatch
+      ? objectiveMatch[1].trim()
+      : "";
 
     /* ------------------------------------------------------------
-       OBJECTIVE
+       HYPOTHESIS EXTRACTION
     ------------------------------------------------------------ */
 
-    if (/^OBJECTIVE\s*:/i.test(line)) {
+    const hypothesisMatch = block.match(
+      /HYPOTHESIS\s*[:=-]?\s*(.+)/i
+    );
 
-      const value = line.replace(/^OBJECTIVE\s*:/i, "").trim();
-
-      if (currentTarget && G.amStrategy.targets[currentTarget]) {
-
-        G.amStrategy.targets[currentTarget].objective = value;
-
-      } else if (currentRelationship) {
-
-        G.amStrategy.relationships[currentRelationship].objective = value;
-
-      } else if (inGroup) {
-
-        G.amStrategy.group.push({
-          objective: value,
-          cycle: G.cycle
-        });
-
-      }
-
-      continue;
-    }
+    const hypothesis = hypothesisMatch
+      ? hypothesisMatch[1].trim()
+      : "";
 
     /* ------------------------------------------------------------
-       HYPOTHESIS
+       CREATE STRATEGY ENTRY
     ------------------------------------------------------------ */
 
-    if (/^HYPOTHESIS\s*:/i.test(line)) {
+    G.amStrategy.targets[id] = {
+      objective,
+      hypothesis,
+      confidence: 0.5,
+      lastAssessment: "",
+      cycle: G.cycle
+    };
 
-      const value = line.replace(/^HYPOTHESIS\s*:/i, "").trim();
+  }
 
-      if (currentTarget && G.amStrategy.targets[currentTarget]) {
+  /* ------------------------------------------------------------
+     RELATIONSHIP STRATEGIES (OPTIONAL)
+  ------------------------------------------------------------ */
 
-        G.amStrategy.targets[currentTarget].hypothesis = value;
+  const relationshipMatches = normalized.matchAll(
+    /RELATIONSHIP\s*[:=-]?\s*([A-Z]+)\s*→\s*([A-Z]+)/gi
+  );
 
-      }
+  for (const match of relationshipMatches) {
 
-      continue;
-    }
+    const a = match[1].toUpperCase();
+    const b = match[2].toUpperCase();
+
+    if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
+
+    const key = `${a}→${b}`;
+
+    G.amStrategy.relationships[key] = {
+      objective: "",
+      cycle: G.cycle
+    };
+
+  }
+
+  /* ------------------------------------------------------------
+     GROUP OBJECTIVES
+  ------------------------------------------------------------ */
+
+  const groupMatches = normalized.matchAll(
+    /GROUP[\s\S]*?OBJECTIVE\s*[:=-]?\s*(.+)/gi
+  );
+
+  for (const match of groupMatches) {
+
+    const objective = match[1].trim();
+
+    G.amStrategy.group.push({
+      objective,
+      cycle: G.cycle
+    });
 
   }
 
@@ -165,37 +166,51 @@ export function parseStrategyDeclarations(text) {
      VALIDATION
   ------------------------------------------------------------ */
 
-  const targetCount = Object.keys(G.amStrategy.targets).length;
+  const parsedTargets = Object.keys(G.amStrategy.targets);
 
-  if (targetCount === 0) {
+  if (parsedTargets.length === 0) {
 
     console.warn(
-      "Strategy parser: No TARGET declarations detected.",
-      text.slice(0, 500)
+      "Strategy parser: No TARGET blocks detected.",
+      normalized.slice(0, 500)
     );
 
     return;
+
   }
 
   /* ------------------------------------------------------------
-     OBJECTIVE GUARD
+     MISSING FIELD WARNINGS
   ------------------------------------------------------------ */
 
   for (const [id, strat] of Object.entries(G.amStrategy.targets)) {
 
     if (!strat.objective) {
-
-      console.warn(
-        `Strategy parser: TARGET ${id} missing OBJECTIVE.`
-      );
-
+      console.warn(`Strategy parser: ${id} missing OBJECTIVE`);
     }
 
     if (!strat.hypothesis) {
+      console.warn(`Strategy parser: ${id} missing HYPOTHESIS`);
+    }
 
-      console.warn(
-        `Strategy parser: TARGET ${id} missing HYPOTHESIS.`
-      );
+  }
+
+  /* ------------------------------------------------------------
+     OPTIONAL RECOVERY
+     If AM forgot a prisoner, create a neutral strategy
+  ------------------------------------------------------------ */
+
+  for (const id of SIM_IDS) {
+
+    if (!G.amStrategy.targets[id]) {
+
+      G.amStrategy.targets[id] = {
+        objective: "(no objective declared)",
+        hypothesis: "(none)",
+        confidence: 0.3,
+        lastAssessment: "",
+        cycle: G.cycle
+      };
 
     }
 
@@ -205,14 +220,12 @@ export function parseStrategyDeclarations(text) {
      DEBUG OUTPUT
   ------------------------------------------------------------ */
 
-  console.log(
-    "[STRATEGY PARSED]",
-    {
-      targets: G.amStrategy.targets,
-      relationships: G.amStrategy.relationships,
-      group: G.amStrategy.group
-    }
-  );
-// clean console view of strategies
-console.table(G.amStrategy.targets);
+  console.log("[STRATEGY PARSED]", {
+    targets: G.amStrategy.targets,
+    relationships: G.amStrategy.relationships,
+    group: G.amStrategy.group
+  });
+
+  console.table(G.amStrategy.targets);
+
 }

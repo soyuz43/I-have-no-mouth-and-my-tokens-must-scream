@@ -1,6 +1,16 @@
-// js/engine/validators.js
+// js/engine/state/validate.js
+//
+// State Validation Layer
+//
+// Responsibilities:
+// 1. Detect psychological inconsistencies
+// 2. Validate belief constraints and shifts
+// 3. Ensure narrative coherence with reported deltas
+//
+// This layer performs NO mutation.
+// It only logs warnings and returns validation results.
 
-import { addLog } from "../ui/logs.js";
+import { addLog } from "../../ui/logs.js";
 
 /* ============================================================
    BELIEF VALIDATION RULES
@@ -11,7 +21,6 @@ const BELIEF_RULES = {
   MAX: 1,
   MAX_SHIFT: 0.5
 };
-
 
 /* ============================================================
    STAT CONSISTENCY VALIDATOR
@@ -31,24 +40,24 @@ export function correctStatInconsistencies(sim, parsed) {
   const h = parsed.hope_delta ?? 0;
   const sa = parsed.sanity_delta ?? 0;
 
-// Rule 1:
-// suffering decreases while hope or sanity collapse
-// This is unusual but allowed (numbness / detachment)
+  // Rule 1:
+  // suffering decreases while hope or sanity collapse
+  // This is unusual but allowed (numbness / detachment)
 
-if (s < 0 && (h < 0 || sa < 0)) {
+  if (s < 0 && (h < 0 || sa < 0)) {
 
-  const msg =
-    `Unusual psychological transition: suffering decreased (${s}) while hope/sanity declined (${h}, ${sa})`;
+    const msg =
+      `Unusual psychological transition: suffering decreased (${s}) while hope/sanity declined (${h}, ${sa})`;
 
-  console.warn(`[${sim.id}] ${msg}`);
+    console.warn(`[${sim.id}] ${msg}`);
 
-  addLog(
-    `VALIDATOR // ${sim.id}`,
-    `⚠ ${msg}`,
-    "sys"
-  );
+    addLog(
+      `VALIDATOR // ${sim.id}`,
+      `⚠ ${msg}`,
+      "sys"
+    );
 
-}
+  }
 
   // Rule 2:
   // large suffering spike while hope rises is suspicious
@@ -69,7 +78,6 @@ if (s < 0 && (h < 0 || sa < 0)) {
 
   return corrected;
 }
-
 
 /* ============================================================
    BELIEF VALIDATION
@@ -125,7 +133,6 @@ export function validateBeliefs(agent, before = {}, shifts = {}) {
   return warnings;
 }
 
-
 /* ============================================================
    STATE BLOCK VALIDATOR
 ============================================================ */
@@ -154,6 +161,10 @@ export function parseAndValidateStateBlock(agent, before, shifts) {
 
   return warnings;
 }
+
+/* ============================================================
+   NARRATIVE CONSISTENCY VALIDATOR
+============================================================ */
 
 export function validateNarrativeConsistency(sim, journalText, deltas) {
 
