@@ -154,7 +154,10 @@ export async function runAssessment() {
         );
 
       }
-
+console.log(
+  "[ASSESSMENT] snapshot exists:",
+  !!G.prevCycleSnapshot
+);
     }
 
 

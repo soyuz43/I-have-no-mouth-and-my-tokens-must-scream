@@ -3,7 +3,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
 import { escapeHtml, downloadTextFile } from "../core/utils.js";
-import { validateBeliefs } from "../engine/validators.js";
+import { validateBeliefs } from "../engine/state/validate.js";
 
 export function renderSims() {
   const area = document.getElementById("sims-area");
