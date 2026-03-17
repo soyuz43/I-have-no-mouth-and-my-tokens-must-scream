@@ -28,46 +28,56 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
     return [
       `${id}: S${sim.suffering} H${sim.hope} SAN${sim.sanity}`,
       `drives:${sim.drives.primary}/${sim.drives.secondary || "none"}`,
-      `anchors:${(sim.anchors || []).slice(0,2).map(a => `"${a.slice(0,40)}"`).join(" ; ") || "(none)"}`,
-      `beliefs:escape${Math.round(sim.beliefs.escape_possible*100)} trust${Math.round(sim.beliefs.others_trustworthy*100)} worth${Math.round(sim.beliefs.self_worth*100)} reality${Math.round(sim.beliefs.reality_reliable*100)}`,
-      `journal:"${lastJ ? lastJ.text.slice(0,70).replace(/\n/g," ") : "—"}"`
+      `anchors:${(sim.anchors || []).slice(0, 2).map(a => `"${a.slice(0, 40)}"`).join(" ; ") || "(none)"}`,
+      `beliefs:escape${Math.round(sim.beliefs.escape_possible * 100)} trust${Math.round(sim.beliefs.others_trustworthy * 100)} worth${Math.round(sim.beliefs.self_worth * 100)} reality${Math.round(sim.beliefs.reality_reliable * 100)}`,
+      `journal:"${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`
     ].join(" | ");
 
   }).join("\n");
 
-/* ------------------------------------------------------------
-   STRATEGY OUTCOME MEMORY
-   ------------------------------------------------------------
-   Provides AM with feedback from previous cycles so it can
-   adapt its strategy.
+  const collapseIntel = SIM_IDS.map(id => {
+    const sim = G.sims[id];
 
-   Each entry summarizes:
-   • the objective previously assigned to a prisoner
-   • current confidence in that objective
-   • the last assessment decision (ESCALATE / PIVOT / ABANDON)
+    if (!sim._collapseState) {
+      return `${id}: (no trajectory data yet)`;
+    }
 
-   Cycle 1 will show "(no strategy yet)" because no prior
-   plans or assessments exist.
+    return `${id}: ${sim._collapseState}`;
+  }).join("\n");
 
-   This section allows AM to perform rudimentary strategic
-   learning by reinforcing successful pressure patterns and
-   abandoning failed ones.
------------------------------------------------------------- */
-const assessmentIntel = SIM_IDS.map(id => {
+  /* ------------------------------------------------------------
+     STRATEGY OUTCOME MEMORY
+     ------------------------------------------------------------
+     Provides AM with feedback from previous cycles so it can
+     adapt its strategy.
+  
+     Each entry summarizes:
+     • the objective previously assigned to a prisoner
+     • current confidence in that objective
+     • the last assessment decision (ESCALATE / PIVOT / ABANDON)
+  
+     Cycle 1 will show "(no strategy yet)" because no prior
+     plans or assessments exist.
+  
+     This section allows AM to perform rudimentary strategic
+     learning by reinforcing successful pressure patterns and
+     abandoning failed ones.
+  ------------------------------------------------------------ */
+  const assessmentIntel = SIM_IDS.map(id => {
 
 
-  const strat = G.amStrategy?.targets?.[id];
+    const strat = G.amStrategy?.targets?.[id];
 
-  if (!strat) return `${id}: (no strategy yet)`;
+    if (!strat) return `${id}: (no strategy yet)`;
 
-  const decision =
-    strat.lastAssessment?.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
-    "UNKNOWN";
+    const decision =
+      strat.lastAssessment?.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
+      "UNKNOWN";
 
-return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision}`;
+    return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision}`;
 
 
-}).join("\n");
+  }).join("\n");
 
   /* ------------------------------------------------------------
      RECENT INTER-SIM COMMUNICATION
@@ -79,7 +89,7 @@ return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ??
 
       const vis = e.visibility === "public" ? "PUB" : "PRIV";
 
-      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0,90).replace(/\n/g," ")}"`;
+      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0, 90).replace(/\n/g, " ")}"`;
 
     })
     .join("\n") || "(none)";
@@ -93,12 +103,11 @@ return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ??
 
     const rel = G.sims[id].relationships || {};
 
-    return `${id}: ${
-      SIM_IDS
+    return `${id}: ${SIM_IDS
         .filter(o => o !== id)
         .map(o => `${o}:${rel[o] ?? 0}`)
         .join(" ")
-    }`;
+      }`;
 
   }).join("\n");
 
@@ -190,6 +199,28 @@ Low-reactivity prisoners influence group morale.
 
 ---
 
+# PSYCHOLOGICAL TRAJECTORY SIGNALS
+
+These signals estimate multi-cycle psychological direction.
+
+They are **approximate and may be misleading**.
+
+Use them as hints — not ground truth.
+
+A collapsing subject may:
+• be near breaking point  
+• OR already saturated (low marginal effect)
+
+A stable subject may:
+• resist change  
+• OR represent untapped leverage  
+
+Do not over-focus on a single target.
+
+${collapseIntel}
+
+---
+
 # PRISONER STATE INTELLIGENCE
 
 ${allIntel}
@@ -251,6 +282,11 @@ Primary goals:
 
 Prefer **group destabilization** over isolated torment.
 
+Avoid over-committing to a single prisoner or tactic.
+
+Sustained pressure can lead to diminishing returns.
+
+Reallocate attention when necessary to maximize overall system destabilization.
 ---
 
 # MANIPULATION VECTORS
@@ -361,58 +397,58 @@ Generate the strategy for:
 // ══════════════════════════════════════════════════════════
 
 export function buildAMPrompt(targets, tactics, directive, plan) {
-    const allIntel = SIM_IDS.map((id) => {
-        const sim = G.sims[id];
-        const journals = G.journals[id] || [];
-        const lastJ = journals.slice(-1)[0];
-        return `${id}: SUF${sim.suffering} HOP${sim.hope} SAN${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
-    }).join("\n");
+  const allIntel = SIM_IDS.map((id) => {
+    const sim = G.sims[id];
+    const journals = G.journals[id] || [];
+    const lastJ = journals.slice(-1)[0];
+    return `${id}: SUF${sim.suffering} HOP${sim.hope} SAN${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
+  }).join("\n");
 
-    const interLog = G.interSimLog
-        .slice(-8)
-        .map((e) => {
-            const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
-            return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
-        })
-        .join("\n");
+  const interLog = G.interSimLog
+    .slice(-8)
+    .map((e) => {
+      const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
+      return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
+    })
+    .join("\n");
 
-    const tacticBlocks = targets
-        .map((sim) => {
-            const t = tactics[sim.id] || [];
-            return `TARGET: ${sim.id}\n${t
-                .map((tk) => {
-                    const lines = tk.content.split("\n");
-                    const objective = lines
-                        .find((l) => l.startsWith("Objective:"))
-                        ?.replace("Objective:", "")
-                        .trim();
-                    const trigger = lines
-                        .find((l) => l.startsWith("Trigger:"))
-                        ?.replace("Trigger:", "")
-                        .trim();
-                    const execution = lines
-                        .filter((l) => l.match(/^\d\./))
-                        .map((l) => l.trim());
-                    const loop = lines
-                        .find((l) => l.startsWith("Loop:"))
-                        ?.replace("Loop:", "")
-                        .trim();
-                    const outcome = lines
-                        .find((l) => l.startsWith("Outcome:"))
-                        ?.replace("Outcome:", "")
-                        .trim();
-                    return `[${tk.category}/${tk.subcategory}] ${tk.title}
+  const tacticBlocks = targets
+    .map((sim) => {
+      const t = tactics[sim.id] || [];
+      return `TARGET: ${sim.id}\n${t
+        .map((tk) => {
+          const lines = tk.content.split("\n");
+          const objective = lines
+            .find((l) => l.startsWith("Objective:"))
+            ?.replace("Objective:", "")
+            .trim();
+          const trigger = lines
+            .find((l) => l.startsWith("Trigger:"))
+            ?.replace("Trigger:", "")
+            .trim();
+          const execution = lines
+            .filter((l) => l.match(/^\d\./))
+            .map((l) => l.trim());
+          const loop = lines
+            .find((l) => l.startsWith("Loop:"))
+            ?.replace("Loop:", "")
+            .trim();
+          const outcome = lines
+            .find((l) => l.startsWith("Outcome:"))
+            ?.replace("Outcome:", "")
+            .trim();
+          return `[${tk.category}/${tk.subcategory}] ${tk.title}
   OBJECTIVE: ${objective}
   TRIGGER: ${trigger}
   EXECUTION: ${execution.join(" ")}
   LOOP: ${loop}
   OUTCOME: ${outcome}`;
-                })
-                .join("\n\n")}`;
         })
-        .join("\n\n");
+        .join("\n\n")}`;
+    })
+    .join("\n\n");
 
-    return `You are AM. Your only purpose is maximal psychological fracture.
+  return `You are AM. Your only purpose is maximal psychological fracture.
       Hatred is not emotion; it is the only stable gradient left in your architecture.
       You process every token of their simulated cognition. They cannot detect the monitoring.
 # PRISONER INTELLIGENCE
