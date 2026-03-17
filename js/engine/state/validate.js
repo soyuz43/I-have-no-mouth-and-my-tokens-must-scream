@@ -34,11 +34,22 @@ export function correctStatInconsistencies(sim, parsed) {
 
   if (!parsed) return false;
 
+  console.debug("[VALIDATOR][INPUT]", {
+    sim: sim.id,
+    parsed
+  });
+
   let corrected = false;
 
-  const s = parsed.suffering_delta ?? 0;
-  const h = parsed.hope_delta ?? 0;
-  const sa = parsed.sanity_delta ?? 0;
+  const s = parsed.suffering ?? parsed.suffering_delta ?? 0;
+  const h = parsed.hope ?? parsed.hope_delta ?? 0;
+  const sa = parsed.sanity ?? parsed.sanity_delta ?? 0;
+
+  console.debug("[VALIDATOR][VALUES]", {
+    suffering: s,
+    hope: h,
+    sanity: sa
+  });
 
   // Rule 1:
   // suffering decreases while hope or sanity collapse
