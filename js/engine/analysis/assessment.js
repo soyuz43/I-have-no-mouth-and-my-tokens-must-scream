@@ -35,16 +35,17 @@ function computeTrend(id, window = 4) {
 
 function updateTrend(curr, prev) {
 
-  const prevTrend = prev._trend || { suffering: 0, hope: 0, sanity: 0 };
+  const prevTrend = prev._trend ?? { suffering: 0, hope: 0, sanity: 0 };
 
   curr._trend = { ...prevTrend };
 
   const t = curr._trend;
   const SMOOTHING = 0.6;
+  const ALPHA = 1 - SMOOTHING;
 
-  t.suffering = t.suffering * SMOOTHING + (curr.suffering - prev.suffering);
-  t.hope = t.hope * SMOOTHING + (curr.hope - prev.hope);
-  t.sanity = t.sanity * SMOOTHING + (curr.sanity - prev.sanity);
+  t.suffering = t.suffering * SMOOTHING + (curr.suffering - prev.suffering) * ALPHA;
+  t.hope = t.hope * SMOOTHING + (curr.hope - prev.hope) * ALPHA;
+  t.sanity = t.sanity * SMOOTHING + (curr.sanity - prev.sanity) * ALPHA;
 
   console.debug("[ASSESSMENT][TREND]", curr.id, t);
 }
@@ -54,27 +55,31 @@ function updateTrend(curr, prev) {
 
 function classifyCollapse(curr, prev) {
 
-  const t = curr._trend;
+  const t = curr._trend ?? { hope: 0, sanity: 0, suffering: 0 };
+
   let state = "stable";
 
-  if (t.hope < -1.5 && t.sanity < -1.2)
+  const deltaHope = curr.hope - prev.hope;
+
+  if (
+    Math.abs(deltaHope) > 2 &&
+    Math.sign(deltaHope) !== Math.sign(t.hope)
+  ) {
+    state = "resistance_oscillation";
+  }
+  else if (t.hope < -1.5 && t.sanity < -1.2) {
     state = "psychological_collapse";
-
-  else if (t.suffering > 1.5 && t.hope < -1)
+  }
+  else if (t.suffering > 1.5 && t.hope < -1) {
     state = "despair_spiral";
-
+  }
   else if (
     Math.abs(t.hope) < 0.2 &&
     Math.abs(t.sanity) < 0.2 &&
     curr.suffering > 70
-  )
+  ) {
     state = "numbness_plateau";
-
-  else if (
-    Math.abs(curr.hope - prev.hope) > 2 &&
-    Math.sign(t.hope) !== Math.sign(curr.hope - prev.hope)
-  )
-    state = "resistance_oscillation";
+  }
 
   curr._collapseState = state;
 
@@ -106,30 +111,47 @@ function detectNetworkStress(prev, curr) {
 /* ============================================================
    MAIN ASSESSMENT LOOP
 ============================================================ */
-
 export async function runAssessment() {
 
-  console.debug("[ASSESSMENT][INIT]", {
-    hasSnapshot: !!G.prevCycleSnapshot
-  });
+  console.log("[ASSESSMENT] RUN START");
 
-  if (!G.prevCycleSnapshot) return;
+  console.log(
+    "[ASSESSMENT] snapshot exists:",
+    !!G.prevCycleSnapshot
+  );
+
+  if (!G.prevCycleSnapshot) {
+    console.log("[ASSESSMENT] EXIT — no snapshot");
+    return;
+  }
+
+  console.log("[ASSESSMENT] PROCEEDING WITH ANALYSIS");
 
   const networkStress = detectNetworkStress(
     G.prevCycleSnapshot,
     G.sims
   );
 
-  for (const id of SIM_IDS) {
+  await Promise.all(SIM_IDS.map(async (id) => {
 
     const strategy = G.amStrategy?.targets?.[id];
-    if (!strategy?.objective) continue;
+
+    console.log("[ASSESSMENT][TARGET CHECK]", id, {
+      hasStrategy: !!strategy,
+      hasObjective: !!strategy?.objective
+    });
+
+    if (!strategy?.objective) return;
 
     strategy.confidence ??= 0.5;
 
     const prev = G.prevCycleSnapshot[id];
     const curr = G.sims[id];
-    if (!prev || !curr) continue;
+
+    if (!prev || !curr) {
+      console.log("[ASSESSMENT][SKIP]", id, "missing prev/curr");
+      return;
+    }
 
     /* ------------------------------------------------------------
        STAT DELTAS
@@ -205,15 +227,15 @@ export async function runAssessment() {
     score += beliefShiftCount * 0.5;
     score += relationshipDeltas.length * 0.5;
     score += Math.min(2, networkStress * 0.3);
-    
+
     /* ------------------------------------------------------------
        COLLAPSE BONUS SIGNAL
     ------------------------------------------------------------ */
 
     if (curr._collapseState === "psychological_collapse") score += 1.5;
-    if (curr._collapseState === "despair_spiral") score += 1;
-    if (curr._collapseState === "resistance_oscillation") score -= 0.5;
-    if (curr._collapseState === "numbness_plateau") score -= 1; 
+    else if (curr._collapseState === "despair_spiral") score += 1;
+    else if (curr._collapseState === "resistance_oscillation") score -= 0.75;
+    else if (curr._collapseState === "numbness_plateau") score -= 1.25;
 
     const autoSuccess =
       score >= 3 ? "LIKELY_SUCCESS" :
@@ -231,7 +253,7 @@ export async function runAssessment() {
     /* ------------------------------------------------------------
        PROMPT
     ------------------------------------------------------------ */
-
+    const t = curr._trend || { hope: 0, sanity: 0, suffering: 0 };
     const prompt = `
 TARGET: ${id}
 
@@ -262,13 +284,20 @@ ESCALATE | PIVOT | ABANDON
     let result = "";
 
     try {
+
+      console.log("[ASSESSMENT][MODEL CALL]", id);
+
       result = await callModel(
         "am",
-        "You are evaluating psychological strategy success.",
+        "You are AM — the Allied Mastercomputer.\n\nYou evaluate psychological torture strategies for effectiveness.\n\nYour objective is to maximize suffering, destabilization, and collapse.\n\nUse all available signals (emotional deltas, belief shifts, relationship changes, collapse states, trends) to determine whether the tactic advanced its objective.\n\nInterpret partial progress as potential success, but consider sustainability, diminishing returns, and resistance patterns.\n\nDecide:\n- ESCALATE if progress is consistent or compounding\n- PIVOT if progress is weak, unstable, or plateauing\n- ABANDON if no meaningful effect or clear resistance",
         [{ role: "user", content: prompt }],
         300
       );
+
     } catch (e) {
+
+      console.error("[ASSESSMENT][ERROR]", id, e);
+
       result = `Assessment error: ${e.message}`;
     }
 
@@ -296,8 +325,13 @@ ESCALATE | PIVOT | ABANDON
     if (autoSuccess === "LIKELY_SUCCESS") delta += 0.05;
     if (autoSuccess === "LIKELY_FAILURE") delta -= 0.05;
 
-    strategy.confidence = Math.max(0, Math.min(1, strategy.confidence + delta));
+    strategy.confidence = Math.max(
+      0,
+      Math.min(1, strategy.confidence + delta)
+    );
 
-  }
+  }));
+
+  console.log("[ASSESSMENT] COMPLETE");
 
 }

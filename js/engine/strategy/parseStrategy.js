@@ -73,9 +73,9 @@ export function parseStrategyDeclarations(text) {
     ------------------------------------------------------------ */
 
     const targetMatch = block.match(
-      /TARGET\b[^A-Z]*([A-Z]+)/i
+     /TARGET[\s:\-→]*([A-Z0-9_]+)/i
     );
-
+    
     if (!targetMatch) continue;
 
     const id = targetMatch[1].toUpperCase();
