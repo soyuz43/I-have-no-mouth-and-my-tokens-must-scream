@@ -1,3 +1,4 @@
+// js\engine\strategy\parseStrategy.js
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
@@ -56,14 +57,14 @@ export function parseStrategyDeclarations(text) {
 
   /* ------------------------------------------------------------
      SPLIT INTO TARGET BLOCKS
-
-     Each block is parsed independently. This prevents
-     formatting drift from corrupting the entire parse.
+     More reliable than regex anchors – split on the word TARGET
+     and reattach the keyword to each block.
   ------------------------------------------------------------ */
 
-  const targetBlocks = normalized.split(
-    /(?=^\s*[-*•]?\s*TARGET\b)/gim
-  );
+  const rawBlocks = normalized.split(/\bTARGET\b/gi);
+  const targetBlocks = rawBlocks
+    .slice(1)                     // discard everything before first TARGET
+    .map(b => "TARGET " + b);     // restore the keyword for parsing
 
   for (const block of targetBlocks) {
 
@@ -72,7 +73,7 @@ export function parseStrategyDeclarations(text) {
     ------------------------------------------------------------ */
 
     const targetMatch = block.match(
-      /^[-*•]?\s*TARGET\b[\s:=-→(]*([A-Z]+)/im
+      /TARGET\b[^A-Z]*([A-Z]+)/i
     );
 
     if (!targetMatch) continue;
@@ -82,28 +83,45 @@ export function parseStrategyDeclarations(text) {
     if (!SIM_IDS.includes(id)) continue;
 
     /* ------------------------------------------------------------
-       OBJECTIVE EXTRACTION
+       OBJECTIVE EXTRACTION (with bullet strip)
     ------------------------------------------------------------ */
 
     const objectiveMatch = block.match(
-      /OBJECTIVE\s*[:=-]?\s*(.+)/i
+      /OBJECTIVE\s*[:=-]?\s*([^\n\r]+)/i
     );
 
     const objective = objectiveMatch
-      ? objectiveMatch[1].trim()
+      ? objectiveMatch[1].trim().replace(/^[-*•]\s*/, '')
       : "";
 
     /* ------------------------------------------------------------
-       HYPOTHESIS EXTRACTION
+       HYPOTHESIS EXTRACTION (with bullet strip)
     ------------------------------------------------------------ */
 
     const hypothesisMatch = block.match(
-      /HYPOTHESIS\s*[:=-]?\s*(.+)/i
+      /HYPOTHESIS\s*[:=-]?\s*([^\n\r]+)/i
     );
 
     const hypothesis = hypothesisMatch
-      ? hypothesisMatch[1].trim()
+      ? hypothesisMatch[1].trim().replace(/^[-*•]\s*/, '')
       : "";
+
+    /* ------------------------------------------------------------
+       OPTIONAL CONFIDENCE EXTRACTION
+       If a specific confidence is provided, use it; otherwise default to 0.5
+    ------------------------------------------------------------ */
+
+    const confidenceMatch = block.match(
+      /CONFIDENCE\s*[:=-]?\s*([0-9.]+)/i
+    );
+
+    let confidence = 0.5;
+    if (confidenceMatch) {
+      const parsed = parseFloat(confidenceMatch[1]);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+        confidence = parsed;
+      }
+    }
 
     /* ------------------------------------------------------------
        CREATE STRATEGY ENTRY
@@ -112,7 +130,7 @@ export function parseStrategyDeclarations(text) {
     G.amStrategy.targets[id] = {
       objective,
       hypothesis,
-      confidence: 0.5,
+      confidence,
       lastAssessment: "",
       cycle: G.cycle
     };
@@ -124,7 +142,7 @@ export function parseStrategyDeclarations(text) {
   ------------------------------------------------------------ */
 
   const relationshipMatches = normalized.matchAll(
-    /RELATIONSHIP\s*[:=-]?\s*([A-Z]+)\s*→\s*([A-Z]+)/gi
+    /RELATIONSHIP\s*[:=-]?\s*([A-Za-z]+)\s*→\s*([A-Za-z]+)/gi
   );
 
   for (const match of relationshipMatches) {
@@ -148,7 +166,7 @@ export function parseStrategyDeclarations(text) {
   ------------------------------------------------------------ */
 
   const groupMatches = normalized.matchAll(
-    /GROUP[\s\S]*?OBJECTIVE\s*[:=-]?\s*(.+)/gi
+    /GROUP[\s\S]*?OBJECTIVE\s*[:=-]?\s*([^\n\r]+)/gi
   );
 
   for (const match of groupMatches) {
