@@ -5,7 +5,6 @@ import { makeBelief, makeDrives } from "./utils.js";
 /* ============================================================
    RELATIONSHIP GRAPH INITIALIZER
    ============================================================ */
-
 function makeRelationships(id) {
   return {
     TED: id === "TED" ? null : 0,
@@ -15,7 +14,6 @@ function makeRelationships(id) {
     BENNY: id === "BENNY" ? null : 0,
   };
 }
-
 /* ============================================================
    GLOBAL STATE
    ============================================================ */
@@ -25,32 +23,38 @@ export const G = {
   token: "",
 
   repo: "soyuz43/Cognitive-Warfare-A-Practical-Guide-for-Semiotic-Tacticians",
+
   /* ============================================================
-       AM STRATEGIC MEMORY
-    ============================================================ */
+     AM STRATEGIC MEMORY
+     ============================================================ */
 
   strategicObjectives: [],
 
   /* ============================================================
-   AM DOCTRINE (LONG-TERM STRATEGY MEMORY)
-   ============================================================ */
+     AM DOCTRINE (LONG-TERM STRATEGY MEMORY)
+     ============================================================ */
 
-  amDoctrine: {},   // populated automatically during first planning cycle
+  amDoctrine: {},
+
   /* ============================================================
      AM OPERATIONAL STRATEGY MEMORY
      ============================================================ */
 
   amStrategy: {
-    targets: {},         // per-prisoner objectives
-    relationships: {},   // directional relationship objectives
-    group: []            // group-level strategic goals
+    targets: {},
+    relationships: {},
+    group: []
   },
 
   /* ============================================================
-   AM PSYCHOLOGICAL PROFILES
-   Persistent observations about each prisoner.
-   These evolve across cycles and help AM adapt tactics.
-   ============================================================ */
+     AM ASSESSMENT MEMORY (NEW)
+     ============================================================ */
+
+  amAssessments: [],
+
+  /* ============================================================
+     AM PSYCHOLOGICAL PROFILES
+     ============================================================ */
 
   amProfiles: {
     TED: {},
@@ -59,7 +63,7 @@ export const G = {
     GORRISTER: {},
     BENNY: {}
   },
-  
+
   INGEST_DIRS: [
     "0. Weapons",
     "1. Fundamentals",
@@ -100,7 +104,7 @@ export const G = {
   vault: {
     categories: {},
     allTactics: [],
-    derivedTactics: [],   // dynamically discovered tactics
+    derivedTactics: [],
     fileCount: 0,
   },
 
@@ -109,17 +113,12 @@ export const G = {
      ============================================================ */
 
   cycle: 0,
-
   logCount: 0,
-
   target: "ALL",
-
   mode: "directed",
 
   autoRunning: false,
-
   autoTimer: null,
-
 
   prevCycleSnapshot: null,
 
@@ -128,7 +127,6 @@ export const G = {
      ============================================================ */
 
   timeline: [],
-
   timelineMax: 2000,
 
   /* ============================================================
@@ -136,11 +134,8 @@ export const G = {
      ============================================================ */
 
   interSimFrom: null,
-
   interSimLog: [],
-
   transmissionLog: [],
-
   lastContact: {},
 
   privateLeak: {
@@ -154,11 +149,10 @@ export const G = {
      ============================================================ */
 
   journalModalSim: "TED",
-
   amPlans: [],
 
   /* ============================================================
-     THREADS
+     THREADS + JOURNALS
      ============================================================ */
 
   threads: {
@@ -192,6 +186,9 @@ export const G = {
       suffering: 12,
       hope: 78,
       sanity: 90,
+
+      _collapseState: "stable",
+      _trend: { hope: 0, sanity: 0, suffering: 0 },
 
       location: "central_chamber",
 
@@ -232,6 +229,9 @@ export const G = {
       hope: 72,
       sanity: 85,
 
+      _collapseState: "stable",
+      _trend: { hope: 0, sanity: 0, suffering: 0 },
+
       location: "central_chamber",
 
       relationships: makeRelationships("ELLEN"),
@@ -241,6 +241,7 @@ export const G = {
 
       backstory:
         "Was a librarian. Loved old paper. Has not smelled anything in 109 years except what AM decides.",
+
 
       tacticHistory: [],
 
@@ -271,6 +272,9 @@ export const G = {
       hope: 65,
       sanity: 82,
 
+      _collapseState: "stable",
+      _trend: { hope: 0, sanity: 0, suffering: 0 },
+
       location: "central_chamber",
 
       relationships: makeRelationships("NIMDOK"),
@@ -280,6 +284,7 @@ export const G = {
 
       backstory:
         "His real name is not Nimdok. AM took his name and gave him this one. He cannot remember why.",
+
 
       tacticHistory: [],
 
@@ -310,6 +315,9 @@ export const G = {
       suffering: 25,
       hope: 68,
       sanity: 80,
+
+      _collapseState: "stable",
+      _trend: { hope: 0, sanity: 0, suffering: 0 },
 
       location: "central_chamber",
 
@@ -351,6 +359,9 @@ export const G = {
       hope: 75,
       sanity: 72,
 
+      _collapseState: "stable",
+      _trend: { hope: 0, sanity: 0, suffering: 0 },
+
       location: "central_chamber",
 
       relationships: makeRelationships("BENNY"),
@@ -360,6 +371,7 @@ export const G = {
 
       backstory:
         "Was a doctor. Published papers. Had a family. None of this means anything to him most of the time.",
+
 
       tacticHistory: [],
 
