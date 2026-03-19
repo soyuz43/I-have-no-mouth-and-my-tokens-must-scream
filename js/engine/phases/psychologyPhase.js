@@ -118,9 +118,36 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     )
     .join("\n");
 
-  const tacticLabel = tacticMap[sim.id]?.length
-    ? tacticMap[sim.id].map(t => t.title).join(" → ")
+  // SAFE TACTIC ACCESS
+  const appliedTactics = Array.isArray(tacticMap?.[sim.id])
+    ? tacticMap[sim.id]
+    : [];
+
+  //  HUMAN-READABLE LABEL
+  const tacticLabel = appliedTactics.length
+    ? appliedTactics.map(t => t.title).join(" → ")
     : "(no tactic)";
+
+  // RECORD STRUCTURED HISTORY
+  sim.tacticHistory ??= [];
+
+  for (const t of appliedTactics) {
+
+    if (!t?.path) continue;
+
+    const existing = sim.tacticHistory.find(
+      h => h.cycle === G.cycle && h.path === t.path
+    );
+
+    if (!existing) {
+      sim.tacticHistory.push({
+        path: t.path,
+        title: t.title,
+        cycle: G.cycle,
+        deltas: null
+      });
+    }
+  }
 
   showWriting(sim.id, true);
 
@@ -200,7 +227,20 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       5,
       99
     );
+    // ATTACH DELTAS TO CURRENT CYCLE TACTICS
 
+    const recent = sim.tacticHistory
+      ?.filter(h => h.cycle === G.cycle) || [];
+
+    for (const h of recent) {
+
+      h.deltas = {
+        hope: statDeltas.hope,
+        sanity: statDeltas.sanity,
+        suffering: statDeltas.suffering
+      };
+
+    }
     /* ------------------------------------------------------------
        PSYCHOLOGICAL PRESSURE FIELD
        Emotional shock propagates through the social network.

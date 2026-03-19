@@ -282,7 +282,13 @@ export function pickTactics(sim) {
      AVOID RECENT REPEATS
   ------------------------------------------------------------ */
 
-  const used = new Set((sim.tacticHistory || []).map(h => h.path));
+  const RECENT_WINDOW = 3;
+
+  const used = new Set(
+    (sim.tacticHistory || [])
+      .filter(h => G.cycle - h.cycle < RECENT_WINDOW)
+      .map(h => h.path)
+  );
 
   let available = allAvailable.filter(t => !used.has(t.path));
 
@@ -420,10 +426,11 @@ export function pickTactics(sim) {
 
       const hopeDrop = h?.deltas?.hope ?? 0;
       const sanityDrop = h?.deltas?.sanity ?? 0;
+      const sufferingGain = h?.deltas?.suffering ?? 0;
 
-      if (hopeDrop < 0) score += 2;
-      if (sanityDrop < 0) score += 2;
-
+      score += Math.max(0, -hopeDrop) * 1.2;
+      score += Math.max(0, -sanityDrop) * 1.2;
+      score += Math.max(0, sufferingGain) * 0.8;
     }
     /* ------------------------------------------------------------
        RANDOM NOISE (prevents deterministic loops)
