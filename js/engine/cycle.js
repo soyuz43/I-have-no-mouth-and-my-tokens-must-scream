@@ -85,6 +85,13 @@ function endCycle(cycleStart) {
 
   timelineEvent(`// CYCLE ${G.cycle} RUNTIME ${duration}ms`);
 
+  for (const id of Object.keys(G.sims)) {
+    console.log(
+      `[TACTIC HISTORY][C${G.cycle}] ${id}`,
+      G.sims[id]?.tacticHistory?.slice(-2) || []
+    );
+  }
+
   timelineEvent(`===== CYCLE ${G.cycle} END =====`);
   timelineEvent(` `);
 
