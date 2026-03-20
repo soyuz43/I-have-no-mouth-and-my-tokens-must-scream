@@ -91,8 +91,8 @@ export function parseStrategyDeclarations(text) {
      More reliable than regex anchors – split on the word TARGET
      and reattach the keyword to each block.
   ------------------------------------------------------------ */
-  const targetBlocks =
-    normalized.match(/(?:^|\n)\s*TARGET[\s\S]*?(?=(?:\n\s*TARGET)|$)/gi) || [];
+const targetBlocks =
+  normalized.match(/(?:^|\n)\s*TARGET[\s\S]*?(?=(?:\n\s*TARGET)|$)/gi) || [];
 
   for (const rawBlock of targetBlocks) {
 
@@ -103,6 +103,17 @@ export function parseStrategyDeclarations(text) {
       .replace(/–|—/g, "-")
       .replace(/[^\x20-\x7E\n]/g, "")
       .trim();
+
+    /* ------------------------------------------------------------
+       STRUCTURE GATE (production-grade)
+       Reject blocks that are not actual strategy declarations
+    ------------------------------------------------------------ */
+
+    const hasStructure =
+      /OBJECTIVE/i.test(block) ||
+      /HYPOTHESIS/i.test(block);
+
+    if (!hasStructure) continue;
 
     /* ------------------------------------------------------------
        TARGET EXTRACTION (very tolerant)
@@ -191,8 +202,13 @@ export function parseStrategyDeclarations(text) {
         .map(l => l.trim())
         .filter(Boolean);
 
-      // take remaining lines after first (objective line)
-      const remainder = lines.slice(1).join(" ");
+     
+      const remainder = lines
+        .slice(1)
+        .filter(l =>
+          !/^(ACTION|VECTOR|TARGET|EFFECT|RESULT)/i.test(l)
+        )
+        .join(" ");
 
       if (remainder.length > 10) {
         hypothesis = remainder.slice(0, 120);

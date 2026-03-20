@@ -12,9 +12,6 @@ import {
   executeMain
 } from "./js/engine/cycle.js";
 
-import {
-  processSimJournalCycle
-} from "./js/engine/phases/psychologyPhase.js";
 
 import {
   runAutonomousInterSim
@@ -136,7 +133,7 @@ import {
 
 // ---------- ENGINE ----------
 
-window.processSimJournalCycle = processSimJournalCycle;
+
 window.executeMain = executeMain;
 window.runAutonomousInterSim = runAutonomousInterSim;
 

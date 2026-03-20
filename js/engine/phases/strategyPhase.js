@@ -37,7 +37,9 @@ export async function runStrategyPhase(directive) {
     timelineEvent(`>>> AM PLANNING`);
 
     planText = await stepPlanAM(directive);
-
+    console.log("=== RAW PLAN TEXT ===");
+    console.log(planText);
+    console.log("=====================");
     // Parse AM strategy so later phases can evaluate it
     parseStrategyDeclarations(planText);
 

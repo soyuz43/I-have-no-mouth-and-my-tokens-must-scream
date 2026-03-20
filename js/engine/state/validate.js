@@ -100,6 +100,21 @@ export function correctStatInconsistencies(sim, parsed) {
  */
 export function validateBeliefs(agent, before = {}, shifts = {}) {
 
+  /* ------------------------------------------------------------
+     INPUT GUARD 
+     Prevent crashes when LLM returns null / malformed JSON
+  ------------------------------------------------------------ */
+
+  if (!before || typeof before !== "object") {
+    console.warn("[VALIDATOR] invalid belief state", before);
+    before = {};
+  }
+
+  if (!shifts || typeof shifts !== "object") {
+    console.warn("[VALIDATOR] invalid beliefUpdates", shifts);
+    return [];
+  }
+
   const warnings = [];
 
   const { MIN, MAX, MAX_SHIFT } = BELIEF_RULES;
