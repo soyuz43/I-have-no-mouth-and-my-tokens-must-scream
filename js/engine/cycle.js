@@ -88,7 +88,7 @@ function endCycle(cycleStart) {
   for (const id of Object.keys(G.sims)) {
     console.log(
       `[TACTIC HISTORY][C${G.cycle}] ${id}`,
-      G.sims[id]?.tacticHistory?.slice(-2) || []
+      JSON.stringify(G.sims[id]?.tacticHistory?.slice(-2), null, 2)
     );
   }
 

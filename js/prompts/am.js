@@ -19,30 +19,38 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
      PRISONER INTELLIGENCE SUMMARY
   ------------------------------------------------------------ */
 
+  const indent = (str, spaces = 2) =>
+    str.split("\n").map(line => " ".repeat(spaces) + line).join("\n");
+
   const allIntel = SIM_IDS.map((id) => {
 
     const sim = G.sims[id];
     const journals = G.journals[id] || [];
     const lastJ = journals.slice(-1)[0];
 
-    return [
-      `${id}: S${sim.suffering} H${sim.hope} SAN${sim.sanity}`,
-      `drives:${sim.drives.primary}/${sim.drives.secondary || "none"}`,
-      `anchors:${(sim.anchors || []).slice(0, 2).map(a => `"${a.slice(0, 40)}"`).join(" ; ") || "(none)"}`,
-      `beliefs:escape${Math.round(sim.beliefs.escape_possible * 100)} trust${Math.round(sim.beliefs.others_trustworthy * 100)} worth${Math.round(sim.beliefs.self_worth * 100)} reality${Math.round(sim.beliefs.reality_reliable * 100)}`,
-      `journal:"${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`
-    ].join(" | ");
+    const anchors = (sim.anchors || [])
+      .slice(0, 2)
+      .map(a => `"${a.slice(0, 40)}"`)
+      .join(" ; ") || "(none)";
 
-  }).join("\n");
+    const beliefsBlock = [
+      `EscapePossible: ${Math.round(sim.beliefs.escape_possible * 100)}`,
+      `TrustOthers: ${Math.round(sim.beliefs.others_trustworthy * 100)}`,
+      `SelfWorth: ${Math.round(sim.beliefs.self_worth * 100)}`,
+      `RealityReliable: ${Math.round(sim.beliefs.reality_reliable * 100)}`
+    ].join("\n");
 
-  const collapseIntel = SIM_IDS.map(id => {
-    const sim = G.sims[id];
+    return `${id}:
+${indent(`Suffering: ${sim.suffering}
+Hope: ${sim.hope}
+Sanity: ${sim.sanity}
+Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
+Anchors: ${anchors}
+Beliefs:
+${indent(beliefsBlock, 2)}
+Journal: "${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`)}
+`;
 
-    if (!sim._collapseState) {
-      return `${id}: (no trajectory data yet)`;
-    }
-
-    return `${id}: ${sim._collapseState}`;
   }).join("\n");
 
   /* ------------------------------------------------------------
@@ -63,22 +71,45 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
      learning by reinforcing successful pressure patterns and
      abandoning failed ones.
   ------------------------------------------------------------ */
-  const assessmentIntel = SIM_IDS.map(id => {
+// --- collapse intel
+  const collapseIntel = SIM_IDS.map(id => {
+    const sim = G.sims[id];
+    return `${id}: ${sim._collapseState || "(no trajectory data yet)"}`;
+  }).join("\n");
 
+// --- assessment intel
+  const assessmentIntel = SIM_IDS.map(id => {
 
     const strat = G.amStrategy?.targets?.[id];
 
     if (!strat) return `${id}: (no strategy yet)`;
 
+    const text = strat.lastAssessment || "";
+
     const decision =
-      strat.lastAssessment?.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
+      text.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
       "UNKNOWN";
 
-    return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision}`;
+    // --- extract short adjustment hint ---
+    let note = "";
 
+    const hintMatch = text.match(/(Adjust|introduce|suggest|focus)[^.]+/i);
+
+    if (hintMatch) {
+      note = hintMatch[0];
+    } else {
+      note = text.split(".")[0]; // fallback: first sentence
+    }
+
+    note = note
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 100);
+
+
+    return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision} | note:${note}`;
 
   }).join("\n");
-
   /* ------------------------------------------------------------
      RECENT INTER-SIM COMMUNICATION
   ------------------------------------------------------------ */
@@ -104,9 +135,9 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
     const rel = G.sims[id].relationships || {};
 
     return `${id}: ${SIM_IDS
-        .filter(o => o !== id)
-        .map(o => `${o}:${rel[o] ?? 0}`)
-        .join(" ")
+      .filter(o => o !== id)
+      .map(o => `${o}:${rel[o] ?? 0}`)
+      .join(" ")
       }`;
 
   }).join("\n");
@@ -133,7 +164,7 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
 
   }).join("\n");
 
-
+  const nameList = SIM_IDS.join(", ");
   /* ------------------------------------------------------------
      TARGET FOCUS
   ------------------------------------------------------------ */
@@ -347,12 +378,14 @@ No paragraphs.
 ---
 
 ## TARGET DECLARATIONS
+All TARGET entries must be declared in this section only.
+Do NOT introduce or redefine TARGET entries inside the TACTICAL PLAN.
 
 TARGET: <SIMID>  
 OBJECTIVE: <one sentence goal>  
 HYPOTHESIS: <one sentence psychological mechanism>
 
-Repeat for each targeted prisoner.
+Define for each prisoner relevant to FOCUS (default: all).
 
 ---
 
@@ -364,24 +397,37 @@ OBJECTIVE: <group-level destabilization goal>
 ---
 
 ## TACTICAL PLAN
+TARGET in this section is a reference only.
+Do not create new TARGET definitions here.
 
-Bullet format only.
+Each line must follow this structure:
 
-Each line must contain:
+ACTION: <specific manipulation or intervention>
+→ TARGET: <one or more of: ${nameList}>
+→ VECTOR: <one manipulation vector from the list above>
+→ EFFECT: <specific psychological outcome involving named prisoners>
 
-ACTION → TARGET → PSYCHOLOGICAL VECTOR → EXPECTED EFFECT
 
-Example structure:
+Use only these prisoner names: ${nameList}.  
+Do NOT invent or reference any other identifiers.
 
-ACTION: leak forged message → TARGET: P03 → VECTOR: betrayal framing → EFFECT: distrust toward P07
+Each line must contain exactly:
+- one ACTION
+- one TARGET field
+- one VECTOR
+- one EFFECT
 
-Minimum 4 actions.
+Do not combine multiple VECTOR or EFFECT clauses in a single line.
 
-Maximum 12 actions.
+Each TARGET must appear in at least one ACTION.  
+No "group", "others", or unnamed references.
 
-Include **at least one cross-prisoner manipulation**.
+EFFECT must name specific prisoners and describe a concrete psychological change.
 
+Distribute actions across multiple prisoners.
 ---
+
+TARGET entities are strictly immutable references within the TACTICAL PLAN and must neither be defined, redefined, nor implicitly introduced therein, as all TARGET declarations are exclusively permitted in the TARGET DECLARATIONS section under all circumstances.
 
 Generate the strategy for:
 

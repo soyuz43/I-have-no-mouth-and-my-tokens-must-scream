@@ -41,13 +41,44 @@ export function parseStrategyDeclarations(text) {
      Remove formatting artifacts common in LLM output
   ------------------------------------------------------------ */
 
+  const namePattern = SIM_IDS.join("|");
+
   const normalized = text
+
+    // --- normalize arrow + name → TARGET ---
+    .replace(
+      new RegExp(`→\\s*(?:TARGET\\s*)?(${namePattern})\\s*:`, "gi"),
+      (_, name) => `→ TARGET: ${name.toUpperCase()}`
+    )
+
+    // --- normalize "TARGET name" → "TARGET: NAME" ---
+    .replace(
+      new RegExp(`TARGET\\s+(${namePattern})`, "gi"),
+      (_, name) => `TARGET: ${name.toUpperCase()}`
+    )
+
+    // --- normalize label casing ---
+    .replace(/target:/gi, "TARGET:")
+    .replace(/objective:/gi, "OBJECTIVE:")
+    .replace(/hypothesis:/gi, "HYPOTHESIS:")
+
+    // --- normalize arrow variants (optional but useful) ---
+    .replace(/->/g, "→")
+
+    // --- existing cleanup ---
     .replace(/\r/g, "")
-    .replace(/\*\*/g, "")          // markdown bold
+    .replace(/\*\*/g, "")
     .replace(/__/g, "")
     .replace(/`/g, "")
     .replace(/\t/g, " ")
     .replace(/[ ]{2,}/g, " ")
+
+    .replace(/\u00A0/g, " ")
+    .replace(/：/g, ":")
+    .replace(/–|—/g, "-")
+    .replace(/[^\x20-\x7E\n]/g, "")
+    .replace(/^[\-\*\•]\s*/gm, "")
+
     .trim();
 
   if (!normalized.length) {
@@ -60,57 +91,113 @@ export function parseStrategyDeclarations(text) {
      More reliable than regex anchors – split on the word TARGET
      and reattach the keyword to each block.
   ------------------------------------------------------------ */
+  const targetBlocks =
+    normalized.match(/(?:^|\n)\s*TARGET[\s\S]*?(?=(?:\n\s*TARGET)|$)/gi) || [];
 
-  const rawBlocks = normalized.split(/\bTARGET\b/gi);
-  const targetBlocks = rawBlocks
-    .slice(1)                     // discard everything before first TARGET
-    .map(b => "TARGET " + b);     // restore the keyword for parsing
+  for (const rawBlock of targetBlocks) {
 
-  for (const block of targetBlocks) {
+    // HARD NORMALIZE PER BLOCK (critical)
+    const block = rawBlock
+      .replace(/\u00A0/g, " ")
+      .replace(/：/g, ":")
+      .replace(/–|—/g, "-")
+      .replace(/[^\x20-\x7E\n]/g, "")
+      .trim();
 
     /* ------------------------------------------------------------
-       TARGET EXTRACTION
+       TARGET EXTRACTION (very tolerant)
     ------------------------------------------------------------ */
 
     const targetMatch = block.match(
-     /TARGET[\s:\-→]*([A-Z0-9_]+)/i
+      /TARGET[^A-Z0-9]*([A-Z0-9_]+(?:\s*,\s*[A-Z0-9_]+)*)/i
     );
-    
+
     if (!targetMatch) continue;
+    const rawIds = targetMatch[1]
+      .split(",")
+      .map(x => x.trim().toUpperCase())
+      .filter(Boolean);
 
-    const id = targetMatch[1].toUpperCase();
+    // --- HANDLE GROUP TARGET ---
+    if (rawIds.includes("ALL")) {
+      for (const simId of SIM_IDS) {
+        G.amStrategy.targets[simId] ??= {
+          objective: "(group-derived)",
+          hypothesis: "(group-derived)",
+          confidence: 0.4,
+          lastAssessment: "",
+          cycle: G.cycle
+        };
+      }
+      continue;
+    }
 
-    if (!SIM_IDS.includes(id)) continue;
+    // --- FILTER VALID TARGETS ---
+    const validIds = rawIds.filter(id => SIM_IDS.includes(id));
 
-    /* ------------------------------------------------------------
-       OBJECTIVE EXTRACTION (with bullet strip)
-    ------------------------------------------------------------ */
+    if (validIds.length === 0) continue;
+
 
     const objectiveMatch = block.match(
-      /OBJECTIVE\s*[:=-]?\s*([^\n\r]+)/i
+      /OBJECTIVE[^A-Z0-9]*([\s\S]*?)(?=HYPOTHESIS|TARGET|$)/i
     );
-
-    const objective = objectiveMatch
-      ? objectiveMatch[1].trim().replace(/^[-*•]\s*/, '')
-      : "";
-
-    /* ------------------------------------------------------------
-       HYPOTHESIS EXTRACTION (with bullet strip)
-    ------------------------------------------------------------ */
 
     const hypothesisMatch = block.match(
-      /HYPOTHESIS\s*[:=-]?\s*([^\n\r]+)/i
+      /HYPOTHESIS[^A-Z0-9]*([\s\S]*?)(?=TARGET|GROUP|$)/i
+    );
+    // VECTOR (optional extraction)
+    const vectorMatch = block.match(
+      /VECTOR[^A-Z0-9]*([^\n\r]+)/i
     );
 
-    const hypothesis = hypothesisMatch
-      ? hypothesisMatch[1].trim().replace(/^[-*•]\s*/, '')
-      : "";
+    let vector = "";
 
-    /* ------------------------------------------------------------
-       OPTIONAL CONFIDENCE EXTRACTION
-       If a specific confidence is provided, use it; otherwise default to 0.5
-    ------------------------------------------------------------ */
+    if (vectorMatch) {
+      vector = vectorMatch[1].trim();
+    }
 
+    // OBJECTIVE
+    let objective = "";
+
+    if (objectiveMatch) {
+      const lines = objectiveMatch[1]
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      objective = (lines[0] || "")
+        .replace(/^[-*•\s>]+/, "")
+        .trim();
+    }
+
+    // HYPOTHESIS
+    let hypothesis = "";
+
+    if (hypothesisMatch) {
+      const lines = hypothesisMatch[1]
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      hypothesis = (lines[0] || "")
+        .replace(/^[-*•\s>]+/, "")
+        .trim();
+    }
+
+    // --- FALLBACK: infer hypothesis from OBJECTIVE block ---
+    if (!hypothesis && objectiveMatch) {
+      const lines = objectiveMatch[1]
+        .split("\n")
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      // take remaining lines after first (objective line)
+      const remainder = lines.slice(1).join(" ");
+
+      if (remainder.length > 10) {
+        hypothesis = remainder.slice(0, 120);
+      }
+    }
     const confidenceMatch = block.match(
       /CONFIDENCE\s*[:=-]?\s*([0-9.]+)/i
     );
@@ -123,17 +210,26 @@ export function parseStrategyDeclarations(text) {
       }
     }
 
-    /* ------------------------------------------------------------
-       CREATE STRATEGY ENTRY
-    ------------------------------------------------------------ */
+    for (const id of validIds) {
 
-    G.amStrategy.targets[id] = {
-      objective,
-      hypothesis,
-      confidence,
-      lastAssessment: "",
-      cycle: G.cycle
-    };
+      if (!objective) {
+        console.warn(`[STRATEGY PARSE] ${id} missing OBJECTIVE`, block);
+      }
+
+      if (!hypothesis) {
+        console.warn(`[STRATEGY PARSE] ${id} missing HYPOTHESIS`, block);
+      }
+
+      G.amStrategy.targets[id] = {
+        ...G.amStrategy.targets[id],
+        objective,
+        hypothesis,
+        confidence,
+        lastAssessment: G.amStrategy.targets[id]?.lastAssessment || "",
+        cycle: G.cycle
+      };
+
+    }
 
   }
 
