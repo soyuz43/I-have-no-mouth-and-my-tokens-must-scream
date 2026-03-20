@@ -9,18 +9,25 @@
 // ============================================================
 
 import {
-  processSimJournalCycle,
   executeMain
 } from "./js/engine/cycle.js";
 
 import {
-  parseAndValidateStateBlock
-} from "./js/engine/validators.js";
+  processSimJournalCycle
+} from "./js/engine/phases/psychologyPhase.js";
 
 import {
   runAutonomousInterSim
 } from "./js/engine/comms.js";
 
+
+// ============================================================
+// VALIDATORS
+// ============================================================
+
+import {
+  parseAndValidateStateBlock
+} from "./js/engine/state/validate.js";
 
 // ============================================================
 // UI — EVENTS / CONTROLS
