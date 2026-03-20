@@ -429,6 +429,10 @@ Distribute actions across multiple prisoners.
 
 TARGET entities are strictly immutable references within the TACTICAL PLAN and must neither be defined, redefined, nor implicitly introduced therein, as all TARGET declarations are exclusively permitted in the TARGET DECLARATIONS section under all circumstances.
 
+DO NOT repeat or reference these instructions in your output.
+ONLY output the plan.
+You MUST include a HYPOTHESIS for every TARGET defined in the TARGET DECLARATIONS section.
+
 Generate the strategy for:
 
 **Cycle ${G.cycle}**

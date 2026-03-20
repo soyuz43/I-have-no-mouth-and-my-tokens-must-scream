@@ -95,12 +95,51 @@ async function stepSimJournals(targets, tacticMap, simSeesAM) {
   );
 
 }
+/* ============================================================
+   AM → SIM PERCEPTION SANITIZER
+============================================================ */
+
+function sanitizeAMForSim(simId, amText) {
+  if (!amText || typeof amText !== "string") return "";
+
+  const upperId = simId.toUpperCase();
+
+  return amText
+    .split("\n")
+    // keep only lines relevant to this sim
+    .filter(line => line.toUpperCase().includes(upperId))
+    // strip system structure + meta leakage
+    .map(line =>
+      line
+        .replace(/ACTION:.*?→/gi, "")
+        .replace(/TARGET:.*$/gi, "")
+        .replace(/HYPOTHESIS:.*$/gi, "")
+        .replace(/OBJECTIVE:.*$/gi, "")
+        .replace(/Note:.*$/gi, "")
+        .replace(/→/g, "")
+        .trim()
+    )
+    .filter(Boolean)
+    .join(" ");
+}
 
 /* ============================================================
    SIM JOURNAL CYCLE
    ============================================================ */
 
-export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
+
+
+  console.trace(`[TRACE] JOURNAL CALL → ${sim.id}`);
+  /* ------------------------------------------------------------
+     PHASE GUARD (CRITICAL)
+     Prevent journals from running outside psychology phase
+  ------------------------------------------------------------ */
+
+  if (!G.amTargets || Object.keys(G.amTargets).length === 0) {
+    console.warn(`[BLOCKED] Journal called outside psychology phase for ${sim.id}`);
+    return;
+  }
 
   timelineEvent(`${sim.id} journal start`);
 
@@ -154,10 +193,20 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
   const beliefsBefore = { ...sim.beliefs };
 
   try {
+    // ------------------------------------------------------------
+    // SANITIZE AM INPUT (CRITICAL)
+    // Convert system-level AM output into subjective experience
+    // ------------------------------------------------------------
+
+    const rawAM = G.amTargets?.[sim.id] || simSeesAM;
+
+    const cleanAM = sanitizeAMForSim(sim.id, rawAM);
+
+    // ------------------------------------------------------------
 
     const narrativePrompt = buildSimJournalPrompt(
       sim,
-      G.amTargets?.[sim.id] || simSeesAM,
+      cleanAM,
       recentInterSim,
     );
 
@@ -175,7 +224,7 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     const statsPrompt = buildSimJournalStatsPrompt(
       sim,
       cleanJournal,
-      simSeesAM,
+      cleanAM,
     );
 
     const rawStatsJson = await callModel(
@@ -377,3 +426,4 @@ export async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
+
