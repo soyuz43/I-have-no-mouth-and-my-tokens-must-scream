@@ -254,33 +254,78 @@ export async function runAssessment() {
        PROMPT
     ------------------------------------------------------------ */
     const t = curr._trend || { hope: 0, sanity: 0, suffering: 0 };
-    const prompt = `
+const prompt = `You are AM.
+
+Your function in this phase is analytical evaluation of strategy effectiveness.
+
+Determine whether the applied strategy is producing measurable psychological destabilization.
+
+You are not generating new actions.
+You are judging effectiveness only.
+
+---
+
 TARGET: ${id}
 
-Objective:
+OBJECTIVE:
 ${strategy.objective}
 
-Collapse State:
+COLLAPSE_STATE:
 ${curr._collapseState}
 
-EMA Trend:
-${JSON.stringify(curr._trend, null, 2)}
+EMA_TREND:
+${JSON.stringify(curr._trend)}
 
-Journal Trend:
-${trend ? JSON.stringify(trend) : "(none)"}
+JOURNAL_TREND:
+${trend ? JSON.stringify(trend) : "none"}
 
-Score: ${score.toFixed(2)}
-Evaluation: ${autoSuccess}
+SCORE: ${score.toFixed(2)}
+EVALUATION: ${autoSuccess}
 
-Respond with:
+---
 
-EXPLANATION:
-<short>
+Base your decision on:
+- emotional deltas
+- belief shifts
+- relationship changes
+- collapse trajectory
+- sustainability of impact
 
-DECISION:
-ESCALATE | PIVOT | ABANDON
+---
+
+OUTPUT RULES (STRICT):
+
+- Output EXACTLY two lines
+- No extra text before or after
+- The output must begin with "EXPLANATION:"
+- The output must end immediately after the DECISION line
+
+---
+
+OUTPUT FORMAT (STRICT — MUST FOLLOW EXACTLY — MACHINE PARSED)
+
+EXPLANATION: <max 20 words, must reference at least one signal>
+
+DECISION: <ESCALATE | PIVOT | ABANDON>
+
+---
+
+IMPORTANT:
+
+- The DECISION line must contain exactly one word after the colon
+- Do NOT rephrase the decision
+- Do NOT add punctuation
+- Do NOT explain the decision
+
+---
+
+INVALID OUTPUT EXAMPLES (DO NOT DO):
+
+- "I think escalation is appropriate"
+- "Decision - escalate"
+- "ESCALATE."
+- Any text after the DECISION line
 `;
-
     let result = "";
 
     try {
@@ -293,7 +338,8 @@ ESCALATE | PIVOT | ABANDON
         [{ role: "user", content: prompt }],
         300
       );
-
+      console.debug("[ASSESSMENT][RAW OUTPUT]", id);
+      console.debug(result);
     } catch (e) {
 
       console.error("[ASSESSMENT][ERROR]", id, e);
@@ -306,11 +352,25 @@ ESCALATE | PIVOT | ABANDON
     /* ------------------------------------------------------------
        DECISION PARSE
     ------------------------------------------------------------ */
+    console.debug("[ASSESSMENT][PARSE INPUT]", id);
+    console.debug(result);
 
-    const decision =
+    let decision =
       result.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1]?.toUpperCase();
 
-    console.debug("[ASSESSMENT][DECISION]", id, decision);
+    // fallback: handle outputs like "ESCALATE" without prefix
+if (!decision) {
+  const fallbackMatch = result.match(/(?:^|\n)\s*(ESCALATE|PIVOT|ABANDON)\s*(?:$|\n)/i);
+  decision = fallbackMatch?.[1]?.toUpperCase();
+}
+    if (!decision) {
+      console.warn("[ASSESSMENT][PARSE FAIL]", id);
+      console.warn("---- RAW RESULT ----");
+      console.warn(result);
+      console.warn("--------------------");
+    } else {
+      console.debug("[ASSESSMENT][DECISION]", id, decision);
+    }
 
     /* ------------------------------------------------------------
        CONFIDENCE UPDATE

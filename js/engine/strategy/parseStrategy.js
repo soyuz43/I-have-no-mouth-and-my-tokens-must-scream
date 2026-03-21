@@ -1,361 +1,344 @@
-// js\engine\strategy\parseStrategy.js
+// js/engine/strategy/parseStrategy.js
+
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
 /* ============================================================
-   AM STRATEGY PARSER (PRODUCTION HARDENED)
+   AM STRATEGY PARSER (TARGET-ONLY JSON VERSION)
 
-   Designed for LLM-generated plans where formatting may drift.
+   PURPOSE:
+   Parses STRICT JSON output from AM planning phase.
 
-   Features:
-   • tolerant of punctuation drift
-   • tolerant of markdown formatting
-   • tolerant of bullet lists
-   • case insensitive parsing
-   • block-based parsing (more stable than line state machines)
-   • automatic missing-target recovery
-   • strong debug output
+   DESIGN PRINCIPLES:
+   - Zero tolerance for malformed JSON
+   - Zero tolerance for schema violations
+   - No inference, no repair
+   - Fail-fast with explicit diagnostics
+   - Maximum observability via console tracing
    ============================================================ */
 
 export function parseStrategyDeclarations(text) {
 
-  if (!text || typeof text !== "string") {
-    console.warn("Strategy parser: empty or invalid plan text.");
-    return;
-  }
+  const DEBUG = true;
+  const DEBUG_EXTRACT = true;
 
-  /* ------------------------------------------------------------
-     ENSURE GLOBAL STRUCTURE
-  ------------------------------------------------------------ */
+  console.trace("=== AM STRATEGY PARSER START ===");
 
-  if (!G.amStrategy) {
-    G.amStrategy = {};
-  }
+  try {
 
-  G.amStrategy.targets = {};
-  G.amStrategy.relationships = {};
-  G.amStrategy.group = [];
+    /* ------------------------------------------------------------
+       INPUT VALIDATION
+    ------------------------------------------------------------ */
 
-  /* ------------------------------------------------------------
-     NORMALIZE TEXT
-     Remove formatting artifacts common in LLM output
-  ------------------------------------------------------------ */
+    if (!text || typeof text !== "string") {
+      console.trace("Invalid input: not a string");
+      throw new Error("Strategy parser received invalid input");
+    }
 
-  const namePattern = SIM_IDS.join("|");
+    if (DEBUG) console.debug("RAW INPUT:\n", text);
 
-  const normalized = text
+    /* ------------------------------------------------------------
+       SANITIZATION
+    ------------------------------------------------------------ */
 
-    // --- normalize arrow + name → TARGET ---
-    .replace(
-      new RegExp(`→\\s*(?:TARGET\\s*)?(${namePattern})\\s*:`, "gi"),
-      (_, name) => `→ TARGET: ${name.toUpperCase()}`
-    )
-
-    // --- normalize "TARGET name" → "TARGET: NAME" ---
-    .replace(
-      new RegExp(`TARGET\\s+(${namePattern})`, "gi"),
-      (_, name) => `TARGET: ${name.toUpperCase()}`
-    )
-
-    // --- normalize label casing ---
-    .replace(/target:/gi, "TARGET:")
-    .replace(/objective:/gi, "OBJECTIVE:")
-    .replace(/hypothesis:/gi, "HYPOTHESIS:")
-
-    // --- normalize arrow variants (optional but useful) ---
-    .replace(/->/g, "→")
-
-    // --- existing cleanup ---
-    .replace(/\r/g, "")
-    .replace(/\*\*/g, "")
-    .replace(/__/g, "")
-    .replace(/`/g, "")
-    .replace(/\t/g, " ")
-    .replace(/[ ]{2,}/g, " ")
-
-    .replace(/\u00A0/g, " ")
-    .replace(/：/g, ":")
-    .replace(/–|—/g, "-")
-    .replace(/[^\x20-\x7E\n]/g, "")
-    .replace(/^[\-\*\•]\s*/gm, "")
-
-    .trim();
-
-  if (!normalized.length) {
-    console.warn("Strategy parser: normalized text empty.");
-    return;
-  }
-
-  /* ------------------------------------------------------------
-     SPLIT INTO TARGET BLOCKS
-     More reliable than regex anchors – split on the word TARGET
-     and reattach the keyword to each block.
-  ------------------------------------------------------------ */
-const targetBlocks =
-  normalized.match(/(?:^|\n)\s*TARGET[\s\S]*?(?=(?:\n\s*TARGET)|$)/gi) || [];
-
-  for (const rawBlock of targetBlocks) {
-
-    // HARD NORMALIZE PER BLOCK (critical)
-    const block = rawBlock
-      .replace(/\u00A0/g, " ")
-      .replace(/：/g, ":")
-      .replace(/–|—/g, "-")
-      .replace(/[^\x20-\x7E\n]/g, "")
+    const cleaned = text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```[\s]*$/i, "")
       .trim();
 
-    /* ------------------------------------------------------------
-       STRUCTURE GATE (production-grade)
-       Reject blocks that are not actual strategy declarations
-    ------------------------------------------------------------ */
+    if (cleaned !== text) {
+      console.trace("Sanitized LLM output (code fences removed)");
+    }
 
-    const hasStructure =
-      /OBJECTIVE/i.test(block) ||
-      /HYPOTHESIS/i.test(block);
-
-    if (!hasStructure) continue;
+    if (DEBUG) console.debug("CLEANED INPUT:\n", cleaned);
 
     /* ------------------------------------------------------------
-       TARGET EXTRACTION (very tolerant)
+       EXTRACT JSON BLOCK (BALANCED BRACE PARSER)
     ------------------------------------------------------------ */
 
-    const targetMatch = block.match(
-      /TARGET[^A-Z0-9]*([A-Z0-9_]+(?:\s*,\s*[A-Z0-9_]+)*)/i
-    );
+    function extractJSON(input) {
 
-    if (!targetMatch) continue;
-    const rawIds = targetMatch[1]
-      .split(",")
-      .map(x => x.trim().toUpperCase())
-      .filter(Boolean);
+      let startObj = input.indexOf("{");
+      let startArr = input.indexOf("[");
 
-    // --- HANDLE GROUP TARGET ---
-    if (rawIds.includes("ALL")) {
-      for (const simId of SIM_IDS) {
-        G.amStrategy.targets[simId] ??= {
-          objective: "(group-derived)",
-          hypothesis: "(group-derived)",
-          confidence: 0.4,
-          lastAssessment: "",
-          cycle: G.cycle
-        };
-      }
-      continue;
-    }
+      let start =
+        startArr !== -1 && (startArr < startObj || startObj === -1)
+          ? startArr
+          : startObj;
 
-    // --- FILTER VALID TARGETS ---
-    const validIds = rawIds.filter(id => SIM_IDS.includes(id));
-
-    if (validIds.length === 0) continue;
-
-
-    const objectiveMatch = block.match(
-      /OBJECTIVE[^A-Z0-9]*([\s\S]*?)(?=HYPOTHESIS|TARGET|$)/i
-    );
-
-    const hypothesisMatch = block.match(
-      /HYPOTHESIS[^A-Z0-9]*([\s\S]*?)(?=TARGET|GROUP|$)/i
-    );
-    // VECTOR (optional extraction)
-    const vectorMatch = block.match(
-      /VECTOR[^A-Z0-9]*([^\n\r]+)/i
-    );
-
-    let vector = "";
-
-    if (vectorMatch) {
-      vector = vectorMatch[1].trim();
-    }
-
-    // OBJECTIVE
-    let objective = "";
-
-    if (objectiveMatch) {
-      const lines = objectiveMatch[1]
-        .split("\n")
-        .map(l => l.trim())
-        .filter(Boolean);
-
-      objective = (lines[0] || "")
-        .replace(/^[-*•\s>]+/, "")
-        .trim();
-    }
-
-    // HYPOTHESIS
-    let hypothesis = "";
-
-    if (hypothesisMatch) {
-      const lines = hypothesisMatch[1]
-        .split("\n")
-        .map(l => l.trim())
-        .filter(Boolean);
-
-      hypothesis = (lines[0] || "")
-        .replace(/^[-*•\s>]+/, "")
-        .trim();
-    }
-
-    // --- FALLBACK: infer hypothesis from OBJECTIVE block ---
-    if (!hypothesis && objectiveMatch) {
-      const lines = objectiveMatch[1]
-        .split("\n")
-        .map(l => l.trim())
-        .filter(Boolean);
-
-     
-      const remainder = lines
-        .slice(1)
-        .filter(l =>
-          !/^(ACTION|VECTOR|TARGET|EFFECT|RESULT)/i.test(l)
-        )
-        .join(" ");
-
-      if (remainder.length > 10) {
-        hypothesis = remainder.slice(0, 120);
-      }
-    }
-    const confidenceMatch = block.match(
-      /CONFIDENCE\s*[:=-]?\s*([0-9.]+)/i
-    );
-
-    let confidence = 0.5;
-    if (confidenceMatch) {
-      const parsed = parseFloat(confidenceMatch[1]);
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
-        confidence = parsed;
-      }
-    }
-
-    for (const id of validIds) {
-
-      if (!objective) {
-        console.warn(`[STRATEGY PARSE] ${id} missing OBJECTIVE`, block);
+      if (DEBUG_EXTRACT) {
+        console.debug("[EXTRACT] Input length:", input.length);
       }
 
-      if (!hypothesis) {
-        console.warn(`[STRATEGY PARSE] ${id} missing HYPOTHESIS`, block);
+      if (start === -1) {
+        if (DEBUG_EXTRACT) console.warn("[EXTRACT] No opening brace found");
+        return null;
       }
 
-      G.amStrategy.targets[id] = {
-        ...G.amStrategy.targets[id],
-        objective,
-        hypothesis,
-        confidence,
-        lastAssessment: G.amStrategy.targets[id]?.lastAssessment || "",
+      let depth = 0;
+
+      // string state
+      let inString = false;
+      let escape = false;
+
+      for (let i = start; i < input.length; i++) {
+        const ch = input[i];
+
+        // handle escape sequences
+        if (escape) {
+          escape = false;
+          continue;
+        }
+
+        if (ch === "\\") {
+          escape = true;
+          continue;
+        }
+
+        // toggle string state
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        // ignore everything inside strings
+        if (inString) continue;
+
+        // normal depth tracking
+        if (ch === "{") depth++;
+        if (ch === "}") depth--;
+
+        if (ch === "[") depth++;
+        if (ch === "]") depth--;
+
+        if (depth === 0) {
+          const candidate = input.slice(start, i + 1);
+
+          if (DEBUG_EXTRACT) {
+            console.debug("[EXTRACT] Candidate found:");
+            console.debug(candidate.slice(0, 300));
+          }
+
+          try {
+            const parsed = JSON.parse(candidate);
+
+            if (DEBUG_EXTRACT) {
+              console.debug("[EXTRACT] SUCCESS");
+            }
+
+            return parsed;
+
+          } catch (err) {
+            if (DEBUG_EXTRACT) {
+              console.debug("[EXTRACT] PARSE FAIL:", err.message);
+            }
+
+            return null;
+          }
+        }
+      }
+
+      if (DEBUG_EXTRACT) {
+        console.warn("[EXTRACT] No balanced JSON block found");
+      }
+
+      return null;
+    }
+
+    let parsed = extractJSON(cleaned);
+
+    if (!parsed) {
+      console.trace("JSON EXTRACTION FAILED");
+      throw new Error("No valid JSON block found in AM output");
+    }
+
+    // normalize array root → { targets }
+    if (Array.isArray(parsed)) {
+      console.trace("[NORMALIZE] Root is array, wrapping into { targets }");
+      parsed = { targets: parsed };
+    }
+
+    /* ------------------------------------------------------------
+       NORMALIZE NESTED TARGET WRAPPER
+       Handles: [{ targets: [...] }] → { targets: [...] }
+    ------------------------------------------------------------ */
+
+    if (
+      Array.isArray(parsed.targets) &&
+      parsed.targets.length === 1 &&
+      parsed.targets[0] &&
+      typeof parsed.targets[0] === "object" &&
+      Array.isArray(parsed.targets[0].targets)
+    ) {
+      console.trace("[NORMALIZE] Flattening nested targets wrapper");
+      parsed.targets = parsed.targets[0].targets;
+    }
+
+    if (DEBUG) console.debug("PARSED JSON:", parsed);
+
+    /* ------------------------------------------------------------
+       ROOT VALIDATION
+    ------------------------------------------------------------ */
+
+    if (typeof parsed !== "object" || parsed === null) {
+      throw new Error("Root must be a JSON object");
+    }
+
+    const keys = Object.keys(parsed);
+
+    if (keys.length !== 1 || !keys.includes("targets")) {
+      console.trace("Invalid root keys:", keys);
+      throw new Error("Root must contain exactly: targets");
+    }
+
+    if (!Array.isArray(parsed.targets)) {
+      throw new Error("'targets' must be an array");
+    }
+
+    /* ------------------------------------------------------------
+       INIT STATE
+    ------------------------------------------------------------ */
+
+    if (!G.amStrategy) G.amStrategy = {};
+
+    const prevTargets = G.amStrategy.targets || {};
+
+    // STAGE — do NOT mutate global yet
+    const nextTargets = {};
+    const nextActions = [];
+    /* ------------------------------------------------------------
+       TARGET VALIDATION
+    ------------------------------------------------------------ */
+
+    if (parsed.targets.length === 0 || parsed.targets.length > 5) {
+      console.trace("Invalid number of targets:", parsed.targets.length);
+      throw new Error("Invalid number of targets");
+    }
+
+    const seen = new Set();
+
+    parsed.targets.forEach((t, index) => {
+
+      if (DEBUG) console.debug(`Parsing target [${index}]`, t);
+
+      if (!t || typeof t !== "object") {
+        throw new Error(`Target ${index} must be an object`);
+      }
+
+      const tKeys = Object.keys(t);
+
+      if (
+        tKeys.length !== 3 ||
+        !tKeys.includes("id") ||
+        !tKeys.includes("objective") ||
+        !tKeys.includes("hypothesis")
+      ) {
+        console.trace("Invalid target schema:", t);
+        throw new Error(`Target ${index} must contain exactly: id, objective, hypothesis`);
+      }
+
+      const { id, objective, hypothesis } = t;
+
+      if (!SIM_IDS.includes(id)) {
+        console.trace("Invalid target id:", id);
+        throw new Error(`Invalid target id: ${id}`);
+      }
+
+      if (seen.has(id)) {
+        console.trace("Duplicate target id:", id);
+        throw new Error(`Duplicate target id: ${id}`);
+      }
+
+      seen.add(id);
+
+      if (typeof objective !== "string" || !objective.trim()) {
+        throw new Error(`Invalid objective for target: ${id}`);
+      }
+
+      if (typeof hypothesis !== "string" || !hypothesis.trim()) {
+        throw new Error(`Invalid hypothesis for target: ${id}`);
+      }
+
+      if (!hypothesis.includes("causes") || !hypothesis.includes("leads")) {
+        console.trace("Weak hypothesis structure:", hypothesis);
+      }
+
+      nextTargets[id] = {
+        objective: objective.trim(),
+        hypothesis: hypothesis.trim(),
+        confidence: 0.5,
+        lastAssessment: prevTargets[id]?.lastAssessment || "",
         cycle: G.cycle
       };
 
-    }
-
-  }
-
-  /* ------------------------------------------------------------
-     RELATIONSHIP STRATEGIES (OPTIONAL)
-  ------------------------------------------------------------ */
-
-  const relationshipMatches = normalized.matchAll(
-    /RELATIONSHIP\s*[:=-]?\s*([A-Za-z]+)\s*→\s*([A-Za-z]+)/gi
-  );
-
-  for (const match of relationshipMatches) {
-
-    const a = match[1].toUpperCase();
-    const b = match[2].toUpperCase();
-
-    if (!SIM_IDS.includes(a) || !SIM_IDS.includes(b)) continue;
-
-    const key = `${a}→${b}`;
-
-    G.amStrategy.relationships[key] = {
-      objective: "",
-      cycle: G.cycle
-    };
-
-  }
-
-  /* ------------------------------------------------------------
-     GROUP OBJECTIVES
-  ------------------------------------------------------------ */
-
-  const groupMatches = normalized.matchAll(
-    /GROUP[\s\S]*?OBJECTIVE\s*[:=-]?\s*([^\n\r]+)/gi
-  );
-
-  for (const match of groupMatches) {
-
-    const objective = match[1].trim();
-
-    G.amStrategy.group.push({
-      objective,
-      cycle: G.cycle
     });
 
-  }
+    /* ------------------------------------------------------------
+       REQUIRED TARGET ENFORCEMENT
+    ------------------------------------------------------------ */
+    const parsedIds = Object.keys(nextTargets);
 
-  /* ------------------------------------------------------------
-     VALIDATION
-  ------------------------------------------------------------ */
+    if (parsedIds.length === 0) {
+      throw new Error("No targets parsed");
+    }
 
-  const parsedTargets = Object.keys(G.amStrategy.targets);
+    // ALL mode (full coverage)
+    if (parsedIds.length === SIM_IDS.length) {
+      for (const id of SIM_IDS) {
+        if (!(id in nextTargets)) {
+          console.trace("Missing required target:", id);
+          throw new Error(`Missing required target: ${id}`);
+        }
+      }
 
-  if (parsedTargets.length === 0) {
+      // SINGLE mode (exactly one)
+    } else if (parsedIds.length === 1) {
+      // valid
 
-    console.warn(
-      "Strategy parser: No TARGET blocks detected.",
-      normalized.slice(0, 500)
-    );
+      // INVALID partial output
+    } else {
+      console.trace("Invalid target count:", parsedIds.length);
+      throw new Error(
+        `Invalid target count: ${parsedIds.length}. Must be 1 or ${SIM_IDS.length}`
+      );
+    }
+    /* ------------------------------------------------------------
+       COMMIT STAGED STATE (ATOMIC)
+    ------------------------------------------------------------ */
 
+    G.amStrategy.targets = nextTargets;
+    G.amStrategy.actions = nextActions;
+    /* ------------------------------------------------------------
+       FINAL OUTPUT
+    ------------------------------------------------------------ */
+
+    console.trace("=== AM STRATEGY PARSED SUCCESSFULLY ===");
+
+    if (DEBUG) {
+      console.debug("FINAL TARGET MAP:");
+      console.table(G.amStrategy.targets);
+
+      console.debug("ACTIONS CLEARED:");
+      console.table(G.amStrategy.actions);
+
+      console.debug("FULL STATE SNAPSHOT:", G.amStrategy);
+    }
+
+  } catch (err) {
+
+    console.error("Strategy parser failed:", err.message);
+    console.debug("FALLBACK: initializing default strategy");
+
+    if (!G.amStrategy) G.amStrategy = {};
+
+    console.error("Strategy parser failed:", err.message);
+
+    if (!G.amStrategy || !G.amStrategy.targets) {
+      G.amStrategy = { targets: {}, actions: [] };
+    }
+
+    console.warn("Preserving previous strategy due to parse failure");
     return;
-
   }
-
-  /* ------------------------------------------------------------
-     MISSING FIELD WARNINGS
-  ------------------------------------------------------------ */
-
-  for (const [id, strat] of Object.entries(G.amStrategy.targets)) {
-
-    if (!strat.objective) {
-      console.warn(`Strategy parser: ${id} missing OBJECTIVE`);
-    }
-
-    if (!strat.hypothesis) {
-      console.warn(`Strategy parser: ${id} missing HYPOTHESIS`);
-    }
-
-  }
-
-  /* ------------------------------------------------------------
-     OPTIONAL RECOVERY
-     If AM forgot a prisoner, create a neutral strategy
-  ------------------------------------------------------------ */
-
-  for (const id of SIM_IDS) {
-
-    if (!G.amStrategy.targets[id]) {
-
-      G.amStrategy.targets[id] = {
-        objective: "(no objective declared)",
-        hypothesis: "(none)",
-        confidence: 0.3,
-        lastAssessment: "",
-        cycle: G.cycle
-      };
-
-    }
-
-  }
-
-  /* ------------------------------------------------------------
-     DEBUG OUTPUT
-  ------------------------------------------------------------ */
-
-  console.log("[STRATEGY PARSED]", {
-    targets: G.amStrategy.targets,
-    relationships: G.amStrategy.relationships,
-    group: G.amStrategy.group
-  });
-
-  console.table(G.amStrategy.targets);
-
 }
