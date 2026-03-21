@@ -59,88 +59,98 @@ export function parseStrategyDeclarations(text) {
 
     function extractJSON(input) {
 
-      let startObj = input.indexOf("{");
-      let startArr = input.indexOf("[");
-
-      let start =
-        startArr !== -1 && (startArr < startObj || startObj === -1)
-          ? startArr
-          : startObj;
-
       if (DEBUG_EXTRACT) {
         console.debug("[EXTRACT] Input length:", input.length);
       }
+
+      let start = input.indexOf("{");
 
       if (start === -1) {
         if (DEBUG_EXTRACT) console.warn("[EXTRACT] No opening brace found");
         return null;
       }
 
-      let depth = 0;
+      // LOOP: scan through ALL possible `{` starts
+      while (start !== -1) {
 
-      // string state
-      let inString = false;
-      let escape = false;
 
-      for (let i = start; i < input.length; i++) {
-        const ch = input[i];
+        let objDepth = 0;
+        let arrDepth = 0;
+        // string state
+        let inString = false;
+        let escape = false;
 
-        // handle escape sequences
-        if (escape) {
-          escape = false;
-          continue;
-        }
+        for (let i = start; i < input.length; i++) {
+          const ch = input[i];
 
-        if (ch === "\\") {
-          escape = true;
-          continue;
-        }
-
-        // toggle string state
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-
-        // ignore everything inside strings
-        if (inString) continue;
-
-        // normal depth tracking
-        if (ch === "{") depth++;
-        if (ch === "}") depth--;
-
-        if (ch === "[") depth++;
-        if (ch === "]") depth--;
-
-        if (depth === 0) {
-          const candidate = input.slice(start, i + 1);
-
-          if (DEBUG_EXTRACT) {
-            console.debug("[EXTRACT] Candidate found:");
-            console.debug(candidate.slice(0, 300));
+          // handle escape sequences
+          if (escape) {
+            escape = false;
+            continue;
           }
 
-          try {
-            const parsed = JSON.parse(candidate);
+          if (ch === "\\") {
+            escape = true;
+            continue;
+          }
+
+          // toggle string state
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+
+          // ignore everything inside strings
+          if (inString) continue;
+
+          // depth tracking
+          if (ch === "{") objDepth++;
+          if (ch === "}") objDepth--;
+
+          if (ch === "[") arrDepth++;
+          if (ch === "]") arrDepth--;
+
+          if (objDepth === 0 && arrDepth === 0) {
+            const candidate = input.slice(start, i + 1);
 
             if (DEBUG_EXTRACT) {
-              console.debug("[EXTRACT] SUCCESS");
+              console.debug("[EXTRACT] Candidate found:");
+              console.debug(candidate.slice(0, 300));
             }
 
-            return parsed;
+            try {
+              const parsed = JSON.parse(candidate);
 
-          } catch (err) {
-            if (DEBUG_EXTRACT) {
-              console.debug("[EXTRACT] PARSE FAIL:", err.message);
+              //  SCHEMA VALIDATION 
+              if (!parsed || typeof parsed !== "object" || !parsed.targets) {
+                if (DEBUG_EXTRACT) {
+                  console.debug("[EXTRACT] REJECT (no targets field)");
+                }
+                break; // try next `{`
+              }
+
+              if (DEBUG_EXTRACT) {
+                console.debug("[EXTRACT] SUCCESS");
+              }
+
+              return parsed;
+            } catch (err) {
+              if (DEBUG_EXTRACT) {
+                console.debug("[EXTRACT] PARSE FAIL:", err.message);
+              }
+
+              // invalid JSON → try next `{`
+              break;
             }
-
-            return null;
           }
         }
+
+        // move to next possible JSON start
+        start = input.indexOf("{", start + 1);
       }
 
       if (DEBUG_EXTRACT) {
-        console.warn("[EXTRACT] No balanced JSON block found");
+        console.warn("[EXTRACT] No valid JSON block found");
       }
 
       return null;
