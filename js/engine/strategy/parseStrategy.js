@@ -24,7 +24,7 @@ import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
 
 export function parseStrategyDeclarations(text) {
 
-  const DEBUG = true;
+  const DEBUG = false;
   const DEBUG_EXTRACT = true;
 
   console.trace("=== AM STRATEGY PARSER START ===");

@@ -328,6 +328,22 @@ This prevents cross-target narrative contamination.
 
 ---
 
+## Parser Observability & Auto‑Tuning
+
+The strategy parser now collects detailed metrics and adapts its extraction logic based on success/failure rates.
+
+- **Metrics**: Each cycle records attempts, successes, failures, repairs, and error types. Totals are aggregated in `G.parserMetrics`.  
+- **Auto‑tuning**: `repairLevel` (0–2) automatically escalates when failure rates exceed thresholds (structural rate >10%, truncation >5%, overall >25%) and de‑escalates when stable.  
+- **UI**: A **PARSER** button in the AM Scratchpad panel opens a modal displaying per‑cycle metrics and extractor usage.  
+- **Extractor pipeline**: Three extractors run in order based on repairLevel:
+  1. `strict-json` – standard JSON extraction (always enabled)  
+  2. `targets-array` – repairs missing object wrapper (enabled at repairLevel ≥1)  
+  3. `repair-targets` – aggressive heuristic repair (enabled at repairLevel ≥2)  
+
+All metrics are persisted in `G.parserMetrics` and can be exported via the session export.
+
+---
+
 ### Journal-Driven State Updates
 
 Each prisoner writes a **private journal entry**.

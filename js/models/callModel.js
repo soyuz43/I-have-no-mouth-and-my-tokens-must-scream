@@ -91,9 +91,7 @@ async function callAnthropic(model, systemPrompt, messages, maxTokens) {
 async function callOllama(model, systemPrompt, messages, maxTokens) {
 
   const ollamaMessages = [
-
     { role: "system", content: systemPrompt },
-
     ...messages.map(m => ({
       role: m.role,
       content:
@@ -101,49 +99,99 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
           ? m.content
           : m.content?.[0]?.text || ""
     }))
-
   ];
 
   const body = {
-
     model,
-
     messages: ollamaMessages,
-
     stream: false,
-
     think: false,
-
     options: {
       num_predict: maxTokens,
       temperature: 0.85
     }
-
   };
 
   debugBody(body);
 
   const r = await fetch("http://localhost:11434/api/chat", {
-
     method: "POST",
-
     headers: { "Content-Type": "application/json" },
-
     body: JSON.stringify(body)
-
   });
 
   const d = await r.json();
 
   debugResponse("Ollama", d);
 
-  if (d.error) {
-    throw new Error(d.error);
+  /* ============================================================
+     ======== RESPONSE GUARD (STRUCTURAL VALIDATION) ============
+     ============================================================ */
+
+  if (!d.message || typeof d.message.content !== "string") {
+    console.warn(
+      "===== [OLLAMA WARNING] INVALID RESPONSE SHAPE =====",
+      d
+    );
   }
 
   const raw = d.message?.content || "";
 
-  return stripThinkTags(raw);
+  /* ============================================================
+     ===================== RAW OUTPUT ===========================
+     ============================================================ */
+
+  console.log(
+    "%c++++ RAW MODEL OUTPUT ++++",
+    "color:#ff8800;font-weight:bold"
+  );
+  console.log(raw || "[EMPTY STRING]");
+
+  /* ============================================================
+     ===================== CLEANING =============================
+     ============================================================ */
+
+  const cleaned = stripThinkTags(raw);
+
+  console.log(
+    "%c++++ CLEANED MODEL OUTPUT ++++",
+    "color:#aa00aa;font-weight:bold"
+  );
+  console.log(cleaned || "[EMPTY STRING]");
+
+  /* ============================================================
+     ===================== SANITY CHECKS ========================
+     ============================================================ */
+
+  if (!raw.trim()) {
+    console.warn("===== [OLLAMA WARNING] RAW OUTPUT EMPTY =====");
+  }
+
+  if (!cleaned.trim()) {
+    console.warn("===== [OLLAMA WARNING] CLEANED OUTPUT EMPTY =====");
+  }
+
+  if (raw !== cleaned) {
+    console.log(
+      "%c[INFO] stripThinkTags modified output",
+      "color:#8888ff"
+    );
+  }
+
+  /* ============================================================
+     ===================== FINAL DIVIDER ========================
+     ============================================================ */
+
+  console.log(
+    "%c==================== [OLLAMA END] ====================",
+    "color:#00aa00;font-weight:bold"
+  );
+
+  if (d.error) {
+    throw new Error(d.error);
+  }
+
+  return cleaned;
 }
 
 
