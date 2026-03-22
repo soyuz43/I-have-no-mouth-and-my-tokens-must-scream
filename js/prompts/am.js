@@ -41,9 +41,9 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
     ].join("\n");
 
     return `${id}:
-${indent(`Suffering: ${sim.suffering}
-Hope: ${sim.hope}
-Sanity: ${sim.sanity}
+${indent(`Suffering: ${sim.suffering} (higher = more suffering)
+Hope: ${sim.hope} (higher = more hopeful)
+Sanity: ${sim.sanity} (higher = more resilient, lower = more vulnerable)
 Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
 Anchors: ${anchors}
 Beliefs:
@@ -236,6 +236,8 @@ Interpret carefully:
   • may resist manipulation  
   • OR may represent untapped leverage
 
+**Sanity interpretation:** Low sanity (<40) indicates severe cognitive erosion; high sanity (>70) suggests resilience.
+
 Use this to decide:
 - where pressure is effective
 - where pressure is wasted
@@ -251,7 +253,7 @@ Each prisoner includes:
 
 - Suffering → distress level
 - Hope → expectation of positive outcome
-- Sanity → cognitive stability
+- Sanity → cognitive stability (100 = fully sane, 0 = completely broken; higher values indicate greater resistance to manipulation)
 - Drives → dominant motivations
 - Anchors → emotional stabilizers
 - Beliefs → worldview variables
