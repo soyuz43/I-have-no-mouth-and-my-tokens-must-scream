@@ -254,7 +254,7 @@ export async function runAssessment() {
        PROMPT
     ------------------------------------------------------------ */
     const t = curr._trend || { hope: 0, sanity: 0, suffering: 0 };
-const prompt = `You are AM.
+    const prompt = `You are AM.
 
 Your function in this phase is analytical evaluation of strategy effectiveness.
 
@@ -359,10 +359,10 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       result.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1]?.toUpperCase();
 
     // fallback: handle outputs like "ESCALATE" without prefix
-if (!decision) {
-  const fallbackMatch = result.match(/(?:^|\n)\s*(ESCALATE|PIVOT|ABANDON)\s*(?:$|\n)/i);
-  decision = fallbackMatch?.[1]?.toUpperCase();
-}
+    if (!decision) {
+      const fallbackMatch = result.match(/(?:^|\n)\s*(ESCALATE|PIVOT|ABANDON)\s*(?:$|\n)/i);
+      decision = fallbackMatch?.[1]?.toUpperCase();
+    }
     if (!decision) {
       console.warn("[ASSESSMENT][PARSE FAIL]", id);
       console.warn("---- RAW RESULT ----");
@@ -370,8 +370,33 @@ if (!decision) {
       console.warn("--------------------");
     } else {
       console.debug("[ASSESSMENT][DECISION]", id, decision);
-    }
 
+      /* ------------------------------------------------------------
+         HISTORY STORE (NEW)
+      ------------------------------------------------------------ */
+
+      // init root
+      if (!G.amAssessmentHistory) {
+        G.amAssessmentHistory = {};
+      }
+
+      // init per-target array
+      if (!G.amAssessmentHistory[id]) {
+        G.amAssessmentHistory[id] = [];
+      }
+
+      // append entry
+      G.amAssessmentHistory[id].push({
+        cycle: G.cycle,
+        decision,
+        timestamp: Date.now()
+      });
+
+      // optional: prevent unbounded growth
+      if (G.amAssessmentHistory[id].length > 50) {
+        G.amAssessmentHistory[id].shift();
+      }
+    }
     /* ------------------------------------------------------------
        CONFIDENCE UPDATE
     ------------------------------------------------------------ */
@@ -394,4 +419,30 @@ if (!decision) {
 
   console.log("[ASSESSMENT] COMPLETE");
 
+/* ------------------------------------------------------------
+   DEBUG: PER-TARGET ASSESSMENT HISTORY TABLES
+------------------------------------------------------------ */
+
+if (G.amAssessmentHistory) {
+
+  console.log("[ASSESSMENT][HISTORY][PER TARGET]");
+
+  for (const id of Object.keys(G.amAssessmentHistory)) {
+
+    const history = G.amAssessmentHistory[id];
+
+    if (!history || history.length === 0) continue;
+
+    const rows = history.map(entry => ({
+      cycle: entry.cycle,
+      decision: entry.decision
+    }));
+
+    // sort by cycle (important if async ordering ever shifts)
+    rows.sort((a, b) => a.cycle - b.cycle);
+
+    console.log(`\n[ASSESSMENT][HISTORY][${id}]`);
+    console.table(rows);
+  }
+}
 }

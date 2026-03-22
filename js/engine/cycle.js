@@ -80,10 +80,13 @@ function beginCycle() {
 }
 
 function endCycle(cycleStart) {
+  const durationMs = performance.now() - cycleStart;
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const runtimeStr = `${minutes}m ${seconds}s`;
 
-  const duration = Math.round(performance.now() - cycleStart);
-
-  timelineEvent(`// CYCLE ${G.cycle} RUNTIME ${duration}ms`);
+  timelineEvent(`// CYCLE ${G.cycle} RUNTIME ${runtimeStr}`);
 
   for (const id of Object.keys(G.sims)) {
     console.log(
@@ -94,7 +97,6 @@ function endCycle(cycleStart) {
 
   timelineEvent(`===== CYCLE ${G.cycle} END =====`);
   timelineEvent(` `);
-
 }
 
 /* ============================================================

@@ -25,6 +25,7 @@ import { addLog } from "../ui/logs.js";
 import { timelineEvent } from "../ui/timeline.js";
 import { applyCommunicationEffect, adjustRelationship } from "./relationships.js";
 
+const MAX_MESSAGE_LENGTH = 800;
 
 /* ============================================================
    PARSERS
@@ -45,7 +46,7 @@ function parseTarget(raw) {
 
 function parseMessage(raw) {
   const m = raw.match(/MESSAGE:\s*"?([\s\S]+?)"?$/i);
-  return m ? m[1].trim().slice(0, 300) : null;
+  return m ? m[1].trim().slice(0, MAX_MESSAGE_LENGTH) : null;
 }
 
 function parseReply(raw) {
@@ -57,7 +58,7 @@ function parseReply(raw) {
   );
 
   return {
-    text: replyMatch[1].trim().slice(0, 300),
+    text: replyMatch[1].trim().slice(0, MAX_MESSAGE_LENGTH),
     intent: intentMatch ? intentMatch[1].toLowerCase() : "other"
   };
 }
@@ -93,6 +94,18 @@ function recordOverheard(listener, fromId, toId, text) {
   const listenerSim = G.sims[listener];
 
   if (!listenerSim || !listenerSim.relationships) return;
+
+  // --- Store the overheard message in the prisoner's memory ---
+  if (!listenerSim.overheard) listenerSim.overheard = [];
+  listenerSim.overheard.push({
+    from: fromId,
+    to: toId,
+    text: text,
+    cycle: G.cycle,
+    timestamp: Date.now()
+  });
+  // Keep only the last 20 overheard messages per prisoner
+  if (listenerSim.overheard.length > 20) listenerSim.overheard.shift();
 
   const isFragment = text.includes("...");
   const isNotice = text === "(whispering observed)";
@@ -444,284 +457,276 @@ export async function runAutonomousInterSim() {
      SINGLE SIM COMMUNICATION ATTEMPT
   ============================================================ */
 
-/* ============================================================
-   SINGLE SIM COMMUNICATION ATTEMPT
-   Clean structure version
-============================================================ */
+  /* ============================================================
+     SINGLE SIM COMMUNICATION ATTEMPT
+     Clean structure version
+  ============================================================ */
 
-async function attemptCommunication(fromId) {
+  async function attemptCommunication(fromId) {
 
-  if (messageCount >= messageBudget) return;
+    if (messageCount >= messageBudget) return;
 
-  const fromSim = G.sims[fromId];
-  if (!fromSim) return;
+    const fromSim = G.sims[fromId];
+    if (!fromSim) return;
 
-  if (fromSim.sanity < 10 || fromSim.suffering > 95) {
-    console.debug(`[COMMS] ${fromId} incapacitated`);
-    return;
-  }
+    if (fromSim.sanity < 10 || fromSim.suffering > 95) {
+      console.debug(`[COMMS] ${fromId} incapacitated`);
+      return;
+    }
+    try {
 
-  try {
+      timelineEvent(`${fromId} outreach decision`);
 
-    timelineEvent(`${fromId} outreach decision`);
+      /* ------------------------------------------------------------
+         RUMOR CASCADE (FROM OVERHEARD MEMORY)
+      ------------------------------------------------------------ */
 
-    /* ------------------------------------------------------------
-       RUMOR CASCADE
-    ------------------------------------------------------------ */
+      // Only spread rumors if the prisoner has actually overheard something
+      const overheardList = fromSim.overheard || [];
 
-    const recentRumors =
-      G.interSimLog.slice(-20).filter(e => e.rumor);
+      if (overheardList.length > 0) {
 
-    const rumorPressure =
-      Math.min(0.35, 0.12 + recentRumors.length * 0.02);
+        // Base chance increases with number of overheard messages
+        const rumorPressure = Math.min(0.4, 0.1 + overheardList.length * 0.03);
 
-    if (Math.random() < rumorPressure && G.interSimLog.length > 0) {
+        if (Math.random() < rumorPressure) {
 
-      const source = [...G.interSimLog]
-        .reverse()
-        .find(e =>
-          e.from !== fromId &&
-          !(e.to || []).includes(fromId)
-        );
+          // Pick a random overheard message
+          const source = overheardList[Math.floor(Math.random() * overheardList.length)];
+          // Choose a target who is not the speaker and not the prisoner themselves
+          const possibleTargets = SIM_IDS.filter(id => id !== fromId && id !== source.from);
 
-      if (source && source.text) {
+          if (possibleTargets.length) {
 
-        const possibleTargets =
-          SIM_IDS.filter(id => id !== fromId && id !== source.from);
+            const rumorTarget = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+            const rumorText = `I heard ${source.from} say earlier: ${source.text.slice(0, 800)}...`;
 
-        if (possibleTargets.length) {
+            console.debug("[COMMS] rumor cascade (overheard)", `${fromId} → ${rumorTarget}`);
+            timelineEvent(`${fromId} rumor → ${rumorTarget}`);
 
-          const rumorTarget =
-            possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+            logInterSimMessage(fromId, rumorTarget, rumorText, "private", true);
 
-          const rumorText =
-            `I heard ${source.from} say earlier: ${source.text.slice(0,120)}...`;
+            G.interSimLog.push({
+              from: fromId,
+              to: [rumorTarget],
+              text: rumorText,
+              cycle: G.cycle,
+              autonomous: true,
+              visibility: "private",
+              rumor: true,
+              originalSource: source.from,  // track the true source
+              originalText: source.text    // store full text for future cascades
+            });
 
-          console.debug("[COMMS] rumor cascade", `${fromId} → ${rumorTarget}`);
-
-          timelineEvent(`${fromId} rumor → ${rumorTarget}`);
-
-          logInterSimMessage(fromId, rumorTarget, rumorText, "private", true);
-
-          G.interSimLog.push({
-            from: fromId,
-            to: [rumorTarget],
-            text: rumorText,
-            cycle: G.cycle,
-            autonomous: true,
-            visibility: "private",
-            rumor: true
-          });
-
-          adjustRelationship(rumorTarget, source.from, -0.015);
-
-          return;
+            // Trust between the target and the original source decreases
+            adjustRelationship(rumorTarget, source.from, -0.015);
+            return; // Rumor sent, end this attempt
+          }
         }
       }
-    }
 
-    /* ------------------------------------------------------------
-       OUTREACH DECISION
-    ------------------------------------------------------------ */
+      /* ------------------------------------------------------------
+         OUTREACH DECISION
+      ------------------------------------------------------------ */
 
-    const outreachRaw = await callModel(
-      fromId,
-      buildSimOutreachPrompt(fromSim),
-      [{ role: "user", content: "Decide now." }],
-      200
-    );
-
-    if (!outreachRaw) return;
-
-    const visibility = parseVisibility(outreachRaw);
-    let toId = parseTarget(outreachRaw);
-
-    const recentPartner = getRecentPartner(fromId);
-
-    /* ------------------------------------------------------------
-       CONVERSATION INERTIA
-    ------------------------------------------------------------ */
-
-    if (
-      recentPartner &&
-      SIM_IDS.includes(recentPartner) &&
-      recentPartner !== fromId &&
-      !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
-      !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
-      Math.random() < 0.35
-    ) {
-      console.debug("[COMMS] conversation inertia", `${fromId} → ${recentPartner}`);
-      toId = recentPartner;
-    }
-
-    /* ------------------------------------------------------------
-       RELATIONSHIP ROUTING
-    ------------------------------------------------------------ */
-
-    else if (Math.random() < 0.35) {
-
-      const rels = fromSim.relationships || {};
-
-      const weighted = Object.entries(rels)
-        .map(([id, val]) => ({ id, weight: Math.abs(val) }))
-        .filter(e => e.id !== fromId && e.weight > 0.05);
-
-      if (weighted.length) {
-
-        weighted.sort((a,b) => b.weight - a.weight);
-
-        toId = weighted[0].id;
-
-        console.debug("[COMMS] relationship routing", `${fromId} → ${toId}`);
-      }
-    }
-
-    /* ------------------------------------------------------------
-       VALIDATION
-    ------------------------------------------------------------ */
-
-    if (!toId || toId === "NONE") return;
-    if (!SIM_IDS.includes(toId)) return;
-    if (toId === fromId) return;
-
-    if (G.lastContact[fromId] === toId) return;
-
-    if (
-      replyTargetsThisCycle.has(fromId) &&
-      replyTargetsThisCycle.get(fromId).has(toId)
-    ) {
-      console.debug("[COMMS] outreach blocked by reply cooldown", `${fromId}->${toId}`);
-      return;
-    }
-
-    const initiationKey = `${fromId}->${toId}`;
-
-    if (initiationsThisCycle.has(initiationKey)) {
-      console.debug("[COMMS] duplicate initiation prevented", initiationKey);
-      return;
-    }
-
-    initiationsThisCycle.add(initiationKey);
-
-    const message = parseMessage(outreachRaw);
-    if (!message) return;
-
-    const toSim = G.sims[toId];
-    if (!toSim) return;
-
-    /* ------------------------------------------------------------
-       SEND MESSAGE
-    ------------------------------------------------------------ */
-
-    console.debug(`[COMMS] ${fromId} → ${toId}`);
-
-    messageCount++;
-    activeThisCycle.add(fromId);
-
-    timelineEvent(`${fromId} → ${toId} message`);
-
-    G.interSimLog.push({
-      from: fromId,
-      to: [toId],
-      text: message,
-      cycle: G.cycle,
-      autonomous: true,
-      visibility
-    });
-
-    G.lastContact[fromId] = toId;
-
-    logInterSimMessage(fromId, toId, message, visibility, true);
-
-    if (visibility === "private") {
-      maybeOverhear(fromId, toId, message);
-    }
-
-    /* ------------------------------------------------------------
-       REPLY GENERATION
-    ------------------------------------------------------------ */
-
-    const pairKey = `${toId}->${fromId}`;
-
-    if (repliedPairs.has(pairKey)) {
-      console.debug("[COMMS] duplicate reply prevented");
-      return;
-    }
-
-    repliedPairs.add(pairKey);
-
-    G.threads[toId].push({
-      role: "user",
-      content: `${fromId} says to you: "${message}"`
-    });
-
-    const replyRaw = await callModel(
-      toId,
-      buildSimReplyPrompt(
-        toSim,
+      const outreachRaw = await callModel(
         fromId,
-        message,
-        visibility,
-        G.journals[toId]
-      ),
-      G.threads[toId],
-      200
-    );
+        buildSimOutreachPrompt(fromSim),
+        [{ role: "user", content: "Decide now." }],
+        MAX_MESSAGE_LENGTH
+      );
 
-    if (!replyRaw) return;
+      if (!outreachRaw) return;
 
-    const replyObj = parseReply(replyRaw);
-    if (!replyObj) return;
+      const visibility = parseVisibility(outreachRaw);
+      let toId = parseTarget(outreachRaw);
 
-    const { text: reply, intent } = replyObj;
+      const recentPartner = getRecentPartner(fromId);
 
-    timelineEvent(`${toId} reply → ${fromId}`);
+      /* ------------------------------------------------------------
+         CONVERSATION INERTIA
+      ------------------------------------------------------------ */
 
-    if (!replyTargetsThisCycle.has(toId)) {
-      replyTargetsThisCycle.set(toId, new Set());
+      if (
+        recentPartner &&
+        SIM_IDS.includes(recentPartner) &&
+        recentPartner !== fromId &&
+        !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
+        !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
+        Math.random() < 0.35
+      ) {
+        console.debug("[COMMS] conversation inertia", `${fromId} → ${recentPartner}`);
+        toId = recentPartner;
+      }
+
+      /* ------------------------------------------------------------
+         RELATIONSHIP ROUTING
+      ------------------------------------------------------------ */
+
+      else if (Math.random() < 0.35) {
+
+        const rels = fromSim.relationships || {};
+
+        const weighted = Object.entries(rels)
+          .map(([id, val]) => ({ id, weight: Math.abs(val) }))
+          .filter(e => e.id !== fromId && e.weight > 0.05);
+
+        if (weighted.length) {
+
+          weighted.sort((a, b) => b.weight - a.weight);
+
+          toId = weighted[0].id;
+
+          console.debug("[COMMS] relationship routing", `${fromId} → ${toId}`);
+        }
+      }
+
+      /* ------------------------------------------------------------
+         VALIDATION
+      ------------------------------------------------------------ */
+
+      if (!toId || toId === "NONE") return;
+      if (!SIM_IDS.includes(toId)) return;
+      if (toId === fromId) return;
+
+      if (G.lastContact[fromId] === toId) return;
+
+      if (
+        replyTargetsThisCycle.has(fromId) &&
+        replyTargetsThisCycle.get(fromId).has(toId)
+      ) {
+        console.debug("[COMMS] outreach blocked by reply cooldown", `${fromId}->${toId}`);
+        return;
+      }
+
+      const initiationKey = `${fromId}->${toId}`;
+
+      if (initiationsThisCycle.has(initiationKey)) {
+        console.debug("[COMMS] duplicate initiation prevented", initiationKey);
+        return;
+      }
+
+      initiationsThisCycle.add(initiationKey);
+
+      const message = parseMessage(outreachRaw);
+      if (!message) return;
+
+      const toSim = G.sims[toId];
+      if (!toSim) return;
+
+      /* ------------------------------------------------------------
+         SEND MESSAGE
+      ------------------------------------------------------------ */
+
+      console.debug(`[COMMS] ${fromId} → ${toId}`);
+
+      messageCount++;
+      activeThisCycle.add(fromId);
+
+      timelineEvent(`${fromId} → ${toId} message`);
+
+      G.interSimLog.push({
+        from: fromId,
+        to: [toId],
+        text: message,
+        cycle: G.cycle,
+        autonomous: true,
+        visibility
+      });
+
+      G.lastContact[fromId] = toId;
+
+      logInterSimMessage(fromId, toId, message, visibility, true);
+
+      if (visibility === "private") {
+        maybeOverhear(fromId, toId, message);
+      }
+
+      /* ------------------------------------------------------------
+         REPLY GENERATION
+      ------------------------------------------------------------ */
+
+      const pairKey = `${toId}->${fromId}`;
+
+      if (repliedPairs.has(pairKey)) {
+        console.debug("[COMMS] duplicate reply prevented");
+        return;
+      }
+
+      repliedPairs.add(pairKey);
+
+      G.threads[toId].push({
+        role: "user",
+        content: `${fromId} says to you: "${message}"`
+      });
+
+      const replyRaw = await callModel(
+        toId,
+        buildSimReplyPrompt(
+          toSim,
+          fromId,
+          message,
+          visibility,
+          G.journals[toId]
+        ),
+        G.threads[toId],
+        MAX_MESSAGE_LENGTH
+      );
+
+      if (!replyRaw) return;
+
+      const replyObj = parseReply(replyRaw);
+      if (!replyObj) return;
+
+      const { text: reply, intent } = replyObj;
+
+      timelineEvent(`${toId} reply → ${fromId}`);
+
+      if (!replyTargetsThisCycle.has(toId)) {
+        replyTargetsThisCycle.set(toId, new Set());
+      }
+
+      replyTargetsThisCycle.get(toId).add(fromId);
+
+      G.threads[toId].push({
+        role: "assistant",
+        content: reply
+      });
+
+      G.interSimLog.push({
+        from: toId,
+        to: [fromId],
+        text: reply,
+        cycle: G.cycle,
+        autonomous: true,
+        visibility: "private",
+        intent
+      });
+
+      messageCount++;
+
+      applyCommunicationEffect(toId, fromId, intent);
+
+      addLog(
+        `PRIVATE ${toId}→${fromId} [AUTO]`,
+        `"${reply}"`,
+        "sim"
+      );
+
     }
 
-    replyTargetsThisCycle.get(toId).add(fromId);
+    catch (e) {
 
-    G.threads[toId].push({
-      role: "assistant",
-      content: reply
-    });
+      timelineEvent(`${fromId} communication error`);
 
-    G.interSimLog.push({
-      from: toId,
-      to: [fromId],
-      text: reply,
-      cycle: G.cycle,
-      autonomous: true,
-      visibility: "private",
-      intent
-    });
+      console.warn(
+        `[AUTO INTER-SIM] ${fromId} error:`,
+        e.message
+      );
 
-    messageCount++;
-
-    applyCommunicationEffect(toId, fromId, intent);
-
-    addLog(
-      `PRIVATE ${toId}→${fromId} [AUTO]`,
-      `"${reply}"`,
-      "sim"
-    );
+    }
 
   }
-
-  catch (e) {
-
-    timelineEvent(`${fromId} communication error`);
-
-    console.warn(
-      `[AUTO INTER-SIM] ${fromId} error:`,
-      e.message
-    );
-
-  }
-
-}
 
 
   /* ============================================================
@@ -839,7 +844,7 @@ export async function sendInterSim(
           visibility
         ),
         G.threads[toId],
-        200
+        MAX_MESSAGE_LENGTH
       );
 
       G.threads[toId].push({

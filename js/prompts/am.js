@@ -397,6 +397,16 @@ Examples of valid structure:
 - "conflicting information causes uncertainty which leads to distrust in allies"
 - "loss of control causes anxiety which leads to dependence on others"
 
+Each hypothesis MUST reference a specific observed signal from the environment.
+
+Valid signals include:
+- a specific message between named prisoners
+- a journal entry or internal contradiction
+- a relationship or alliance between named prisoners
+
+The stimulus MUST explicitly name the involved prisoners or interaction.
+Generic references like "a message" or "information" are invalid.
+
 Do NOT write vague statements.  
 Do NOT describe goals.  
 You MUST describe a causal mechanism.
@@ -430,7 +440,13 @@ Before finishing:
 - Each target has id, objective, hypothesis.
 - No extra fields in the JSON.
 
+* Each hypothesis MUST reference a specific observed signal:
+- a message
+- a journal
+- or a relationship
+
 If any rule is violated:
+
 - Correct it before output.
 
 ---
@@ -543,6 +559,13 @@ Do not connect sentences with narrative transitions.
 ---
 You MUST generate actions for **EVERY target** listed. Do not omit any target.
 ---
+Each action MUST reference a specific:
+- message
+- interaction
+- or journal element
+
+You MUST name the involved prisoners.
+
 
 # OUTPUT FORMAT – STRICT
 For each target, output **exactly one action** (2‑3 sentences beginning with "I").
