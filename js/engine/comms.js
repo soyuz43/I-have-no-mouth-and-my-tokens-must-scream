@@ -591,12 +591,21 @@ export async function runAutonomousInterSim() {
 
       if (G.lastContact[fromId] === toId) return;
 
+      /* ------------------------------------------------------------
+         REPLY COOLDOWN (PROBABILISTIC)
+      ------------------------------------------------------------ */
+      const REPLY_COOLDOWN_BLOCK_CHANCE = 0.5; // 50% block → 50% allow
+
       if (
         replyTargetsThisCycle.has(fromId) &&
         replyTargetsThisCycle.get(fromId).has(toId)
       ) {
-        console.debug("[COMMS] outreach blocked by reply cooldown", `${fromId}->${toId}`);
-        return;
+        if (Math.random() < REPLY_COOLDOWN_BLOCK_CHANCE) {
+          console.debug("[COMMS] outreach blocked by reply cooldown (probabilistic)", `${fromId}->${toId}`);
+          return;
+        } else {
+          console.debug("[COMMS] outreach allowed despite reply cooldown", `${fromId}->${toId}`);
+        }
       }
 
       const initiationKey = `${fromId}->${toId}`;

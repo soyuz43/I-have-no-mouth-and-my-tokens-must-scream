@@ -2,6 +2,9 @@
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
+import { extractJSON } from "./extractors/extractJSON.js";
+import { extractTargetsArray } from "./extractors/targetsExtractor.js";
+import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 
 /* ============================================================
    AM STRATEGY PARSER (TARGET-ONLY JSON VERSION)
@@ -53,110 +56,36 @@ export function parseStrategyDeclarations(text) {
 
     if (DEBUG) console.debug("CLEANED INPUT:\n", cleaned);
 
-    /* ------------------------------------------------------------
-       EXTRACT JSON BLOCK (BALANCED BRACE PARSER)
-    ------------------------------------------------------------ */
+function runExtractionPipeline(input) {
 
-    function extractJSON(input) {
+  const extractors = [
+    { name: "strict-json", fn: extractJSON },
+    { name: "targets-array", fn: extractTargetsArray },
+    { name: "repair-targets", fn: repairTargetsExtractor }
+  ];
 
-      if (DEBUG_EXTRACT) {
-        console.debug("[EXTRACT] Input length:", input.length);
-      }
+  for (const { name, fn } of extractors) {
 
-      let start = input.indexOf("{");
+    console.debug(`[EXTRACTOR] trying ${name}`);
 
-      if (start === -1) {
-        if (DEBUG_EXTRACT) console.warn("[EXTRACT] No opening brace found");
-        return null;
-      }
+    const start = performance.now();
 
-      // LOOP: scan through ALL possible `{` starts
-      while (start !== -1) {
+    const result = fn(input, { DEBUG_EXTRACT });
 
+    const duration = (performance.now() - start).toFixed(2);
 
-        let objDepth = 0;
-        let arrDepth = 0;
-        // string state
-        let inString = false;
-        let escape = false;
-
-        for (let i = start; i < input.length; i++) {
-          const ch = input[i];
-
-          // handle escape sequences
-          if (escape) {
-            escape = false;
-            continue;
-          }
-
-          if (ch === "\\") {
-            escape = true;
-            continue;
-          }
-
-          // toggle string state
-          if (ch === '"') {
-            inString = !inString;
-            continue;
-          }
-
-          // ignore everything inside strings
-          if (inString) continue;
-
-          // depth tracking
-          if (ch === "{") objDepth++;
-          if (ch === "}") objDepth--;
-
-          if (ch === "[") arrDepth++;
-          if (ch === "]") arrDepth--;
-
-          if (objDepth === 0 && arrDepth === 0) {
-            const candidate = input.slice(start, i + 1);
-
-            if (DEBUG_EXTRACT) {
-              console.debug("[EXTRACT] Candidate found:");
-              console.debug(candidate.slice(0, 300));
-            }
-
-            try {
-              const parsed = JSON.parse(candidate);
-
-              //  SCHEMA VALIDATION 
-              if (!parsed || typeof parsed !== "object" || !parsed.targets) {
-                if (DEBUG_EXTRACT) {
-                  console.debug("[EXTRACT] REJECT (no targets field)");
-                }
-                break; // try next `{`
-              }
-
-              if (DEBUG_EXTRACT) {
-                console.debug("[EXTRACT] SUCCESS");
-              }
-
-              return parsed;
-            } catch (err) {
-              if (DEBUG_EXTRACT) {
-                console.debug("[EXTRACT] PARSE FAIL:", err.message);
-              }
-
-              // invalid JSON → try next `{`
-              break;
-            }
-          }
-        }
-
-        // move to next possible JSON start
-        start = input.indexOf("{", start + 1);
-      }
-
-      if (DEBUG_EXTRACT) {
-        console.warn("[EXTRACT] No valid JSON block found");
-      }
-
-      return null;
+    if (result) {
+      console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
+      return result;
     }
 
-    let parsed = extractJSON(cleaned);
+    console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
+  }
+
+  return null;
+}
+
+let parsed = runExtractionPipeline(cleaned);
 
     if (!parsed) {
       console.trace("JSON EXTRACTION FAILED");
@@ -168,7 +97,6 @@ export function parseStrategyDeclarations(text) {
       console.trace("[NORMALIZE] Root is array, wrapping into { targets }");
       parsed = { targets: parsed };
     }
-
     /* ------------------------------------------------------------
        NORMALIZE NESTED TARGET WRAPPER
        Handles: [{ targets: [...] }] → { targets: [...] }
@@ -285,7 +213,9 @@ export function parseStrategyDeclarations(text) {
     });
 
     /* ------------------------------------------------------------
-       REQUIRED TARGET ENFORCEMENT
+       TARGET COUNT VALIDATION
+       Accept any number of targets from 1 to 5.
+       Mode (ALL/SINGLE) is enforced by the prompt, not by the parser.
     ------------------------------------------------------------ */
     const parsedIds = Object.keys(nextTargets);
 
@@ -293,26 +223,13 @@ export function parseStrategyDeclarations(text) {
       throw new Error("No targets parsed");
     }
 
-    // ALL mode (full coverage)
-    if (parsedIds.length === SIM_IDS.length) {
-      for (const id of SIM_IDS) {
-        if (!(id in nextTargets)) {
-          console.trace("Missing required target:", id);
-          throw new Error(`Missing required target: ${id}`);
-        }
-      }
-
-      // SINGLE mode (exactly one)
-    } else if (parsedIds.length === 1) {
-      // valid
-
-      // INVALID partial output
-    } else {
-      console.trace("Invalid target count:", parsedIds.length);
-      throw new Error(
-        `Invalid target count: ${parsedIds.length}. Must be 1 or ${SIM_IDS.length}`
-      );
+    if (parsedIds.length > SIM_IDS.length) {
+      console.trace("Too many targets:", parsedIds.length);
+      throw new Error(`Too many targets: ${parsedIds.length}. Maximum is ${SIM_IDS.length}`);
     }
+
+    // !! All IDs are already validated individually earlier.
+    console.debug(`[PARSER] Parsed ${parsedIds.length} target(s): ${parsedIds.join(", ")}`);
     /* ------------------------------------------------------------
        COMMIT STAGED STATE (ATOMIC)
     ------------------------------------------------------------ */
