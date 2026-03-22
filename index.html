@@ -1,15 +1,11 @@
-<!--
-Snapshot of monolithic engine before modularization
-Working reference build
--->
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AM // TORMENT ENGINE v6</title>
-    <link rel="icon" href="/favicon.ico">
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="styles.css" />
     <script type="module" src="./main.js"></script>
   </head>
@@ -510,6 +506,40 @@ Working reference build
   </div>
 </div>
 
+<!-- PARSER METRICS MODAL -->
+<div
+  id="parser-metrics-modal"
+  class="modal"
+  style="
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 650;
+    background: rgba(3, 3, 3, 0.95);
+    align-items: center;
+    justify-content: center;
+  "
+>
+  <div
+    class="jm-box"
+    style="width: 700px; max-height: 85vh; border-color: #004a5a"
+  >
+    <div class="jm-header">
+      <div id="parser-metrics-meta"></div>
+
+      <div class="jm-actions">
+        <button class="jm-btn close-btn" onclick="closeParserMetricsModal()">
+          ✕ CLOSE
+        </button>
+      </div>
+    </div>
+
+    <div class="jm-body" id="parser-metrics-body">
+      <div class="jm-empty">No parser data yet.</div>
+    </div>
+  </div>
+</div>
+
     <!-- ══════════════════════════════════════════════
      MAIN APP
 ══════════════════════════════════════════════ -->
@@ -655,83 +685,96 @@ Working reference build
             >
           </div>
         </div>
-<div class="am-pane">
+        <div class="am-pane">
+          <div class="pane-label" style="justify-content: space-between">
+            AM SCRATCHPAD // CROSS-SIM INTELLIGENCE
 
-  <div class="pane-label" style="justify-content: space-between">
-    AM SCRATCHPAD // CROSS-SIM INTELLIGENCE
+            <div style="display: flex; align-items: center">
+              <!-- PRIMARY CONTROLS -->
+              <div style="display: flex; gap: 6px; align-items: center">
+                <button
+                  onclick="document.getElementById('am-scratch').value = ''"
+                  style="
+                    font-family: &quot;Share Tech Mono&quot;, monospace;
+                    font-size: 0.38rem;
+                    padding: 1px 6px;
+                    border: 1px solid #1a0a0a;
+                    background: #030303;
+                    color: #2a1a1a;
+                    cursor: pointer;
+                    letter-spacing: 0.1em;
+                  "
+                >
+                  CLEAR
+                </button>
 
-    <div style="display:flex; gap:6px; align-items:center;">
+                <button
+                  onclick="openPlansModal()"
+                  style="
+                    font-family: &quot;Share Tech Mono&quot;, monospace;
+                    font-size: 0.38rem;
+                    padding: 1px 6px;
+                    border: 1px solid #1a2a00;
+                    background: #030303;
+                    color: #2a4a00;
+                    cursor: pointer;
+                  "
+                >
+                  PLANS
+                </button>
 
-      <button
-        onclick="document.getElementById('am-scratch').value = ''"
-        style="
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 0.38rem;
-          padding: 1px 6px;
-          border: 1px solid #1a0a0a;
-          background: #030303;
-          color: #2a1a1a;
-          cursor: pointer;
-          letter-spacing: 0.1em;
-        "
-      >
-        CLEAR
-      </button>
+                <button
+                  onclick="openAssessmentModal()"
+                  style="
+                    font-family: &quot;Share Tech Mono&quot;, monospace;
+                    font-size: 0.38rem;
+                    padding: 1px 6px;
+                    border: 1px solid #2a1a00;
+                    background: #030303;
+                    color: #5a3a00;
+                    cursor: pointer;
+                  "
+                >
+                  ASSESSMENT
+                </button>
+              </div>
 
-      <button
-        onclick="openPlansModal()"
-        style="
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 0.38rem;
-          padding: 1px 6px;
-          border: 1px solid #1a2a00;
-          background: #030303;
-          color: #2a4a00;
-          cursor: pointer;
-        "
-      >
-        PLANS
-      </button>
+              <!-- DIVIDER -->
+              <div
+                style="
+                  margin: 0 8px;
+                  width: 1px;
+                  height: 12px;
+                  background: #111;
+                "
+              ></div>
 
-      <button
-        onclick="openAssessmentModal()"
-        style="
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 0.38rem;
-          padding: 1px 6px;
-          border: 1px solid #2a1a00;
-          background: #030303;
-          color: #5a3a00;
-          cursor: pointer;
-        "
-      >
-        ASSESSMENT
-      </button>
+              <!-- SYSTEM / DEBUG CONTROL -->
+              <div>
+                <button
+                  onclick="openParserMetricsModal()"
+                  style="
+                    font-family: &quot;Share Tech Mono&quot;, monospace;
+                    font-size: 0.38rem;
+                    padding: 1px 6px;
+                    border: 1px solid #001a2a;
+                    background: #030303;
+                    color: #004a5a;
+                    cursor: pointer;
+                  "
+                >
+                  PARSER
+                </button>
+              </div>
+            </div>
+          </div>
 
-    </div>
-
-  </div>
-
-  <textarea
-    class="am-scratch"
-    id="am-scratch"
-    placeholder="...AM synthesizes patterns across all five inner monologues..."
-  ></textarea>
-<div id="assessment-modal" class="modal" style="display:none;">
-  <div class="jm-box">
-    <div class="jm-header">
-      <div class="jm-title">// AM STRATEGY ASSESSMENTS</div>
-      <button class="jm-btn close-btn" onclick="closeAssessmentModal()">✕</button>
-    </div>
-
-    <div class="jm-body" id="assessment-body">
-      <div class="jm-empty">No assessments generated yet.</div>
-    </div>
-  </div>
-</div>
-
-</div>
-
+          <textarea
+            class="am-scratch"
+            id="am-scratch"
+            placeholder="...AM synthesizes patterns across all five inner monologues..."
+          ></textarea>
+        </div>
 
         <div class="am-pane">
           <div class="pane-label">VAULT STATUS</div>
@@ -752,9 +795,9 @@ Working reference build
           </div>
         </div>
         <div class="am-pane">
-        <div class="pane-label">RELATIONSHIPS</div>
-    <div id="relationships-body" class="rel-body"></div>
-    </div>
+          <div class="pane-label">RELATIONSHIPS</div>
+          <div id="relationships-body" class="rel-body"></div>
+        </div>
         <div class="am-pane">
           <div class="pane-label">INTER-SIM CHANNEL // AM MONITORS ALL</div>
           <button
@@ -922,10 +965,10 @@ Working reference build
             </div>
           </div>
           <!-- CYCLE TIMELINE -->
-            <div class="timeline">
-              <div class="timeline-title">CYCLE TIMELINE</div>
-              <div id="timeline-body"></div>
-            </div>
+          <div class="timeline">
+            <div class="timeline-title">CYCLE TIMELINE</div>
+            <div id="timeline-body"></div>
+          </div>
           <div class="controls">
             <div class="ctrl-label">TARGET</div>
             <div class="target-row" id="tgt-row">
@@ -972,4 +1015,5 @@ Working reference build
         </div>
       </div>
     </div>
-    </html>
+  </body>
+</html>

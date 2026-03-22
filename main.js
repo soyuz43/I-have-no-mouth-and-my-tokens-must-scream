@@ -45,6 +45,7 @@ import {
 } from "./js/ui/events.js";
 
 
+
 // ============================================================
 // UI — RENDER
 // ============================================================
@@ -68,6 +69,10 @@ import {
   closeAssessmentModal,
 } from "./js/ui/render.js";
 
+import {
+  openParserMetricsModal,
+  closeParserMetricsModal
+} from "./js/ui/parserMetricsModal.js";
 
 // ============================================================
 // UI — RELATIONSHIPS
@@ -155,6 +160,9 @@ window.appendJournalEntry = appendJournalEntry;
 window.updateSimDisplay = updateSimDisplay;
 window.showWriting = showWriting;
 
+// Metric Modal
+window.openParserMetricsModal = openParserMetricsModal;
+window.closeParserMetricsModal = closeParserMetricsModal;
 
 // ---------- JOURNAL MODAL ----------
 

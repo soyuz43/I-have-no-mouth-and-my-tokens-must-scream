@@ -5,6 +5,8 @@ import { SIM_IDS } from "../../core/constants.js";
 import { extractJSON } from "./extractors/extractJSON.js";
 import { extractTargetsArray } from "./extractors/targetsExtractor.js";
 import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
+import { classifyJsonError } from "./extractors/classifyJsonError.js";
+import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
 
 /* ============================================================
    AM STRATEGY PARSER (TARGET-ONLY JSON VERSION)
@@ -56,36 +58,205 @@ export function parseStrategyDeclarations(text) {
 
     if (DEBUG) console.debug("CLEANED INPUT:\n", cleaned);
 
-function runExtractionPipeline(input) {
+    function runExtractionPipeline(input) {
+      const cycle = G.cycle;
 
-  const extractors = [
-    { name: "strict-json", fn: extractJSON },
-    { name: "targets-array", fn: extractTargetsArray },
-    { name: "repair-targets", fn: repairTargetsExtractor }
-  ];
+      // ------------------------------------------------------------
+      // DEFENSIVE INIT (metrics only — no config here)
+      // ------------------------------------------------------------
+      if (!G.parserMetrics) {
+        G.parserMetrics = {
+          cycles: {},
+          totals: {
+            attempts: 0,
+            success: 0,
+            failures: 0,
+            repairs: 0,
+            errorTypes: {}
+          }
+        };
+      }
 
-  for (const { name, fn } of extractors) {
+      // ensure parserConfig exists
+      if (!G.parserConfig) {
+        G.parserConfig = { repairLevel: 1 };
+      }
 
-    console.debug(`[EXTRACTOR] trying ${name}`);
+      // init cycle bucket
+      if (!G.parserMetrics.cycles[cycle]) {
+        G.parserMetrics.cycles[cycle] = {
+          attempts: 0,
+          success: 0,
+          failures: 0,
+          repairs: 0,
+          errorTypes: {},
+          extractorUsage: {}
+        };
+      }
 
-    const start = performance.now();
+      const metrics = G.parserMetrics.cycles[cycle];
 
-    const result = fn(input, { DEBUG_EXTRACT });
+      // increment attempt
+      metrics.attempts++;
+      G.parserMetrics.totals.attempts++;
 
-    const duration = (performance.now() - start).toFixed(2);
+      // ------------------------------------------------------------
+      // REPAIR LEVEL (SOURCE OF TRUTH = parserConfig)
+      // ------------------------------------------------------------
+      const repairLevel = G.parserConfig.repairLevel ?? 1;
+      console.debug("[PARSER CONFIG] repairLevel:", repairLevel);
 
-    if (result) {
-      console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
-      return result;
+      // ------------------------------------------------------------
+      // EXTRACTOR SELECTION
+      // ------------------------------------------------------------
+      const extractors = [];
+
+      if (repairLevel >= 0) {
+        extractors.push({ name: "strict-json", fn: extractJSON });
+      }
+
+      if (repairLevel >= 1) {
+        extractors.push({ name: "targets-array", fn: extractTargetsArray });
+      }
+
+      if (repairLevel >= 2) {
+        extractors.push({ name: "repair-targets", fn: repairTargetsExtractor });
+      }
+
+      // ------------------------------------------------------------
+      // AUTO-TUNE (TYPE-AWARE + RATE-AWARE)
+      // ------------------------------------------------------------
+      function autoTuneRepairLevel() {
+        const totals = G.parserMetrics.totals;
+
+        const attempts = totals.attempts || 1;
+        const failures = totals.failures || 0;
+
+        const failureRate = failures / attempts;
+        const errors = totals.errorTypes || {};
+
+        const commaRate = (errors.missing_comma || 0) / attempts;
+        const structuralRate = (errors.structural_merge || 0) / attempts;
+        const truncationRate = (errors.truncated || 0) / attempts;
+
+        // avoid early noise
+        if (attempts < 5) return;
+
+        let currentLevel = G.parserConfig.repairLevel ?? 1;
+        let nextLevel = currentLevel;
+
+        // -------------------------
+        // ESCALATE (aggressive signals)
+        // -------------------------
+        if (
+          failureRate > 0.25 ||
+          structuralRate > 0.1 ||
+          truncationRate > 0.05
+        ) {
+          nextLevel = Math.min(currentLevel + 1, 2);
+        }
+
+        // -------------------------
+        // DE-ESCALATE (stable system)
+        // -------------------------
+        if (
+          failureRate < 0.05 &&
+          commaRate < 0.05 &&
+          structuralRate < 0.02
+        ) {
+          nextLevel = Math.max(currentLevel - 1, 1);
+        }
+
+        // -------------------------
+        // APPLY CHANGE
+        // -------------------------
+        if (nextLevel !== currentLevel) {
+          console.warn(
+            `[AUTO-TUNE] repairLevel ${currentLevel} → ${nextLevel}`
+          );
+          G.parserConfig.repairLevel = nextLevel;
+        }
+      }
+
+      // ------------------------------------------------------------
+      // EXTRACTION LOOP
+      // ------------------------------------------------------------
+      let classifiedError = null;
+
+      for (const { name, fn } of extractors) {
+
+        console.debug(`[EXTRACTOR] trying ${name}`);
+
+        // track usage
+        metrics.extractorUsage[name] =
+          (metrics.extractorUsage[name] || 0) + 1;
+
+        const start = performance.now();
+
+        let result = null;
+
+        try {
+          result = fn(input, { DEBUG_EXTRACT });
+        } catch (err) {
+          console.warn(`[EXTRACTOR] error in ${name}:`, err.message);
+        }
+
+        const duration = (performance.now() - start).toFixed(2);
+
+        if (result) {
+
+          console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
+
+          // success tracking
+          metrics.success++;
+          G.parserMetrics.totals.success++;
+
+          // repair tracking
+          if (name === "repair-targets") {
+            metrics.repairs++;
+            G.parserMetrics.totals.repairs++;
+          }
+
+          // auto-tune on success
+          autoTuneRepairLevel();
+
+          return result;
+        }
+
+        // classify FIRST failure only
+        if (!classifiedError) {
+          classifiedError = classifyJsonError(input);
+        }
+
+        console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
+      }
+
+      // ------------------------------------------------------------
+      // FINAL FAILURE
+      // ------------------------------------------------------------
+      metrics.failures++;
+      G.parserMetrics.totals.failures++;
+
+      if (classifiedError) {
+
+        metrics.errorTypes = metrics.errorTypes || {};
+        G.parserMetrics.totals.errorTypes =
+          G.parserMetrics.totals.errorTypes || {};
+
+        metrics.errorTypes[classifiedError] =
+          (metrics.errorTypes[classifiedError] || 0) + 1;
+
+        G.parserMetrics.totals.errorTypes[classifiedError] =
+          (G.parserMetrics.totals.errorTypes[classifiedError] || 0) + 1;
+      }
+
+      // auto-tune on failure
+      autoTuneRepairLevel();
+
+      return null;
     }
 
-    console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
-  }
-
-  return null;
-}
-
-let parsed = runExtractionPipeline(cleaned);
+    let parsed = runExtractionPipeline(cleaned);
 
     if (!parsed) {
       console.trace("JSON EXTRACTION FAILED");
@@ -241,6 +412,12 @@ let parsed = runExtractionPipeline(cleaned);
     ------------------------------------------------------------ */
 
     console.trace("=== AM STRATEGY PARSED SUCCESSFULLY ===");
+    visualizeParserCycle(G.cycle, G);
+    
+    if (DEBUG) {
+      console.debug("[PARSER METRICS][CYCLE]", G.cycle);
+      console.table(G.parserMetrics.cycles[G.cycle]);
+    }
 
     if (DEBUG) {
       console.debug("FINAL TARGET MAP:");

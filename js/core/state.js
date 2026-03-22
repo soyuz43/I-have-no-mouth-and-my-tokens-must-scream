@@ -122,6 +122,26 @@ export const G = {
 
   prevCycleSnapshot: null,
 
+
+  /* ============================================================
+   PARSER OBSERVABILITY + ADAPTATION
+   ============================================================ */
+
+  parserMetrics: {
+    cycles: {},
+    totals: {
+      attempts: 0,
+      success: 0,
+      failures: 0,
+      repairs: 0,
+      errorTypes: {}
+    }
+  },
+
+  parserConfig: {
+    repairLevel: 1
+  },
+
   /* ============================================================
      TIMELINE EVENT STORE
      ============================================================ */

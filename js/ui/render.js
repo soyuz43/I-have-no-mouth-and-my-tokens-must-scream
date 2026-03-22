@@ -4,6 +4,10 @@ import { SIM_IDS } from "../core/constants.js";
 
 import { escapeHtml, downloadTextFile } from "../core/utils.js";
 import { validateBeliefs } from "../engine/state/validate.js";
+import {
+  openParserMetricsModal,
+  closeParserMetricsModal
+} from "./parserMetricsModal.js";
 
 export function renderSims() {
   const area = document.getElementById("sims-area");
@@ -268,7 +272,7 @@ export function renderAssessmentModal() {
       <div class="jm-entry">
         <div class="jm-entry-header">${id}</div>
         <div class="jm-entry-body">
-          ${escapeHtml(strat.lastAssessment).replace(/\n/g,"<br>")}
+          ${escapeHtml(strat.lastAssessment).replace(/\n/g, "<br>")}
         </div>
       </div>
     `);
@@ -404,8 +408,8 @@ export function renderJournalModal(simId) {
 
         const warningBadge = warnings.length
           ? `<span style="color:var(--red);font-size:0.4rem;margin-left:6px;cursor:help" title="${escapeHtml(
-              warnings.join("\n"),
-            )}">⚠ ${warnings.length}</span>`
+            warnings.join("\n"),
+          )}">⚠ ${warnings.length}</span>`
           : "";
 
         return `
@@ -424,19 +428,17 @@ export function renderJournalModal(simId) {
 
             <div class="jm-entry-body">${escapeHtml(e.text).replace(/\n/g, "<br>")}</div>
 
-            ${
-              e.tactic
-                ? `<div class="jm-entry-tactic">▸ Tactic: ${escapeHtml(e.tactic)}</div>`
-                : ""
-            }
+            ${e.tactic
+            ? `<div class="jm-entry-tactic">▸ Tactic: ${escapeHtml(e.tactic)}</div>`
+            : ""
+          }
 
-            ${
-              warnings.length
-                ? `<div style="font-size:0.42rem;color:var(--crimson);margin-top:4px;border-left:2px solid var(--crimson);padding-left:6px">${warnings
-                    .map((w) => escapeHtml(w.replace("⚠ ", "")))
-                    .join("<br>")}</div>`
-                : ""
-            }
+            ${warnings.length
+            ? `<div style="font-size:0.42rem;color:var(--crimson);margin-top:4px;border-left:2px solid var(--crimson);padding-left:6px">${warnings
+              .map((w) => escapeHtml(w.replace("⚠ ", "")))
+              .join("<br>")}</div>`
+            : ""
+          }
           </div>
         `;
       })
