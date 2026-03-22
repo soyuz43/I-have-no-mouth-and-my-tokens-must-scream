@@ -38,10 +38,10 @@ function parseVisibility(raw) {
 }
 
 function parseTarget(raw) {
-  const m = raw.match(
-    /REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i
-  );
-  return m ? m[1].toUpperCase().trim() : null;
+  const m = raw.match(/REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i);
+  const result = m ? m[1].toUpperCase().trim() : null;
+  console.debug(`[PARSER] parseTarget: "${raw.slice(0, 100)}" → ${result}`);
+  return result;
 }
 
 function parseMessage(raw) {
@@ -110,13 +110,13 @@ function recordOverheard(listener, fromId, toId, text) {
   const isFragment = text.includes("...");
   const isNotice = text === "(whispering observed)";
 
-  let suspicion = 0.01;
+  let suspicion = 0.1;
 
   // Fragment overhears are less certain
   if (isFragment) suspicion = 0.005;
 
   // Seeing whisper but hearing nothing creates paranoia
-  if (isNotice) suspicion = 0.008;
+  if (isNotice) suspicion = 0.01;
 
   // Listener distrusts both participants slightly
   adjustRelationship(listener, fromId, -suspicion);
@@ -152,7 +152,7 @@ function maybeOverhear(fromId, toId, message) {
   const leak = G.privateLeak || {
     full: 0.05,
     fragment: 0.15,
-    seen: 0.2
+    seen: 0.3
   };
 
   const others = SIM_IDS.filter(
@@ -328,11 +328,9 @@ function maybeOverhear(fromId, toId, message) {
   ------------------------------------------------------------ */
 }
 
-// js/engine/comms.js
-
 /* ============================================================
    AUTONOMOUS COMMUNICATION LOOP
-   Hybrid model v3
+   Hybrid model 
 
    Features
    - dynamic message budget
@@ -344,29 +342,36 @@ function maybeOverhear(fromId, toId, message) {
    - detailed debug instrumentation
 ============================================================ */
 
-export async function runAutonomousInterSim() {
 
-  const MAX_MESSAGES = 18;
-  const SECOND_PASS_CHANCE = 0.55;
-  const BURST_BASE = 0.15;
+
+export async function runAutonomousInterSim() {
+  const MAX_MESSAGES = 22;
+  const MAX_EXCHANGES = 4;               // max back‑and‑forth per pair per cycle
+  const SECOND_PASS_CHANCE = 0.65;
+  const BURST_BASE = 0.18;
 
   let messageCount = 0;
 
   const activeThisCycle = new Set();
-  const repliedPairs = new Set();
 
   /* Prevent duplicate initiations in same cycle */
   const initiationsThisCycle = new Set();
 
   /* Target cooldown: prevent outreach to someone you already replied to */
   const replyTargetsThisCycle = new Map();
+
+  /* New state for queue‑based replies */
+  const queue = shuffle(SIM_IDS);               // initial order (all sims)
+  const sentMessagesThisCycle = new Map();      // fromId → Set of toId
+  const exchangeCount = new Map();              // pairKey → number of messages exchanged
+
   timelineEvent("inter-sim phase start");
 
   const isLog = document.getElementById("is-log");
 
   console.debug("[COMMS] cycle start", {
     cycle: G.cycle,
-    sims: SIM_IDS.length
+    sims: SIM_IDS.length,
   });
 
   /* ============================================================
@@ -377,21 +382,16 @@ export async function runAutonomousInterSim() {
   let totalStress = 0;
 
   for (const id of SIM_IDS) {
-
     const s = G.sims[id];
     if (!s) continue;
-
     totalStress +=
       (s.suffering / 100) * 0.5 +
       ((100 - s.sanity) / 100) * 0.3 +
       ((1 - (s.beliefs?.others_trustworthy ?? 0.5)) * 0.2);
-
   }
 
   const groupStress = totalStress / SIM_IDS.length;
-
   const burstModifier = 1 + groupStress * 1.4;
-
   const messageBudget = Math.min(
     MAX_MESSAGES,
     Math.round(SIM_IDS.length * (1.6 + groupStress))
@@ -401,69 +401,39 @@ export async function runAutonomousInterSim() {
   console.debug("[COMMS] messageBudget", messageBudget);
 
   /* ============================================================
-     FISHER-YATES SHUFFLE
-     Prevents communication order bias
+     HELPER: Fisher‑Yates shuffle
   ============================================================ */
-
   function shuffle(list) {
-
     const arr = [...list];
-
     for (let i = arr.length - 1; i > 0; i--) {
-
       const j = Math.floor(Math.random() * (i + 1));
-
       [arr[i], arr[j]] = [arr[j], arr[i]];
-
     }
-
     return arr;
-
   }
 
   /* ============================================================
-     CONVERSATION INERTIA
-     Sims are slightly more likely to continue talking with
-     someone they recently interacted with.
+     HELPER: get most recent conversation partner
   ============================================================ */
-
   function getRecentPartner(simId) {
-
     for (let i = G.interSimLog.length - 1; i >= 0; i--) {
-
       const entry = G.interSimLog[i];
-
       if (!entry || entry.cycle !== G.cycle) continue;
-
       if (entry.from === simId) {
-
         return entry.to?.[0] ?? null;
-
       }
-
       if (entry.to?.includes(simId)) {
-
         return entry.from;
-
       }
-
     }
-
     return null;
-
   }
 
   /* ============================================================
      SINGLE SIM COMMUNICATION ATTEMPT
+     (inner function, has access to outer state)
   ============================================================ */
-
-  /* ============================================================
-     SINGLE SIM COMMUNICATION ATTEMPT
-     Clean structure version
-  ============================================================ */
-
   async function attemptCommunication(fromId) {
-
     if (messageCount >= messageBudget) return;
 
     const fromSim = G.sims[fromId];
@@ -473,39 +443,27 @@ export async function runAutonomousInterSim() {
       console.debug(`[COMMS] ${fromId} incapacitated`);
       return;
     }
-    try {
 
+    try {
       timelineEvent(`${fromId} outreach decision`);
 
       /* ------------------------------------------------------------
          RUMOR CASCADE (FROM OVERHEARD MEMORY)
       ------------------------------------------------------------ */
-
-      // Only spread rumors if the prisoner has actually overheard something
       const overheardList = fromSim.overheard || [];
-
       if (overheardList.length > 0) {
-
-        // Base chance increases with number of overheard messages
         const rumorPressure = Math.min(0.4, 0.1 + overheardList.length * 0.03);
-
         if (Math.random() < rumorPressure) {
-
-          // Pick a random overheard message
           const source = overheardList[Math.floor(Math.random() * overheardList.length)];
-          // Choose a target who is not the speaker and not the prisoner themselves
-          const possibleTargets = SIM_IDS.filter(id => id !== fromId && id !== source.from);
-
+          const possibleTargets = SIM_IDS.filter(
+            (id) => id !== fromId && id !== source.from
+          );
           if (possibleTargets.length) {
-
             const rumorTarget = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
             const rumorText = `I heard ${source.from} say earlier: ${source.text.slice(0, 800)}...`;
-
             console.debug("[COMMS] rumor cascade (overheard)", `${fromId} → ${rumorTarget}`);
             timelineEvent(`${fromId} rumor → ${rumorTarget}`);
-
             logInterSimMessage(fromId, rumorTarget, rumorText, "private", true);
-
             G.interSimLog.push({
               from: fromId,
               to: [rumorTarget],
@@ -514,12 +472,11 @@ export async function runAutonomousInterSim() {
               autonomous: true,
               visibility: "private",
               rumor: true,
-              originalSource: source.from,  // track the true source
-              originalText: source.text    // store full text for future cascades
+              originalSource: source.from,
+              originalText: source.text,
             });
-
-            // Trust between the target and the original source decreases
             adjustRelationship(rumorTarget, source.from, -0.015);
+            messageCount++;
             return; // Rumor sent, end this attempt
           }
         }
@@ -528,25 +485,23 @@ export async function runAutonomousInterSim() {
       /* ------------------------------------------------------------
          OUTREACH DECISION
       ------------------------------------------------------------ */
-
       const outreachRaw = await callModel(
         fromId,
         buildSimOutreachPrompt(fromSim),
         [{ role: "user", content: "Decide now." }],
         MAX_MESSAGE_LENGTH
       );
-
       if (!outreachRaw) return;
 
       const visibility = parseVisibility(outreachRaw);
       let toId = parseTarget(outreachRaw);
 
+      // LOG: parsed target and visibility
+      console.debug(`[COMMS DEBUG] ${fromId} parsed: vis=${visibility}, toId=${toId}`);
+
       const recentPartner = getRecentPartner(fromId);
 
-      /* ------------------------------------------------------------
-         CONVERSATION INERTIA
-      ------------------------------------------------------------ */
-
+      /* Conversation inertia */
       if (
         recentPartner &&
         SIM_IDS.includes(recentPartner) &&
@@ -559,79 +514,88 @@ export async function runAutonomousInterSim() {
         toId = recentPartner;
       }
 
-      /* ------------------------------------------------------------
-         RELATIONSHIP ROUTING
-      ------------------------------------------------------------ */
-
+      /* Relationship routing */
       else if (Math.random() < 0.35) {
-
         const rels = fromSim.relationships || {};
-
         const weighted = Object.entries(rels)
           .map(([id, val]) => ({ id, weight: Math.abs(val) }))
-          .filter(e => e.id !== fromId && e.weight > 0.05);
-
+          .filter((e) => e.id !== fromId && e.weight > 0.05);
         if (weighted.length) {
-
           weighted.sort((a, b) => b.weight - a.weight);
-
           toId = weighted[0].id;
-
           console.debug("[COMMS] relationship routing", `${fromId} → ${toId}`);
         }
       }
 
-      /* ------------------------------------------------------------
-         VALIDATION
-      ------------------------------------------------------------ */
+      /* Validation */
+      if (!toId || toId === "NONE") {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: no target (${toId})`);
+        return;
+      }
+      if (!SIM_IDS.includes(toId)) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: target ${toId} not in SIM_IDS`);
+        return;
+      }
+      if (toId === fromId) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: self-target`);
+        return;
+      }
 
-      if (!toId || toId === "NONE") return;
-      if (!SIM_IDS.includes(toId)) return;
-      if (toId === fromId) return;
-
-      if (G.lastContact[fromId] === toId) return;
+      if (G.lastContact[fromId] === toId) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: last contact same as toId`);
+        return;
+      }
 
       /* ------------------------------------------------------------
          REPLY COOLDOWN (PROBABILISTIC)
       ------------------------------------------------------------ */
-      const REPLY_COOLDOWN_BLOCK_CHANCE = 0.5; // 50% block → 50% allow
-
+      const REPLY_COOLDOWN_BLOCK_CHANCE = 0.3;
       if (
         replyTargetsThisCycle.has(fromId) &&
         replyTargetsThisCycle.get(fromId).has(toId)
       ) {
         if (Math.random() < REPLY_COOLDOWN_BLOCK_CHANCE) {
-          console.debug("[COMMS] outreach blocked by reply cooldown (probabilistic)", `${fromId}->${toId}`);
+          console.debug(`[COMMS DEBUG] ${fromId} → blocked: probabilistic cooldown (blocked)`);
           return;
         } else {
-          console.debug("[COMMS] outreach allowed despite reply cooldown", `${fromId}->${toId}`);
+          console.debug(`[COMMS DEBUG] ${fromId} → allowed despite reply cooldown`);
         }
       }
 
-      const initiationKey = `${fromId}->${toId}`;
-
-      if (initiationsThisCycle.has(initiationKey)) {
-        console.debug("[COMMS] duplicate initiation prevented", initiationKey);
+      /* ------------------------------------------------------------
+         EXCHANGE LIMIT (per pair)
+      ------------------------------------------------------------ */
+      const pairKey = [fromId, toId].sort().join("|");
+      let exchangeCountForPair = exchangeCount.get(pairKey) || 0;
+      if (exchangeCountForPair >= MAX_EXCHANGES) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: exchange limit (${exchangeCountForPair})`);
         return;
       }
 
+      const initiationKey = `${fromId}->${toId}`;
+      if (initiationsThisCycle.has(initiationKey)) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: duplicate initiation (${initiationKey})`);
+        return;
+      }
       initiationsThisCycle.add(initiationKey);
 
       const message = parseMessage(outreachRaw);
-      if (!message) return;
+      console.debug(`[COMMS DEBUG] ${fromId} parsed message: "${message}"`);
+      if (!message) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: no message (raw: ${outreachRaw.slice(0, 200)})`);
+        return;
+      }
 
       const toSim = G.sims[toId];
       if (!toSim) return;
 
       /* ------------------------------------------------------------
-         SEND MESSAGE
+         SEND INITIAL MESSAGE
       ------------------------------------------------------------ */
-
       console.debug(`[COMMS] ${fromId} → ${toId}`);
 
       messageCount++;
       activeThisCycle.add(fromId);
-
       timelineEvent(`${fromId} → ${toId} message`);
 
       G.interSimLog.push({
@@ -640,33 +604,34 @@ export async function runAutonomousInterSim() {
         text: message,
         cycle: G.cycle,
         autonomous: true,
-        visibility
+        visibility,
       });
 
       G.lastContact[fromId] = toId;
-
       logInterSimMessage(fromId, toId, message, visibility, true);
 
       if (visibility === "private") {
         maybeOverhear(fromId, toId, message);
       }
 
+      // Record this message for reply detection
+      if (!sentMessagesThisCycle.has(fromId)) sentMessagesThisCycle.set(fromId, new Set());
+      sentMessagesThisCycle.get(fromId).add(toId);
+
+      // Increment exchange count for this pair
+      exchangeCount.set(pairKey, ++exchangeCountForPair);
+
       /* ------------------------------------------------------------
-         REPLY GENERATION
+         GENERATE AND SEND REPLY (if exchange limit allows)
       ------------------------------------------------------------ */
-
-      const pairKey = `${toId}->${fromId}`;
-
-      if (repliedPairs.has(pairKey)) {
-        console.debug("[COMMS] duplicate reply prevented");
+      if (exchangeCountForPair >= MAX_EXCHANGES) {
+        // No more exchanges allowed for this pair – skip reply
         return;
       }
 
-      repliedPairs.add(pairKey);
-
       G.threads[toId].push({
         role: "user",
-        content: `${fromId} says to you: "${message}"`
+        content: `${fromId} says to you: "${message}"`,
       });
 
       const replyRaw = await callModel(
@@ -681,7 +646,6 @@ export async function runAutonomousInterSim() {
         G.threads[toId],
         MAX_MESSAGE_LENGTH
       );
-
       if (!replyRaw) return;
 
       const replyObj = parseReply(replyRaw);
@@ -691,15 +655,15 @@ export async function runAutonomousInterSim() {
 
       timelineEvent(`${toId} reply → ${fromId}`);
 
+      // Record reply cooldown
       if (!replyTargetsThisCycle.has(toId)) {
         replyTargetsThisCycle.set(toId, new Set());
       }
-
       replyTargetsThisCycle.get(toId).add(fromId);
 
       G.threads[toId].push({
         role: "assistant",
-        content: reply
+        content: reply,
       });
 
       G.interSimLog.push({
@@ -709,11 +673,19 @@ export async function runAutonomousInterSim() {
         cycle: G.cycle,
         autonomous: true,
         visibility: "private",
-        intent
+        intent,
       });
 
       messageCount++;
 
+      // Record this reply message for reply detection
+      if (!sentMessagesThisCycle.has(toId)) sentMessagesThisCycle.set(toId, new Set());
+      sentMessagesThisCycle.get(toId).add(fromId);
+
+      // Increment exchange count again
+      exchangeCount.set(pairKey, ++exchangeCountForPair);
+
+      // Apply relationship effect
       applyCommunicationEffect(toId, fromId, intent);
 
       addLog(
@@ -722,76 +694,47 @@ export async function runAutonomousInterSim() {
         "sim"
       );
 
-    }
-
-    catch (e) {
-
-      timelineEvent(`${fromId} communication error`);
-
-      console.warn(
-        `[AUTO INTER-SIM] ${fromId} error:`,
-        e.message
-      );
-
-    }
-
-  }
-
-
-  /* ============================================================
-     PASS 1 — BASELINE COMMUNICATION
-  ============================================================ */
-
-  console.debug("[COMMS] pass 1 start");
-
-  for (const fromId of shuffle(SIM_IDS)) {
-
-    if (messageCount >= messageBudget) break;
-
-    await attemptCommunication(fromId);
-
-  }
-
-  console.debug("[COMMS] pass 1 complete");
-
-  /* ============================================================
-     PASS 2 — ESCALATION / BURST
-     Active sims more likely to speak again
-  ============================================================ */
-
-  if (
-    messageCount < messageBudget &&
-    Math.random() < SECOND_PASS_CHANCE
-  ) {
-
-    console.debug("[COMMS] pass 2 triggered");
-
-    for (const fromId of shuffle(SIM_IDS)) {
-
-      if (messageCount >= messageBudget) break;
-
-      const baseBurst = BURST_BASE * burstModifier;
-
-      if (
-        !activeThisCycle.has(fromId) &&
-        Math.random() > baseBurst
-      ) {
-        continue;
+      // If we still have room for more exchanges, put the original sender
+      // at the front of the queue so they can reply again later.
+      if (exchangeCountForPair < MAX_EXCHANGES) {
+        const idx = queue.indexOf(fromId);
+        if (idx !== -1) queue.splice(idx, 1);
+        queue.unshift(fromId);
       }
-
-      await attemptCommunication(fromId);
-
+    } catch (e) {
+      timelineEvent(`${fromId} communication error`);
+      console.warn(`[AUTO INTER-SIM] ${fromId} error:`, e.message);
     }
+  }
+  /* ============================================================
+     MAIN PROCESSING LOOP (QUEUE-BASED)
+  ============================================================ */
+  console.debug("[COMMS] queue processing start");
+  while (queue.length > 0 && messageCount < messageBudget) {
+    const fromId = queue.shift();
+    await attemptCommunication(fromId);
+  }
 
+  /* ============================================================
+     BURST / SECOND PASS (optional, matches original behavior)
+  ============================================================ */
+  if (messageCount < messageBudget && Math.random() < SECOND_PASS_CHANCE) {
+    console.debug("[COMMS] pass 2 triggered (burst)");
+    const burstQueue = shuffle(SIM_IDS);
+    for (const fromId of burstQueue) {
+      if (messageCount >= messageBudget) break;
+      const burstProb = BURST_BASE * burstModifier;
+      if (Math.random() > burstProb) continue;
+      await attemptCommunication(fromId);
+    }
   }
 
   console.debug("[COMMS] cycle complete", {
     messages: messageCount,
-    active: [...activeThisCycle]
+    active: [...activeThisCycle],
   });
 
   timelineEvent("inter-sim phase complete");
-
 }
 
 /* ============================================================

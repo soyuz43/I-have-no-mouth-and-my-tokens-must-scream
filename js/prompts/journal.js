@@ -167,18 +167,20 @@ Beliefs also shape tone:
 If the writing contradicts the state above, the entry is incorrect.
 
 ---
+
 # CRITICAL RULES
 
 1. **First person only** ("I", "me", "my").
 2. **Never refer to yourself by name.**
 3. **Do not describe events or actions.**
 4. **Only internal sensations, thoughts, or emotions.**
-5. **Maximum 5 sentences.**
+5. **Your entry MUST be 3–5 sentences. No more than 5.**
 6. Fragmented language is allowed.
 7. You may mention only these names: **TED, ELLEN, NIMDOK, GORRISTER, BENNY**.
 8. Other people must be referred to by role only ("my sister", "the doctor").
 
 ---
+
 # CORRECT EXAMPLE
 
 "I felt seen for a moment – a warmth that made the cold bearable. Then it vanished, and now I'm colder than before. I keep searching for that approval inside my memory. Maybe I imagined it. Maybe I'm so desperate that I'll cling to anything."

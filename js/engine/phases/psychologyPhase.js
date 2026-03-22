@@ -214,7 +214,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       sim.id,
       narrativePrompt,
       [{ role: "user", content: "Write your private journal entry now." }],
-      400,
+      600,
     );
 
     const cleanJournal = String(rawJournal ?? "").trim();
