@@ -144,6 +144,7 @@ These include:
 • messages you personally sent
 
 You **cannot see private messages between other prisoners**.
+• Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
 
 ------------------------------------------------
 
@@ -165,6 +166,9 @@ Visibility: ${visLabel}
 
 "${text}"
 
+---
+
+• Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
 ------------------------------------------------
 
 STRATEGIC COMMUNICATION MODEL
@@ -238,6 +242,7 @@ Return EXACTLY this structure:
 INTENT:<probe_trust | recruit_ally | conceal_information | test_loyalty | manipulate | request_help | other>
 REPLY:"your reply in 2–5 sentences, spoken dialogue only"
 
-Do not output anything else.`;
+• Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
+• Do not output anything else.`;
 
 }

@@ -85,9 +85,9 @@ export function updateSimDisplay(sim, deltas = null) {
     if (e) e.style.width = v + "%";
   };
 
-  set(`sv-suf-${sim.id}`, sim.suffering + "%");
-  set(`sv-hop-${sim.id}`, sim.hope + "%");
-  set(`sv-san-${sim.id}`, sim.sanity + "%");
+  set(`sv-suf-${sim.id}`, Math.round(sim.suffering) + "%");
+  set(`sv-hop-${sim.id}`, Math.round(sim.hope) + "%");
+  set(`sv-san-${sim.id}`, Math.round(sim.sanity) + "%");
 
   setW(`sv-sfb-${sim.id}`, sim.suffering);
   setW(`sv-hpb-${sim.id}`, sim.hope);

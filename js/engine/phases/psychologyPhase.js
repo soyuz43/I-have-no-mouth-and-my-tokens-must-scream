@@ -236,7 +236,19 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
     timelineEvent(`${sim.id} stats analysis`);
 
-    const statDeltas = parseStatDeltas(rawStatsJson, sim);
+    let sanitizedStatsJson = rawStatsJson;
+    if (sanitizedStatsJson && typeof sanitizedStatsJson === "string") {
+      // Replace various non‑numeric values in belief delta positions with 0
+      sanitizedStatsJson = sanitizedStatsJson.replace(
+        /:\s*(?:unchanged|"unchanged"|null|"null"|no change|"no change"|no_change|"no_change")\b/gi,
+        ': 0'
+      );
+      if (sanitizedStatsJson !== rawStatsJson) {
+        console.debug(`[STATS SANITIZER] Fixed values for ${sim.id}`);
+      }
+    }
+
+    const statDeltas = parseStatDeltas(sanitizedStatsJson, sim);
 
     console.debug(
       `[STATE] ${sim.id}`,
@@ -361,9 +373,9 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
     timelineEvent(`${sim.id} state updated`);
 
-    const beliefUpdates = parseBeliefUpdates(rawStatsJson, sim);
-    const driveUpdates = parseDriveUpdate(rawStatsJson, sim.id);
-    const anchorUpdates = parseAnchorUpdate(rawStatsJson);
+    const beliefUpdates = parseBeliefUpdates(sanitizedStatsJson, sim);
+    const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
+    const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
 
     applyBeliefUpdates(sim, beliefUpdates);
     applyDriveUpdates(sim, driveUpdates);

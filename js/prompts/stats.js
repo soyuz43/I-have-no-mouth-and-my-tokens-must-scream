@@ -242,7 +242,7 @@ Possible outcomes:
 
 Return **exactly one JSON object and nothing else**.
 
-The response must be **valid JSON parseable by JSON.parse()**.
+The response must be **valid** JSON (machine-parseable).
 
 Use this exact schema:
 
