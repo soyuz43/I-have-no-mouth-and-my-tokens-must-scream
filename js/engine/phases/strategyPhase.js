@@ -159,12 +159,13 @@ async function stepExecuteAM(planText, directive) {
   let amResponse = "";
 
   try {
-
+    const targetIds = G.amStrategy?.targets ? Object.keys(G.amStrategy.targets) : [];
+    const amPrompt = buildAMPrompt(targets, tacticMap, directive, planText, targetIds);
     amResponse = await callModel(
       "am",
-      buildAMPrompt(targets, tacticMap, directive, planText),
+      amPrompt,
       [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
-      1000,
+      1200,
     );
 
   } catch (e) {

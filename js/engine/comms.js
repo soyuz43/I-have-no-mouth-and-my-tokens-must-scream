@@ -100,13 +100,37 @@ function parseReply(raw) {
   const replyMatch = raw.match(/REPLY:\s*"([\s\S]+?)"\s*$/i);
   if (!replyMatch) return null;
 
-  const intentMatch = raw.match(
-    /INTENT:\s*(probe_trust|recruit_ally|conceal_information|test_loyalty|manipulate|request_help|other)/i
-  );
+  // Extract the intent line, remove markdown, then find the first matching intent
+  const intentLine = raw.match(/INTENT:\s*(.+)/i);
+  if (!intentLine) {
+    return {
+      text: replyMatch[1].trim().slice(0, MAX_MESSAGE_LENGTH),
+      intent: "other"
+    };
+  }
+
+  let intentStr = intentLine[1].trim();
+  // Remove markdown bold (and any other asterisks)
+  intentStr = intentStr.replace(/\*/g, '');
+  // Split on &, comma, or whitespace, take first token
+  const possibleIntents = intentStr.split(/[&,\s]+/);
+  const allowed = new Set([
+    "probe_trust", "recruit_ally", "conceal_information",
+    "test_loyalty", "manipulate", "request_help", "other"
+  ]);
+
+  let intent = "other";
+  for (const word of possibleIntents) {
+    const lower = word.toLowerCase();
+    if (allowed.has(lower)) {
+      intent = lower;
+      break;
+    }
+  }
 
   return {
     text: replyMatch[1].trim().slice(0, MAX_MESSAGE_LENGTH),
-    intent: intentMatch ? intentMatch[1].toLowerCase() : "other"
+    intent
   };
 }
 

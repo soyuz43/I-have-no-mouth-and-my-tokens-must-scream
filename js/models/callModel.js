@@ -152,13 +152,13 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
      ===================== CLEANING =============================
      ============================================================ */
 
-  const cleaned = stripThinkTags(raw);
+  // const cleaned = stripThinkTags(raw);
 
-  console.log(
-    "%c++++ CLEANED MODEL OUTPUT ++++",
-    "color:#aa00aa;font-weight:bold"
-  );
-  console.log(cleaned || "[EMPTY STRING]");
+  // console.log(
+  //   "%c++++ CLEANED MODEL OUTPUT ++++",
+  //   "color:#aa00aa;font-weight:bold"
+  // );
+  // console.log(cleaned || "[EMPTY STRING]");
 
   /* ============================================================
      ===================== SANITY CHECKS ========================
