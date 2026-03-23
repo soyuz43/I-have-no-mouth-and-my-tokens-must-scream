@@ -24,7 +24,7 @@ import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
 
 export function parseStrategyDeclarations(text) {
 
-  const DEBUG = false;
+  const DEBUG = true;
   const DEBUG_EXTRACT = true;
 
   console.trace("=== AM STRATEGY PARSER START ===");
@@ -335,16 +335,16 @@ export function parseStrategyDeclarations(text) {
         throw new Error(`Target ${index} must be an object`);
       }
 
-      const tKeys = Object.keys(t);
 
+      const tKeys = Object.keys(t);
       if (
-        tKeys.length !== 3 ||
         !tKeys.includes("id") ||
         !tKeys.includes("objective") ||
-        !tKeys.includes("hypothesis")
+        !tKeys.includes("hypothesis") ||
+        !tKeys.includes("why_now")
       ) {
         console.trace("Invalid target schema:", t);
-        throw new Error(`Target ${index} must contain exactly: id, objective, hypothesis`);
+        throw new Error(`Target ${index} must contain at least: id, objective, hypothesis`);
       }
 
       const { id, objective, hypothesis } = t;
@@ -413,7 +413,7 @@ export function parseStrategyDeclarations(text) {
 
     console.trace("=== AM STRATEGY PARSED SUCCESSFULLY ===");
     visualizeParserCycle(G.cycle, G);
-    
+
     if (DEBUG) {
       console.debug("[PARSER METRICS][CYCLE]", G.cycle);
       console.table(G.parserMetrics.cycles[G.cycle]);

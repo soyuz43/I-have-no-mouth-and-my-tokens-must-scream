@@ -49,7 +49,7 @@ export function visualizeParserCycle(cycle, G) {
   // -----------------------------
   // OUTPUT
   // -----------------------------
-  console.group(`📊 [PARSER][CYCLE ${cycle}]`);
+  console.group(` [PARSER][CYCLE ${cycle}]`);
 
   console.table({
     attempts,

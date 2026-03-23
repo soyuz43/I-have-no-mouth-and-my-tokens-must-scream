@@ -95,7 +95,7 @@ async function stepPlanAM(directive) {
         G.amProfiles
       ),
       [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
-      800
+      950
     );
 
   } catch (e) {

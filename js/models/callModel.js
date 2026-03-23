@@ -107,6 +107,7 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
     stream: false,
     think: false,
     options: {
+      num_ctx: 10240,
       num_predict: maxTokens,
       temperature: 0.85
     }

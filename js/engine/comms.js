@@ -37,11 +37,69 @@ function parseVisibility(raw) {
   return m ? m[1].toLowerCase() : "private";
 }
 
+// Levenshtein distance helper for fuzzy matching
+function levenshtein(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,
+        matrix[j - 1][i] + 1,
+        matrix[j - 1][i - 1] + cost
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
 function parseTarget(raw) {
-  const m = raw.match(/REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i);
-  const result = m ? m[1].toUpperCase().trim() : null;
-  console.debug(`[PARSER] parseTarget: "${raw.slice(0, 100)}" → ${result}`);
-  return result;
+  const allowed = ["TED", "ELLEN", "NIMDOK", "GORRISTER", "BENNY"];
+  const NONE = "NONE";
+
+  // 1. Exact match
+  const exactMatch = raw.match(/REACH_OUT:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY|NONE)/i);
+  if (exactMatch) {
+    const result = exactMatch[1].toUpperCase().trim();
+    console.debug(`[MESSAGE PARSER] parseTarget exact: "${raw.slice(0, 1000)}" → ${result}`);
+    return result;
+  }
+
+  // 2. Substring fallback
+  const lowerRaw = raw.toLowerCase();
+  for (const name of allowed) {
+    if (lowerRaw.includes(name.toLowerCase())) {
+      console.debug(`[MESSAGE PARSER] parseTarget substring: "${raw.slice(0, 1000)}" → ${name}`);
+      return name;
+    }
+  }
+
+  // 3. Extract candidate word and fuzzy match with Levenshtein
+  const candidateMatch = raw.match(/REACH_OUT:\s*([A-Za-z]+)/i);
+  if (candidateMatch) {
+    const candidate = candidateMatch[1];
+    let bestDist = Infinity;
+    let bestName = null;
+    for (const name of allowed) {
+      const dist = levenshtein(candidate.toLowerCase(), name.toLowerCase());
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestName = name;
+      }
+    }
+    // Accept if distance is small (<=2 catches typos like "Gorristar" -> GORRISTER)
+    if (bestDist <= 2) {
+      console.debug(`[MESSAGE PARSER] parseTarget fuzzy: "${raw.slice(0, 1000)}" → ${bestName} (dist=${bestDist})`);
+      return bestName;
+    }
+  }
+
+  console.debug(`[MESSAGE PARSER] parseTarget: "${raw.slice(0, 1000)}" → null`);
+  return null;
 }
 
 function parseMessage(raw) {
@@ -354,8 +412,7 @@ export async function runAutonomousInterSim() {
 
   const activeThisCycle = new Set();
 
-  /* Prevent duplicate initiations in same cycle */
-  const initiationsThisCycle = new Set();
+
 
   /* Target cooldown: prevent outreach to someone you already replied to */
   const replyTargetsThisCycle = new Map();
@@ -501,16 +558,12 @@ export async function runAutonomousInterSim() {
 
       const recentPartner = getRecentPartner(fromId);
 
-      /* Conversation inertia */
-      if (
-        recentPartner &&
-        SIM_IDS.includes(recentPartner) &&
-        recentPartner !== fromId &&
-        !initiationsThisCycle.has(`${fromId}->${recentPartner}`) &&
-        !(replyTargetsThisCycle.get(fromId)?.has(recentPartner)) &&
-        Math.random() < 0.35
-      ) {
-        console.debug("[COMMS] conversation inertia", `${fromId} → ${recentPartner}`);
+
+      /* Conversation inertia (only if LLM didn't pick a target) */
+      if ((!toId || toId === "NONE") && recentPartner && SIM_IDS.includes(recentPartner) &&
+        recentPartner !== fromId && 
+        !(replyTargetsThisCycle.get(fromId)?.has(recentPartner))) {
+        console.debug("[COMMS] conversation inertia (fallback)", `${fromId} → ${recentPartner}`);
         toId = recentPartner;
       }
 
@@ -541,26 +594,23 @@ export async function runAutonomousInterSim() {
         return;
       }
 
-      if (G.lastContact[fromId] === toId) {
-        console.debug(`[COMMS DEBUG] ${fromId} → blocked: last contact same as toId`);
-        return;
-      }
-
       /* ------------------------------------------------------------
-         REPLY COOLDOWN (PROBABILISTIC)
+         REPLY COOLDOWN (only block if this message is a reply)
       ------------------------------------------------------------ */
-      const REPLY_COOLDOWN_BLOCK_CHANCE = 0.3;
-      if (
-        replyTargetsThisCycle.has(fromId) &&
-        replyTargetsThisCycle.get(fromId).has(toId)
-      ) {
+      const REPLY_COOLDOWN_BLOCK_CHANCE = 0.03;
+      // Check if this message is a reply: the target has sent a message to the sender earlier
+      const isReply = sentMessagesThisCycle.get(toId)?.has(fromId) === true;
+
+      if (isReply) {
+        // This is a reply; apply probabilistic cooldown
         if (Math.random() < REPLY_COOLDOWN_BLOCK_CHANCE) {
-          console.debug(`[COMMS DEBUG] ${fromId} → blocked: probabilistic cooldown (blocked)`);
+          console.debug(`[COMMS DEBUG] ${fromId} → reply blocked (cooldown)`);
           return;
         } else {
-          console.debug(`[COMMS DEBUG] ${fromId} → allowed despite reply cooldown`);
+          console.debug(`[COMMS DEBUG] ${fromId} → reply allowed despite cooldown`);
         }
       }
+      // If not a reply, allow immediately (no cooldown)
 
       /* ------------------------------------------------------------
          EXCHANGE LIMIT (per pair)
@@ -572,12 +622,7 @@ export async function runAutonomousInterSim() {
         return;
       }
 
-      const initiationKey = `${fromId}->${toId}`;
-      if (initiationsThisCycle.has(initiationKey)) {
-        console.debug(`[COMMS DEBUG] ${fromId} → blocked: duplicate initiation (${initiationKey})`);
-        return;
-      }
-      initiationsThisCycle.add(initiationKey);
+
 
       const message = parseMessage(outreachRaw);
       console.debug(`[COMMS DEBUG] ${fromId} parsed message: "${message}"`);
@@ -609,6 +654,12 @@ export async function runAutonomousInterSim() {
 
       G.lastContact[fromId] = toId;
       logInterSimMessage(fromId, toId, message, visibility, true);
+
+      // After sending initial message, put the recipient at the front of the queue
+      // so they can reply immediately.
+      const recipientIdx = queue.indexOf(toId);
+      if (recipientIdx !== -1) queue.splice(recipientIdx, 1);
+      queue.unshift(toId);
 
       if (visibility === "private") {
         maybeOverhear(fromId, toId, message);

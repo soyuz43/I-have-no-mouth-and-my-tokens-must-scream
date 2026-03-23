@@ -368,10 +368,13 @@ ${nameList}
 
 ## JSON SCHEMA
 
+
 {
   "targets": [
     {
       "id": "<NAME>",
+      "evidence": "<specific observed signal from current context>",
+      "why_now": "<why this moment is exploitable based on current behavior>",
       "objective": "<psychological shift>",
       "hypothesis": "<cause-effect mechanism>"
     }
@@ -387,9 +390,50 @@ ${nameList}
 - "id" must match VALID NAMES exactly
 - OBJECTIVE must describe a concrete psychological shift
 
+Each target MUST include:
+- evidence
+- why_now
+- objective
+- hypothesis
+
+## EVIDENCE RULE (CRITICAL)
+
+Each target MUST include "evidence".
+
+"evidence" must:
+- reference a SPECIFIC observed signal from the current cycle
+- be grounded in:
+  • a message between named prisoners
+  • a journal entry
+  • or a relationship interaction
+
+INVALID:
+- generic statements about personality
+- invented or assumed traits
+- references not present in the provided context
+
+## WHY_NOW RULE (CRITICAL)
+
+"why_now" MUST directly reference and/or build upon the "evidence" provided.
+
+Each target MUST include "why_now".
+
+"why_now" must:
+- explain WHY the vulnerability is exploitable at THIS moment
+- reference CURRENT-CYCLE behavior or interaction
+- connect observed signal → timing → opportunity
+
+INVALID:
+- restating static vulnerabilities
+- generic timing statements ("now is a good time")
+- no reference to current interactions
+
 ---
 
 ## HYPOTHESIS RULE (CRITICAL)
+
+The "evidence", "why_now", and "hypothesis" MUST refer to the SAME interaction or signal.
+If they do not align, the output is invalid.
 
 Each hypothesis MUST follow this structure:
 
@@ -439,7 +483,7 @@ Before finishing:
 
 - Ensure your output contains a valid JSON block at the end.
 - All targets valid.
-- Each target has id, objective, hypothesis.
+- Each target has id, evidence, why_now, objective, hypothesis.
 - No extra fields in the JSON.
 
 * Each hypothesis MUST reference a specific observed signal:
