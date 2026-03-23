@@ -37,6 +37,10 @@ function parseVisibility(raw) {
   return m ? m[1].toLowerCase() : "private";
 }
 
+function similarity(a, b) {
+  const dist = levenshtein(a, b);
+  return 1 - dist / Math.max(a.length, b.length);
+}
 // Levenshtein distance helper for fuzzy matching
 function levenshtein(a, b) {
   if (a.length === 0) return b.length;
@@ -210,7 +214,7 @@ function maybeOverhear(fromId, toId, message) {
   const leak = G.privateLeak || {
     full: 0.05,
     fragment: 0.15,
-    seen: 0.3
+    seen: 0.35
   };
 
   const others = SIM_IDS.filter(
@@ -403,9 +407,10 @@ function maybeOverhear(fromId, toId, message) {
 
 
 export async function runAutonomousInterSim() {
-  const MAX_MESSAGES = 22;
-  const MAX_EXCHANGES = 4;               // max back‑and‑forth per pair per cycle
-  const SECOND_PASS_CHANCE = 0.65;
+  const MAX_MESSAGES = 24;
+  const BASE_MAX_EXCHANGES = 4;
+  const MAX_EXCHANGES_SOFT = 8; // only reachable if conditions met               // max back‑and‑forth per pair per cycle
+  const SECOND_PASS_CHANCE = 0.75;
   const BURST_BASE = 0.18;
 
   let messageCount = 0;
@@ -421,7 +426,11 @@ export async function runAutonomousInterSim() {
   const queue = shuffle(SIM_IDS);               // initial order (all sims)
   const sentMessagesThisCycle = new Map();      // fromId → Set of toId
   const exchangeCount = new Map();              // pairKey → number of messages exchanged
-
+  // --- LOCAL PER-CYCLE STATE (reset each run) ---
+  let lastSenderToRecipient = {};
+  let lastIntentByPair = {};
+  let negotiationFlags = {};
+  let lastReplyByPair = {};
   timelineEvent("inter-sim phase start");
 
   const isLog = document.getElementById("is-log");
@@ -550,6 +559,10 @@ export async function runAutonomousInterSim() {
       );
       if (!outreachRaw) return;
 
+      //  PARSE MESSAGE IMMEDIATELY (move this up)
+      const message = parseMessage(outreachRaw);
+      if (!message) return;
+
       const visibility = parseVisibility(outreachRaw);
       let toId = parseTarget(outreachRaw);
 
@@ -561,7 +574,7 @@ export async function runAutonomousInterSim() {
 
       /* Conversation inertia (only if LLM didn't pick a target) */
       if ((!toId || toId === "NONE") && recentPartner && SIM_IDS.includes(recentPartner) &&
-        recentPartner !== fromId && 
+        recentPartner !== fromId &&
         !(replyTargetsThisCycle.get(fromId)?.has(recentPartner))) {
         console.debug("[COMMS] conversation inertia (fallback)", `${fromId} → ${recentPartner}`);
         toId = recentPartner;
@@ -599,7 +612,9 @@ export async function runAutonomousInterSim() {
       ------------------------------------------------------------ */
       const REPLY_COOLDOWN_BLOCK_CHANCE = 0.03;
       // Check if this message is a reply: the target has sent a message to the sender earlier
-      const isReply = sentMessagesThisCycle.get(toId)?.has(fromId) === true;
+      const isReply =
+        sentMessagesThisCycle.get(toId)?.has(fromId) ||
+        lastSenderToRecipient[`${toId}|${fromId}`] === true;
 
       if (isReply) {
         // This is a reply; apply probabilistic cooldown
@@ -610,30 +625,32 @@ export async function runAutonomousInterSim() {
           console.debug(`[COMMS DEBUG] ${fromId} → reply allowed despite cooldown`);
         }
       }
-      // If not a reply, allow immediately (no cooldown)
+
+
+      /* ------------------------------------------------------------
+         PREP PAIR KEY (needed early now)
+      ------------------------------------------------------------ */
+      const pairKey = [fromId, toId].sort().join("|");
+
 
       /* ------------------------------------------------------------
          EXCHANGE LIMIT (per pair)
       ------------------------------------------------------------ */
-      const pairKey = [fromId, toId].sort().join("|");
       let exchangeCountForPair = exchangeCount.get(pairKey) || 0;
-      if (exchangeCountForPair >= MAX_EXCHANGES) {
-        console.debug(`[COMMS DEBUG] ${fromId} → blocked: exchange limit (${exchangeCountForPair})`);
+      const lastIntent = lastIntentByPair[pairKey];
+      const negotiationActive = negotiationFlags[pairKey];
+
+      const allowExtension =
+        negotiationActive ||
+        (lastIntent &&
+          ["probe_trust", "recruit_ally", "manipulate", "request_help"].includes(lastIntent));
+
+      const maxAllowed = allowExtension ? MAX_EXCHANGES_SOFT : BASE_MAX_EXCHANGES;
+
+      if (exchangeCountForPair >= maxAllowed) {
+        console.debug(`[COMMS DEBUG] ${fromId} → blocked: exchange limit (${exchangeCountForPair}/${maxAllowed})`);
         return;
       }
-
-
-
-      const message = parseMessage(outreachRaw);
-      console.debug(`[COMMS DEBUG] ${fromId} parsed message: "${message}"`);
-      if (!message) {
-        console.debug(`[COMMS DEBUG] ${fromId} → blocked: no message (raw: ${outreachRaw.slice(0, 200)})`);
-        return;
-      }
-
-      const toSim = G.sims[toId];
-      if (!toSim) return;
-
       /* ------------------------------------------------------------
          SEND INITIAL MESSAGE
       ------------------------------------------------------------ */
@@ -664,19 +681,25 @@ export async function runAutonomousInterSim() {
       if (visibility === "private") {
         maybeOverhear(fromId, toId, message);
       }
-
       // Record this message for reply detection
       if (!sentMessagesThisCycle.has(fromId)) sentMessagesThisCycle.set(fromId, new Set());
       sentMessagesThisCycle.get(fromId).add(toId);
 
+      // Record persistent sender→recipient for async-safe reply detection
+      lastSenderToRecipient[`${fromId}|${toId}`] = true;
       // Increment exchange count for this pair
       exchangeCount.set(pairKey, ++exchangeCountForPair);
 
       /* ------------------------------------------------------------
          GENERATE AND SEND REPLY (if exchange limit allows)
       ------------------------------------------------------------ */
-      if (exchangeCountForPair >= MAX_EXCHANGES) {
+      if (exchangeCountForPair >= maxAllowed) {
         // No more exchanges allowed for this pair – skip reply
+        return;
+      }
+      const toSim = G.sims[toId];
+      if (!toSim) {
+        console.warn(`[COMMS DEBUG] ${fromId} → ${toId} missing sim`);
         return;
       }
 
@@ -702,7 +725,36 @@ export async function runAutonomousInterSim() {
       const replyObj = parseReply(replyRaw);
       if (!replyObj) return;
 
-      const { text: reply, intent } = replyObj;
+      let { text: reply, intent } = replyObj;
+      lastIntentByPair[pairKey] = intent;
+      // --- Negotiation signal detection (intent-based) ---
+      const negotiationIntents = new Set([
+        "recruit_ally",
+        "manipulate",
+        "request_help",
+      ]);
+
+      if (negotiationIntents.has(intent)) {
+        negotiationFlags[pairKey] = true;
+
+        console.debug(
+          `[COMMS DEBUG] ${toId} → ${fromId} negotiation detected (intent: ${intent})`
+        );
+      }
+      // --- Prevent conversational stagnation ---
+      const lastReply = lastReplyByPair[pairKey];
+
+      if (lastReply && similarity(lastReply, reply) > 0.85) {
+        console.debug(`[COMMS DEBUG] ${toId} → forcing variation (anti-loop)`);
+
+        if (!reply.includes("?")) {
+          reply += " Answer me directly.";
+        } else {
+          reply += " Stop circling. Be clear.";
+        }
+      }
+
+      lastReplyByPair[pairKey] = reply;
 
       timelineEvent(`${toId} reply → ${fromId}`);
 
@@ -747,7 +799,16 @@ export async function runAutonomousInterSim() {
 
       // If we still have room for more exchanges, put the original sender
       // at the front of the queue so they can reply again later.
-      if (exchangeCountForPair < MAX_EXCHANGES) {
+      const lastIntentNow = intent;
+
+      const continueThread =
+        exchangeCountForPair < BASE_MAX_EXCHANGES ||
+        (
+          exchangeCountForPair < MAX_EXCHANGES_SOFT &&
+          ["probe_trust", "recruit_ally", "manipulate", "request_help"].includes(lastIntentNow)
+        );
+
+      if (continueThread && exchangeCountForPair < MAX_EXCHANGES_SOFT) {
         const idx = queue.indexOf(fromId);
         if (idx !== -1) queue.splice(idx, 1);
         queue.unshift(fromId);

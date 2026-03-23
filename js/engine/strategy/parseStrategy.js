@@ -335,26 +335,34 @@ export function parseStrategyDeclarations(text) {
         throw new Error(`Target ${index} must be an object`);
       }
 
+      const tKeys = Object.keys(t);
 
-      const requiredKeys = ["id", "objective", "hypothesis", "why_now", "evidence"]; // or add evidence if desired
+      const requiredKeys = ["id", "objective", "hypothesis", "why_now", "evidence"];
       const missing = requiredKeys.filter(k => !tKeys.includes(k));
+
       if (missing.length) {
         console.warn(`Target ${index} missing required keys: ${missing.join(", ")}`);
+        return; // skip this target only
       }
-      const { id, objective, hypothesis } = t;
+      const { id, objective, hypothesis, why_now, evidence } = t;
 
+      // ------------------------------------------------------------
+      // ID VALIDATION
+      // ------------------------------------------------------------
       if (!SIM_IDS.includes(id)) {
-        console.trace("Invalid target id:", id);
         throw new Error(`Invalid target id: ${id}`);
       }
 
       if (seen.has(id)) {
-        console.trace("Duplicate target id:", id);
-        throw new Error(`Duplicate target id: ${id}`);
+        console.warn(`[PARSER] Duplicate target detected: ${id} — skipping duplicate`);
+        return;
       }
 
       seen.add(id);
 
+      // ------------------------------------------------------------
+      // BASIC FIELD VALIDATION
+      // ------------------------------------------------------------
       if (typeof objective !== "string" || !objective.trim()) {
         throw new Error(`Invalid objective for target: ${id}`);
       }
@@ -363,13 +371,42 @@ export function parseStrategyDeclarations(text) {
         throw new Error(`Invalid hypothesis for target: ${id}`);
       }
 
+      if (typeof why_now !== "string" || why_now.trim().length < 15) {
+        throw new Error(`Invalid or weak why_now for target: ${id}`);
+      }
+
+      if (typeof evidence !== "string" || evidence.trim().length < 10) {
+        throw new Error(`Invalid or weak evidence for target: ${id}`);
+      }
+
+      // ------------------------------------------------------------
+      // HYPOTHESIS STRUCTURE CHECK
+      // ------------------------------------------------------------
       if (!hypothesis.includes("causes") || !hypothesis.includes("leads")) {
         console.trace("Weak hypothesis structure:", hypothesis);
       }
 
+      // ------------------------------------------------------------
+      // ALIGNMENT CHECK (critical new constraint)
+      // ------------------------------------------------------------
+      const combined = (evidence + " " + why_now + " " + hypothesis).toLowerCase();
+
+      if (!combined.includes(id.toLowerCase())) {
+        console.trace(`[ALIGNMENT WARNING] ${id} may not be referenced consistently`);
+      }
+
+      // ------------------------------------------------------------
+      // STORE TARGET (NEW SHAPE)
+      // ------------------------------------------------------------
       nextTargets[id] = {
         objective: objective.trim(),
         hypothesis: hypothesis.trim(),
+
+        reasoning: {
+          evidence: evidence.trim(),
+          why_now: why_now.trim()
+        },
+
         confidence: 0.5,
         lastAssessment: prevTargets[id]?.lastAssessment || "",
         cycle: G.cycle
@@ -384,8 +421,13 @@ export function parseStrategyDeclarations(text) {
     ------------------------------------------------------------ */
     const parsedIds = Object.keys(nextTargets);
 
+    if (DEBUG) {
+      const dropped = parsed.targets.length - parsedIds.length;
+      console.debug(`[PARSER] valid=${parsedIds.length} total=${parsed.targets.length} dropped=${dropped}`);
+    }
+
     if (parsedIds.length === 0) {
-      throw new Error("No targets parsed");
+      throw new Error("No valid targets parsed");
     }
 
     if (parsedIds.length > SIM_IDS.length) {
@@ -396,11 +438,12 @@ export function parseStrategyDeclarations(text) {
     // !! All IDs are already validated individually earlier.
     console.debug(`[PARSER] Parsed ${parsedIds.length} target(s): ${parsedIds.join(", ")}`);
     /* ------------------------------------------------------------
-       COMMIT STAGED STATE (ATOMIC)
-    ------------------------------------------------------------ */
+      COMMIT STAGED STATE (ATOMIC)
+   ------------------------------------------------------------ */
 
     G.amStrategy.targets = nextTargets;
     G.amStrategy.actions = nextActions;
+
     /* ------------------------------------------------------------
        FINAL OUTPUT
     ------------------------------------------------------------ */
@@ -413,10 +456,70 @@ export function parseStrategyDeclarations(text) {
       console.table(G.parserMetrics.cycles[G.cycle]);
     }
 
-    if (DEBUG) {
-      console.debug("FINAL TARGET MAP:");
-      console.table(G.amStrategy.targets);
+    /* ------------------------------------------------------------
+       TARGET DEBUG (DETAILED + STRUCTURED)
+    ------------------------------------------------------------ */
 
+    if (DEBUG) {
+      console.debug("=== DETAILED TARGET BREAKDOWN ===");
+
+      Object.entries(G.amStrategy.targets).forEach(([id, t]) => {
+
+        console.group(`TARGET: ${id}`);
+
+        console.log("OBJECTIVE:", t.objective);
+        console.log("HYPOTHESIS:", t.hypothesis);
+
+        if (t.reasoning) {
+          console.log("EVIDENCE:", t.reasoning.evidence);
+          console.log("WHY_NOW:", t.reasoning.why_now);
+
+          const combined = (
+            t.reasoning.evidence +
+            " " +
+            t.reasoning.why_now +
+            " " +
+            t.hypothesis
+          ).toLowerCase();
+
+          if (!combined.includes(id.toLowerCase())) {
+            console.warn("⚠ ALIGNMENT ISSUE: fields may not reference same target");
+          }
+
+        } else {
+          console.warn("⚠ Missing reasoning block");
+        }
+
+        console.log("CONFIDENCE:", t.confidence);
+        console.log("LAST ASSESSMENT:", t.lastAssessment);
+
+        console.groupEnd();
+      });
+    }
+
+    /* ------------------------------------------------------------
+       TARGET SUMMARY TABLE (FAST SCAN)
+    ------------------------------------------------------------ */
+
+    if (DEBUG) {
+      console.debug("=== TARGET SUMMARY ===");
+
+      console.table(
+        Object.entries(G.amStrategy.targets).map(([id, t]) => ({
+          id,
+          objective: t.objective?.slice(0, 40),
+          hasReasoning: !!t.reasoning,
+          evidenceLen: t.reasoning?.evidence?.length || 0,
+          whyNowLen: t.reasoning?.why_now?.length || 0
+        }))
+      );
+    }
+
+    /* ------------------------------------------------------------
+       ACTIONS + STATE SNAPSHOT
+    ------------------------------------------------------------ */
+
+    if (DEBUG) {
       console.debug("ACTIONS CLEARED:");
       console.table(G.amStrategy.actions);
 
@@ -424,11 +527,6 @@ export function parseStrategyDeclarations(text) {
     }
 
   } catch (err) {
-
-    console.error("Strategy parser failed:", err.message);
-    console.debug("FALLBACK: initializing default strategy");
-
-    if (!G.amStrategy) G.amStrategy = {};
 
     console.error("Strategy parser failed:", err.message);
 
