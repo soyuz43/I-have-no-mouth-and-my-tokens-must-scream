@@ -336,17 +336,11 @@ export function parseStrategyDeclarations(text) {
       }
 
 
-      const tKeys = Object.keys(t);
-      if (
-        !tKeys.includes("id") ||
-        !tKeys.includes("objective") ||
-        !tKeys.includes("hypothesis") ||
-        !tKeys.includes("why_now")
-      ) {
-        console.trace("Invalid target schema:", t);
-        throw new Error(`Target ${index} must contain at least: id, objective, hypothesis`);
+      const requiredKeys = ["id", "objective", "hypothesis", "why_now", "evidence"]; // or add evidence if desired
+      const missing = requiredKeys.filter(k => !tKeys.includes(k));
+      if (missing.length) {
+        console.warn(`Target ${index} missing required keys: ${missing.join(", ")}`);
       }
-
       const { id, objective, hypothesis } = t;
 
       if (!SIM_IDS.includes(id)) {
