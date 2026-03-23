@@ -494,7 +494,8 @@ Before finishing:
 If any rule is violated:
 
 - Correct it before output.
-
+All string values must avoid internal quotes (', ").
+Paraphrase instead of quoting directly.
 ---
 
 **OUTPUT STRUCTURE**:

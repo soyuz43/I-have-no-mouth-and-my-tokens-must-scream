@@ -10,10 +10,20 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         console.debug("[EXTRACT][JSON] Input length:", input.length);
     }
 
-    let start = input.indexOf("{");
+    // collect all possible JSON starts
+    const starts = [];
+    for (let i = 0; i < input.length; i++) {
+        if (input[i] === "{") {
+            starts.push(i);
+        }
+        // ALSO support array roots
+        if (input[i] === "[") {
+            starts.push(i);
+        }
+    }
 
-    if (start === -1) {
-        if (DEBUG_EXTRACT) console.warn("[EXTRACT][JSON] No opening brace");
+    if (starts.length === 0) {
+        if (DEBUG_EXTRACT) console.warn("[EXTRACT][JSON] No JSON start found");
         return null;
     }
 
@@ -43,7 +53,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                 break;
 
             case "truncated":
-                // do nothing — unsafe to guess structure
                 return candidate;
 
             default:
@@ -53,7 +62,8 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         return repaired;
     }
 
-    while (start !== -1) {
+    // scan each possible start
+    for (const start of starts) {
 
         let objDepth = 0;
         let arrDepth = 0;
@@ -87,31 +97,43 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
             if (ch === "[") arrDepth++;
             if (ch === "]") arrDepth--;
 
+            // candidate complete
             if (objDepth === 0 && arrDepth === 0) {
 
-                const candidate = input.slice(start, i + 1);
+                const candidate = input.slice(start, i + 1).trim();
 
                 if (DEBUG_EXTRACT) {
                     console.debug("[EXTRACT][JSON] Candidate:");
                     console.debug(candidate.slice(0, 200));
                 }
 
+                // sanity check (must end properly)
+                if (!candidate.endsWith("}") && !candidate.endsWith("]")) {
+                    if (DEBUG_EXTRACT) {
+                        console.debug("[EXTRACT][JSON] reject (not properly closed)");
+                    }
+                    break;
+                }
+
+                // --------------------------
+                // PARSE ATTEMPT
+                // --------------------------
                 try {
 
                     const parsed = JSON.parse(candidate);
 
-                    if (!parsed || typeof parsed !== "object" || !parsed.targets) {
-                        if (DEBUG_EXTRACT) {
-                            console.debug("[EXTRACT][JSON] REJECT (no targets)");
-                        }
-                        break;
+                    // ✅ ARRAY ROOT SUPPORT
+                    if (Array.isArray(parsed)) {
+                        return { targets: parsed };
                     }
 
-                    if (repairUsed) {
-                        console.warn("[EXTRACT][JSON] parsed with repair");
+                    // ✅ OBJECT ROOT SUPPORT
+                    if (parsed && typeof parsed === "object" && parsed.targets) {
+                        return parsed;
                     }
 
-                    return parsed;
+                    // valid JSON but not usable
+                    break;
 
                 } catch (err) {
 
@@ -119,6 +141,9 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                         console.debug("[EXTRACT][JSON] parse fail:", err.message);
                     }
 
+                    // --------------------------
+                    // REPAIR ATTEMPT
+                    // --------------------------
                     const repaired = attemptRepairs(candidate);
 
                     if (repaired !== candidate) {
@@ -128,13 +153,14 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                             console.debug("[REPAIR][AFTER]:", repaired.slice(0, 200));
                         }
 
-                        if (!repaired || repaired.length < 5) {
-                            return null;
-                        }
-
                         try {
 
                             const reparsed = JSON.parse(repaired);
+
+                            if (Array.isArray(reparsed)) {
+                                repairUsed = true;
+                                return { targets: reparsed };
+                            }
 
                             if (reparsed && typeof reparsed === "object" && reparsed.targets) {
                                 repairUsed = true;
@@ -152,8 +178,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                 }
             }
         }
-
-        start = input.indexOf("{", start + 1);
     }
 
     if (DEBUG_EXTRACT) {
