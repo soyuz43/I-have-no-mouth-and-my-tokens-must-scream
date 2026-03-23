@@ -7,7 +7,7 @@ import { extractTargetsArray } from "./extractors/targetsExtractor.js";
 import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
 import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
-
+import { levenshtein } from "./extractors/levenshtein.js";
 /* ============================================================
    AM STRATEGY PARSER (TARGET-ONLY JSON VERSION)
 
@@ -345,20 +345,36 @@ export function parseStrategyDeclarations(text) {
         return; // skip this target only
       }
       const { id, objective, hypothesis, why_now, evidence } = t;
+      let normalizedId = id.toUpperCase();
 
       // ------------------------------------------------------------
-      // ID VALIDATION
+      // ID VALIDATION (with fuzzy fallback)
       // ------------------------------------------------------------
-      if (!SIM_IDS.includes(id)) {
-        throw new Error(`Invalid target id: ${id}`);
+      if (!SIM_IDS.includes(normalizedId)) {
+        // Try fuzzy matching
+        let bestDist = Infinity;
+        let bestMatch = null;
+        for (const allowed of SIM_IDS) {
+          const dist = levenshtein(normalizedId, allowed);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestMatch = allowed;
+          }
+        }
+        if (bestDist <= 2) {
+          console.warn(`[PARSER] Fuzzy match: "${id}" → "${bestMatch}" (dist=${bestDist})`);
+          normalizedId = bestMatch;
+        } else {
+          throw new Error(`Invalid target id: ${id}`);
+        }
       }
 
-      if (seen.has(id)) {
-        console.warn(`[PARSER] Duplicate target detected: ${id} — skipping duplicate`);
+      if (seen.has(normalizedId)) {
+        console.warn(`[PARSER] Duplicate target detected: ${normalizedId} — skipping duplicate`);
         return;
       }
 
-      seen.add(id);
+      seen.add(normalizedId);
 
       // ------------------------------------------------------------
       // BASIC FIELD VALIDATION
@@ -391,14 +407,14 @@ export function parseStrategyDeclarations(text) {
       // ------------------------------------------------------------
       const combined = (evidence + " " + why_now + " " + hypothesis).toLowerCase();
 
-      if (!combined.includes(id.toLowerCase())) {
+      if (!combined.includes(normalizedId.toLowerCase())) {
         console.trace(`[ALIGNMENT WARNING] ${id} may not be referenced consistently`);
       }
 
       // ------------------------------------------------------------
       // STORE TARGET (NEW SHAPE)
       // ------------------------------------------------------------
-      nextTargets[id] = {
+      nextTargets[normalizedId] = {
         objective: objective.trim(),
         hypothesis: hypothesis.trim(),
 
@@ -408,7 +424,7 @@ export function parseStrategyDeclarations(text) {
         },
 
         confidence: 0.5,
-        lastAssessment: prevTargets[id]?.lastAssessment || "",
+        lastAssessment: prevTargets[normalizedId]?.lastAssessment || "",
         cycle: G.cycle
       };
 

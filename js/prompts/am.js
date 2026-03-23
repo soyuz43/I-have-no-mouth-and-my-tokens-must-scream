@@ -338,7 +338,7 @@ JOURNALS: ${journalState}
 
 # OUTPUT FORMAT
 
-Include a brief reasoning section (MAX 5 sentences).
+Include a brief reasoning section (MAX 2–3 sentences).
 
 Reasoning must:
 - reference concrete signals from the CURRENT cycle  
@@ -539,10 +539,18 @@ If any rule fails:
 
 Avoid internal quotes in strings. Paraphrase.
 
+CRITICAL:
+
+Each target object MUST:
+- start with "{"
+- end with "}"
+- be fully closed before the next target begins
+
+NEVER continue writing fields for a new target inside a previous object.
 ---
 
 **OUTPUT STRUCTURE**:  
-[Reasoning. (MAX 5 sentences. Do not exceed)]  
+[Reasoning. (MAX 2-3 sentences. Do not exceed)]  
 [JSON block]`;
 
 }

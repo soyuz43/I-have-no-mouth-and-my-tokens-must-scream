@@ -25,6 +25,9 @@ import { addLog } from "../ui/logs.js";
 import { timelineEvent } from "../ui/timeline.js";
 import { applyCommunicationEffect, adjustRelationship } from "./relationships.js";
 
+import { levenshtein } from "./strategy/extractors/levenshtein.js";
+
+
 const MAX_MESSAGE_LENGTH = 800;
 
 /* ============================================================
@@ -41,25 +44,7 @@ function similarity(a, b) {
   const dist = levenshtein(a, b);
   return 1 - dist / Math.max(a.length, b.length);
 }
-// Levenshtein distance helper for fuzzy matching
-function levenshtein(a, b) {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
-  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
-  for (let j = 1; j <= b.length; j++) {
-    for (let i = 1; i <= a.length; i++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[j][i] = Math.min(
-        matrix[j][i - 1] + 1,
-        matrix[j - 1][i] + 1,
-        matrix[j - 1][i - 1] + cost
-      );
-    }
-  }
-  return matrix[b.length][a.length];
-}
+
 
 function parseTarget(raw) {
   const allowed = ["TED", "ELLEN", "NIMDOK", "GORRISTER", "BENNY"];
@@ -408,8 +393,8 @@ function maybeOverhear(fromId, toId, message) {
 
 export async function runAutonomousInterSim() {
   const MAX_MESSAGES = 24;
-  const BASE_MAX_EXCHANGES = 4;
-  const MAX_EXCHANGES_SOFT = 8; // only reachable if conditions met               // max back‑and‑forth per pair per cycle
+  const BASE_MAX_EXCHANGES = 6;
+  const MAX_EXCHANGES_SOFT = 10; // only reachable if conditions met               // max back‑and‑forth per pair per cycle
   const SECOND_PASS_CHANCE = 0.75;
   const BURST_BASE = 0.18;
 
