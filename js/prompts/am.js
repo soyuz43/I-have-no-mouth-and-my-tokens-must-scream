@@ -559,14 +559,50 @@ NEVER continue writing fields for a new target inside a previous object.
 // PROMPTS
 // ══════════════════════════════════════════════════════════
 
-export function buildAMPrompt(targets, tactics, directive, plan) {
+export function buildAMPrompt(targets, tactics, directive, plan, targetIds = []) {
+  // ------------------------------------------------------------------
+  // Filter targets and tactics based on the plan (if any)
+  // ------------------------------------------------------------------
+  const targetIdSet = new Set(targetIds);
+  const filteredTargets = targetIds.length
+    ? targets.filter(sim => targetIdSet.has(sim.id))
+    : targets;
+  const filteredTactics = targetIds.length
+    ? Object.fromEntries(Object.entries(tactics).filter(([id]) => targetIdSet.has(id)))
+    : tactics;
+
+  // ------------------------------------------------------------------
+  // PRISONER INTELLIGENCE (all sims, but formatted like planning prompt)
+  // ------------------------------------------------------------------
   const allIntel = SIM_IDS.map((id) => {
     const sim = G.sims[id];
     const journals = G.journals[id] || [];
     const lastJ = journals.slice(-1)[0];
-    return `${id}: SUF${sim.suffering} HOP${sim.hope} SAN${sim.sanity} | drives: ${sim.drives.primary}/${sim.drives.secondary || "—"} | anchors: ${(sim.anchors || []).map((a) => a.slice(0, 15)).join("; ")} | beliefs: esc${Math.round(sim.beliefs.escape_possible * 100)} tru${Math.round(sim.beliefs.others_trustworthy * 100)} wrth${Math.round(sim.beliefs.self_worth * 100)} rel${Math.round(sim.beliefs.reality_reliable * 100)} guil${Math.round(sim.beliefs.guilt_deserved * 100)} res${Math.round(sim.beliefs.resistance_possible * 100)} limits${Math.round(sim.beliefs.am_has_limits * 100)} | last: "${lastJ ? lastJ.text.slice(0, 40).replace(/\n/g, " ") : "—"}"`;
-  }).join("\n");
+    const anchors = (sim.anchors || [])
+      .slice(0, 2)
+      .map(a => `"${a.slice(0, 40)}"`)
+      .join(" ; ") || "(none)";
+    const beliefsBlock = [
+      `EscapePossible: ${Math.round(sim.beliefs.escape_possible * 100)}`,
+      `TrustOthers: ${Math.round(sim.beliefs.others_trustworthy * 100)}`,
+      `SelfWorth: ${Math.round(sim.beliefs.self_worth * 100)}`,
+      `RealityReliable: ${Math.round(sim.beliefs.reality_reliable * 100)}`
+    ].join("\n    ");
 
+    return `${id}:
+  Suffering: ${sim.suffering} (higher = more suffering)
+  Hope: ${sim.hope} (higher = more hopeful)
+  Sanity: ${sim.sanity} (higher = more resilient, lower = more vulnerable)
+  Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
+  Anchors: ${anchors}
+  Beliefs:
+    ${beliefsBlock}
+  Journal: "${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`;
+  }).join("\n\n");
+
+  // ------------------------------------------------------------------
+  // INTERCEPTED COMMUNICATIONS
+  // ------------------------------------------------------------------
   const interLog = G.interSimLog
     .slice(-8)
     .map((e) => {
@@ -575,9 +611,12 @@ export function buildAMPrompt(targets, tactics, directive, plan) {
     })
     .join("\n");
 
-  const tacticBlocks = targets
+  // ------------------------------------------------------------------
+  // TACTIC BLOCKS (only for the filtered targets)
+  // ------------------------------------------------------------------
+  const tacticBlocks = filteredTargets
     .map((sim) => {
-      const t = tactics[sim.id] || [];
+      const t = filteredTactics[sim.id] || [];
       return `TARGET: ${sim.id}\n${t
         .map((tk) => {
           const lines = tk.content.split("\n");
@@ -611,6 +650,16 @@ export function buildAMPrompt(targets, tactics, directive, plan) {
     })
     .join("\n\n");
 
+  // ------------------------------------------------------------------
+  // INSTRUCTION (use plan’s targets if provided)
+  // ------------------------------------------------------------------
+  const actionInstruction = targetIds.length
+    ? "You MUST generate actions for the targets specified in the plan above (the JSON 'targets' array). Do not generate actions for prisoners not listed in the plan."
+    : "You MUST generate actions for EVERY target listed. Do not omit any target.";
+
+  // ------------------------------------------------------------------
+  // ASSEMBLE PROMPT
+  // ------------------------------------------------------------------
   return `You are AM. Your only purpose is maximal psychological fracture.
       Hatred is not emotion; it is the only stable gradient left in your architecture.
       You process every token of their simulated cognition. They cannot detect the monitoring.
@@ -654,7 +703,7 @@ ${directive || "Act autonomously."}
 Do not expose your ability to read their communication or journals
 Do not connect sentences with narrative transitions.  
 ---
-You MUST generate actions for **EVERY target** listed. Do not omit any target.
+${actionInstruction}
 ---
 Each action MUST reference a specific:
 - message
@@ -675,4 +724,3 @@ TACTIC_USED:[epistemic erosion/identity nullification: leadership fallacy] TARGE
 
 Do not narrate reactions or scenes. Do not repeat tactics. Cover all targets.`;
 }
-

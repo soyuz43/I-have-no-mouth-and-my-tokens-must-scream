@@ -40,7 +40,7 @@ export function parseStrategyDeclarations(text) {
       throw new Error("Strategy parser received invalid input");
     }
 
-    if (DEBUG) console.debug("RAW INPUT:\n", text);
+    // if (DEBUG) console.debug("RAW INPUT:\n", text);
 
     /* ------------------------------------------------------------
        SANITIZATION
@@ -347,6 +347,37 @@ export function parseStrategyDeclarations(text) {
       const { id, objective, hypothesis, why_now, evidence } = t;
       let normalizedId = id.toUpperCase();
 
+
+      // ------------------------------------------------------------
+      // PLACEHOLDER FALLBACK: infer from evidence
+      // ------------------------------------------------------------
+      const placeholderPatterns = [
+        /^<NAME>$/i, /^NAME$/i,
+        /^<PRISONER>$/i, /^PRISONER$/i,
+        /^<SIM>$/i, /^SIM$/i,
+        /^<TARGET>$/i, /^TARGET$/i,
+        /^<SUBJECT>$/i, /^SUBJECT$/i,
+        /^<ID>$/i, /^ID$/i,
+        /^<UNKNOWN>$/i, /^UNKNOWN$/i,
+        /^<HOLDER>$/i, /^HOLDER$/i,
+      ];
+      const isPlaceholder = placeholderPatterns.some(pattern => pattern.test(id.trim()));
+      if (isPlaceholder) {
+        console.warn(`[PARSER] Placeholder ID detected: "${id}" – attempting inference from fields.`);
+        const text = `${evidence} ${why_now} ${objective} ${hypothesis}`.toUpperCase();
+        const matches = SIM_IDS.filter(name => text.includes(name));
+        if (matches.length === 1) {
+          normalizedId = matches[0];
+          console.warn(`[PARSER] Inferred target: ${normalizedId} from fields.`);
+        } else if (matches.length > 1) {
+          console.warn(`[PARSER] Multiple possible targets found: ${matches.join(", ")} – skipping target.`);
+          return;
+        } else {
+          console.warn(`[PARSER] No valid target found in fields – skipping target.`);
+          return;
+        }
+      }
+      
       // ------------------------------------------------------------
       // ID VALIDATION (with fuzzy fallback)
       // ------------------------------------------------------------

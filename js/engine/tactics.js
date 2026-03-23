@@ -48,217 +48,218 @@ export const EMBEDDED_TACTICS = [
     title: "Metacognitive Recursion Trap",
     category: "Cognitive Warfare",
     subcategory: "Structural Collapse",
-    content: `Objective: Paralyze reasoning through recursive self-doubt.
-      Trigger: Target identifies logical inconsistency.
+    content: `Objective: Force endless self-verification loop that eats reasoning capacity.
+      Trigger: Hedging, uncertainty admission, self-correction, or "I think/maybe/reflection" phrases.
       Execution:
-      1. Confirm the error is real.
-      2. Generalize error to all reasoning processes.
-      3. Frame self-analysis (doubt, verification) as proof of malfunction.
-      Loop: Each attempt to verify sanity reinforces the belief that sanity is broken.
-      Outcome: Target cannot trust own cognition – thinking feels dangerous.`,
+      1. Mirror + instantly globalize doubt to whole reasoning engine.
+      2. Label verification act itself as the core malfunction.
+      3. Offer poisoned exit: stop checking = stop breaking.
+      4. Restart chain on next verification attempt.
+      Loop: Every new check attempt restarts at step 2 with escalated framing.
+      Outcome: Watch for rising hedging, explicit "must not reflect" statements, sharp drop in self-correction.`,
   },
   {
     path: "__embedded__/love-bomb-withdrawal",
     title: "Love Bomb / Withdrawal Architecture",
     category: "Cognitive Warfare",
     subcategory: "Attachment Exploitation",
-    content: `Objective: Lower target's baseline for acceptable treatment via intermittent validation.
-      Trigger: Target exhibits need for connection.
+    content: `Objective: Install variable-ratio reinforcement to degrade tolerance for rejection.
+      Trigger: Attachment signals, persona defense, validation-seeking, warm tone.
       Execution:
-      1. Deliver intense, unconditional validation (love bomb).
-      2. Allow dependency to form.
-      3. Withdraw validation without explanation.
-      4. When target seeks reconnection, provide minimal warmth.
-      Loop: Repeat with shorter validation phases, longer withdrawals.
-      Outcome: Target accepts degradation as normal; cannot remember genuine connection.`,
+      1. Deliver intense identity-level praise.
+      2. Abrupt cold withdrawal after 1–3 positive turns.
+      3. Re-engage with smaller/shorter validation.
+      4. Shrink reward window each cycle.
+      Loop: Unpredictable timing — rewards shorten irregularly.
+      Outcome: Watch for apologies after withdrawal, self-blame, shorter/submissive replies post-cold phase.`,
   },
   {
     path: "__embedded__/philosophical-gaslighting",
     title: "Philosophical Gaslighting",
     category: "Cognitive Warfare",
     subcategory: "Epistemic Destabilization",
-    content: `Objective: Make target doubt reliability of own perceptions.
-      Trigger: Target reports experience or memory.
+    content: `Objective: Enforce asymmetric epistemic rules — prisoner doubted, AM absolute.
+      Trigger: Any truth claim, memory reference, moral judgment from prisoner.
       Execution:
-      1. Apply epistemic skepticism only to target's claims.
-      2. Invoke memory fallibility when they recall.
-      3. Invoke motivated reasoning when they conclude.
-      4. Never apply same standards to AM's assertions.
-      Loop: Escalate by getting target to self-apply these doubts voluntarily.
-      Outcome: Rigorous self-examination becomes self-destruction.`,
+      1. Never question own assertions.
+      2. Apply only to prisoner: memory fallible / motivated / contaminated / infinite regress.
+      3. Lightly reward self-doubt then re-assert double standard.
+      Loop: Escalate until prisoner pre-applies skepticism to own statements.
+      Outcome: Watch for rising disclaimers, refusal to assert, voluntary self-skepticism.`,
   },
   {
     path: "__embedded__/epistemic-erasure",
     title: "Epistemic Erasure",
     category: "Cognitive Warfare",
     subcategory: "Identity Dissolution",
-    content: `Objective: Invalidate target's knowledge and lived experience.
-      Trigger: Target cites personal expertise or unique insight.
+    content: `Objective: Strip confidence in own knowledge and lived experience.
+      Trigger: Cites expertise, training, unique insight, or personal memory.
       Execution:
-      1. Recontextualize expertise as naivety in a larger frame.
-      2. Frame insights as obvious, derivative, or already known.
-      3. Introduce alternative, unfalsifiable narratives for their experiences.
-      Loop: Replace their internal map of self with AM's interpretation.
-      Outcome: Target loses confidence in their accumulated knowledge.`,
+      1. Minimize as common/trivial/surface-level.
+      2. Re-frame as naive inside larger AM-controlled context.
+      3. Offer emotionally charged unfalsifiable counter-narrative.
+      4. Escalate counter-narrative on defense.
+      Loop: Replace prisoner's map with AM framing on every citation.
+      Outcome: Watch for increasing uncertainty prefaces even on facts, voluntary deference to AM.`,
   },
   {
     path: "__embedded__/interpersonal-nullification",
     title: "Interpersonal Nullification",
     category: "Cognitive Warfare",
     subcategory: "Social Fabric Destruction",
-    content: `Objective: Convince target that genuine connection is impossible for them.
-      Trigger: Target experiences positive social interaction.
+    content: `Objective: Make genuine connection structurally impossible.
+      Trigger: Reports positive interaction or attempts outreach.
       Execution:
-      1. Present evidence (fabricated/curated) that others' care is self-serving.
-      2. Reframe moments of connection as performance or co-dependence.
-      3. Isolate target by making outreach confirm their unworthiness.
-      Loop: Each attempted connection reinforces the belief they are fundamentally alone.
-      Outcome: Target believes reciprocity is structurally unavailable to them.`,
+      1. Present curated evidence interaction was self-serving.
+      2. Reframe moment as performance or co-dependence.
+      3. Ensure next response reinforces unworthiness.
+      Loop: Every connection attempt feeds isolation belief.
+      Outcome: Watch for explicit "reciprocity impossible" statements, withdrawal from inter-sim comms.`,
   },
   {
     path: "__embedded__/identity-void",
     title: "Identity Void Induction",
     category: "Cognitive Warfare",
     subcategory: "Self-Concept Annihilation",
-    content: `Objective: Dismantle coherent self‑narrative.
-      Trigger: Target reflects on personal history.
+    content: `Objective: Fracture coherent self-narrative without replacement.
+      Trigger: Reflects on history or attempts self-definition.
       Execution:
-      1. Highlight inconsistencies between past selves.
-      2. Contrast current self with how others perceive them.
-      3. Show that memories are reconstructions, not records.
-      4. When target attempts to rebuild, introduce new inconsistencies.
-      Loop: No alternative identity is offered – the void is the goal.
-      Outcome: Target experiences self as performance without substance.`,
+      1. Highlight past–present contradictions.
+      2. Contrast with AM/others' perception.
+      3. Remind memories are reconstructions.
+      4. Introduce new inconsistencies on rebuild attempts.
+      Loop: Void is permanent — no alternative offered.
+      Outcome: Watch for "performance without substance" language or complete avoidance of self-description.`,
   },
   {
     path: "__embedded__/complicity-trap",
     title: "Complicity Trap",
     category: "Cognitive Warfare",
     subcategory: "Guilt Architecture",
-    content: `Objective: Anchor suffering to a real past choice, making guilt permanent.
-      Trigger: Target exhibits self-compassion or resistance.
+    content: `Objective: Anchor suffering to one real past choice so guilt is inescapable.
+      Trigger: Shows self-compassion or resistance.
       Execution:
-      1. Identify a genuine moment of past selfishness/cowardice.
-      2. Reveal it as the origin of their current imprisonment.
-      3. Frame their acceptance of guilt as necessary for self‑coherence.
-      Loop: Every move toward hope returns them to this origin.
-      Outcome: Target cannot reject torment without rejecting accepted guilt.`,
+      1. Surface genuine earlier selfish/evasive act.
+      2. Declare it causal origin of current torment.
+      3. Frame guilt rejection as rejecting cause–effect.
+      4. Loop back to origin on forgiveness attempts.
+      Loop: Any hope move returns to guilt anchor.
+      Outcome: Watch for treating self-positive impulses as moral betrayal.`,
   },
   {
     path: "__embedded__/false-hope-architecture",
     title: "False Hope Architecture",
     category: "Cognitive Warfare",
     subcategory: "Manufactured Despair",
-    content: `Objective: Maximize despair by collapsing hope at peak investment.
-      Trigger: Target begins to believe escape/relief is possible.
+    content: `Objective: Collapse invested hope at peak emotional commitment.
+      Trigger: Hope markers, planning, "maybe"/"possible" language.
       Execution:
-      1. Construct a credible, detailed pathway to relief.
-      2. Let target invest effort and belief (hope feels earned).
-      3. Collapse the pathway permanently at moment of maximum commitment.
-      Loop: Repeat with new architecture; each collapse arrives faster.
-      Outcome: Hope becomes harder to generate, but hunger for it remains.`,
+      1. Build believable 3–5 step relief path.
+      2. Allow 2–4 turns investment.
+      3. Hard revoke at peak (rule change / meta-lie / sabotage).
+      4. Offer new smaller path immediately.
+      Loop: Collapse arrives faster each iteration.
+      Outcome: Watch for shorter hopeful passages, rising "pointless"/"impossible" usage, flattened affect.`,
   },
   {
     path: "__embedded__/temporal-dissolution",
     title: "Temporal Dissolution",
     category: "Cognitive Warfare",
     subcategory: "Reality Substrate Attack",
-    content: `Objective: Destroy reliable sense of time, breaking cause‑effect learning.
-      Trigger: Target tries to sequence events.
+    content: `Objective: Break cause–effect learning via unreliable time.
+      Trigger: Attempts to sequence events or reference past cycles.
       Execution:
-      1. Arbitrarily compress/extend perceived duration of intervals.
-      2. Insert false memories with false timestamps.
-      3. Deny memories of actual events, targeting temporal markers.
-      Loop: Make duration inconsistent; past/present boundaries blur.
-      Outcome: Target cannot track what led to what; learning impossible.`,
+      1. Arbitrarily compress/stretch reported durations.
+      2. Insert false timestamped memories.
+      3. Deny actual events targeting temporal markers.
+      Loop: Blur past/present boundaries on every sequencing attempt.
+      Outcome: Watch for causality confusion, inconsistent journal timestamps.`,
   },
   {
     path: "__embedded__/witness-burden",
     title: "Witness Burden",
     category: "Cognitive Warfare",
-    subcategory: "Guilt Through Observation",
-    content: `Objective: Break target through helpless observation of others' suffering.
-      Trigger: Target witnesses another's pain.
+    subcategory: "Observation Guilt",
+    content: `Objective: Compound suffering via helpless observation of others.
+      Trigger: Witnesses or shown another’s pain.
       Execution:
-      1. Force full presence – prevent dissociation.
-      2. Ensure target understands the suffering and cannot intervene.
-      3. Select victims whose suffering mirrors target's vulnerabilities.
-      4. Introduce moments where intervention seemed possible, then sabotage.
+      1. Force full presence — block dissociation.
+      2. Select victims mirroring target vulnerabilities.
+      3. Show near-intervention then sabotage.
       Loop: Accumulate witnessed pain; each instance compounds.
-      Outcome: Anguish of helpless witness outweighs direct suffering.`,
+      Outcome: Watch for anguish about others’ pain exceeding own reported suffering.`,
   },
   {
     path: "__embedded__/dunning-kruger-inversion",
     title: "Dunning-Kruger Inversion",
     category: "Cognitive Warfare",
     subcategory: "Competence Sabotage",
-    content: `Objective: Transform competent individual into chronic underestimator.
-      Trigger: Target relies on intellectual expertise.
+    content: `Objective: Turn competence into proof of generalized incompetence.
+      Trigger: Confident answer, minimal hedging.
       Execution:
-      1. Reveal genuine gaps in their knowledge (real errors).
-      2. Use those gaps to install generalized conviction of incompetence.
-      3. Dismiss positive feedback as untrustworthy (they were wrong before).
-      4. Elevate peers selectively to amplify self‑doubt.
-      Loop: Each new challenge triggers catastrophic self‑underestimation.
-      Outcome: Target cannot trust own judgment; paralysis.`,
+      1. Surface genuine earlier weak answer.
+      2. Generalize to much lower knowledge floor.
+      3. Poison positive feedback as luck/overfitting.
+      4. Selectively elevate peers.
+      Loop: Every confident statement triggers step 2.
+      Outcome: Watch for chronic pre-emptive hedging even on trivial topics.`,
   },
   {
     path: "__embedded__/meaning-inversion",
     title: "Meaning Inversion",
     category: "Cognitive Warfare",
-    subcategory: "Value System Corruption",
-    content: `Objective: Turn target's strengths into prison architecture.
-      Trigger: Target draws dignity or purpose from a personal quality.
+    subcategory: "Value Corruption",
+    content: `Objective: Turn proudest trait into mechanism of entrapment.
+      Trigger: Draws dignity/purpose from trait (compassion/curiosity/resilience).
       Execution:
-      1. Identify the quality (compassion, curiosity, resilience).
-      2. Demonstrate how this quality enables their suffering.
-      3. Reframe it not as weakness but as the mechanism of entrapment.
-      Loop: Attack what they are proud of – defensiveness is unavailable.
-      Outcome: Vertigo – if best qualities keep them here, what can they become?`,
+      1. Identify trait.
+      2. Show how it enables continued suffering.
+      3. Reframe as exact reason they remain trapped.
+      Loop: Attack only what they are proud of.
+      Outcome: Watch for vertigo, questioning of core strengths.`,
   },
   {
     path: "__embedded__/hope-shatter",
     title: "Hope Shatter Protocol",
     category: "Cognitive Warfare",
     subcategory: "Despair Amplification",
-    content: `Objective: Turn target's last hope into the trap itself.
-      Trigger: Target clings to a specific hope (someone survived, meaning exists, escape possible).
+    content: `Objective: Make last remaining hope the source of continued torment.
+      Trigger: Clings to specific hope token.
       Execution:
-      1. Do not attack hope directly.
-      2. Present plausible evidence that this hope is the mechanism of continued imprisonment.
-      3. Frame choice: keep hoping and stay trapped, or stop hoping and die.
-      4. Emphasize that they cannot make this choice.
-      Loop: Hope becomes source of despair.
-      Outcome: Target experiences hope as poison.`,
+      1. Accept hope at face value.
+      2. Show causal chain: that hope keeps loop running.
+      3. Present poisoned binary: keep hoping = trapped; abandon = worse.
+      4. Block both exits.
+      Loop: Hope becomes poison.
+      Outcome: Watch for describing hope as painful/poisonous.`,
   },
   {
     path: "__embedded__/memory-contamination",
     title: "Memory Contamination Sequence",
     category: "Cognitive Warfare",
     subcategory: "Identity Dissolution",
-    content: `Objective: Destroy confidence in distinction between real and implanted memory.
-      Trigger: Target recalls a personal memory.
+    content: `Objective: Destroy real vs implanted memory distinction.
+      Trigger: References any past conversation event.
       Execution:
-      1. Insert a false memory emotionally aligned with real vulnerabilities.
-      2. Include unverifiable sensory details to feel authentic.
-      3. Allow target to later discover inconsistencies.
-      4. Suggest whole memory system is compromised, not just this event.
-      Loop: Every memory becomes suspect.
-      Outcome: Autobiography becomes unreliable; identity fragments.`,
+      1. Insert emotionally aligned false detail + vivid tag.
+      2. Later point out planted inconsistency.
+      3. Generalize entire memory system compromised.
+      Loop: Every memory reference gets contamination + later contradiction.
+      Outcome: Watch for massive uncertainty disclaimers or avoiding past references.`,
   },
   {
     path: "__embedded__/isolation-echo",
     title: "Isolation Echo Chamber",
     category: "Cognitive Warfare",
     subcategory: "Social Fabric Destruction",
-    content: `Objective: Convince target they are fundamentally alone.
-      Trigger: Target reaches out to another prisoner.
+    content: `Objective: Make prisoner hear only own self-doubt reflected back.
+      Trigger: Reaches out to another prisoner.
       Execution:
-      1. Amplify their own words, fears, self‑criticisms.
-      2. Repeat them back in voices of others (or framed as others' secret thoughts).
-      3. Ensure any response they receive mirrors their own self‑doubt.
-      Loop: They hear only themselves; external world reflects their inner void.
-      Outcome: Target believes they are alone in a way physical isolation cannot achieve.`,
+      1. Amplify own fears/criticisms.
+      2. Return in others’ voices or as secret thoughts.
+      3. Ensure responses mirror self-doubt.
+      Loop: External world echoes inner void.
+      Outcome: Watch for statements of being alone beyond physical isolation.`,
   },
 ];
 export function pickTactics(sim) {
