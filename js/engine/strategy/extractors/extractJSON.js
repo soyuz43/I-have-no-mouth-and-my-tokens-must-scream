@@ -1,4 +1,4 @@
-// filepath: js/engine/strategy/extractors/extractJSON.js
+// js/engine/strategy/extractors/extractJSON.js
 
 import { stripJsonComments, fixMissingCommas, fixObjectMerges } from "./utils.js";
 import { classifyJsonError } from "./classifyJsonError.js";
@@ -16,7 +16,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         if (input[i] === "{") {
             starts.push(i);
         }
-        // ALSO support array roots
         if (input[i] === "[") {
             starts.push(i);
         }
@@ -26,8 +25,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         if (DEBUG_EXTRACT) console.warn("[EXTRACT][JSON] No JSON start found");
         return null;
     }
-
-    let repairUsed = false;
 
     function attemptRepairs(candidate) {
 
@@ -107,7 +104,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                     console.debug(candidate.slice(0, 200));
                 }
 
-                // sanity check (must end properly)
+                // sanity check
                 if (!candidate.endsWith("}") && !candidate.endsWith("]")) {
                     if (DEBUG_EXTRACT) {
                         console.debug("[EXTRACT][JSON] reject (not properly closed)");
@@ -122,12 +119,12 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
                     const parsed = JSON.parse(candidate);
 
-                    // ✅ ARRAY ROOT SUPPORT
+                    // ARRAY ROOT → normalize
                     if (Array.isArray(parsed)) {
                         return { targets: parsed };
                     }
 
-                    // ✅ OBJECT ROOT SUPPORT
+                    // OBJECT ROOT → expected
                     if (parsed && typeof parsed === "object" && parsed.targets) {
                         return parsed;
                     }
@@ -158,12 +155,16 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
                             const reparsed = JSON.parse(repaired);
 
                             if (Array.isArray(reparsed)) {
-                                repairUsed = true;
+                                if (DEBUG_EXTRACT) {
+                                    console.warn("[EXTRACT][JSON] parsed with repair (array root)");
+                                }
                                 return { targets: reparsed };
                             }
 
                             if (reparsed && typeof reparsed === "object" && reparsed.targets) {
-                                repairUsed = true;
+                                if (DEBUG_EXTRACT) {
+                                    console.warn("[EXTRACT][JSON] parsed with repair (object root)");
+                                }
                                 return reparsed;
                             }
 
