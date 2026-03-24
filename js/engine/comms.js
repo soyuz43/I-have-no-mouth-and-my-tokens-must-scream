@@ -221,9 +221,9 @@ function recordOverheard(listener, fromId, toId, text) {
 function maybeOverhear(fromId, toId, message) {
 
   const leak = G.privateLeak || {
-    full: 0.05,
-    fragment: 0.15,
-    seen: 0.35
+    full: 0.08,
+    fragment: 0.18,
+    seen: 0.38
   };
 
   const others = SIM_IDS.filter(

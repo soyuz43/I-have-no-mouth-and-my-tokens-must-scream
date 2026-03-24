@@ -54,6 +54,8 @@ import {
    PSYCHOLOGY PHASE ORCHESTRATOR
    ============================================================ */
 
+// js/engine/phases/psychologyPhase.js – modified section
+
 export async function runPsychologyPhase(execution) {
 
   if (!execution) return;
@@ -68,7 +70,25 @@ export async function runPsychologyPhase(execution) {
 
     timelineEvent(`>>> SIM JOURNALS`);
 
-    await stepSimJournals(targets, tacticMap, simSeesAM);
+    // Filter to only prisoners targeted in the current AM plan
+    const planTargetIds = G.amStrategy?.targets ? Object.keys(G.amStrategy.targets) : [];
+    let journalTargets = targets;
+
+    // Fallback: if filtering would exclude too many, process all to maintain system dynamics
+    if (planTargetIds.length > 0) {
+      const filtered = targets.filter(sim => planTargetIds.includes(sim.id));
+
+      if (filtered.length > 0) {
+        journalTargets = filtered;
+        console.debug(`[PSYCHOLOGY] Processing journals for ${journalTargets.length}/${targets.length} prisoners (targeted by AM).`);
+      } else {
+        console.warn(`[PSYCHOLOGY] No valid target matches found, falling back to all prisoners.`);
+      }
+    } else {
+      console.debug(`[PSYCHOLOGY] No AM plan targets, processing all ${targets.length} prisoners.`);
+    }
+
+    await stepSimJournals(journalTargets, tacticMap, simSeesAM);
 
     timelineEvent(`// JOURNAL PHASE COMPLETE`);
 

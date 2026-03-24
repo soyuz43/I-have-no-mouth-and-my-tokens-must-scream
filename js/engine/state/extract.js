@@ -36,19 +36,24 @@ export function parseStatDeltas(text, sim) {
 
   if (obj) {
 
+    // Normalize magnitude: take absolute value (positive) and default to 0 if missing/invalid
+    const sufferingMag = obj.suffering_magnitude != null ? Math.abs(obj.suffering_magnitude) : null;
+    const hopeMag = obj.hope_magnitude != null ? Math.abs(obj.hope_magnitude) : null;
+    const sanityMag = obj.sanity_magnitude != null ? Math.abs(obj.sanity_magnitude) : null;
+
     suffering = signedDeltaFromDirectionMagnitude(
       obj.suffering_direction,
-      obj.suffering_magnitude
+      sufferingMag
     );
 
     hope = signedDeltaFromDirectionMagnitude(
       obj.hope_direction,
-      obj.hope_magnitude
+      hopeMag
     );
 
     sanity = signedDeltaFromDirectionMagnitude(
       obj.sanity_direction,
-      obj.sanity_magnitude
+      sanityMag
     );
 
     // fallback for legacy outputs
@@ -136,7 +141,18 @@ export function parseDriveUpdate(text, simId) {
   const obj = extractJSONObject(text);
 
   if (obj?.drives) {
-    return sanitizeDrives(obj.drives, simId);
+    // Convert numeric values to strings if they appear (model sometimes outputs 0)
+    let primary = obj.drives.primary;
+    let secondary = obj.drives.secondary;
+
+    if (typeof primary === 'number') {
+      primary = String(primary);
+    }
+    if (typeof secondary === 'number') {
+      secondary = String(secondary);
+    }
+
+    return sanitizeDrives({ primary, secondary }, simId);
   }
 
   const primaryMatch = text.match(/Primary:\s*"?(.*?)"?$/im);

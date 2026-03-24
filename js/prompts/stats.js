@@ -100,33 +100,17 @@ This may influence emotional tone but **should not override the journal's conten
 
 To maintain long-term simulation stability:
 
-1. **State Inertia**
-Psychological values resist sudden change.
+1. **State Inertia** – Psychological values resist sudden change, but the journal can override inertia when it clearly describes a profound shift.
+2. **Equilibrium Bias** – Extremely low or high values change more slowly (e.g., hope near 0 rarely decreases further).
+3. **Anti‑Collapse Rule** – Avoid states collapsing toward extremes unless strongly justified by the journal text.
+4. **Belief Drift** – Belief changes usually stay within -5 to +5 percentage points, but may go up to ±10 when the journal directly attacks the belief.
+5. **Anchor Dynamics**  
+   Anchors represent what the prisoner holds onto.  
+   - If the journal expresses giving up ("I give up", "nothing matters", "there's no point"), anchors may weaken or disappear.  
+   - If the journal actively rejects an anchor ("that was a lie", "I can't rely on that anymore"), remove it.  
+   - If the journal finds new meaning or purpose, a new anchor may appear.
 
-2. **Equilibrium Bias**
-Extremely low or high values change **more slowly**.
-
-Example:
-- hope near 0 rarely decreases further
-- suffering near 100 rarely increases further
-
-3. **Anti-Collapse Rule**
-
-Avoid states collapsing toward extremes unless strongly justified.
-
-Typical ranges tend to stabilize around:
-
-- suffering: 40–85
-- hope: 5–40
-- sanity: 30–80
-
-4. **Belief Drift Constraint**
-
-Belief changes should usually remain within:
-
--5 to +5 percentage points
-
-Rarely exceed ±10.
+If the journal describes a clear psychological turning point (e.g., “I give up”, “I see the truth now”), you may use a stronger magnitude or larger belief delta, as long as it is supported by the text.
 
 ---
 
@@ -184,32 +168,33 @@ Rules:
 
 ---
 
+
 ### Step 3 — Estimate Magnitude
 
-Psychological shifts should usually be small.
+Psychological shifts should generally be small, but the journal text may justify larger moves.
 
-Magnitude scale:
+Magnitude scale (absolute change in percentage points):
 
 | Magnitude | Meaning |
 |-----------|--------|
-| 1–2 | minimal shift |
-| 3–5 | moderate shift |
-| 6–8 | strong shift (rare) |
-| 9–12 | extreme shift (very rare) |
+| 1–3 | subtle shift |
+| 4–6 | moderate shift |
+| 7–10 | strong shift (requires clear justification, e.g., "shattered", "crushed", "transformed") |
+| 10+ | extreme shift (very rare; only if the journal describes a complete breakdown or revelation) |
 
-Prefer **1–4** for most entries.
+- Most entries will result in changes between **1 and 6**.
+- If the journal uses intense language like "nothing matters anymore", "I am broken", "I can't go on", stronger magnitudes are appropriate.
+- When a variable is near an extreme (e.g., hope below 10 or above 90), further changes should be smaller.
 
 ---
 
 ### Step 4 — Belief Adjustment
 
-Beliefs update slowly.
+Beliefs shift gradually, but can move more when the journal directly challenges a core belief.
 
-Examples:
-
-- oppression framing → am_has_limits decreases
-- self-blame → self_worth decreases
-- trust in others → others_trustworthy increases
+- Typical belief deltas: -5 to +5 percentage points
+- For a deeply held belief that is explicitly contradicted, deltas up to ±10 are acceptable.
+- Avoid repeated large deltas on the same belief without narrative justification.
 
 ---
 
@@ -227,14 +212,14 @@ Rules:
 
 ### Step 6 — Anchor Persistence
 
-Anchors usually remain.
+Anchors usually persist, but the journal can cause them to shift.
 
 Possible outcomes:
-
 - unchanged anchors
-- strengthened anchors
-- one new anchor added
-- rare removal
+- strengthened anchors (if the journal reaffirms them)
+- one new anchor added (if the journal finds new meaning or purpose)
+- weakening of an anchor (if the journal shows doubt)
+- **rare removal** (if the journal explicitly rejects an anchor or expresses total surrender)
 
 ---
 

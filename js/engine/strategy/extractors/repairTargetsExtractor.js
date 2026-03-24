@@ -67,15 +67,53 @@ export function repairTargetsExtractor(input, { DEBUG_EXTRACT = false } = {}) {
                     // -------------------------------
                     // STRUCTURAL REPAIRS
                     // -------------------------------
-
-                    let repaired = arrayStr
+                    let repaired = arrayStr;
 
                     repaired = stripJsonComments(repaired);
                     repaired = fixMissingCommas(repaired);
 
                     // structural fixes AFTER baseline normalization
-                    repaired = repaired
-                        .replace(/}\s*{/g, "},{");
+                    repaired = repaired.replace(/}\s*{/g, "},{");
+
+                    // apply string repair LAST (align with extractJSON + targetsExtractor)
+                    let out = "";
+                    let inString = false;
+                    let escape = false;
+
+                    for (let i = 0; i < repaired.length; i++) {
+                        const ch = repaired[i];
+
+                        if (escape) {
+                            out += ch;
+                            escape = false;
+                            continue;
+                        }
+
+                        if (ch === "\\") {
+                            out += ch;
+                            escape = true;
+                            continue;
+                        }
+
+                        if (ch === '"') {
+                            const next = repaired[i + 1];
+
+                            if (inString) {
+                                if (next && ![",", "}", "]", ":"].includes(next)) {
+                                    out += '\\"';
+                                    continue;
+                                }
+                            }
+
+                            inString = !inString;
+                            out += ch;
+                            continue;
+                        }
+
+                        out += ch;
+                    }
+
+                    repaired = out;
 
                     if (DEBUG_EXTRACT) {
                         console.debug("[REPAIR] repaired array:");
