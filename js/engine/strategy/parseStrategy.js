@@ -107,22 +107,34 @@ export function parseStrategyDeclarations(text) {
       console.debug("[PARSER CONFIG] repairLevel:", repairLevel);
 
       // ------------------------------------------------------------
-      // EXTRACTOR SELECTION
+      // EXTRACTOR SELECTION (ALIGNED WITH NEW ARCHITECTURE)
       // ------------------------------------------------------------
       const extractors = [];
 
+      /**
+       * LEVEL 0:
+       * Unified extractor (strict + repair + schema-aware + salvage)
+       */
       if (repairLevel >= 0) {
-        extractors.push({ name: "strict-json", fn: extractJSON });
+        extractors.push({ name: "json-unified", fn: extractJSON });
       }
 
+      /**
+       * LEVEL 1:
+       * Explicit schema extractor (instrumentation + redundancy)
+       * Useful for measuring fallback behavior
+       */
       if (repairLevel >= 1) {
         extractors.push({ name: "targets-array", fn: extractTargetsArray });
       }
 
+      /**
+       * LEVEL 2:
+       * Aggressive structural repair (last resort)
+       */
       if (repairLevel >= 2) {
         extractors.push({ name: "repair-targets", fn: repairTargetsExtractor });
       }
-
       // ------------------------------------------------------------
       // AUTO-TUNE (TYPE-AWARE + RATE-AWARE)
       // ------------------------------------------------------------
@@ -220,7 +232,16 @@ export function parseStrategyDeclarations(text) {
           // auto-tune on success
           autoTuneRepairLevel();
 
-          return result;
+          const enriched = {
+            ...result,
+            meta: { extractor: name }
+          };
+
+          if (DEBUG) {
+            console.debug("[EXTRACTION PATH]", name);
+          }
+
+          return enriched;
         }
 
         // classify FIRST failure only
@@ -230,7 +251,6 @@ export function parseStrategyDeclarations(text) {
 
         console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
       }
-
       // ------------------------------------------------------------
       // FINAL FAILURE
       // ------------------------------------------------------------
@@ -377,7 +397,7 @@ export function parseStrategyDeclarations(text) {
           return;
         }
       }
-      
+
       // ------------------------------------------------------------
       // ID VALIDATION (with fuzzy fallback)
       // ------------------------------------------------------------

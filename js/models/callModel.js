@@ -152,7 +152,7 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
      ===================== CLEANING =============================
      ============================================================ */
 
-  // const cleaned = stripThinkTags(raw);
+  const cleaned = stripThinkTags(raw);
 
   // console.log(
   //   "%c++++ CLEANED MODEL OUTPUT ++++",

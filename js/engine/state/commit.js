@@ -73,16 +73,17 @@ export function applyDriveUpdates(sim, drives) {
 
   if (!sim || !drives || typeof drives !== "object") return;
 
+  // Only update primary if it's a non‑empty string
   if (typeof drives.primary === "string" && drives.primary.trim()) {
-
     sim.drives.primary = drives.primary.trim();
-
   }
 
-  sim.drives.secondary =
-    typeof drives.secondary === "string" && drives.secondary.trim()
+  // Update secondary (can be null or string)
+  if (drives.secondary !== undefined) {
+    sim.drives.secondary = (typeof drives.secondary === "string" && drives.secondary.trim())
       ? drives.secondary.trim()
       : null;
+  }
 
 }
 

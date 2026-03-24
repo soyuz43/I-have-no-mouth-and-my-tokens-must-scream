@@ -60,34 +60,35 @@ export function sanitizeDrives(raw, simId) {
 
   if (!raw || typeof raw !== "object") return null;
 
-  let primary =
-    raw.primary == null ? null : String(raw.primary).trim() || null;
+  // Helper to clean and validate a drive string
+  function cleanDrive(value) {
+    if (value == null) return null;
+    let str = String(value).trim();
+    if (str === "") return null;
+    // Reject if it's purely numeric (including "0", "123", "-5")
+    if (/^-?\d+$/.test(str)) return null;
+    if (str.toLowerCase() === "none") return null;
+    return str;
+  }
 
-  let secondary =
-    raw.secondary == null ? null : String(raw.secondary).trim() || null;
+  let primary = cleanDrive(raw.primary);
+  let secondary = cleanDrive(raw.secondary);
 
-  if (secondary && secondary.toLowerCase() === "none") secondary = null;
-  if (primary && primary.toLowerCase() === "none") primary = null;
-
+  // Prevent self-reference
   const selfRefRegex = new RegExp(simId, "i");
-
   if (
     (primary && selfRefRegex.test(primary)) ||
     (secondary && selfRefRegex.test(secondary))
   ) {
-
     console.warn(
       `Drive self-reference detected for ${simId}: primary="${primary}", secondary="${secondary}"`
     );
-
     return null;
-
   }
 
   if (!primary && !secondary) return null;
 
   return { primary, secondary };
-
 }
 
 export function sanitizeAnchors(raw) {
