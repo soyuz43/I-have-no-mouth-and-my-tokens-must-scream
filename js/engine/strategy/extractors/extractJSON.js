@@ -3,72 +3,12 @@
 import {
   stripJsonComments,
   fixMissingCommas,
-  fixObjectMerges
+  fixObjectMerges,
+  splitMergedObjectsById,
+  fixBrokenStrings
 } from "./utils.js";
 
 import { classifyJsonError } from "./classifyJsonError.js";
-
-/* ============================================================
-   STRING REPAIR (SAFE, LOCAL)
-============================================================ */
-
-/**
- * Fixes unescaped quotes inside strings WITHOUT changing structure.
- *
- * Strategy:
- * - Track string state
- * - If a quote appears where it cannot legally terminate a string,
- *   escape it instead of closing the string.
- *
- * This prevents cases like:
- *   "I""  →  "I\""
- *
- * IMPORTANT:
- * This is intentionally conservative. It does NOT attempt to
- * "guess" missing structure.
- */
-function fixBrokenStrings(input) {
-  let out = "";
-  let inString = false;
-  let escape = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-
-    if (escape) {
-      out += ch;
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      out += ch;
-      escape = true;
-      continue;
-    }
-
-    if (ch === '"') {
-      const next = input[i + 1];
-
-      if (inString) {
-        // If this quote is NOT followed by a valid terminator,
-        // treat it as a broken quote and escape it.
-        if (next && ![",", "}", "]", ":"].includes(next)) {
-          out += '\\"';
-          continue;
-        }
-      }
-
-      inString = !inString;
-      out += ch;
-      continue;
-    }
-
-    out += ch;
-  }
-
-  return out;
-}
 
 /* ============================================================
    SCHEMA-AWARE TARGETS EXTRACTION
@@ -152,29 +92,33 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     console.debug("[REPAIR] classified as:", errorType);
   }
 
-  // Always safe
+  // -------------------------------
+  // BASELINE NORMALIZATION (always safe)
+  // -------------------------------
   repaired = stripJsonComments(repaired);
+  repaired = fixMissingCommas(repaired);
 
-  switch (errorType) {
-    case "missing_comma":
-      repaired = fixMissingCommas(repaired);
-      break;
+  // CRITICAL: split merged objects early
+  repaired = splitMergedObjectsById(repaired);
 
-    case "structural_merge":
-      repaired = fixObjectMerges(repaired);
-      break;
-
-    case "truncated":
-      // Do not attempt structural repair
-      return candidate;
+  // -------------------------------
+  // CONDITIONAL STRUCTURAL FIXES
+  // -------------------------------
+  if (errorType === "structural_merge") {
+    repaired = fixObjectMerges(repaired);
   }
 
-  // Always apply string repair last
+  if (errorType === "truncated") {
+    return candidate;
+  }
+
+  // -------------------------------
+  // FINAL STRING REPAIR (ONCE)
+  // -------------------------------
   repaired = fixBrokenStrings(repaired);
 
   return repaired;
 }
-
 /* ============================================================
    MAIN EXTRACTION
 ============================================================ */
@@ -191,7 +135,7 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
  *   or null
  */
 export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
-
+  const candidates = [];
   if (DEBUG_EXTRACT) {
     console.debug("[EXTRACT][JSON] Input length:", input.length);
   }
@@ -256,7 +200,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
       if (complete) {
 
         const candidate = input.slice(start, i + 1).trim();
-
+        const hasTargetsKey = candidate.includes('"targets"');
         if (DEBUG_EXTRACT) {
           console.debug("[EXTRACT][JSON] Candidate:");
           console.debug(candidate.slice(0, 200));
@@ -265,11 +209,26 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         /* --------------------------
            PARSE ATTEMPT
         -------------------------- */
+
         try {
           const parsed = JSON.parse(candidate);
 
-          if (Array.isArray(parsed)) return { targets: parsed };
-          if (parsed && parsed.targets) return parsed;
+          if (parsed && parsed.targets) {
+            candidates.push({
+              parsed,
+              score: 100 + parsed.targets.length * 10,
+              source: "direct"
+            });
+          }
+
+          // Only accept arrays or objects WITHOUT targets if we don't have better options
+          if (!hasTargetsKey && Array.isArray(parsed)) {
+            candidates.push({
+              parsed: { targets: parsed },
+              score: 40 + parsed.length * 5,
+              source: "array"
+            });
+          }
 
         } catch (err) {
 
@@ -289,8 +248,23 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           try {
             const reparsed = JSON.parse(repaired);
 
-            if (Array.isArray(reparsed)) return { targets: reparsed };
-            if (reparsed && reparsed.targets) return reparsed;
+            // PRIORITY
+            if (reparsed && reparsed.targets) {
+              candidates.push({
+                parsed: reparsed,
+                score: 80 + reparsed.targets.length * 10,
+                source: "repair"
+              });
+            }
+
+            // fallback only if not a targets candidate
+            if (!hasTargetsKey && Array.isArray(reparsed)) {
+              candidates.push({
+                parsed: { targets: reparsed },
+                score: 30 + reparsed.length * 5,
+                source: "repair-array"
+              });
+            }
 
           } catch (e2) {
             if (DEBUG_EXTRACT) {
@@ -299,9 +273,30 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           }
         }
 
+
         break;
       }
     }
+  }
+  
+  // best structured + most complete + least repaired wins
+  if (candidates.length > 0) {
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    const best = candidates[0];
+
+    if (DEBUG_EXTRACT) {
+      console.group("[EXTRACT][JSON] candidate scoring");
+      console.table(candidates.map(c => ({
+        source: c.source,
+        score: c.score,
+        targets: c.parsed.targets?.length || 0
+      })));
+      console.groupEnd();
+    }
+
+    return best.parsed;
   }
 
   /* ------------------------------------------------------------
@@ -356,7 +351,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         });
       }
 
-    } catch {}
+    } catch { }
 
     pos = end + 1;
     if (targets.length >= 5) break;

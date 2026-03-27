@@ -313,12 +313,20 @@ export function parseStrategyDeclarations(text) {
     if (typeof parsed !== "object" || parsed === null) {
       throw new Error("Root must be a JSON object");
     }
+    // ------------------------------------------------------------
+    // NORMALIZE ROOT (strip meta + future non-schema keys)
+    // ------------------------------------------------------------
+    if (parsed.targets) {
+      parsed = { targets: parsed.targets };
+    }
 
-    const keys = Object.keys(parsed);
+    // ------------------------------------------------------------
+    // ROOT VALIDATION
+    // ------------------------------------------------------------
 
-    if (keys.length !== 1 || !keys.includes("targets")) {
-      console.trace("Invalid root keys:", keys);
-      throw new Error("Root must contain exactly: targets");
+    if (!parsed.targets || !Array.isArray(parsed.targets)) {
+      console.trace("Invalid root structure:", parsed);
+      throw new Error("Root must contain: targets[]");
     }
 
     if (!Array.isArray(parsed.targets)) {
@@ -369,35 +377,133 @@ export function parseStrategyDeclarations(text) {
 
 
       // ------------------------------------------------------------
-      // PLACEHOLDER FALLBACK: infer from evidence
+      // PLACEHOLDER FALLBACK: infer from evidence (WEIGHTED + CONFIDENCE)
       // ------------------------------------------------------------
-      const placeholderPatterns = [
-        /^<NAME>$/i, /^NAME$/i,
-        /^<PRISONER>$/i, /^PRISONER$/i,
-        /^<SIM>$/i, /^SIM$/i,
-        /^<TARGET>$/i, /^TARGET$/i,
-        /^<SUBJECT>$/i, /^SUBJECT$/i,
-        /^<ID>$/i, /^ID$/i,
-        /^<UNKNOWN>$/i, /^UNKNOWN$/i,
-        /^<HOLDER>$/i, /^HOLDER$/i,
+      const TOKENS = [
+        "NAME", "PRISONER", "SIM", "TARGET",
+        "SUBJECT", "ID", "UNKNOWN", "HOLDER",
+        "PERSON", "INDIVIDUAL", "AGENT", "ENTITY"
       ];
+
+      const placeholderPatterns = TOKENS.flatMap(t => ([
+        new RegExp(`^<\\s*${t}\\s*>$`, "i"),
+        new RegExp(`^${t}$`, "i"),
+        new RegExp(`^\\[\\s*${t}\\s*\\]$`, "i"),
+        new RegExp(`^\\(\\s*${t}\\s*\\)$`, "i"),
+        new RegExp(`^${t}[_\\d]*$`, "i"),
+      ]));
+
       const isPlaceholder = placeholderPatterns.some(pattern => pattern.test(id.trim()));
+
       if (isPlaceholder) {
-        console.warn(`[PARSER] Placeholder ID detected: "${id}" – attempting inference from fields.`);
-        const text = `${evidence} ${why_now} ${objective} ${hypothesis}`.toUpperCase();
-        const matches = SIM_IDS.filter(name => text.includes(name));
-        if (matches.length === 1) {
-          normalizedId = matches[0];
-          console.warn(`[PARSER] Inferred target: ${normalizedId} from fields.`);
-        } else if (matches.length > 1) {
-          console.warn(`[PARSER] Multiple possible targets found: ${matches.join(", ")} – skipping target.`);
-          return;
-        } else {
+        console.warn(`[PARSER] Placeholder ID detected: "${id}" – attempting weighted inference.`);
+
+        // ------------------------------------------------------------
+        // NORMALIZATION
+        // ------------------------------------------------------------
+
+        // will NOT match "GORRI STER"
+        const norm = (s) => (s || "")
+          .toUpperCase()
+          .replace(/'S\b/g, "")
+          .replace(/[^A-Z0-9\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const fields = {
+          objective: norm(objective),
+          evidence: norm(evidence),
+          hypothesis: norm(hypothesis),
+          why_now: norm(why_now),
+        };
+
+        // ------------------------------------------------------------
+        // PRECOMPILE NAME REGEX
+        // ------------------------------------------------------------
+        const NAME_REGEX = {};
+        SIM_IDS.forEach(name => {
+          NAME_REGEX[name] = new RegExp(`\\b${name}\\b`, "g");
+        });
+
+        const count = (str, name) => {
+          return (str.match(NAME_REGEX[name]) || []).length;
+        };
+
+        // ------------------------------------------------------------
+        // WEIGHTED SCORING
+        // ------------------------------------------------------------
+        const score = {};
+        SIM_IDS.forEach(name => { score[name] = 0; });
+
+        SIM_IDS.forEach(name => {
+          score[name] += count(fields.objective, name) * 3;
+          score[name] += count(fields.evidence, name) * 2;
+          score[name] += count(fields.hypothesis, name) * 1;
+          score[name] += count(fields.why_now, name) * 1;
+        });
+
+        if (DEBUG) {
+          console.debug("[PARSER][SCORES]", score);
+        }
+
+        // ------------------------------------------------------------
+        // RANKING
+        // ------------------------------------------------------------
+        const ranked = Object.entries(score)
+          .filter(([_, v]) => v > 0)
+          .sort((a, b) => b[1] - a[1]);
+
+        if (ranked.length === 0) {
           console.warn(`[PARSER] No valid target found in fields – skipping target.`);
           return;
         }
-      }
 
+        const [topName, topScore] = ranked[0];
+        const secondScore = ranked[1]?.[1] || 0;
+
+        // ------------------------------------------------------------
+        // THRESHOLDS
+        // ------------------------------------------------------------
+        const MIN_SCORE = 2;
+        const DOMINANCE_RATIO = 1.5;
+
+        // ------------------------------------------------------------
+        // CONFIDENCE CALCULATION
+        // ------------------------------------------------------------
+        const dominance = secondScore === 0 ? 1 : (topScore / secondScore);
+        const strength = Math.min(1, topScore / 6); // saturates after strong signal
+        const confidence = Math.min(1, dominance * strength);
+
+        // ------------------------------------------------------------
+        // DECISION LOGIC
+        // ------------------------------------------------------------
+        if (topScore < MIN_SCORE) {
+          console.warn(`[PARSER] Weak signal (score=${topScore}) – skipping target.`);
+          return;
+        }
+
+        if (dominance < DOMINANCE_RATIO) {
+          console.warn(
+            `[PARSER] Ambiguous targets: ${ranked
+              .map(([n, v]) => `${n}:${v}`)
+              .join(", ")} – skipping target.`
+          );
+          // skip this target, continue parsing others
+          return;
+        }
+
+        // ------------------------------------------------------------
+        // ACCEPT
+        // ------------------------------------------------------------
+        normalizedId = topName;
+
+        console.warn(
+          `[PARSER] Inferred target: ${normalizedId} (score=${topScore}, confidence=${confidence.toFixed(2)})`
+        );
+
+        // Attach confidence for downstream systems (optional but powerful)
+        t._inferenceConfidence = confidence;
+      }
       // ------------------------------------------------------------
       // ID VALIDATION (with fuzzy fallback)
       // ------------------------------------------------------------
@@ -474,7 +580,7 @@ export function parseStrategyDeclarations(text) {
           why_now: why_now.trim()
         },
 
-        confidence: 0.5,
+        confidence: t._inferenceConfidence ?? 0.5,
         lastAssessment: prevTargets[normalizedId]?.lastAssessment || "",
         cycle: G.cycle
       };
