@@ -18,7 +18,11 @@
    This prevents collapse and produces realistic drift.
    ============================================================ */
 
-function dampBeliefDelta(belief, delta) {
+export function dampBeliefDeltaLogged(
+  belief,
+  delta,
+  { simId = "UNKNOWN", key = "unknown", DEBUG = false } = {}
+) {
 
   const distance = Math.abs(belief - 0.5);
 
@@ -27,20 +31,49 @@ function dampBeliefDelta(belief, delta) {
     1 - (distance * 1.6)
   );
 
-  return delta * resistance;
+  const result = delta * resistance;
 
+  if (DEBUG) {
+    console.debug(`[DAMP][${simId}] ${key}`, {
+      belief_before: belief,
+      delta_input: delta,
+      distance_from_mid: distance,
+      resistance,
+      delta_output: result
+    });
+  }
+
+  return result;
 }
 
-function softClampBelief(v) {
+export function softClampBeliefLogged(
+  v,
+  { simId = "UNKNOWN", key = "unknown", DEBUG = false } = {}
+) {
 
-  if (v < 0) return v * 0.5;
+  let result = v;
+  let mode = "none";
 
-  if (v > 1) return 1 + (v - 1) * 0.5;
+  if (v < 0) {
+    result = v * 0.5;
+    mode = "lower_soft";
+  }
 
-  return v;
+  else if (v > 1) {
+    result = 1 + (v - 1) * 0.5;
+    mode = "upper_soft";
+  }
 
+  if (DEBUG && mode !== "none") {
+    console.debug(`[CLAMP][${simId}] ${key}`, {
+      input: v,
+      output: result,
+      mode
+    });
+  }
+
+  return result;
 }
-
 /* ============================================================
    STATE MUTATION HELPERS
    ============================================================ */

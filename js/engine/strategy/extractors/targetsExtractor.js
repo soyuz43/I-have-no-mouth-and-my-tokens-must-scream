@@ -2,7 +2,8 @@
 
 import {
   stripJsonComments,
-  fixMissingCommas
+  fixMissingCommas,
+  splitMergedObjectsById
 } from "./utils.js";
 
 /* ============================================================
@@ -126,10 +127,15 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
 
           repaired = stripJsonComments(repaired);
           repaired = fixMissingCommas(repaired);
+          repaired = splitMergedObjectsById(repaired);
+
+          // optional safety
+          repaired = repaired.replace(/},\s*,\s*{/g, "},{");
+
+          // final pass
           repaired = fixBrokenStrings(repaired);
 
           try {
-
             const parsedArray = JSON.parse(repaired);
 
             if (!Array.isArray(parsedArray)) continue;
@@ -139,6 +145,7 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
             }
 
             return { targets: parsedArray };
+
 
           } catch (err) {
 

@@ -18,7 +18,7 @@ import {
    BELIEF / DRIVE / ANCHOR SANITIZATION
    ============================================================ */
 
-export function sanitizeBeliefDeltas(raw) {
+export function sanitizeBeliefDeltas(raw, { simId = "UNKNOWN", DEBUG = false } = {}) {
 
   if (!raw || typeof raw !== "object") return null;
 
@@ -33,27 +33,68 @@ export function sanitizeBeliefDeltas(raw) {
   ];
 
   const updates = {};
+  const debugRows = [];
 
   allowed.forEach((key) => {
 
     if (!Object.prototype.hasOwnProperty.call(raw, key)) return;
 
-    let val = Number(raw[key]);
+    let original = raw[key];
+    let val = Number(original);
 
-    if (!Number.isFinite(val)) return;
+    if (!Number.isFinite(val)) {
+      if (DEBUG) console.debug(`[SANITIZE][${simId}] ${key} rejected (non-finite):`, original);
+      return;
+    }
 
-    if (Math.abs(val) > 50) return;
+    let scaleType = "direct";
 
-    val = val / 100;
+    // ------------------------------------------------------------
+    // SCALE HANDLING (CONSERVATIVE)
+    // ------------------------------------------------------------
+    if (Math.abs(val) <= 1) {
+      scaleType = "direct";
+    }
 
+    else if (Math.abs(val) <= 10) {
+      scaleType = "ordinal→/100";
+      val = val / 100;
+    }
+
+    else if (Math.abs(val) <= 100) {
+      scaleType = "percent→/100";
+      val = val / 100;
+    }
+
+    else {
+      if (DEBUG) console.debug(`[SANITIZE][${simId}] ${key} rejected (too large):`, val);
+      return;
+    }
+
+    const beforeClip = val;
     val = clipBeliefDelta(val);
 
     updates[key] = val;
 
+    if (DEBUG) {
+      debugRows.push({
+        key,
+        raw: original,
+        scaled: beforeClip,
+        final: val,
+        scale: scaleType
+      });
+    }
+
   });
 
-  return Object.keys(updates).length ? updates : null;
+  if (DEBUG && debugRows.length) {
+    console.group(`[SANITIZE][${simId}] belief_deltas`);
+    console.table(debugRows);
+    console.groupEnd();
+  }
 
+  return Object.keys(updates).length ? updates : null;
 }
 
 export function sanitizeDrives(raw, simId) {
@@ -92,16 +133,14 @@ export function sanitizeDrives(raw, simId) {
 }
 
 export function sanitizeAnchors(raw) {
-
   if (!Array.isArray(raw)) return null;
 
-  const anchors = raw
-    .map((x) => (x == null ? "" : String(x).trim()))
-    .filter(Boolean)
-    .slice(0, 12);
+const anchors = raw
+  .map(x => (x == null ? "" : String(x).trim()))
+  .filter(Boolean)
+  .slice(0, 12);
 
   const deduped = [...new Set(anchors)];
 
   return deduped.length ? deduped : [];
-
 }
