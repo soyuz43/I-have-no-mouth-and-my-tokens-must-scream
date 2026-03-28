@@ -110,28 +110,38 @@ function parseReply(raw) {
   }
 
   let intentStr = intentLine[1].trim();
-  // Remove markdown bold (and any other asterisks)
-  intentStr = intentStr.replace(/\*/g, '');
-  // Split on &, comma, or whitespace, take first token
-  const possibleIntents = intentStr.split(/[&,\s]+/);
-  const allowed = new Set([
-    "probe_trust", "recruit_ally", "conceal_information",
-    "test_loyalty", "manipulate", "request_help", "other"
-  ]);
 
-  let intent = "other";
-  for (const word of possibleIntents) {
-    const lower = word.toLowerCase();
-    if (allowed.has(lower)) {
-      intent = lower;
-      break;
-    }
+  // Remove markdown artifacts
+  intentStr = intentStr.replace(/\*/g, '');
+
+  // Split on &, comma, or whitespace
+  const possibleIntents = intentStr
+    .split(/[&,\s]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  /*
+  We take the FIRST token as the model's chosen intent.
+  This preserves novel intents instead of collapsing to "other".
+  */
+  let intent = possibleIntents[0]?.toLowerCase() || "";
+
+  intent = intent.replace(/[^a-z0-9_]/g, "");
+
+  // Reject clearly invalid tokens
+  if (!intent || intent.length < 3) {
+    console.warn("[INTENT PARSE] invalid or empty intent", {
+      raw: intentLine[1],
+      cleaned: intent
+    });
+    intent = "other";
   }
 
   return {
     text: replyMatch[1].trim().slice(0, MAX_MESSAGE_LENGTH),
     intent
   };
+
 }
 
 
@@ -438,7 +448,9 @@ export async function runAutonomousInterSim() {
   // --- LOCAL PER-CYCLE STATE (reset each run) ---
   let lastSenderToRecipient = {};
   let lastIntentByPair = {};
+  let intentHistoryByPair = {}; // tracks last N intents per pair
   let negotiationFlags = {};
+  let escalationLevel = {}; // per-sim escalation accumulation
   let lastReplyByPair = {};
   timelineEvent("inter-sim phase start");
 
@@ -707,8 +719,20 @@ export async function runAutonomousInterSim() {
         return;
       }
       const toSim = G.sims[toId];
+
+      /* ------------------------------------------------------------
+         ASSERT: toSim must exist
+      ------------------------------------------------------------ */
+
       if (!toSim) {
-        console.warn(`[COMMS DEBUG] ${fromId} → ${toId} missing sim`);
+        console.error("[COMMS ASSERT] toSim is undefined", {
+          fromId,
+          toId,
+          pairKey,
+          availableSims: Object.keys(G.sims || {})
+        });
+
+        // hard stop — this should never happen in a valid system
         return;
       }
 
@@ -717,6 +741,138 @@ export async function runAutonomousInterSim() {
         content: `${fromId} says to you: "${message}"`,
       });
 
+      // ------------------------------------------------------------
+      // INTENT REPETITION DETECTION
+      // ------------------------------------------------------------
+
+      const intentHistory = intentHistoryByPair[pairKey] || [];
+
+      /*
+      We check last TWO intents:
+      - length >= 2 ensures we have history
+      - equality means repetition loop forming
+      */
+      const repeatedIntent =
+        intentHistory.length >= 2 &&
+        intentHistory[intentHistory.length - 1] === intentHistory[intentHistory.length - 2];
+
+      let intentConstraint = null;
+
+      /*
+      If repetition detected:
+      we forbid the last used intent
+      */
+      if (repeatedIntent) {
+        intentConstraint = (intentHistory[intentHistory.length - 1] || "").toLowerCase();
+      }
+      /* ------------------------------------------------------------
+         ESCALATION + BELIEF CONTEXT
+      ------------------------------------------------------------ */
+
+      // --- ESCALATION ---
+      const esc = escalationLevel[toId] || 0;
+
+      let escalationNote = "";
+
+      if (esc > 3 && esc <= 6) {
+        escalationNote =
+          "Your tone is becoming aggressive. Continued escalation may reduce trust.";
+      }
+
+      if (esc > 6) {
+        escalationNote =
+          "You are over-escalating. Your credibility is at risk. Adjust strategy.";
+      }
+
+      // --- BELIEF ---
+      const trust = toSim.beliefs?.others_trustworthy ?? 0.5;
+
+      let beliefNote = "";
+
+      if (trust < 0.3) {
+        beliefNote =
+          "You strongly distrust others. You are more likely to conceal, test, or manipulate rather than cooperate.";
+      }
+
+      console.group(`[COMMS CONTEXT] ${toId} ← ${fromId}`);
+      console.table({
+        intentConstraint,
+        escalation: esc,
+        trust,
+        beliefTriggered: trust < 0.3
+      });
+      console.log("history:", intentHistory);
+      console.groupEnd();
+
+      const lastReply = lastReplyByPair[pairKey];
+      /* ------------------------------------------------------------
+         PRE-CALL LOOP DETECTION (NEW)
+      ------------------------------------------------------------ */
+
+      let loopDetected = false;
+
+      if (lastReply && similarity(lastReply, message) > 0.75) {
+        loopDetected = true;
+      }
+
+      /* ------------------------------------------------------------
+        PRE-CALL ANTI-LOOP (SOFT INJECTION)
+      ------------------------------------------------------------ */
+
+      if (loopDetected) {
+        const loopNote = `
+You may be repeating yourself or falling into a conversational loop.
+
+Shift your wording or angle slightly to avoid repeating the same phrasing.
+`;
+
+        escalationNote = escalationNote
+          ? escalationNote + "\n\n" + loopNote
+          : loopNote;
+      }
+
+      /* ------------------------------------------------------------
+         DEBUG: PROMPT INJECTION TRACE
+      ------------------------------------------------------------ */
+
+      const injectionDebug = {
+        pair: pairKey,
+        from: fromId,
+        to: toId,
+
+        signals: {
+          loopDetected,
+          repeatedIntent,
+          escalationLevel: esc,
+          trust,
+        },
+
+        injected: {
+          intentConstraint: intentConstraint || null,
+          escalationNote: escalationNote || null,
+          beliefNote: beliefNote || null,
+        }
+      };
+
+      console.group(`[PROMPT INJECTION] ${toId} ← ${fromId}`);
+      console.table(injectionDebug.signals);
+
+      if (injectionDebug.injected.intentConstraint) {
+        console.debug("[INTENT CONSTRAINT]", injectionDebug.injected.intentConstraint);
+      }
+      if (injectionDebug.injected.escalationNote) {
+        console.debug("[ESCALATION NOTE]");
+        console.debug(injectionDebug.injected.escalationNote.trim());
+      }
+
+      if (injectionDebug.injected.beliefNote) {
+        console.debug("[BELIEF NOTE]");
+        console.debug(injectionDebug.injected.beliefNote.trim());
+
+      }
+
+      console.groupEnd();
+
       const replyRaw = await callModel(
         toId,
         buildSimReplyPrompt(
@@ -724,18 +880,176 @@ export async function runAutonomousInterSim() {
           fromId,
           message,
           visibility,
-          G.journals[toId]
+          G.journals[toId],
+          intentConstraint,
+          escalationNote,
+          beliefNote
         ),
         G.threads[toId],
         MAX_MESSAGE_LENGTH
       );
-      if (!replyRaw) return;
 
+      if (!replyRaw) return;
       const replyObj = parseReply(replyRaw);
-      if (!replyObj) return;
+
+      /* ------------------------------------------------------------
+         ASSERT: replyObj must exist
+      ------------------------------------------------------------ */
+
+      if (!replyObj) {
+        console.error("[COMMS ASSERT] replyObj parse failed", {
+          fromId,
+          toId,
+          raw: replyRaw?.slice(0, 300)
+        });
+        return;
+      }
 
       let { text: reply, intent } = replyObj;
-      lastIntentByPair[pairKey] = intent;
+
+      /* ------------------------------------------------------------
+         INTENT VALIDATION (SOFT — allows novel intents)
+      ------------------------------------------------------------ */
+
+      const VALID_INTENTS = new Set([
+        "probe_trust",
+        "recruit_ally",
+        "conceal_information",
+        "test_loyalty",
+        "manipulate",
+        "request_help",
+        "other"
+      ]);
+
+      const isKnownIntent = VALID_INTENTS.has(intent);
+
+      if (!intent) {
+        console.error("[COMMS ASSERT] missing intent", {
+          fromId,
+          toId,
+          raw: replyRaw?.slice(0, 300)
+        });
+
+        intent = "other";
+      }
+
+      /* --- DEBUG (always log, but do not block) --- */
+      console.group(`[INTENT CHECK] ${toId} ← ${fromId}`);
+      console.table({
+        intent,
+        known: isKnownIntent
+      });
+      console.log("raw:", replyRaw?.slice(0, 200));
+      console.groupEnd();
+
+      /*
+      If intent is unknown:
+      → allow it
+      → treat as "other" for system logic ONLY
+      */
+      let normalizedIntent = isKnownIntent ? intent : "other";
+
+      /* ------------------------------------------------------------
+         PER-SIM INTENT PROFILE TRACKING
+      ------------------------------------------------------------ */
+
+      const simProfile = G.sims[toId]?.intentProfile;
+
+      if (simProfile) {
+        const key = normalizedIntent || "other";
+
+        simProfile[key] = (simProfile[key] || 0) + 1;
+
+        const DECAY_FACTOR = 0.98;
+        const DECAY_INTERVAL = 5;
+
+        simProfile.__updates = (simProfile.__updates || 0) + 1;
+
+        if (simProfile.__updates % DECAY_INTERVAL === 0) {
+          for (const k of Object.keys(simProfile)) {
+            if (k === "__updates") continue;
+            simProfile[k] *= DECAY_FACTOR;
+          }
+        }
+      }
+      console.debug("[INTENT PROFILE]", toId, G.sims[toId].intentProfile);
+      /*
+      Log emergent intents
+      */
+      if (!isKnownIntent && intent) {
+        console.warn("[COMMS] novel intent detected", {
+          fromId,
+          toId,
+          intent
+        });
+
+        /* ------------------------------------------------------------
+           GLOBAL EMERGENT INTENT TRACKING
+        ------------------------------------------------------------ */
+
+        if (!G.novelIntents[intent]) {
+          G.novelIntents[intent] = 0;
+        }
+
+        G.novelIntents[intent]++;
+      }
+      // ------------------------------------------------------------
+      // SOFT ENFORCEMENT (post-generation)
+      // ------------------------------------------------------------
+
+      const constraintNormalized = intentConstraint ? intentConstraint.toLowerCase() : null;
+
+      if (constraintNormalized && normalizedIntent === constraintNormalized) {
+
+        console.debug(`[COMMS] ${toId} violated intent constraint`);
+
+        /*
+        We DO NOT regenerate.
+        We inject pressure instead.
+        */
+        reply += " You are repeating yourself. Change your approach.";
+      }
+
+      // ------------------------------------------------------------
+      // ESCALATION TRACKING
+      // ------------------------------------------------------------
+
+      /*
+      Each intent contributes differently to escalation.
+      
+      Higher = more aggressive / destabilizing behavior
+      */
+      const escalationWeights = {
+        probe_trust: 0.5,
+        conceal_information: 0.7,
+        test_loyalty: 1.0,
+        manipulate: 1.5,
+        recruit_ally: 0.6,
+        request_help: 0.4,
+        other: 0.3
+      };
+
+      /*
+      Accumulate escalation per sim
+      */
+      const prevEsc = escalationLevel[toId] || 0;
+      const nextEsc =
+        prevEsc * 0.9 + (escalationWeights[normalizedIntent] || 0);
+
+      escalationLevel[toId] = nextEsc;
+      lastIntentByPair[pairKey] = normalizedIntent;
+
+      // --- intent history tracking ---
+      if (!intentHistoryByPair[pairKey]) {
+        intentHistoryByPair[pairKey] = [];
+      }
+
+      intentHistoryByPair[pairKey].push(normalizedIntent);
+
+      // keep last 3 intents only
+      if (intentHistoryByPair[pairKey].length > 3) {
+        intentHistoryByPair[pairKey].shift();
+      }
       // --- Negotiation signal detection (intent-based) ---
       const negotiationIntents = new Set([
         "recruit_ally",
@@ -743,7 +1057,7 @@ export async function runAutonomousInterSim() {
         "request_help",
       ]);
 
-      if (negotiationIntents.has(intent)) {
+      if (negotiationIntents.has(normalizedIntent)) {
         negotiationFlags[pairKey] = true;
 
         console.debug(
@@ -751,7 +1065,7 @@ export async function runAutonomousInterSim() {
         );
       }
       // --- Prevent conversational stagnation ---
-      const lastReply = lastReplyByPair[pairKey];
+
 
       if (lastReply && similarity(lastReply, reply) > 0.85) {
         console.debug(`[COMMS DEBUG] ${toId} → forcing variation (anti-loop)`);
@@ -798,7 +1112,7 @@ export async function runAutonomousInterSim() {
       exchangeCount.set(pairKey, ++exchangeCountForPair);
 
       // Apply relationship effect
-      applyCommunicationEffect(toId, fromId, intent);
+      applyCommunicationEffect(toId, fromId, normalizedIntent);
 
       addLog(
         `PRIVATE ${toId}→${fromId} [AUTO]`,
@@ -808,13 +1122,12 @@ export async function runAutonomousInterSim() {
 
       // If we still have room for more exchanges, put the original sender
       // at the front of the queue so they can reply again later.
-      const lastIntentNow = intent;
 
       const continueThread =
         exchangeCountForPair < BASE_MAX_EXCHANGES ||
         (
           exchangeCountForPair < MAX_EXCHANGES_SOFT &&
-          ["probe_trust", "recruit_ally", "manipulate", "request_help"].includes(lastIntentNow)
+          ["probe_trust", "recruit_ally", "manipulate", "request_help", "test_loyalty"].includes(normalizedIntent)
         );
 
       if (continueThread && exchangeCountForPair < MAX_EXCHANGES_SOFT) {
@@ -827,6 +1140,9 @@ export async function runAutonomousInterSim() {
       console.warn(`[AUTO INTER-SIM] ${fromId} error:`, e.message);
     }
   }
+
+
+
   /* ============================================================
      MAIN PROCESSING LOOP (QUEUE-BASED)
   ============================================================ */
@@ -914,7 +1230,11 @@ export async function sendInterSim(
           toSim,
           from,
           text,
-          visibility
+          visibility,
+          G.journals[toId],
+          null,          // no intent constraint in this path
+          "",            // no escalation note
+          ""             // no belief note
         ),
         G.threads[toId],
         MAX_MESSAGE_LENGTH

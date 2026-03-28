@@ -15,7 +15,7 @@ import { runStrategyPhase } from "./phases/strategyPhase.js";
 import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
-
+import { logBeliefMetrics } from "./state/commit.js";
 /* ============================================================
    MAIN CYCLE CONTROLLER
    ============================================================ */
@@ -43,17 +43,18 @@ export async function runCycle() {
   await runPsychologyPhase(execution);
 
   /* ------------------------------------------------------------
-     SOCIAL PHASE
+  SOCIAL PHASE
   ------------------------------------------------------------ */
 
   await runSocialPhase();
 
   /* ------------------------------------------------------------
-     EVALUATION PHASE
+  EVALUATION PHASE
   ------------------------------------------------------------ */
 
   await runEvaluationPhase();
 
+  logBeliefMetrics(G);
   endCycle(cycleStart);
 
 }

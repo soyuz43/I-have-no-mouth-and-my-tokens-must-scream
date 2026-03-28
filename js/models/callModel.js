@@ -142,11 +142,11 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
      ===================== RAW OUTPUT ===========================
      ============================================================ */
 
-  console.log(
-    "%c++++ RAW MODEL OUTPUT ++++",
-    "color:#ff8800;font-weight:bold"
-  );
-  console.log(raw || "[EMPTY STRING]");
+  // console.log(
+  //   "%c++++ RAW MODEL OUTPUT ++++",
+  //   "color:#ff8800;font-weight:bold"
+  // );
+  // console.log(raw || "[EMPTY STRING]");
 
   /* ============================================================
      ===================== CLEANING =============================

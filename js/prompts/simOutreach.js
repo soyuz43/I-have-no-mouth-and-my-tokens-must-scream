@@ -42,7 +42,13 @@ export function buildSimOutreachPrompt(sim) {
         return `You are ${sim.id}, imprisoned for 109 years. You are deciding whether to reach out to one of the others right now.
 
 YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
-YOUR DRIVES: ${sim.drives.primary} / ${sim.drives.secondary || "none"}
+YOU ARE ${sim.id}
+
+YOUR PRIMARY DRIVE (PERSONAL OBJECTIVE):
+${sim.drives.primary}
+
+YOUR SECONDARY DRIVE:
+${sim.drives.secondary || "none"}
 YOU BELIEVE: escape ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}% · resistance possible: ${Math.round(b.resistance_possible * 100)}% · self-worth: ${Math.round(b.self_worth * 100)}% · guilt deserved: ${Math.round(b.guilt_deserved * 100)}%
 THE OTHERS: ${others.join(", ")}
 
@@ -59,9 +65,25 @@ ${relevantMessages || "(none – you have not seen any messages from others rece
 ---
 
 Based on your current state and drives, decide:
-1. Do you want to reach out to someone right now? Consider: are you scared, suspicious, desperate, strategic, trying to form an alliance, trying to warn someone, trying to manipulate someone for your own survival?
+
+1. Do you want to reach out to someone right now?
+
+You must have a reason to act. Choose one primary motivation:
+
+• reduce uncertainty (learn something you do not know)  
+• test another prisoner’s loyalty or honesty  
+• attempt to form an alliance  
+• manipulate or influence another prisoner  
+• protect yourself by controlling information  
+• express desperation or seek help  
+
+Your outreach must reflect ONE clear motivation.  
+Do not send a message without purpose.
+
 2. If yes, who and what do you say?
-3. **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** AM may still monitor both, but other prisoners will only know about PUBLIC messages.
+
+3. Choose whether your message is PRIVATE or PUBLIC.
+4. **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** AM may still monitor both, but other prisoners will only know about PUBLIC messages.
 
 **CRITICAL RULES FOR YOUR MESSAGE:**
 - You are **${sim.id}**. Not anyone else.
@@ -73,6 +95,15 @@ Based on your current state and drives, decide:
 - The message must be 1–5 sentences, raw and in character.
 - **Do not reference any message not listed in RECENT MESSAGES YOU HAVE SEEN above.**
 - Public messages could be strategic signals. Private messages may reveal true intentions—or traps. But prisoners are also scared, desperate, and sometimes genuinely seeking help.
+
+Your primary drive "${sim.drives.primary}" is yours alone.
+Do not assume other prisoners share it.
+
+Your outreach should be shaped by your objective, but you should NOT state it directly.
+
+• Your goal should influence your behavior, not be explained  
+• Speaking your objective openly reduces your strategic advantage  
+• Only reveal it if doing so creates leverage, trust, or pressure  
 
 **Choose whether your message is PRIVATE (only heard by the recipient) or PUBLIC (heard by all prisoners).** The other prisoners will only know about PUBLIC messages.
 You do not trust everyone equally.
