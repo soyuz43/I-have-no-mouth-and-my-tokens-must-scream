@@ -154,12 +154,20 @@ Journal: "${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`)}
      TARGET FOCUS
   ------------------------------------------------------------ */
 
-  const focusSection =
-    target === "ALL"
-      ? `MODE: ALL
-You MUST include ALL prisoners: ${nameList}
-No prisoner may be ignored.
-This requirement is mandatory.`
+const focusSection =
+  target === "ALL"
+    ? `MODE: ALL
+
+MANDATORY TARGET SET:
+${nameList}
+
+HARD REQUIREMENTS:
+- You MUST include EVERY prisoner listed above
+- You are NOT allowed to omit any prisoner
+- You MUST produce exactly ${SIM_IDS.length} targets (one per prisoner)
+- Each prisoner must appear EXACTLY once
+
+Failure to include all prisoners = INVALID OUTPUT`
       : `MODE: SINGLE
 PRIMARY TARGET: ${target}
 You MUST focus pressure on ${target}.
@@ -329,6 +337,15 @@ Translate into:
 - relationship destruction  
 - measurable psychological shifts  
 
+You MAY design objectives that involve interactions between prisoners.
+
+When doing so:
+- encode the relationship within the objective and hypothesis
+- still assign the target to a single prisoner id
+- ensure the effect depends on another named prisoner
+
+Relational strategies are strongly encouraged where effective.
+
 ---
 
 ## CONTEXT SIGNAL
@@ -366,11 +383,30 @@ ${nameList}
 ---
 
 ## HARD LIMITS
-- MAX 5 targets  
+
+- MAX ${SIM_IDS.length} targets
 - MIN 1 target  
-- If JSON is invalid → STOP  
+
+IF MODE = ALL:
+- You MUST output EXACTLY ${SIM_IDS.length} targets
+- The required targets are defined in the REQUIRED TARGET SET below
+
+If any target is missing → OUTPUT IS INVALID
+
+If JSON is invalid → STOP
 
 ---
+## REQUIRED TARGET SET
+
+${nameList}
+
+You MUST:
+- include ALL of the above targets
+- include EACH exactly once
+- include NO additional targets
+
+This list is the ONLY valid source of target IDs for JSON generation.
+
 
 ## JSON SCHEMA
 {
@@ -502,16 +538,6 @@ If misaligned → INVALID
 
 ---
 
-## MODE CONSTRAINTS
-
-IF MODE = ALL:
-- include ALL prisoners  
-
-IF MODE = SINGLE:
-- include ONLY primary target  
-
----
-
 ## JSON REQUIREMENTS
 - Root object contains ONLY "targets"  
 - Valid JSON (no trailing commas)  
@@ -539,6 +565,20 @@ If any rule fails:
 
 Avoid internal quotes in strings. Paraphrase.
 
+TARGET COVERAGE CHECK (MANDATORY):
+
+Expected targets:
+${nameList}
+
+Before output, verify:
+- Every name above appears exactly once in "targets"
+- No name is missing
+- No extra names are introduced
+
+If this check fails:
+- The output is INVALID
+- You MUST correct it before returning JSON
+
 CRITICAL:
 
 Each target object MUST:
@@ -560,15 +600,38 @@ NEVER continue writing fields for a new target inside a previous object.
 // ══════════════════════════════════════════════════════════
 
 export function buildAMPrompt(targets, tactics, directive, plan, targetIds = []) {
-  // ------------------------------------------------------------------
-  // Filter targets and tactics based on the plan (if any)
-  // ------------------------------------------------------------------
-  const targetIdSet = new Set(targetIds);
-  const filteredTargets = targetIds.length
+
+  // ------------------------------------------------------------
+  // FILTER TARGET IDS (include groupTargets)
+  // ------------------------------------------------------------
+const expandedTargetIds = (() => {
+  if (!targetIds.length) return [];
+
+  const ids = new Set(targetIds);
+
+  // include group targets from plan (safe access)
+  const groupTargets = (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
+    ? G.amStrategy.groupTargets
+    : [];
+
+  groupTargets.forEach(gt => {
+    gt.ids.forEach(id => ids.add(id));
+  });
+
+  return Array.from(ids);
+})();
+
+  const targetIdSet = new Set(expandedTargetIds);
+
+  const filteredTargets = expandedTargetIds.length
     ? targets.filter(sim => targetIdSet.has(sim.id))
     : targets;
-  const filteredTactics = targetIds.length
-    ? Object.fromEntries(Object.entries(tactics).filter(([id]) => targetIdSet.has(id)))
+
+    // Filter tactics based on the plan (if any)
+  const filteredTactics = expandedTargetIds.length
+    ? Object.fromEntries(
+      Object.entries(tactics).filter(([id]) => targetIdSet.has(id))
+    )
     : tactics;
 
   // ------------------------------------------------------------------
@@ -672,10 +735,38 @@ ${allIntel}
 ${interLog || "(none)"}
 
 # YOUR SCRATCHPAD (last thoughts)
-${document.getElementById("am-scratch").value.split("\n─────\n").slice(-3).join("") || "(empty)"}
+${(() => {
+  const el = document.getElementById("am-scratch");
+  if (!el || typeof el.value !== "string") return "";
+  return el.value
+    .split("\n─────\n")
+    .slice(-3)
+    .join("\n─────\n") || "(empty)";
+})()}
 
 # YOUR PLAN FOR THIS CYCLE
 ${plan}
+
+# RELATIONAL TARGETS (IMPORTANT)
+Some targets involve relationships between prisoners.
+
+${(() => {
+  const groupTargets =
+    (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
+      ? G.amStrategy.groupTargets
+      : [];
+
+  if (!groupTargets.length) return "(none)";
+
+  return groupTargets
+    .map(gt => `- ${gt.ids.join(" & ")} → ${gt.objective}`)
+    .join("\n");
+})()}
+
+For these:
+- You MUST generate actions for EACH involved prisoner
+- Each action must reference the OTHER prisoner(s)
+- Your goal is to manipulate their perception of each other
 
 # TACTICS AVAILABLE
 ${tacticBlocks}

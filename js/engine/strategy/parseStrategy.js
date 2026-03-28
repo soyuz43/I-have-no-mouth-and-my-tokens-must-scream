@@ -344,13 +344,48 @@ export function parseStrategyDeclarations(text) {
     // STAGE — do NOT mutate global yet
     const nextTargets = {};
     const nextActions = [];
+    const nextGroupTargets = [];
+    let duplicateCount = 0;
+
+
+    // ------------------------------------------------------------
+    // NORMALIZE IDS (support composite IDs like "ELLEN & NIMDOK")
+    // ------------------------------------------------------------
+
+    function normalizeIds(idField) {
+      if (!idField || typeof idField !== "string") return [];
+
+      return idField
+        .toUpperCase()
+        // normalize separators
+        .replace(/\bAND\b/g, ",")
+        .replace(/->|→|\+/g, ",")
+        // remove quotes
+        .replace(/["']/g, "")
+        //wierd spacing
+        .replace(/\s+/g, " ")
+        // split
+        .split(/[&,]/)
+        .map(p => p.trim())
+        .filter(Boolean);
+    }
+
     /* ------------------------------------------------------------
        TARGET VALIDATION
     ------------------------------------------------------------ */
 
-    if (parsed.targets.length === 0 || parsed.targets.length > 5) {
-      console.trace("Invalid number of targets:", parsed.targets.length);
-      throw new Error("Invalid number of targets");
+    if (
+      parsed.targets.length === 0 ||
+      parsed.targets.length > SIM_IDS.length
+    ) {
+      console.trace(
+        "Invalid number of targets:",
+        parsed.targets.length,
+        `(max allowed: ${SIM_IDS.length})`
+      );
+      throw new Error(
+        `Invalid number of targets: ${parsed.targets.length}. Max allowed is ${SIM_IDS.length}`
+      );
     }
 
     const seen = new Set();
@@ -368,13 +403,96 @@ export function parseStrategyDeclarations(text) {
       const requiredKeys = ["id", "objective", "hypothesis", "why_now", "evidence"];
       const missing = requiredKeys.filter(k => !tKeys.includes(k));
 
+      const { id, objective, hypothesis, why_now, evidence } = t;
+
+
+      // validate required keys
       if (missing.length) {
         console.warn(`Target ${index} missing required keys: ${missing.join(", ")}`);
-        return; // skip this target only
+        return;
       }
-      const { id, objective, hypothesis, why_now, evidence } = t;
-      let normalizedId = id.toUpperCase();
 
+      const ids = normalizeIds(id);
+
+      // ------------------------------------------------------------
+      // GROUP TARGET HANDLING
+      // ------------------------------------------------------------
+      if (ids.length > 1) {
+
+        // ------------------------------------------------------------
+        // STORE GROUP TARGET (for analysis / future use)
+        // ------------------------------------------------------------
+        nextGroupTargets.push({
+          ids,
+
+          objective: objective.trim(),
+          hypothesis: hypothesis.trim(),
+
+          reasoning: {
+            evidence: evidence.trim(),
+            why_now: why_now.trim()
+          },
+
+          confidence: t._inferenceConfidence ?? 0.5,
+          lastAssessment: prevTargets[ids.join("&")]?.lastAssessment || "",
+          cycle: G.cycle
+        });
+
+        if (DEBUG) {
+          console.debug(`[PARSER] Group target detected: ${ids.join(" & ")}`);
+        }
+
+        // ------------------------------------------------------------
+        // EXPAND INTO INDIVIDUAL TARGETS
+        // ------------------------------------------------------------
+        ids.forEach(normalizedId => {
+
+          // validate against allowed IDs
+          if (!SIM_IDS.includes(normalizedId)) {
+            console.warn(`[PARSER] Invalid ID in group target: ${normalizedId}`);
+            return;
+          }
+
+          // skip duplicates (respect first occurrence)
+          if (seen.has(normalizedId)) {
+            duplicateCount++;
+            console.warn(`[PARSER] Duplicate target from group: ${normalizedId} — skipping`);
+            return;
+          }
+
+          seen.add(normalizedId);
+
+          nextTargets[normalizedId] = {
+            objective: objective.trim(),
+            hypothesis: hypothesis.trim(),
+
+            reasoning: {
+              evidence: evidence.trim(),
+              why_now: why_now.trim()
+            },
+
+            confidence: t._inferenceConfidence ?? 0.5,
+            lastAssessment: prevTargets[normalizedId]?.lastAssessment || "",
+            cycle: G.cycle,
+
+            _derivedFromGroup: true
+          };
+
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------------
+      // SINGLE TARGET PATH
+      // ------------------------------------------------------------
+
+      if (ids.length === 0) {
+        console.warn(`Target ${index} has no valid IDs – skipping`);
+        return;
+      }
+
+      let normalizedId = ids[0];
 
       // ------------------------------------------------------------
       // PLACEHOLDER FALLBACK: infer from evidence (WEIGHTED + CONFIDENCE)
@@ -527,6 +645,7 @@ export function parseStrategyDeclarations(text) {
       }
 
       if (seen.has(normalizedId)) {
+        duplicateCount++;
         console.warn(`[PARSER] Duplicate target detected: ${normalizedId} — skipping duplicate`);
         return;
       }
@@ -610,12 +729,20 @@ export function parseStrategyDeclarations(text) {
 
     // !! All IDs are already validated individually earlier.
     console.debug(`[PARSER] Parsed ${parsedIds.length} target(s): ${parsedIds.join(", ")}`);
+
+    if (duplicateCount > 0) {
+      console.warn(`[PARSER] ${duplicateCount} duplicate target(s) skipped during parsing`);
+    }
+
     /* ------------------------------------------------------------
       COMMIT STAGED STATE (ATOMIC)
    ------------------------------------------------------------ */
 
     G.amStrategy.targets = nextTargets;
     G.amStrategy.actions = nextActions;
+
+    if (!G.amStrategy.groupTargets) G.amStrategy.groupTargets = [];
+    G.amStrategy.groupTargets = nextGroupTargets;
 
     /* ------------------------------------------------------------
        FINAL OUTPUT
@@ -677,15 +804,28 @@ export function parseStrategyDeclarations(text) {
     if (DEBUG) {
       console.debug("=== TARGET SUMMARY ===");
 
-      console.table(
-        Object.entries(G.amStrategy.targets).map(([id, t]) => ({
-          id,
-          objective: t.objective?.slice(0, 40),
-          hasReasoning: !!t.reasoning,
-          evidenceLen: t.reasoning?.evidence?.length || 0,
-          whyNowLen: t.reasoning?.why_now?.length || 0
-        }))
-      );
+      const individualRows = Object.entries(G.amStrategy.targets).map(([id, t]) => ({
+        type: "individual",
+        id,
+        objective: t.objective?.slice(0, 40),
+        hasReasoning: !!t.reasoning,
+        evidenceLen: t.reasoning?.evidence?.length || 0,
+        whyNowLen: t.reasoning?.why_now?.length || 0
+      }));
+
+      const groupRows = (G.amStrategy.groupTargets || []).map((gt) => ({
+        type: "group",
+        id: gt.ids.join(" & "),
+        objective: gt.objective?.slice(0, 40),
+        hasReasoning: !!gt.reasoning,
+        evidenceLen: gt.reasoning?.evidence?.length || 0,
+        whyNowLen: gt.reasoning?.why_now?.length || 0
+      }));
+
+      console.table([
+        ...individualRows,
+        ...groupRows
+      ]);
     }
 
     /* ------------------------------------------------------------
