@@ -142,6 +142,11 @@ export const G = {
     repairLevel: 1
   },
 
+  beliefDynamics: {
+    history: [],
+    last: null
+  },
+
   /* ============================================================
    EMERGENT INTENT TRACKING
    ============================================================ */

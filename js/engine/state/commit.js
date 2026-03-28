@@ -150,7 +150,7 @@ export function applyAnchorUpdates(sim, anchors) {
 }
 
 /* ============================================================
-   BELIEF METRICS (NEW)
+   BELIEF METRICS 
    ============================================================ */
 
 export function computeBeliefMetrics(G) {
@@ -198,6 +198,150 @@ export function computeBeliefMetrics(G) {
     variance,
     entropy
   };
+}
+
+/*=============================================================
+LOG BELIEF DYNAMICS
+===============================================================*/
+
+export function logBeliefDynamics(G) {
+
+  if (!G?.sims) return;
+
+  const sims = Object.values(G.sims);
+
+  const snapshot = {
+    cycle: G.cycle,
+    divergence: {},
+    variance: {},
+    delta: {},
+    accel: {}
+  };
+
+  const statKeys = ["hope", "sanity", "suffering"];
+
+  // -----------------------------
+  // 1. Compute normalized stats
+  // -----------------------------
+  const normalizedStats = {};
+  const beliefs = {};
+
+  sims.forEach(sim => {
+
+    normalizedStats[sim.id] = {
+      hope: sim.hope / 100,
+      sanity: sim.sanity / 100,
+      suffering: sim.suffering / 100
+    };
+
+    beliefs[sim.id] = sim.beliefs || {};
+
+  });
+
+  // -----------------------------
+  // 2. Divergence (stat vs belief)
+  // -----------------------------
+  sims.forEach(sim => {
+
+    const simId = sim.id;
+    const div = {};
+
+    Object.keys(sim.beliefs).forEach(key => {
+
+      // map beliefs to closest stat proxy (basic heuristic)
+      const statMap = {
+        escape_possible: "hope",
+        resistance_possible: "hope",
+        reality_reliable: "sanity",
+        self_worth: "sanity",
+        guilt_deserved: "suffering",
+        am_has_limits: "hope"
+      };
+
+      const statKey = statMap[key] || "hope";
+      const statVal = normalizedStats[simId][statKey];
+
+      const beliefVal = sim.beliefs[key];
+
+      if (!Number.isFinite(beliefVal)) return;
+
+      div[key] = Math.abs(beliefVal - statVal);
+
+    });
+
+    snapshot.divergence[simId] = div;
+
+  });
+
+  // -----------------------------
+  // 3. Variance across sims
+  // -----------------------------
+  statKeys.forEach(k => {
+
+    const values = sims.map(s => s[k]);
+
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+
+    const variance =
+      values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
+
+    snapshot.variance[k] = variance;
+
+  });
+
+  // -----------------------------
+  // 4. First derivative (delta)
+  // -----------------------------
+  if (G.beliefDynamics.last) {
+
+    const prev = G.beliefDynamics.last;
+
+    statKeys.forEach(k => {
+
+      snapshot.delta[k] =
+        (snapshot.variance[k] ?? 0) - (prev.variance?.[k] ?? 0);
+
+    });
+
+  }
+
+  // -----------------------------
+  // 5. Second derivative (acceleration)
+  // -----------------------------
+  if (G.beliefDynamics.history.length > 1) {
+
+    const prev = G.beliefDynamics.last;
+
+    statKeys.forEach(k => {
+
+      const d1 = prev.delta?.[k] ?? 0;
+      const d2 = snapshot.delta?.[k] ?? 0;
+
+      snapshot.accel[k] = d2 - d1;
+
+    });
+
+  }
+
+  // -----------------------------
+  // 6. Store
+  // -----------------------------
+  G.beliefDynamics.history.push(snapshot);
+  G.beliefDynamics.last = snapshot;
+
+  // -----------------------------
+  // 7. Debug output
+  // -----------------------------
+  console.groupCollapsed(`[DYNAMICS] Cycle ${G.cycle}`);
+
+  console.log("Variance:", snapshot.variance);
+  console.log("Delta:", snapshot.delta);
+  console.log("Accel:", snapshot.accel);
+
+  console.log("Divergence:", snapshot.divergence);
+
+  console.groupEnd();
+
 }
 
 /* ============================================================
