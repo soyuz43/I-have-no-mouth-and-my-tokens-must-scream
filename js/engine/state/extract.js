@@ -98,9 +98,21 @@ export function parseBeliefUpdates(text, sim) {
 
   if (!obj) return null;
 
-  const updates = sanitizeBeliefDeltas(obj.belief_deltas);
+  const rawUpdates = sanitizeBeliefDeltas(obj.belief_deltas);
 
-  if (updates) return updates;
+  if (rawUpdates) {
+    const scaled = {};
+
+    Object.entries(rawUpdates).forEach(([key, delta]) => {
+      if (!Number.isFinite(delta)) return;
+
+      //  convert percentage points → unit interval
+      scaled[key] = delta / 100;
+    });
+
+    return scaled;
+  }
+
 
   if (obj.beliefs && typeof obj.beliefs === "object") {
 

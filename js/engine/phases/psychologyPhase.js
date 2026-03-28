@@ -289,22 +289,31 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     // Allow validator to inspect deltas directly
     correctStatInconsistencies(sim, statDeltas);
 
-    // Apply stat changes
+    // Apply stat changes with resistance
+
+    const sufferingDelta =
+      statDeltas.suffering * statResistance(sim.suffering);
+
+    const hopeDelta =
+      statDeltas.hope * statResistance(sim.hope);
+
+    const sanityDelta =
+      statDeltas.sanity * statResistance(sim.sanity);
 
     sim.suffering = clamp(
-      sim.suffering + statDeltas.suffering,
+      sim.suffering + sufferingDelta,
       0,
       99
     );
 
     sim.hope = clamp(
-      sim.hope + statDeltas.hope,
+      sim.hope + hopeDelta,
       0,
       99
     );
 
     sim.sanity = clamp(
-      sim.sanity + statDeltas.sanity,
+      sim.sanity + sanityDelta,
       5,
       99
     );
@@ -364,20 +373,31 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
         hopeEcho = clamp(hopeEcho, -2, 2);
         sanityEcho = clamp(sanityEcho, -2, 2);
 
+        // Apply pressure with resistance
+
+        const sufferingEchoEff =
+          sufferingEcho * statResistance(other.suffering);
+
+        const hopeEchoEff =
+          hopeEcho * statResistance(other.hope);
+
+        const sanityEchoEff =
+          sanityEcho * statResistance(other.sanity);
+
         other.suffering = clamp(
-          other.suffering + sufferingEcho,
+          other.suffering + sufferingEchoEff,
           0,
           99
         );
 
         other.hope = clamp(
-          other.hope + hopeEcho,
+          other.hope + hopeEchoEff,
           0,
           99
         );
 
         other.sanity = clamp(
-          other.sanity + sanityEcho,
+          other.sanity + sanityEchoEff,
           5,
           99
         );
@@ -454,6 +474,21 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 /* ============================================================
    UTILITIES
    ============================================================ */
+function statResistance(v) {
+
+  // normalize 0–100 → 0–1
+  const x = v / 100;
+
+  const distance = Math.abs(x - 0.5);
+
+  // gentle linear resistance (weaker than beliefs)
+  const resistance = Math.max(
+    0.4,
+    1 - (distance * 0.8)
+  );
+
+  return resistance;
+}
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
