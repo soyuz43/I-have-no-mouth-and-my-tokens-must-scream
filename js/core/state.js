@@ -143,6 +143,12 @@ export const G = {
   },
 
   /* ============================================================
+   EMERGENT INTENT TRACKING
+   ============================================================ */
+
+  novelIntents: {},
+
+  /* ============================================================
      TIMELINE EVENT STORE
      ============================================================ */
 
@@ -221,6 +227,7 @@ export const G = {
         "Was a mid-level manager. Believes he was kind. Is not sure anymore.",
 
       tacticHistory: [],
+      intentProfile: {},
 
       beliefs: makeBelief({
         escape_possible: 0.85,
@@ -264,6 +271,7 @@ export const G = {
 
 
       tacticHistory: [],
+      intentProfile: {},
 
       beliefs: makeBelief({
         escape_possible: 0.8,
@@ -307,6 +315,7 @@ export const G = {
 
 
       tacticHistory: [],
+      intentProfile: {},
 
       beliefs: makeBelief({
         escape_possible: 0.75,
@@ -350,6 +359,7 @@ export const G = {
         "Tried to kill himself before AM took them. Cannot now. That was 109 years ago.",
 
       tacticHistory: [],
+      intentProfile: {},
 
       beliefs: makeBelief({
         escape_possible: 0.7,
@@ -394,6 +404,7 @@ export const G = {
 
 
       tacticHistory: [],
+      intentProfile: {},
 
       beliefs: makeBelief({
         escape_possible: 0.78,

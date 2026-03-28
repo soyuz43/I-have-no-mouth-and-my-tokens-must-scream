@@ -19,7 +19,16 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
 
-export function buildSimReplyPrompt(sim, from, text, visibility, journals) {
+export function buildSimReplyPrompt(
+  sim,
+  from,
+  text,
+  visibility,
+  journals,
+  intentConstraint = null,
+  escalationNote = "",
+  beliefNote = ""
+) {
 
   const b = sim.beliefs;
 
@@ -33,7 +42,7 @@ export function buildSimReplyPrompt(sim, from, text, visibility, journals) {
      RECENT JOURNAL MEMORY
   --------------- */
 
-  const recentEntries = journals
+  const recentEntries = (journals || [])
     .slice(-3)
     .map((j) => {
       const cycleInfo = j.cycle ? `[Cycle ${j.cycle}] ` : "";
@@ -94,6 +103,48 @@ export function buildSimReplyPrompt(sim, from, text, visibility, journals) {
       m => `• ${m.from} → ${m.to}: "${m.text}"`
     ).join("\n") || "(none)";
 
+  /* ---------------
+     INTENT PROFILE
+  --------------- */
+
+  const intentProfileEntries = Object.entries(sim.intentProfile || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  const intentProfileText =
+    intentProfileEntries.length > 0
+      ? intentProfileEntries
+        .map(([k, v]) => `${k} (${v})`)
+        .join(", ")
+      : "(no strong tendencies yet)";
+
+
+  /* ---------------
+   SYSTEM CONSTRAINTS (OPTIONAL)
+   --------------- */
+
+  let constraintBlock = "";
+
+  if (intentConstraint || escalationNote || beliefNote) {
+    constraintBlock = `
+---
+
+SYSTEM CONSTRAINTS (ACTIVE)
+
+${intentConstraint ? `Avoid using the intent: ${intentConstraint}` : ""}
+${escalationNote || ""}
+${beliefNote || ""}
+
+These constraints apply to THIS interaction.
+
+• They create pressure on your decision-making in this exchange  
+• You should strongly prefer to follow them  
+• You may deviate ONLY if doing so creates a clear and immediate strategic advantage  
+
+Ignoring a constraint without purpose signals loss of control.
+
+Treat constraints as forces you must respond to — not absolute rules.
+`;}
 
   /* ---------------
      PROMPT CONSTRUCTION
@@ -117,12 +168,26 @@ Suffering: ${sim.suffering}%
 Hope: ${sim.hope}%
 Sanity: ${sim.sanity}%
 
-Primary Drive: ${sim.drives.primary}
-Secondary Drive: ${sim.drives.secondary || "none"}
+Your primary Drive: ${sim.drives.primary}
+Your secondary Drive: ${sim.drives.secondary || "none"}
 
 Beliefs:
 Escape possible → ${Math.round(b.escape_possible * 100)}%
 Others trustworthy → ${Math.round(b.others_trustworthy * 100)}%
+
+---
+
+YOUR RECENT BEHAVIORAL PATTERNS
+
+${intentProfileText}
+
+These reflect how you tend to act under pressure.
+
+• You often fall back to familiar strategies  
+• Repeating a strategy without results is dangerous  
+• Breaking your pattern requires deliberate choice  
+
+If your current strategy is failing, you MUST change approach.
 
 ---
 
@@ -157,6 +222,9 @@ These whispers may be incomplete or misleading.
 You may suspect their meaning, but you cannot know the full context.
 
 ---
+
+${constraintBlock || ""}
+${constraintBlock ? "\n---" : ""}
 
 CURRENT MESSAGE
 
@@ -200,9 +268,11 @@ Kindness should be rare and motivated.
 
 ## INTENT SELECTION
 
-Before writing your reply, determine what outcome you are trying to produce in this interaction.
+Before writing your reply, decide what pressure or change you want to create in this interaction.
+Do not explain this directly — express it through your words.
 
-Choose ONE intent based on what will most effectively advance your position.
+Choose ONE intent based on how you want to influence the interaction.
+This should guide your response, not be explained within it.
 
 probe_trust  
 recruit_ally  
@@ -212,7 +282,7 @@ manipulate
 request_help  
 other (specify explicitly)
 
-You must pursue outcomes, not sustain conversation.
+You must drive the interaction toward an outcome through what you say and how you say it — not by explaining your goal.
 
 ## ANTI-STAGNATION RULE (CRITICAL)
 
@@ -220,7 +290,7 @@ If your last 2–3 replies to this prisoner used the same intent (especially pro
 Stagnation is dangerous — it signals weakness and invites AM to exploit you.
 You MUST switch to a different intent immediately:
 - From probe_trust → switch to test_loyalty, manipulate, conceal_information, or recruit_ally
-- Force a concrete outcome: demand a commitment, reveal a small risky piece of information, accuse them, or withdraw.
+- Force a concrete outcome: demand a commitment, reveal limited or risky information, accuse them, or withdraw.
 Passive circling is failure and will increase your suffering.
 
 If you repeat the same intent without producing a concrete shift (verifiable new information, explicit commitment, changed leverage, or exposed contradiction), you are stagnating.
@@ -253,6 +323,19 @@ CRITICAL RESPONSE RULES
 
 You are **${sim.id}**.
 
+Your primary drive is:
+→ ${sim.drives.primary}
+
+This drive is YOURS. It defines your priorities and should shape your behavior, not be explained unless you choose to reveal it.
+
+Other prisoners have different drives and motivations.
+Do not assume they share your goals unless they explicitly state them.
+
+Before responding, ensure:
+• your reply is guided by YOUR drive, without stating it directly
+• you are not projecting your goal onto ${from}
+• you are acting from your own perspective, not merging identities
+
 You are replying to **${from}**, who just sent the following message:
 "${text}"
 
@@ -282,7 +365,8 @@ Do NOT reference any communication not listed above.
 ---
 
 • NEVER echo or paraphrase the incoming message. 
-• Generate a completely original reply that reveals YOUR current emotional state, suspicion, or strategic goal.
+• Generate a completely original reply that reveals YOUR current emotional state or suspicion  
+• Your strategic goal should shape your response, but should not be stated directly unless you intend to reveal it
 • Use fresh wording and imagery drawn only from your own journals and beliefs.
 • If the other prisoner repeats a phrase, treat it as suspicious manipulation and respond by breaking the pattern.
 
@@ -294,6 +378,7 @@ INTENT:<probe_trust | recruit_ally | conceal_information | test_loyalty | manipu
 REPLY:"your reply in 2–5 sentences, spoken dialogue only"
 
 • Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
+• Do NOT reuse metaphors, phrases, or imagery introduced by the other prisoner unless you are intentionally challenging or rejecting them.
 • Do not output anything else.`;
 
 }
