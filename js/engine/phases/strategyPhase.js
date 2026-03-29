@@ -365,9 +365,13 @@ function buildTrajectorySummary() {
       abs(netSuffering);
 
     if (!signals.length) {
+
       if (totalMagnitude < 5.5) {
         lines.push(`${id}: stagnating (no meaningful multi-cycle change)`);
+      } else {
+        lines.push(`${id}: unstable (inconsistent multi-cycle response)`);
       }
+
       continue;
     }
 
