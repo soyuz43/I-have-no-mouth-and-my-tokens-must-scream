@@ -86,13 +86,18 @@ async function stepPlanAM(directive) {
 
   try {
 
+    const trajectorySummary = buildTrajectorySummary();
+
+    console.debug("[TRAJECTORY SUMMARY]", trajectorySummary);
+
     planText = await callModel(
       "AM",
       buildAMPlanningPrompt(
         G.target,
         directive,
         G.amDoctrine,
-        G.amProfiles
+        G.amProfiles,
+        trajectorySummary
       ),
       [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
       1800
@@ -256,6 +261,164 @@ function parseAMTargets(amText) {
 
   return targets;
 
+}
+
+function buildTrajectorySummary() {
+  /*
+   * Builds a compressed, decision-ready summary of multi-cycle psychological trajectories.
+   * Encodes strength, consistency, coupling, and confidence while filtering noise.
+   */
+
+  if (!G.tacticHistory) return "(no trajectory data)";
+
+  const lines = [];
+
+  for (const id of SIM_IDS) {
+
+    const history = G.tacticHistory[id];
+    if (!history || history.length < 2) continue;
+
+    const windowSize = history.length;
+
+    const sum = (key) =>
+      history.reduce((acc, h) => acc + (h[key] ?? 0), 0);
+
+    const netHope = sum("hope");
+    const netSanity = sum("sanity");
+    const netSuffering = sum("suffering");
+
+    const abs = (v) => Math.abs(v);
+
+    // ------------------------------------------------------------
+    // CONSISTENCY (directional agreement across cycles)
+    // ------------------------------------------------------------
+    function consistency(series) {
+      const signs = series.map(v => Math.sign(v)).filter(v => v !== 0);
+      if (!signs.length) return 0;
+
+      const counts = {};
+      for (const s of signs) counts[s] = (counts[s] || 0) + 1;
+
+      return Math.max(...Object.values(counts)) / signs.length;
+    }
+
+    const hopeSeries = history.map(h => h.hope ?? 0);
+    const sanitySeries = history.map(h => h.sanity ?? 0);
+    const sufferingSeries = history.map(h => h.suffering ?? 0);
+
+    const hopeCons = consistency(hopeSeries);
+    const sanityCons = consistency(sanitySeries);
+    const sufferingCons = consistency(sufferingSeries);
+
+    // ------------------------------------------------------------
+    // STRENGTH (magnitude of total displacement)
+    // ------------------------------------------------------------
+    function strengthLabel(v) {
+      const m = abs(v);
+      if (m < 2) return null;
+      if (m < 6) return "moderate";
+      return "strong";
+    }
+
+    // ------------------------------------------------------------
+    // CONSISTENCY LABEL
+    // ------------------------------------------------------------
+    function consistencyLabel(c) {
+      if (c < 0.68) return null;
+      if (c < 0.85) return "partial";
+      return "consistent";
+    }
+
+    // ------------------------------------------------------------
+    // BUILD SIGNALS PER VARIABLE
+    // ------------------------------------------------------------
+    function buildSignal(net, cons, label) {
+
+      const strength = strengthLabel(net);
+      const consistencyText = consistencyLabel(cons);
+
+      if (!strength || !consistencyText) return null;
+
+      const direction = net < 0 ? "decrease" : "increase";
+
+      return {
+        label,
+        direction,
+        strength,
+        consistency: consistencyText,
+        magnitude: abs(net)
+      };
+    }
+
+    const signals = [
+      buildSignal(netHope, hopeCons, "hope"),
+      buildSignal(netSanity, sanityCons, "sanity"),
+      buildSignal(netSuffering, sufferingCons, "suffering")
+    ].filter(Boolean);
+
+    // ------------------------------------------------------------
+    // STAGNATION DETECTION
+    // ------------------------------------------------------------
+    const totalMagnitude =
+      abs(netHope) +
+      abs(netSanity) +
+      abs(netSuffering);
+
+    if (!signals.length) {
+      if (totalMagnitude < 5.5) {
+        lines.push(`${id}: stagnating (no meaningful multi-cycle change)`);
+      }
+      continue;
+    }
+
+    // ------------------------------------------------------------
+    // COUPLING DETECTION
+    // ------------------------------------------------------------
+    const decreasing = signals.filter(s => s.direction === "decrease");
+    const increasing = signals.filter(s => s.direction === "increase");
+
+    let coupling = "";
+
+    if (decreasing.length >= 2) {
+      const labels = decreasing.map(s => s.label).join(" + ");
+      coupling = ` (coupled ${labels} decline)`;
+    } else if (increasing.length >= 2) {
+      const labels = increasing.map(s => s.label).join(" + ");
+      coupling = ` (coupled ${labels} increase)`;
+    }
+
+    // ------------------------------------------------------------
+    // SELECT PRIMARY SIGNAL (strongest)
+    // ------------------------------------------------------------
+    signals.sort((a, b) => b.magnitude - a.magnitude);
+    const primary = signals[0];
+
+    // ------------------------------------------------------------
+    // CONFIDENCE ESTIMATION
+    // ------------------------------------------------------------
+    const avgConsistency =
+      (hopeCons + sanityCons + sufferingCons) / 3;
+
+    let confidence = "low";
+    if (avgConsistency > 0.8 && primary.magnitude > 6) {
+      confidence = "high";
+    } else if (avgConsistency > 0.65) {
+      confidence = "medium";
+    }
+
+    // ------------------------------------------------------------
+    // FINAL LINE
+    // ------------------------------------------------------------
+    const line =
+      `${id}: ${primary.strength}, ${primary.consistency} ${primary.label} ${primary.direction}` +
+      ` (${windowSize} cycles${coupling}) [${confidence} confidence]`;
+
+    lines.push(line);
+  }
+
+  return lines.length
+    ? lines.join("\n")
+    : "(no sustained or meaningful effects detected)";
 }
 
 /* ============================================================

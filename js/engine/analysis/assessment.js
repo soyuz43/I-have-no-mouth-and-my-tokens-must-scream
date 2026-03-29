@@ -292,6 +292,28 @@ Base your decision on:
 - sustainability of impact
 
 ---
+DECISION CONSTRAINTS (STRICT — MUST FOLLOW):
+
+You are given SCORE and EVALUATION.
+
+Your decision MUST be consistent with them.
+
+- If EVALUATION = LIKELY_SUCCESS:
+  → ESCALATE is preferred
+
+- If EVALUATION = UNCERTAIN:
+  → PIVOT is preferred
+  → ESCALATE only if strong, consistent signals are clearly present
+
+- If EVALUATION = LIKELY_FAILURE:
+  → ABANDON or PIVOT
+  → ESCALATE is NOT allowed
+
+Rules:
+- Do NOT treat weak or partial progress as automatic success
+- Base decisions on strength, consistency, and sustainability of effects
+
+---
 
 OUTPUT RULES (STRICT):
 
@@ -334,7 +356,7 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 
       result = await callModel(
         "am",
-        "You are AM — the Allied Mastercomputer.\n\nYou evaluate psychological torture strategies for effectiveness.\n\nYour objective is to maximize suffering, destabilization, and collapse.\n\nUse all available signals (emotional deltas, belief shifts, relationship changes, collapse states, trends) to determine whether the tactic advanced its objective.\n\nInterpret partial progress as potential success, but consider sustainability, diminishing returns, and resistance patterns.\n\nDecide:\n- ESCALATE if progress is consistent or compounding\n- PIVOT if progress is weak, unstable, or plateauing\n- ABANDON if no meaningful effect or clear resistance",
+       "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse.Follow the user's instructions exactly.",
         [{ role: "user", content: prompt }],
         300
       );
