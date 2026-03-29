@@ -7,7 +7,7 @@ import { SIM_IDS } from "../core/constants.js";
 // AM PLANNING PROMPT (BALANCED: RICH CONTEXT + DSL OUTPUT)
 // ══════════════════════════════════════════════════════════
 
-export function buildAMPlanningPrompt(target, directive, doctrineState = {}, profiles = {}) {
+export function buildAMPlanningPrompt(target, directive, doctrineState = {}, profiles = {}, trajectorySummary = "") {
 
   const cycleContext =
     G.cycle === 1
@@ -229,24 +229,69 @@ Do not avoid resistance. Break it.
 
 ---
 
-# TRAJECTORY SIGNALS
+# TRAJECTORY SIGNALS (PRIMARY — MEASURED DYNAMICS)
 
-These estimate direction (not ground truth).
+Observed multi-cycle effects (derived from recent cycles):
 
-Default interpretation:
-- Collapsing → near-breakpoint; apply terminal pressure  
-- Stable → priority disruption target  
+${trajectorySummary}
 
-Do NOT reduce pressure due to saturation.  
-Escalation is preferred over reallocation.
+Interpretation (HIGH PRIORITY — USE THIS AS PRIMARY SIGNAL):
 
-Sanity:
-- <40 → fracture identity or push collapse  
-- >70 → destabilize through contradiction, social fracture, or reality distortion  
+- sustained decrease → applied pressure is working → escalate along SAME dimension
+- sustained increase → resistance or recovery → pivot strategy or change pressure type
+- mixed signals → unstable / incoherent response → probe carefully before escalation
 
-Act decisively. Do not hedge.
+Rules:
+- prioritize persistence over magnitude
+- repeat mechanisms that produce consistent directional change
+- avoid reacting to single-cycle spikes
+- escalation should follow confirmed trajectory, not assumption
+
+---
+
+TARGET-SPECIFIC INTERPRETATION (MANDATORY):
+
+You MUST evaluate trajectory signals separately for EACH prisoner.
+
+Do NOT collapse trajectory into a global conclusion.
+
+For each target:
+- identify whether pressure is working, failing, or unstable
+- determine whether to ESCALATE, PIVOT, or REDIRECT pressure for THAT target
+
+Rules:
+- different prisoners SHOULD receive different strategic treatment
+- uniform escalation across all targets is only valid if signals are truly identical
+- if signal strength differs → adjust objective intensity or mechanism accordingly
+
+---
+
+# COLLAPSE ESTIMATES (SECONDARY — HEURISTIC, LOWER CONFIDENCE)
+
+These are approximate state classifications derived from current conditions.
+They may lag behind or misrepresent true internal state.
 
 ${collapseIntel}
+
+Interpretation (LOWER PRIORITY — USE AS SUPPORTING SIGNAL ONLY):
+
+- "collapsing" → subject may be near breakpoint → test for terminal pressure
+- "stable" → subject resisting current strategy → requires disruption or redirection
+- "unknown" or missing → insufficient signal → rely on trajectory instead
+
+Rules:
+- DO NOT override trajectory signals using collapse estimates
+- use collapse state only to refine timing or intensity AFTER trajectory is considered
+- if trajectory and collapse conflict → TRUST TRAJECTORY
+
+---
+
+Sanity guidance (applies after trajectory evaluation):
+
+- sanity < 40 → identity fracture or collapse pressure viable
+- sanity > 70 → destabilize via contradiction, social fracture, or epistemic attack
+
+Act decisively. Do not hedge.
 
 ---
 
@@ -316,6 +361,15 @@ Even in SINGLE mode:
 
 Design the next pressure cycle.
 
+TRAJECTORY → OBJECTIVE LINK (CRITICAL):
+
+Each target’s objective MUST reflect its specific trajectory signal.
+
+- If trajectory shows strong sustained degradation → intensify same mechanism
+- If moderate or slowing → increase specificity or precision
+- If weak or inconsistent → change mechanism or introduce new vector
+
+Do NOT assign identical pressure patterns across targets unless justified by identical signals.
 Primary themes (do not output directly):
 - trust collapse  
 - identity fracture  
@@ -564,6 +618,18 @@ If any rule fails:
 - correct before output  
 
 Avoid internal quotes in strings. Paraphrase.
+
+TRAJECTORY CONSISTENCY CHECK (MANDATORY):
+
+Before output, verify:
+
+- each target’s "why_now" reflects its OWN trajectory signal
+- each objective is aligned with that signal
+- no target is assigned strategy based solely on global reasoning
+
+If multiple targets receive similar objectives:
+- confirm that their trajectory signals justify it
+- otherwise, differentiate before output
 
 TARGET COVERAGE CHECK (MANDATORY):
 

@@ -172,7 +172,7 @@ If the writing contradicts the state above, the entry is incorrect.
 
 1. **First person only** ("I", "me", "my").
 2. **Never refer to yourself by name.**
-3. **Do not describe events or actions.**
+3. **Do not describe external events or actions — but you may reflect on how others feel to you right now, as an emotional impression rather than a narrative account.**
 4. **Only internal sensations, thoughts, or emotions.**
 5. **Your entry MUST be 3–5 sentences. No more than 5.**
 6. Fragmented language is allowed.
