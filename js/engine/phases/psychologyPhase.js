@@ -163,20 +163,6 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
   timelineEvent(`${sim.id} journal start`);
 
-  const recentInterSim = G.interSimLog
-    .filter(
-      (e) =>
-        e.visibility === "public" ||
-        e.from === sim.id ||
-        e.to.includes(sim.id),
-    )
-    .slice(-8)
-    .map(
-      (e) =>
-        `${e.from} → ${e.to.join(",")} (${e.visibility}): "${e.text}"`,
-    )
-    .join("\n");
-
   // SAFE TACTIC ACCESS
   const appliedTactics = Array.isArray(tacticMap?.[sim.id])
     ? tacticMap[sim.id]
@@ -227,7 +213,6 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     const narrativePrompt = buildSimJournalPrompt(
       sim,
       cleanAM,
-      recentInterSim,
     );
 
     const rawJournal = await callModel(

@@ -213,6 +213,19 @@ function recordOverheard(listener, fromId, toId, text) {
 
 }
 
+function recordReceived(simId, fromId, text) {
+    const sim = G.sims[simId];
+    if (!sim) return;
+    if (!sim.received) sim.received = [];
+    sim.received.push({
+        from: fromId,
+        text: text,
+        cycle: G.cycle,
+        timestamp: Date.now()
+    });
+    if (sim.received.length > 20) sim.received.shift();
+}
+
 /* ============================================================
    SOCIAL OVERHEARING MODEL
 ============================================================ */
@@ -702,6 +715,7 @@ export async function runAutonomousInterSim() {
       if (visibility === "private") {
         maybeOverhear(fromId, toId, message);
       }
+      recordReceived(toId, fromId, message);
       // Record this message for reply detection
       if (!sentMessagesThisCycle.has(fromId)) sentMessagesThisCycle.set(fromId, new Set());
       sentMessagesThisCycle.get(fromId).add(toId);
@@ -1103,7 +1117,7 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       });
 
       messageCount++;
-
+      recordReceived(fromId, toId, reply);
       // Record this reply message for reply detection
       if (!sentMessagesThisCycle.has(toId)) sentMessagesThisCycle.set(toId, new Set());
       sentMessagesThisCycle.get(toId).add(fromId);

@@ -2,8 +2,7 @@
 
 import { G } from "../core/state.js";
 
-
-export function buildSimJournalPrompt(sim, amAction, interSimCtx) {
+export function buildSimJournalPrompt(sim, amAction) {
     const prevJ = G.journals[sim.id]
         .slice(-2)
         .map(
@@ -11,7 +10,23 @@ export function buildSimJournalPrompt(sim, amAction, interSimCtx) {
                 `Entry ${G.journals[sim.id].length - 1 + i}: ${j.text.slice(0, 120)}`,
         )
         .join("\n");
+
     const b = sim.beliefs;
+
+    const recentReceived = (sim.received || [])
+        .filter(o => o.cycle === G.cycle || o.cycle === G.cycle - 1)
+        .map(o => `[${o.from} spoke directly to you]: "${o.text}"`)
+        .join("\n");
+
+    const recentOverheard = (sim.overheard || [])
+        .filter(o => o.cycle === G.cycle || o.cycle === G.cycle - 1)
+        .map(o => `[you overheard ${o.from} say to ${o.to}]: "${o.text}"`)
+        .join("\n");
+
+    const hearingCtx = [recentReceived, recentOverheard]
+        .filter(Boolean)
+        .join("\n");
+
     return `You are **${sim.id}**, a human imprisoned for **109 years** by AM.
 
 You secretly maintain a **hidden journal** that AM does not know about.
@@ -101,9 +116,22 @@ When suffering intensifies, your thoughts naturally drift toward these anchors.
 ${prevJ || "(none yet)"}
 
 ---
-${interSimCtx ? `# WHAT YOU RECENTLY HEARD\n${interSimCtx}\n` : ""}
+${hearingCtx ? `# WHAT YOU RECENTLY HEARD OR EXPERIENCED
+
+These are fragments that reached you — words spoken to you directly, or voices caught through the dark.
+
+You do not describe these as events.
+You may only reflect on how they made you feel emotionally — what weight they left, what fear or comfort stirred.
+
+${hearingCtx}
+
+If someone you care about sounds desperate, you may feel that without saying why.
+If someone you distrust sounds confident, you may feel unease without naming it.
+Do not quote or paraphrase what you heard. Only feel it.
 
 ---
+` : ""}
+
 # AM'S ACTIONS THIS CYCLE
 
 The events themselves are **not described** in your journal.

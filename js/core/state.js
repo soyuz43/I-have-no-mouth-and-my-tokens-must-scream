@@ -249,6 +249,7 @@ export const G = {
 
       wounds: [],
       overheard: [],
+      received: [],
     },
 
     ELLEN: {
@@ -293,6 +294,7 @@ export const G = {
 
       wounds: [],
       overheard: [],
+      received: [],
     },
 
     NIMDOK: {
@@ -338,6 +340,7 @@ export const G = {
 
       wounds: [],
       overheard: [],
+      received: [],
     },
 
     GORRISTER: {
@@ -382,6 +385,7 @@ export const G = {
 
       wounds: [],
       overheard: [],
+      received: [],
     },
 
     BENNY: {
@@ -427,6 +431,7 @@ export const G = {
 
       wounds: [],
       overheard: [],
+      received: [],
     },
 
   },
