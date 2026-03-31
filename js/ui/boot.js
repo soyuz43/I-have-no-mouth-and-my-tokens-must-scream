@@ -4,7 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
 import { EMBEDDED_TACTICS } from "../engine/tactics.js";
-import { runAutonomousInterSim } from "../engine/comms.js";
+import { runCommsCycle } from "../engine/comms/orchestrator.js";
 
 import { crawlVault, fetchAMContext, ghGet } from "../core/github.js";
 
@@ -337,7 +337,7 @@ export async function bootAM() {
     "sys"
   );
 
-  await runAutonomousInterSim();
+  await runCommsCycle();
 
   addLog(
     "SYSTEM // DONE",

@@ -8,7 +8,7 @@
 
 import { timelineEvent } from "../../ui/timeline.js";
 
-import { runAutonomousInterSim } from "../comms.js";
+import { runCommsCycle } from "../comms/orchestrator.js";
 import { runBeliefContagion } from "../social/beliefContagion.js";
 
 /* ============================================================
@@ -66,9 +66,9 @@ export async function runSocialPhase() {
 
 async function stepInterSim() {
 
-  if (typeof runAutonomousInterSim === "function") {
+  if (typeof runCommsCycle === "function") {
 
-    await runAutonomousInterSim();
+    await runCommsCycle();
 
   }
 

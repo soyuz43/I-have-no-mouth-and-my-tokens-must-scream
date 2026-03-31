@@ -2,7 +2,6 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
-import { sendInterSim } from "../engine/comms.js";
 
 // ══════════════════════════════════════════════════════════
 // SETUP UI EVENTS
@@ -128,7 +127,6 @@ export function collectModelConfig() {
   }
 }
 
-
 export function showBeliefDelta(simId, entryIndex) {
   const entry = G.journals?.[simId]?.[entryIndex];
   if (!entry) return;
@@ -146,9 +144,6 @@ export function showBeliefDelta(simId, entryIndex) {
   alert(content);
 }
 
-/**
- * Toggle collapsible log blocks
- */
 export function toggleLogDisclosure(id, el) {
   const block = document.getElementById(id);
   if (!block) return;
@@ -161,9 +156,6 @@ export function toggleLogDisclosure(id, el) {
   }
 }
 
-/**
- * Toggle public/private message visibility buttons
- */
 export function setVisibility(btn) {
   document
     .querySelectorAll(".vis-toggle")
@@ -171,16 +163,10 @@ export function setVisibility(btn) {
 
   btn.classList.add("sel");
 
-  // store globally for now (keeps compatibility with monolith logic)
   window.manualVisibility = btn.dataset.vis;
 }
 
-/* ============================================================
-   UI CONTROL HANDLERS
-   ============================================================ */
-
 export function selTarget(btn) {
-
   document
     .querySelectorAll(".tbt")
     .forEach(b => b.classList.remove("sel"));
@@ -191,7 +177,6 @@ export function selTarget(btn) {
 }
 
 export function selMode(btn) {
-
   document
     .querySelectorAll(".mbt")
     .forEach(b => b.classList.remove("sel"));
@@ -205,26 +190,17 @@ export function selMode(btn) {
   if (!execBtn) return;
 
   if (G.mode === "autonomous") {
-
     execBtn.textContent =
       G.autoRunning
         ? "⛔ HALT ⛔"
         : "⚡ UNLEASH AM ⚡";
-
   } else {
-
     execBtn.textContent = "⚡ EXECUTE ⚡";
     execBtn.classList.remove("running");
-
   }
 }
 
-/* ============================================================
-   INTER-SIM UI CONTROLS
-   ============================================================ */
-
 export function setFrom(btn) {
-
   document
     .querySelectorAll(".is-fbtn")
     .forEach(b => b.classList.remove("sel"));
@@ -237,38 +213,8 @@ export function setFrom(btn) {
     if (b.dataset.t === G.interSimFrom)
       b.classList.remove("sel");
   });
-
 }
 
 export function toggleTo(btn) {
   btn.classList.toggle("sel");
-}
-
-/* ============================================================
-   INTER-SIM SEND BUTTON
-   ============================================================ */
-
-export async function sendInterSimUI() {
-
-  const from = G.interSimFrom;
-
-  if (!from) {
-    alert("Select a FROM sim");
-    return;
-  }
-
-  const toSims = [...document.querySelectorAll(".is-tchk.sel")]
-    .map(b => b.dataset.t)
-    .filter(t => t !== from);
-
-  const text =
-    document.getElementById("is-input").value.trim();
-
-  if (!text) return;
-
-  const visibility = manualVisibility;
-
-  await sendInterSim(from, toSims, text, visibility);
-
-  document.getElementById("is-input").value = "";
 }
