@@ -16,7 +16,7 @@ import { addLog, showThinking, removeThinking } from "../../ui/logs.js";
 import { buildAMPlanningPrompt, buildAMPrompt } from "../../prompts/am.js";
 import { callModel } from "../../models/callModel.js";
 
-import { parseStrategyDeclarations } from "../strategy/parseStrategy.js";
+import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
 import { pickTactics } from "../tactics.js";
 
 /* ============================================================
@@ -37,9 +37,20 @@ export async function runStrategyPhase(directive) {
     timelineEvent(`>>> AM PLANNING`);
 
     planText = await stepPlanAM(directive);
-    // Parse AM strategy so later phases can evaluate it
-    parseStrategyDeclarations(planText);
 
+    const result = runStrategyPipeline(planText);
+
+    if (!result || result.status !== "success") {
+      console.warn("[STRATEGY PHASE] pipeline failed", {
+        stage: result?.stage,
+        error: result?.error,
+        details: result
+      });
+
+      // Prevent downstream phases from using invalid strategy
+      return;
+    }
+    
     timelineEvent(`// AM PLAN GENERATED`);
 
   } catch (e) {
