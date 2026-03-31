@@ -14,8 +14,8 @@ import {
 
 
 import {
-  runAutonomousInterSim
-} from "./js/engine/comms.js";
+  runCommsCycle
+} from "./js/engine/comms/orchestrator.js";
 
 
 // ============================================================
@@ -41,7 +41,6 @@ import {
   selMode,
   setFrom,
   toggleTo,
-  sendInterSimUI
 } from "./js/ui/events.js";
 
 
@@ -140,7 +139,7 @@ import {
 
 
 window.executeMain = executeMain;
-window.runAutonomousInterSim = runAutonomousInterSim;
+window.runCommsCycle = runCommsCycle;
 
 
 // ---------- RENDER ----------
@@ -216,7 +215,6 @@ window.selMode = selMode;
 
 window.setFrom = setFrom;
 window.toggleTo = toggleTo;
-window.sendInterSim = sendInterSimUI;
 
 
 // ---------- BOOT ----------
@@ -239,7 +237,7 @@ window.AM_DEBUG = {
   executeMain,
   renderSims,
   renderRelationships,
-  runAutonomousInterSim,
+  runCommsCycle,
   timelineEvent,
   addLog
 };
