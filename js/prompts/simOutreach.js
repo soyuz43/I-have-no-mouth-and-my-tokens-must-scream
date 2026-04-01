@@ -2,11 +2,11 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { buildPromptContext } from "./utils/buildPromptContext.js";
 
 
 export function buildSimOutreachPrompt(sim, state = null) {
-  const reactiveIntel = state?.pendingReactiveIntel?.get(sim.id);
-
+ const { b, others, reactiveIntel } = buildPromptContext(sim, state);
   if (reactiveIntel && state?.pendingReactiveIntel) {
     state.pendingReactiveIntel.delete(sim.id);
   }
@@ -25,6 +25,7 @@ This is immediate information from your environment. You may:
 Let your drives and current state determine how (or whether) to use this intel.
 `
     : '';
+
   // --- END REACTIVE INTEL ---
 
   // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---

@@ -1,5 +1,5 @@
 // js/engine/state/commit.js
-
+import { dampBeliefDelta } from "./utils/dampBeliefDelta.js";
 /* ============================================================
    CONFIG (UI HOOK READY)
    ============================================================ */
@@ -19,66 +19,7 @@ const BELIEF_METRICS = {
   history: [] // per-cycle snapshots
 };
 
-/* ============================================================
-   BELIEF DAMPING (CORE)
-   ============================================================ */
 
-export function dampBeliefDelta(belief, delta) {
-
-  const distance = Math.abs(belief - 0.5);
-  const d = distance / 0.5;
-
-  let resistance;
-
-  switch (BELIEF_DYNAMICS.dampingMode) {
-
-    case "linear":
-      resistance = 1 - d;
-      break;
-
-    case "logistic":
-      resistance =
-        1 / (1 + Math.exp(
-          BELIEF_DYNAMICS.logisticK * (d - BELIEF_DYNAMICS.logisticMid)
-        ));
-      break;
-
-    case "quadratic":
-    default:
-      resistance = Math.pow(1 - d, 2);
-      break;
-  }
-
-  resistance = Math.max(BELIEF_DYNAMICS.minResistance, resistance);
-
-  return delta * resistance;
-}
-
-export function dampBeliefDeltaLogged(
-  belief,
-  delta,
-  { simId = "UNKNOWN", key = "unknown", DEBUG = false } = {}
-) {
-
-  const result = dampBeliefDelta(belief, delta);
-
-  if (DEBUG) {
-    const distance = Math.abs(belief - 0.5);
-    const d = distance / 0.5;
-    const resistance = delta !== 0 ? result / delta : 0;
-
-    console.debug(`[DAMP][${simId}] ${key}`, {
-      belief_before: belief,
-      delta_input: delta,
-      normalized_distance: d,
-      resistance,
-      delta_output: result,
-      mode: BELIEF_DYNAMICS.dampingMode
-    });
-  }
-
-  return result;
-}
 
 /* ============================================================
    SOFT CLAMP
@@ -105,7 +46,12 @@ export function applyBeliefUpdates(sim, updates) {
     let belief = Number(sim.beliefs[key]);
     if (!Number.isFinite(belief)) return;
 
-    delta = dampBeliefDelta(belief, delta);
+    delta = dampBeliefDelta(
+      sim,
+      key,
+      belief,
+      delta
+    );
 
     let newVal = belief + delta;
     newVal = softClampBelief(newVal);
