@@ -62,8 +62,8 @@ export function buildCard(sim) {
           <button class="journal-btn export" onclick="exportSimJournal('${sim.id}','md');event.stopPropagation()">↓ MD</button>
         </div>
       </div>
-      <div class="journal-log" id="jl-${sim.id}">
-        <span style="color:#101010;font-size:.48rem;font-family:'Courier Prime',monospace">Awaiting first torment cycle.</span>
+        <div class="journal-log" id="jl-${sim.id}">
+          <span class="journal-empty" style="color:#888;font-size:.48rem;font-family:'Courier Prime',monospace;text-shadow:0 0 1px rgba(0,0,0,0.5)">Awaiting first torment cycle.</span>
       </div>
       <div class="sim-writing" id="sw-${sim.id}">
         <span>${escapeHtml(sim.name)} IS WRITING</span><div class="wd"></div><div class="wd"></div><div class="wd"></div>

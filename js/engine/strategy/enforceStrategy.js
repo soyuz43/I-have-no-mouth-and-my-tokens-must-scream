@@ -40,7 +40,6 @@ export function enforceStrategy(validatedTargets = [], { DEBUG = false } = {}) {
   let droppedInvalid = 0;
   let droppedDuplicates = 0;
 
-  // 🔥 NEW: detailed drop tracking
   const droppedDetails = [];
 
   if (!Array.isArray(validatedTargets)) {

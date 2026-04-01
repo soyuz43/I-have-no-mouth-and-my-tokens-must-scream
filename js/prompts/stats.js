@@ -222,7 +222,25 @@ Possible outcomes:
 - **rare removal** (if the journal explicitly rejects an anchor or expresses total surrender)
 
 ---
+---
 
+# Inference Principle
+
+You may infer psychological shifts that are **strongly implied** by tone, metaphor, or emotional logic — not just explicit statements.
+
+But: inference must be **weighted by textual probability**.
+
+Ask yourself:
+- If this character felt the opposite, would this sentence still make sense?
+- Is this shift the *most likely* reading, or just *a possible* reading?
+- Does the journal's emotional trajectory support this direction?
+
+When evidence is ambiguous:
+- Prefer smaller magnitudes (1–2 pts) over larger ones
+- Prefer \`unchanged\` over speculative direction
+- Let the \`reason\ field show your weighting: "Guilt mentioned as 'deserved' → stable; slight self_worth gain from growth framing"
+
+You are not extracting keywords. You are estimating psychological momentum.
 # Output Format
 
 Return **exactly one JSON object and nothing else**.

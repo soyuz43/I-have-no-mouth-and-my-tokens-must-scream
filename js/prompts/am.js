@@ -48,7 +48,7 @@ Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
 Anchors: ${anchors}
 Beliefs:
 ${indent(beliefsBlock, 2)}
-Journal: "${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`)}
+Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`)}
 `;
 
   }).join("\n");
@@ -726,7 +726,7 @@ const expandedTargetIds = (() => {
   Anchors: ${anchors}
   Beliefs:
     ${beliefsBlock}
-  Journal: "${lastJ ? lastJ.text.slice(0, 70).replace(/\n/g, " ") : "—"}"`;
+  Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`;
   }).join("\n\n");
 
   // ------------------------------------------------------------------

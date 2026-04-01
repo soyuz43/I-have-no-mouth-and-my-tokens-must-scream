@@ -6,8 +6,8 @@
   --dim: #1a0000;
   --black: #030303;
   --bone: #b0a088;
-  --muted: #3a2a1a;
-  --ghost: #1a1a1a;
+  --muted: #7a6a5a;      /* ↑ from #3a2a1a - better contrast, same hue */
+  --ghost: #4a4a4a;      /* ↑ from #1a1a1a - subtle UI text baseline */
   --green: #00bb2a;
   --amber: #cc7700;
   --teal: #007a7a;
@@ -135,20 +135,25 @@ body::after {
     transform: rotate(360deg);
   }
 }
+
+/* ── EXPORT MENU ───────────────────────────────── */
 .exp-menu-item {
   font-family: "Share Tech Mono", monospace;
   font-size: 0.48rem;
   padding: 6px 12px;
-  color: #3a2a1a;
+  color: #8a7a6a;               /* ↑ from #3a2a1a */
   cursor: pointer;
   letter-spacing: 0.1em;
   transition: all 0.15s;
   white-space: nowrap;
+  text-shadow: 0 0 1px rgba(0,0,0,0.6);
 }
 .exp-menu-item:hover {
   background: #1a0000;
   color: var(--amber);
 }
+
+/* ── INTER-SIM MODAL ───────────────────────────── */
 #intersim-modal {
   position: fixed;
   inset: 0;
@@ -162,7 +167,7 @@ body::after {
   display: flex;
 }
 
-/* SESSION EXPORT MODAL */
+/* ── SESSION EXPORT MODAL ──────────────────────── */
 #session-modal {
   position: fixed;
   inset: 0;
@@ -213,7 +218,7 @@ body::after {
   padding: 4px 9px;
   border: 1px solid #2a2a00;
   background: #030200;
-  color: #3a3a00;
+  color: #7a7a4a;               /* ↑ from #3a3a00 */
   cursor: pointer;
   letter-spacing: 0.1em;
   transition: all 0.15s;
@@ -224,7 +229,7 @@ body::after {
 }
 .sm-btn.close {
   border-color: #2a1a00;
-  color: #3a2000;
+  color: #7a4a3a;               /* ↑ from #3a2000 */
 }
 .sm-btn.close:hover {
   border-color: var(--crimson);
@@ -273,7 +278,7 @@ body::after {
 }
 .sm-stat-lbl {
   font-size: 0.44rem;
-  color: #3a2a10;
+  color: #7a6a5a;               /* ↑ from #3a2a10 */
   letter-spacing: 0.1em;
 }
 .sm-sim-row {
@@ -285,26 +290,26 @@ body::after {
 }
 .sm-sim-name {
   font-size: 0.55rem;
-  color: var(--sc, #555);
+  color: var(--sc, #999);       /* ↑ fallback from #555 */
 }
 .sm-sim-stats {
   font-size: 0.48rem;
-  color: #2a2a1a;
+  color: #8a8a7a;               /* ↑ from #2a2a1a */
   letter-spacing: 0.08em;
 }
 .sm-tactic-row {
   font-size: 0.52rem;
-  color: #2a2a1a;
+  color: #8a8a7a;               /* ↑ from #2a2a1a */
   font-family: "Courier Prime", monospace;
   line-height: 1.7;
   padding: 2px 0;
   border-bottom: 1px solid #0a0800;
 }
 .sm-tactic-row .tc {
-  color: #3a3010;
+  color: #7a7050;               /* ↑ from #3a3010 */
 }
 .sm-tactic-row .tn {
-  color: #4a3a18;
+  color: #8a7a58;               /* ↑ from #4a3a18 */
 }
 .sm-tactic-row .count {
   color: var(--amber);
@@ -321,7 +326,7 @@ body::after {
   padding: 5px 12px;
   border: 1px solid #2a1a00;
   background: #030200;
-  color: #4a3a00;
+  color: #8a7a4a;               /* ↑ from #4a3a00 */
   cursor: pointer;
   letter-spacing: 0.1em;
   transition: all 0.15s;
@@ -388,7 +393,7 @@ body::after {
   border-color: var(--crimson);
 }
 .si::placeholder {
-  color: #1a0a0a;
+  color: #4a2a2a;               /* ↑ from #1a0a0a */
 }
 .si-sel {
   width: 100%;
@@ -436,7 +441,7 @@ body::after {
   padding: 4px 10px;
   border: 1px solid #1a1a1a;
   background: #020202;
-  color: #252525;
+  color: #656565;               /* ↑ from #252525 */
   cursor: pointer;
   transition: all 0.15s;
   letter-spacing: 0.1em;
@@ -448,7 +453,7 @@ body::after {
 }
 .ollama-status {
   font-size: 0.52rem;
-  color: #2a2a2a;
+  color: #aaa;                  /* ↑ from #2a2a2a */
   margin-bottom: 10px;
   font-family: "Courier Prime", monospace;
 }
@@ -472,7 +477,7 @@ body::after {
 }
 .toggle-label {
   font-size: 0.52rem;
-  color: #3a3a3a;
+  color: #bbb;                  /* ↑ from #3a3a3a */
   letter-spacing: 0.1em;
 }
 .toggle-box {
@@ -495,7 +500,7 @@ body::after {
   left: 2px;
   width: 10px;
   height: 10px;
-  background: #2a2a2a;
+  background: #6a6a6a;          /* ↑ from #2a2a2a */
   transition: all 0.2s;
 }
 .toggle-box.on::after {
@@ -515,7 +520,7 @@ body::after {
 }
 .model-row-label {
   font-size: 0.48rem;
-  color: #3a3a3a;
+  color: #bbb;                  /* ↑ from #3a3a3a */
   letter-spacing: 0.15em;
 }
 .model-row-label .sim-dot {
@@ -678,11 +683,12 @@ header {
 
 .am-ctx {
   font-size: 0.58rem;
-  color: #4a3a28;
+  color: #9a8a78;               /* ↑ from #4a3a28 */
   font-family: "Courier Prime", monospace;
   line-height: 1.65;
   overflow-y: auto;
   flex: 1;
+  text-shadow: 0 0 1px rgba(0,0,0,0.5);
 }
 .am-ctx::-webkit-scrollbar {
   width: 2px;
@@ -718,7 +724,7 @@ header {
   border-color: var(--crimson);
 }
 .am-scratch::placeholder {
-  color: #160606;
+  color: #4a2a2a;               /* ↑ from #160606 */
   font-style: italic;
 }
 
@@ -732,7 +738,7 @@ header {
   display: flex;
   justify-content: space-between;
   font-size: 0.54rem;
-  color: #282828;
+  color: #686868;               /* ↑ from #282828 */
 }
 .vm-val {
   color: var(--green);
@@ -751,7 +757,7 @@ header {
 }
 .vm-tree {
   font-size: 0.46rem;
-  color: #1e1e1e;
+  color: #666;                  /* ↑ from #1e1e1e */
   font-family: "Courier Prime", monospace;
   line-height: 1.8;
   overflow: hidden;
@@ -772,7 +778,7 @@ header {
   font-size: 0.54rem;
   font-family: "Courier Prime", monospace;
   line-height: 1.6;
-  color: #2a2a2a;
+  color: #999;                  /* ↑ from #2a2a2a */
   min-height: 0;
 }
 .is-log::-webkit-scrollbar {
@@ -783,10 +789,10 @@ header {
   animation: fadeUp 0.3s ease;
 }
 .is-entry .is-who {
-  color: #3a2a1a;
+  color: #7a6a5a;               /* ↑ from #3a2a1a */
 }
 .is-entry .is-what {
-  color: #2a3a2a;
+  color: #6a8a6a;               /* ↑ from #2a3a2a */
 }
 .is-compose {
   display: flex;
@@ -805,7 +811,7 @@ header {
   padding: 2px 5px;
   border: 1px solid #111;
   background: #030303;
-  color: #1e1e1e;
+  color: #5e5e5e;               /* ↑ from #1e1e1e */
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -825,7 +831,7 @@ header {
   padding: 2px 5px;
   border: 1px solid #111;
   background: #030303;
-  color: #1e1e1e;
+  color: #5e5e5e;               /* ↑ from #1e1e1e */
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -922,19 +928,19 @@ header {
 .sim-name {
   font-family: "VT323", monospace;
   font-size: 1.4rem;
-  color: var(--sc, #777);
+  color: var(--sc, #999);       /* ↑ fallback from #777 */
   text-shadow: 0 0 8px var(--sc, #222);
   line-height: 1;
 }
 .sim-status {
   font-size: 0.4rem;
-  color: #222;
+  color: #444;                  /* ↑ from #222 */
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }
 .sim-model-tag {
   font-size: 0.38rem;
-  color: #1a1a1a;
+  color: #777;                  /* ↑ from #1a1a1a */
   letter-spacing: 0.1em;
   font-family: "Courier Prime", monospace;
 }
@@ -949,11 +955,11 @@ header {
   justify-content: space-between;
   align-items: center;
   font-size: 0.46rem;
-  color: #1e1e1e;
+  color: #666;                  /* ↑ from #1e1e1e */
   margin-bottom: 1px;
 }
 .vrow .vv {
-  color: var(--sc, #444);
+  color: var(--sc, #777);       /* ↑ from #444 */
   min-width: 28px;
   text-align: right;
   transition: color 0.3s;
@@ -1004,7 +1010,7 @@ header {
 }
 .sb-k {
   font-size: 0.38rem;
-  color: #1a1a1a;
+  color: #777;                  /* ↑ from #1a1a1a */
   width: 30px;
   flex-shrink: 0;
   letter-spacing: 0.05em;
@@ -1031,14 +1037,14 @@ header {
 }
 .sb-v {
   font-size: 0.38rem;
-  color: #1a1a1a;
+  color: #777;                  /* ↑ from #1a1a1a */
   width: 22px;
   text-align: right;
   flex-shrink: 0;
 }
 .sb-drive {
   font-size: 0.38rem;
-  color: #1a0a0a;
+  color: #5a3a3a;               /* ↑ from #1a0a0a */
   letter-spacing: 0.08em;
   margin-top: 2px;
   font-style: italic;
@@ -1072,7 +1078,7 @@ header {
 }
 .journal-count {
   font-size: 0.4rem;
-  color: #1a1a1a;
+  color: #777;                  /* ↑ from #1a1a1a */
 }
 .journal-btn {
   font-family: "Share Tech Mono", monospace;
@@ -1080,18 +1086,18 @@ header {
   padding: 1px 5px;
   border: 1px solid #1a1a1a;
   background: #020202;
-  color: #282828;
+  color: #686868;               /* ↑ from #282828 */
   cursor: pointer;
   transition: all 0.15s;
   letter-spacing: 0.05em;
 }
 .journal-btn:hover {
   border-color: #3a3a3a;
-  color: #5a5a5a;
+  color: #9a9a9a;
 }
 .journal-btn.export {
   border-color: #1a2a00;
-  color: #2a4a00;
+  color: #6a8a40;
 }
 .journal-btn.export:hover {
   border-color: var(--green);
@@ -1099,7 +1105,7 @@ header {
 }
 .journal-btn.expand {
   border-color: #001a1a;
-  color: #002a2a;
+  color: #006a6a;
 }
 .journal-btn.expand:hover {
   border-color: var(--teal);
@@ -1113,7 +1119,7 @@ header {
   font-family: "Courier Prime", monospace;
   font-size: 0.54rem;
   line-height: 1.55;
-  color: #282828;
+  color: #aaa;                  /* ↑ from #282828 */
 }
 .journal-log::-webkit-scrollbar {
   width: 2px;
@@ -1129,16 +1135,16 @@ header {
 }
 .je-header {
   font-size: 0.4rem;
-  color: #2a1010;
+  color: #6a4a4a;               /* ↑ from #2a1010 */
   margin-bottom: 2px;
   font-family: "Share Tech Mono", monospace;
 }
 .je-body {
-  color: #3a2828;
+  color: #b0a090;               /* ↑ from #3a2828 */
 }
 .je-tactic {
   font-size: 0.4rem;
-  color: #1a1a00;
+  color: #5a5a3a;               /* ↑ from #1a1a00 */
   margin-top: 2px;
   font-style: italic;
 }
@@ -1193,7 +1199,7 @@ header {
 }
 .rp-count {
   font-size: 0.48rem;
-  color: #1e1e1e;
+  color: #777;                  /* ↑ from #1e1e1e */
 }
 .rp-log {
   flex: 1;
@@ -1210,7 +1216,7 @@ header {
   background: var(--dim);
 }
 .log-toggle {
-  color: #666;
+  color: #999;                  /* ↑ from #666 */
   font-family: "JetBrains Mono", monospace;
   font-size: 0.75rem;
   margin-left: 8px;
@@ -1224,7 +1230,7 @@ header {
 
 .log-toggle:hover {
   opacity: 1;
-  color: #aaa;
+  color: #ccc;
 }
 .log-e {
   font-size: 0.58rem;
@@ -1266,29 +1272,29 @@ header {
   color: var(--amber);
 }
 .log-e.chat .log-spk {
-  color: #886600;
+  color: #aa8833;
 }
 .log-body {
-  color: #3a2828;
+  color: #b0a090;               /* ↑ from #3a2828 */
 }
 .log-e.sim .log-body {
-  color: #1e3a1e;
+  color: #5e8e5e;               /* ↑ from #1e3a1e */
 }
 .log-e.sys .log-body {
-  color: #3a3010;
+  color: #7a7050;               /* ↑ from #3a3010 */
 }
 .log-e.chat .log-body {
-  color: #3a2800;
+  color: #7a6840;               /* ↑ from #3a2800 */
 }
 .log-tactic {
   font-size: 0.43rem;
-  color: #1a1000;
+  color: #5a503a;               /* ↑ from #1a1000 */
   margin-top: 2px;
   font-style: italic;
 }
 .log-ts {
   font-size: 0.43rem;
-  color: #141414;
+  color: #444;                  /* ↑ from #141414 */
   margin-top: 2px;
 }
 .thinking-row {
@@ -1338,7 +1344,7 @@ header {
   padding: 3px 6px;
   border: 1px solid #0e0e0e;
   background: #020202;
-  color: #1e1e1e;
+  color: #5e5e5e;               /* ↑ from #1e1e1e */
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1359,7 +1365,7 @@ header {
   padding: 3px;
   border: 1px solid #0e0e0e;
   background: #020202;
-  color: #1e1e1e;
+  color: #5e5e5e;               /* ↑ from #1e1e1e */
   cursor: pointer;
   transition: all 0.15s;
   text-align: center;
@@ -1386,7 +1392,7 @@ header {
   border-color: var(--crimson);
 }
 .ctrl-ta::placeholder {
-  color: #140a0a;
+  color: #4a2a2a;               /* ↑ from #140a0a */
   font-style: italic;
 }
 .exec-btn {
@@ -1469,18 +1475,18 @@ header {
   padding: 4px 10px;
   border: 1px solid #1a1a1a;
   background: #020202;
-  color: #2a2a2a;
+  color: #6a6a6a;               /* ↑ from #2a2a2a */
   cursor: pointer;
   transition: all 0.15s;
   letter-spacing: 0.1em;
 }
 .jm-btn:hover {
   border-color: #3a3a3a;
-  color: #5a5a5a;
+  color: #9a9a9a;
 }
 .jm-btn.export-md {
   border-color: #003300;
-  color: #004400;
+  color: #4a8a40;
 }
 .jm-btn.export-md:hover {
   border-color: var(--green);
@@ -1488,7 +1494,7 @@ header {
 }
 .jm-btn.export-txt {
   border-color: #2a2a00;
-  color: #3a3a00;
+  color: #7a7a40;
 }
 .jm-btn.export-txt:hover {
   border-color: var(--amber);
@@ -1496,7 +1502,7 @@ header {
 }
 .jm-btn.close-btn {
   border-color: #2a0000;
-  color: #3a0000;
+  color: #7a3a3a;
 }
 .jm-btn.close-btn:hover {
   border-color: var(--crimson);
@@ -1516,7 +1522,7 @@ header {
   padding: 3px 8px;
   border: 1px solid #111;
   background: #030303;
-  color: #1e1e1e;
+  color: #5e5e5e;               /* ↑ from #1e1e1e */
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1538,7 +1544,7 @@ header {
 }
 .jm-empty {
   font-size: 0.65rem;
-  color: #1e1e1e;
+  color: #888;                  /* ↑ from #1e1e1e */
   font-family: "Courier Prime", monospace;
   font-style: italic;
   padding: 20px 0;
@@ -1550,26 +1556,25 @@ header {
   animation: fadeUp 0.3s ease;
 }
 .jm-entry .inspect-belief {
-  /* Option A: absolute positioning (exact top‑left corner) */
   display: block;
   margin: 0 0 4px 0;
 }
 .jm-entry-header {
   font-family: "Share Tech Mono", monospace;
   font-size: 0.5rem;
-  color: #3a1a1a;
+  color: #aa8a8a;               /* ↑ from #3a1a1a */
   letter-spacing: 0.2em;
   margin-bottom: 5px;
 }
 .jm-entry-body {
   font-family: "Courier Prime", monospace;
   font-size: 0.72rem;
-  color: #6a4a3a;
+  color: #aa9a8a;               /* ↑ from #6a4a3a */
   line-height: 1.75;
 }
 .jm-entry-tactic {
   font-size: 0.5rem;
-  color: #2a2a00;
+  color: #6a6a40;               /* ↑ from #2a2a00 */
   margin-top: 5px;
   font-style: italic;
   font-family: "Courier Prime", monospace;
@@ -1580,7 +1585,7 @@ header {
   background: #030000;
   margin-bottom: 14px;
   font-size: 0.6rem;
-  color: #3a2a1a;
+  color: #7a6a5a;               /* ↑ from #3a2a1a */
   font-family: "Courier Prime", monospace;
   line-height: 1.6;
 }
@@ -1599,12 +1604,12 @@ header {
   overflow-y: auto;
   font-family: "Share Tech Mono", monospace;
   font-size: 0.55rem;
-  color: #888;
+  color: #aaa;                  /* ↑ from #888 */
 }
 
 .timeline-title {
   font-size: 0.52rem;
-  color: #2a2a2a;
+  color: #6a6a6a;               /* ↑ from #2a2a2a */
   letter-spacing: 0.15em;
   margin-bottom: 3px;
 }
@@ -1618,7 +1623,7 @@ header {
 }
 
 .timeline-step {
-  color: #444;
+  color: #888;
 }
 
 .timeline-marker {
@@ -1631,7 +1636,7 @@ header {
   font-family:"Share Tech Mono", monospace;
   font-size:0.48rem;
   line-height:1.6;
-  color:#2a3a2a;
+  color:#6a8a6a;                /* ↑ from #2a3a2a */
   padding:6px;
 }
 
@@ -1653,3 +1658,12 @@ header {
   font-weight:600;
 }
 
+/* ── UTILITY CLASSES (optional) ───────────────── */
+.text-readable {
+  color: #bbb !important;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+}
+.text-subtle {
+  color: #888 !important;
+  opacity: 0.95;
+}

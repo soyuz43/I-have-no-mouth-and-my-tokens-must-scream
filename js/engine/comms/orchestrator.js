@@ -61,7 +61,8 @@ export async function runCommsCycle() {
   };
 
   state.replyTargetsThisCycle = new Map();
-
+  state.pendingReactiveIntel = new Map();
+  
   timelineEvent("inter-sim phase start");
 
   /* ------------------------------------------------------------
@@ -116,31 +117,31 @@ export async function runCommsCycle() {
      OPTIONAL BURST PASS
   ------------------------------------------------------------ */
 
-const SECOND_PASS_CHANCE = 0.75;
-const BURST_BASE = 0.18;
+  const SECOND_PASS_CHANCE = 0.75;
+  const BURST_BASE = 0.18;
 
-const burstModifier = 1 + groupStress * 1.4;
+  const burstModifier = 1 + groupStress * 1.4;
 
-if (
-  state.counters.messageCount < state.messageBudget &&
-  Math.random() < SECOND_PASS_CHANCE
-) {
-  const burstQueue = shuffle(SIM_IDS);
+  if (
+    state.counters.messageCount < state.messageBudget &&
+    Math.random() < SECOND_PASS_CHANCE
+  ) {
+    const burstQueue = shuffle(SIM_IDS);
 
-  for (const fromId of burstQueue) {
-    if (state.counters.messageCount >= state.messageBudget) break;
+    for (const fromId of burstQueue) {
+      if (state.counters.messageCount >= state.messageBudget) break;
 
-    const burstProb = BURST_BASE * burstModifier;
+      const burstProb = BURST_BASE * burstModifier;
 
-    if (Math.random() > burstProb) continue;
+      if (Math.random() > burstProb) continue;
 
-    await step({
-      fromId,
-      state,
-      queue: burstQueue,
-    });
+      await step({
+        fromId,
+        state,
+        queue: burstQueue,
+      });
+    }
   }
-}
 
   /* ------------------------------------------------------------
      COMPLETE
