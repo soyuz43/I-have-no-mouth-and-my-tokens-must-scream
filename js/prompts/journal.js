@@ -1,6 +1,8 @@
 // js/prompts/journal.js
 
 import { G } from "../core/state.js";
+import { buildPromptContext } from "./utils/buildPromptContext.js";
+
 
 export function buildSimJournalPrompt(sim, amAction) {
     const prevJ = G.journals[sim.id]
@@ -11,7 +13,8 @@ export function buildSimJournalPrompt(sim, amAction) {
         )
         .join("\n");
 
-    const b = sim.beliefs;
+
+    const { b } = buildPromptContext(sim);
 
     const recentReceived = (sim.received || [])
         .filter(o => o.cycle === G.cycle || o.cycle === G.cycle - 1)

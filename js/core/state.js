@@ -87,7 +87,12 @@ export const G = {
   amContextDocs: [],
 
   backend: "anthropic",
+  /* ============================================================
+     DEBUG FLAGS
+     ============================================================ */
 
+  DEBUG_DAMPING: true,
+  
   splitModels: false,
 
   models: {

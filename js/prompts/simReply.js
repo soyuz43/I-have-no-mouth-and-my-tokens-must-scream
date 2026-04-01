@@ -16,8 +16,7 @@
 // Format output is strictly enforced so the engine can parse replies.
 
 import { G } from "../core/state.js";
-import { SIM_IDS } from "../core/constants.js";
-
+import { buildPromptContext } from "./utils/buildPromptContext.js";
 
 export function buildSimReplyPrompt(
   sim,
@@ -30,7 +29,8 @@ export function buildSimReplyPrompt(
   beliefNote = ""
 ) {
 
-  const b = sim.beliefs;
+  
+const { b } = buildPromptContext(sim);
 
   const visLabel =
     visibility === "public"
