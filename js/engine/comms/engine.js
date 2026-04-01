@@ -229,7 +229,7 @@ export async function step({ fromId, state, queue }) {
 
     G.lastContact[fromId] = toId;
 
-    addLog(`PRIVATE ${fromId}→${toId} [AUTO]`, `"${message}"`, "chat");
+    addLog(`${visibility.toUpperCase()} ${fromId}→${toId} [AUTO]`, `"${message}"`, "chat");
 
     const idx = queue.indexOf(toId);
     if (idx !== -1) queue.splice(idx, 1);

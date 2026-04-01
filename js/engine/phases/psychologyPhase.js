@@ -219,7 +219,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       sim.id,
       narrativePrompt,
       [{ role: "user", content: "Write your private journal entry now." }],
-      600,
+      850,
     );
 
     const cleanJournal = String(rawJournal ?? "").trim();
@@ -422,7 +422,8 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     parseAndValidateStateBlock(
       sim.id,
       beliefsBefore,
-      beliefUpdates
+      beliefUpdates,
+      sanitizedStatsJson
     );
 
     addLog(

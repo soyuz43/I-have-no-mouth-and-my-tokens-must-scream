@@ -163,23 +163,37 @@ export function containsStem(text, stems) {
   );
 }
 
-// ============================================================
-// JSON / DELTA PARSING HELPERS
-// Used by journal + analyzer parsers
-// ============================================================
 
+/**
+ * Extract the first balanced JSON object from a string.
+ * Enhanced with logging on failure to help debug belief extraction issues.
+ *
+ * @param {string} text - The raw text from the LLM.
+ * @returns {object|null} - The parsed JSON object, or null if none found.
+ */
 export function extractJSONObject(text) {
-  if (!text || typeof text !== "string") return null;
+  if (!text || typeof text !== "string") {
+    console.warn("[extractJSONObject] Invalid input (not a string)");
+    return null;
+  }
 
-  // Try direct parse
+  // Try direct parse (handles cases where the output is pure JSON)
   try {
     const obj = JSON.parse(text.trim());
     if (obj && typeof obj === "object") return obj;
-  } catch (_) {}
+  } catch (_) {
+    // Not pure JSON, continue to scanning
+  }
 
-  // Extract first balanced JSON block
+  // Find first '{' to start scanning for a balanced JSON block
   const start = text.indexOf("{");
-  if (start === -1) return null;
+  if (start === -1) {
+    console.warn(
+      "[extractJSONObject] No opening brace found in text:",
+      text
+    );
+    return null;
+  }
 
   let depth = 0;
   let inString = false;
@@ -207,20 +221,30 @@ export function extractJSONObject(text) {
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
-
       if (depth === 0) {
         const candidate = text.slice(start, i + 1);
-
         try {
           const obj = JSON.parse(candidate);
           if (obj && typeof obj === "object") return obj;
-        } catch (_) {
+        } catch (parseError) {
+          // Candidate JSON is malformed
+          console.warn(
+            "[extractJSONObject] Found JSON candidate but parsing failed:",
+            parseError.message,
+            "\nFull candidate:",
+            candidate
+          );
           return null;
         }
       }
     }
   }
 
+  // Reached end of text without finding a complete JSON object
+  console.warn(
+    "[extractJSONObject] Unbalanced braces or incomplete JSON:",
+    text
+  );
   return null;
 }
 
@@ -296,4 +320,40 @@ export function clipBeliefDelta(value) {
   if (!Number.isFinite(n)) return 0;
 
   return Math.max(-0.25, Math.min(0.25, n));
+}
+
+/* ============================================================
+   DEBUG: RAW LLM OUTPUT LOGGER
+   ------------------------------------------------------------
+   Purpose:
+   - Safely log LLM outputs (string or parsed object)
+   - Explicitly detect null / undefined failure modes
+   - Preserve full output (no truncation)
+============================================================ */
+
+export function debugRawLLM(agent, raw, label = "RAW LLM OUTPUT") {
+  const prefix = `[${label} for ${agent}]`;
+
+  if (raw === null) {
+    console.warn(`${prefix} → NULL`);
+    return;
+  }
+
+  if (raw === undefined) {
+    console.warn(`${prefix} → UNDEFINED`);
+    return;
+  }
+
+  if (typeof raw === "string") {
+    console.debug(`${prefix} (string):`, raw);
+    return;
+  }
+
+  if (typeof raw === "object") {
+    console.debug(`${prefix} (object):`, raw);
+    return;
+  }
+
+  // fallback (number, boolean, etc.)
+  console.debug(`${prefix} (type=${typeof raw}):`, raw);
 }

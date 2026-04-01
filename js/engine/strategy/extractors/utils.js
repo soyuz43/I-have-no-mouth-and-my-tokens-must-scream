@@ -51,7 +51,6 @@ export function fixMissingCommas(input) {
 
     if (ch === '"') {
 
-      // SAFE LOOKAHEAD: handles escaped quotes inside strings
       let j = i + 1;
       let isEscaped = false;
       let foundEnd = false;
@@ -118,7 +117,7 @@ export function fixObjectMerges(str) {
   return str.replace(/}\s*{/g, (match) => {
 
     if (match.includes("},{")) {
-      return match; // already correct
+      return match;
     }
 
     return "},{";
@@ -126,36 +125,32 @@ export function fixObjectMerges(str) {
 }
 
 
+/**
+ * Split objects when multiple "id" keys appear inside the same object.
+ *
+ * Designed specifically for LLM corruption like:
+ * { "id":"A", ..., "id":"B", ... }
+ *
+ * Safety rules:
+ * - Only split when inside an array
+ * - Never split inside strings
+ * - Never rewrite tokens manually
+ * - No fake stack mutations
+ */
 export function splitMergedObjectsById(input) {
+
   let out = "";
   let inString = false;
   let escape = false;
 
-  let idCountInObject = 0;
-  let braceDepth = 0;
+  const stack = [];
+  let arrayDepth = 0;
 
   for (let i = 0; i < input.length; i++) {
 
-    // DETECT "id" BEFORE string toggle
-    if (
-      !inString &&
-      braceDepth === 1 && // ONLY split at top-level object in array
-      input.slice(i, i + 4) === '"id"'
-    ) {
-      idCountInObject++;
-
-      if (idCountInObject > 1) {
-        // close previous object if needed before splitting
-        if (!out.endsWith("}")) {
-          out += "}";
-        }
-        out += ",{";
-        idCountInObject = 1;
-        continue;
-      }
-    }
-
     const ch = input[i];
+
+    /* ---------------- escape handling ---------------- */
 
     if (escape) {
       out += ch;
@@ -169,22 +164,76 @@ export function splitMergedObjectsById(input) {
       continue;
     }
 
+    /* ---------------- string toggle ---------------- */
+
     if (ch === '"') {
       inString = !inString;
       out += ch;
       continue;
     }
 
-    if (!inString) {
-      if (ch === "{") {
-        braceDepth++;
-        idCountInObject = 0;
+    /* ---------------- array tracking ---------------- */
+
+    if (!inString && ch === "[") {
+      arrayDepth++;
+      out += ch;
+      continue;
+    }
+
+    if (!inString && ch === "]") {
+      if (arrayDepth > 0) arrayDepth--;
+      out += ch;
+      continue;
+    }
+
+    /* ---------------- object tracking ---------------- */
+
+    if (!inString && ch === "{") {
+      stack.push({ idCount: 0 });
+      out += ch;
+      continue;
+    }
+
+    if (!inString && ch === "}") {
+      if (stack.length > 0) stack.pop();
+      out += ch;
+      continue;
+    }
+
+    /* ---------------- detect "id" ---------------- */
+
+if (
+  !inString &&
+  stack.length === 1 &&      // ONLY top-level object
+  arrayDepth === 1 &&        // ONLY top-level array
+  input.slice(i, i + 4) === '"id"' &&
+  (input[i + 4] === ":" || /\s/.test(input[i + 4]))
+) {
+  const current = stack[stack.length - 1];
+
+  current.idCount++;
+
+  if (current.idCount > 1) {
+
+    const prevChar = out.trimEnd().slice(-1);
+
+    if (
+      prevChar !== "{" &&
+      prevChar !== "[" &&
+      prevChar !== ":"
+    ) {
+      if (!out.endsWith("}")) {
+        out += "}";
       }
 
-      if (ch === "}") {
-        braceDepth--;
-      }
+      out += ",{";
+
+      current.idCount = 1;
+
+      continue;
     }
+  }
+}
 
     out += ch;
   }
@@ -192,12 +241,18 @@ export function splitMergedObjectsById(input) {
   return out;
 }
 
+
+/**
+ * Repair broken string boundaries
+ */
 export function fixBrokenStrings(input) {
+
   let out = "";
   let inString = false;
   let escape = false;
 
   for (let i = 0; i < input.length; i++) {
+
     const ch = input[i];
 
     if (escape) {

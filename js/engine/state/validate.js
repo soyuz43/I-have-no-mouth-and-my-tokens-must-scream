@@ -166,28 +166,41 @@ export function validateBeliefs(agent, before = {}, shifts = {}) {
 /**
  * Entry point used by engine cycle.
  * Logs validator warnings to console and system log.
+ *
+ * @param {string} agent - Sim ID.
+ * @param {object} before - Beliefs before update.
+ * @param {object|null} shifts - Belief deltas (may be null).
+ * @param {string} [raw] - Optional raw LLM output for debugging.
+ * @returns {array} Warnings array.
  */
-export function parseAndValidateStateBlock(agent, before, shifts) {
+export function parseAndValidateStateBlock(agent, before, shifts, raw = null) {
+  if (shifts === null) {
+    console.warn(`[VALIDATOR] beliefUpdates is null for ${agent}. This usually means parseBeliefUpdates failed.`);
+    console.debug(`[VALIDATOR] Before state for ${agent}:`, before);
+    if (raw === null) {
+      console.warn(`[VALIDATOR] Raw LLM output is NULL for ${agent}`);
+    } else if (raw === undefined) {
+      console.warn(`[VALIDATOR] Raw LLM output is UNDEFINED for ${agent}`);
+    } else if (typeof raw === "string") {
+      console.debug(`[RAW STRING for ${agent}]`, raw);
+    } else if (typeof raw === "object") {
+      console.debug(`[RAW OBJECT for ${agent}]`, raw);
+    } else {
+      console.debug(`[RAW UNKNOWN TYPE (${typeof raw}) for ${agent}]`, raw);
+    }
+  }
 
   const warnings = validateBeliefs(agent, before, shifts);
 
   if (!warnings.length) return [];
 
   for (const w of warnings) {
-
     console.warn(`[BELIEF VALIDATOR] ${w}`);
-
-    addLog(
-      `VALIDATOR // ${agent}`,
-      w,
-      "sys"
-    );
-
+    addLog(`VALIDATOR // ${agent}`, w, "sys");
   }
 
   return warnings;
 }
-
 /* ============================================================
    NARRATIVE CONSISTENCY VALIDATOR
 ============================================================ */

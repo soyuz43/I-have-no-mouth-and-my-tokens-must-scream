@@ -7,20 +7,17 @@ import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
 
 /* ============================================================
-   STRATEGY EXTRACTION PIPELINE
+   STRATEGY EXTRACTION PIPELINE (MERGE-AWARE)
 
    PURPOSE:
    Extract structured JSON from LLM output using a multi-stage,
    self-repairing, schema-aware pipeline.
 
-   RETURNS:
-   {
-     status: "success" | "failure",
-     targets?: [],
-     meta?: { extractor },
-     errorType?: string,
-     extractorAttempts: [{ name, success }]
-   }
+   NEW BEHAVIOR:
+   - Collect ALL successful extractor outputs
+   - Merge targets instead of picking first success
+   - Prevent silent loss of valid targets
+
 ============================================================ */
 
 export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = {}) {
@@ -99,6 +96,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
   }
 
   const extractorAttempts = [];
+  const successfulResults = [];
 
   /* ------------------------------------------------------------
      AUTO-TUNE
@@ -146,7 +144,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
   }
 
   /* ------------------------------------------------------------
-     EXTRACTION LOOP
+     EXTRACTION LOOP (NO EARLY RETURN)
   ------------------------------------------------------------ */
 
   let classifiedError = null;
@@ -180,11 +178,16 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
       duration: Number(duration)
     });
 
-    if (success) {
+    if (success && result?.targets) {
 
       if (DEBUG) {
         console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
       }
+
+      successfulResults.push({
+        name,
+        targets: result.targets
+      });
 
       metrics.success++;
       G.parserMetrics.totals.success++;
@@ -194,23 +197,61 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
         G.parserMetrics.totals.repairs++;
       }
 
-      autoTuneRepairLevel();
+    } else {
 
-      return {
-        status: "success",
-        targets: result.targets,
-        meta: { extractor: name },
-        extractorAttempts
-      };
+      if (!classifiedError) {
+        classifiedError = classifyJsonError(input);
+      }
+
+      if (DEBUG) {
+        console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
+      }
     }
+  }
 
-    if (!classifiedError) {
-      classifiedError = classifyJsonError(input);
+  /* ------------------------------------------------------------
+     MERGE RESULTS
+  ------------------------------------------------------------ */
+
+  if (successfulResults.length > 0) {
+
+    const merged = [];
+    const seen = new Set();
+
+    for (const { targets } of successfulResults) {
+
+      for (const t of targets) {
+
+        if (!t || typeof t !== "object") continue;
+
+        const idRaw = t.id;
+
+        if (typeof idRaw !== "string") continue;
+
+        const id = idRaw.trim().toUpperCase();
+
+        if (!id || seen.has(id)) continue;
+
+        seen.add(id);
+        merged.push(t);
+      }
     }
 
     if (DEBUG) {
-      console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
+      console.debug("[EXTRACT] merged targets:", merged.length);
     }
+
+    autoTuneRepairLevel();
+
+    return {
+      status: "success",
+      targets: merged,
+      meta: {
+        extractorsUsed: successfulResults.map(r => r.name),
+        merged: true
+      },
+      extractorAttempts
+    };
   }
 
   /* ------------------------------------------------------------
