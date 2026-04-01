@@ -55,7 +55,6 @@ export async function step({ fromId, state, queue }) {
     cycle,
     exchanges,
     intent,
-    reply
   } = state;
 
   const {
@@ -130,7 +129,7 @@ export async function step({ fromId, state, queue }) {
 
     const outreachRaw = await callModel(
       fromId,
-      buildSimOutreachPrompt(fromSim),
+      buildSimOutreachPrompt(fromSim, state),
       [{ role: "user", content: "Decide now." }],
       MAX_MESSAGE_LENGTH
     );
@@ -236,7 +235,53 @@ export async function step({ fromId, state, queue }) {
     queue.unshift(toId);
 
     if (visibility === "private") {
+      // === REACTIVE OVERHEARING LOGIC ===
+      const beforeOverhears = new Set(SIM_IDS.filter(s =>
+        G.sims[s]?.overheard?.some(o => o.cycle === G.cycle && o.from === fromId && o.to?.includes(toId))
+      ));
+
       maybeOverhear(fromId, toId, message);
+
+      // Check for high-salience overhears that should trigger immediate reaction
+
+      for (const listener of SIM_IDS) {
+        if (listener === fromId || listener === toId) continue;
+        if (cycle.activeThisCycle.has(listener)) continue;
+        if (counters.messageCount >= state.messageBudget) break;
+
+        const listenerSim = G.sims[listener]; // ✅ FIX: define it
+
+        const hadBefore = beforeOverhears.has(listener);
+
+        const recentOverhear = listenerSim?.overheard?.findLast?.(o =>
+          o.cycle === G.cycle && o.from === fromId && o.to?.includes(toId)
+        );
+
+        if (recentOverhear && !hadBefore) {
+          const suspicion = recentOverhear.text?.includes("...") ? 0.005 :
+            recentOverhear.text === "(whispering observed)" ? 0.008 : 0.01;
+
+          if (suspicion >= 0.008) {
+            cycle.activeThisCycle.add(listener);
+
+            const existingIdx = queue.indexOf(listener);
+            if (existingIdx === -1) {
+              queue.push(listener);
+            }
+
+            state.pendingReactiveIntel.set(listener, {
+              overheard: {
+                from: fromId,
+                to: toId,
+                text: message.slice(0, 440),
+                visibility
+              }
+            });
+
+            timelineEvent(`[REACTIVE] ${listener} may respond to overheard: ${fromId}→${toId}`);
+          }
+        }
+      }
     }
 
     recordReceived(toId, fromId, message);

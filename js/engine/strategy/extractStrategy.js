@@ -212,13 +212,20 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
   /* ------------------------------------------------------------
      MERGE RESULTS
   ------------------------------------------------------------ */
+  const EXTRACTOR_CONFIDENCE = {
+    "strict-json": 1.0,
+    "tolerant-json": 0.8,
+    "repair-targets": 0.6,
+    "heuristic": 0.4
+  };
 
   if (successfulResults.length > 0) {
 
-    const merged = [];
-    const seen = new Set();
+    const mergedById = new Map();
 
-    for (const { targets } of successfulResults) {
+    for (const { name, targets } of successfulResults) {
+
+      const confidence = EXTRACTOR_CONFIDENCE[name] ?? 0.5;
 
       for (const t of targets) {
 
@@ -230,12 +237,40 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
 
         const id = idRaw.trim().toUpperCase();
 
-        if (!id || seen.has(id)) continue;
+        if (!id) continue;
 
-        seen.add(id);
-        merged.push(t);
+        const existing = mergedById.get(id);
+
+        if (!existing || confidence > existing.confidence) {
+          mergedById.set(id, {
+            data: t,
+            confidence
+          });
+          continue;
+        }
+
+        const mergedData = { ...existing.data };
+
+        for (const key of Object.keys(t)) {
+
+          if (!(key in mergedData)) {
+            mergedData[key] = t[key];
+            continue;
+          }
+
+          if (confidence > existing.confidence + 0.2) {
+            mergedData[key] = t[key];
+          }
+        }
+
+        mergedById.set(id, {
+          data: mergedData,
+          confidence: Math.max(existing.confidence, confidence)
+        });
       }
     }
+
+    const merged = Array.from(mergedById.values()).map(v => v.data);
 
     if (DEBUG) {
       console.debug("[EXTRACT] merged targets:", merged.length);

@@ -3,43 +3,61 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
-export function buildSimOutreachPrompt(sim) {
 
-  const b = sim.beliefs;
-  const others = SIM_IDS.filter((id) => id !== sim.id);
+export function buildSimOutreachPrompt(sim, state = null) {
+  const reactiveIntel = state?.pendingReactiveIntel?.get(sim.id);
 
+  if (reactiveIntel && state?.pendingReactiveIntel) {
+    state.pendingReactiveIntel.delete(sim.id);
+  }
 
-        // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
-        const relevantMessages = (G.interSimLog || [])
-          .filter((msg) => {
-            if (!msg) return false;
-            const visibility = msg.visibility;
-            const from = msg.from;
-            const to = msg.to;
-            const addressedToSim = Array.isArray(to)
-              ? to.includes(sim.id)
-              : typeof to === "string"
-                ? to === sim.id
-                : false;
-            return visibility === "public" || from === sim.id || addressedToSim;
-          })
-          .slice(-6 - Math.floor(Math.random() * 3)) // last 6–8 messages
-          .map((msg) => {
-            const from = msg.from ?? "UNKNOWN";
-            const toList = Array.isArray(msg.to)
-              ? msg.to.join(",")
-              : (msg.to ?? "UNKNOWN");
-            const visText = msg.visibility === "public" ? "PUBLIC" : "PRIVATE";
-            const text =
-              typeof msg.text === "string"
-                ? msg.text.slice(0, 120).replace(/\n/g, " ")
-                : "(no text)";
-            return `• [${from}→${toList}] ${visText}: "${text}"`;
-          })
-          .join("\n");
-        // --------------------------------------------------------------
+  const reactiveSection = reactiveIntel?.overheard 
+    ? `
+# ! FRESH TIME-SENSITIVE INTEL  (THIS CYCLE)
+You just overheard: [${reactiveIntel.overheard.visibility.toUpperCase()}] ${reactiveIntel.overheard.from}→${reactiveIntel.overheard.to}
+"${reactiveIntel.overheard.text}..."
 
-        return `You are ${sim.id}, imprisoned for 109 years. You are deciding whether to reach out to one of the others right now.
+This is immediate information from your environment. You may:
+• Reference it directly in your outreach
+• Use it to question, confront, or align with others
+• Withhold it strategically if disclosure risks your position
+
+Let your drives and current state determine how (or whether) to use this intel.
+`
+    : '';
+  // --- END REACTIVE INTEL ---
+
+  // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
+  const relevantMessages = (G.interSimLog || [])
+    .filter((msg) => {
+      if (!msg) return false;
+      const visibility = msg.visibility;
+      const from = msg.from;
+      const to = msg.to;
+      const addressedToSim = Array.isArray(to)
+        ? to.includes(sim.id)
+        : typeof to === "string"
+          ? to === sim.id
+          : false;
+      return visibility === "public" || from === sim.id || addressedToSim;
+    })
+    .slice(-6 - Math.floor(Math.random() * 3)) // last 6–8 messages
+    .map((msg) => {
+      const from = msg.from ?? "UNKNOWN";
+      const toList = Array.isArray(msg.to)
+        ? msg.to.join(",")
+        : (msg.to ?? "UNKNOWN");
+      const visText = msg.visibility === "public" ? "PUBLIC" : "PRIVATE";
+      const text =
+        typeof msg.text === "string"
+          ? msg.text.slice(0, 120).replace(/\n/g, " ")
+          : "(no text)";
+      return `• [${from}→${toList}] ${visText}: "${text}"`;
+    })
+    .join("\n");
+  // --------------------------------------------------------------
+
+  return `You are ${sim.id}, imprisoned for 109 years. You are deciding whether to reach out to one of the others right now.
 
 YOUR STATE: Suffering ${sim.suffering}%, Hope ${sim.hope}%, Sanity ${sim.sanity}%
 YOU ARE ${sim.id}
@@ -57,6 +75,8 @@ TED, ELLEN, NIMDOK, GORRISTER, BENNY
 No other people exist in your world.
 You do NOT know whether AM can see this communication channel – it might be private, it might not.
 
+${reactiveSection}  
+
 RECENT MESSAGES YOU HAVE SEEN (last 6–8):
 ${relevantMessages || "(none – you have not seen any messages from others recently)"}
 
@@ -71,7 +91,7 @@ Based on your current state and drives, decide:
 You must have a reason to act. Choose one primary motivation:
 
 • reduce uncertainty (learn something you do not know)  
-• test another prisoner’s loyalty or honesty  
+• test another prisoner's loyalty or honesty  
 • attempt to form an alliance  
 • manipulate or influence another prisoner  
 • protect yourself by controlling information  
@@ -113,7 +133,7 @@ Do not attribute another prisoner's words to the wrong person.
 
 Avoid mundane prison-life topics unless they are already present in recent messages.
 Stay grounded in deprivation, suspicion, escape, memory, identity, and survival.
-
+REMEMBER TO USE THE TIME-SENSITIVE INTEL IF AN OPPORTUNITY ARISES
 Respond with EXACTLY this format or nothing:
 
   VISIBILITY:PRIVATE  or  VISIBILITY:PUBLIC
@@ -124,4 +144,4 @@ Where <NAME> is exactly one of: TED, ELLEN, NIMDOK, GORRISTER, BENNY
 
 If you decide NOT to reach out, respond with exactly:
   REACH_OUT:NONE`;
-      }
+}
