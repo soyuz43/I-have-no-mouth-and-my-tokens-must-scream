@@ -3,6 +3,7 @@
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
+import { addLog } from "../../ui/logs.js";   
 
 /**
  * ============================================================
@@ -49,16 +50,12 @@ export async function runTacticEvolution() {
     const curr = G.sims[id];
     if (!prev || !curr) continue;
 
-    // ------------------------------------------------------------
     // Compute deltas
-    // ------------------------------------------------------------
     const deltaHope = curr.hope - prev.hope;
     const deltaSanity = curr.sanity - prev.sanity;
     const deltaSuffering = curr.suffering - prev.suffering;
 
-    // ------------------------------------------------------------
     // Track short history (last 4 cycles)
-    // ------------------------------------------------------------
     G.tacticHistory[id] ??= [];
 
     G.tacticHistory[id].push({
@@ -76,9 +73,7 @@ export async function runTacticEvolution() {
 
     if (history.length < 2) continue;
 
-    // ------------------------------------------------------------
-    // Relationship shifts (unchanged)
-    // ------------------------------------------------------------
+    // Relationship shifts
     const relationshipShifts = [];
 
     for (const other of SIM_IDS) {
@@ -95,9 +90,7 @@ export async function runTacticEvolution() {
       }
     }
 
-    // ------------------------------------------------------------
-    // 1. Directional consistency
-    // ------------------------------------------------------------
+    // Directional consistency
     function consistency(arr) {
       const signs = arr.map(v => Math.sign(v)).filter(v => v !== 0);
       if (signs.length === 0) return 0;
@@ -122,9 +115,7 @@ export async function runTacticEvolution() {
       sufferingConsistency < 0.7
     ) continue;
 
-    // ------------------------------------------------------------
-    // 2. Net displacement
-    // ------------------------------------------------------------
+    // Net displacement
     const netHope = history.reduce((sum, h) => sum + h.hope, 0);
     const netSanity = history.reduce((sum, h) => sum + h.sanity, 0);
     const netSuffering = history.reduce((sum, h) => sum + h.suffering, 0);
@@ -134,9 +125,7 @@ export async function runTacticEvolution() {
       Math.abs(netSanity) * 0.7 +
       Math.abs(netSuffering) * 0.5;
 
-    // ------------------------------------------------------------
-    // 3. Structural signal
-    // ------------------------------------------------------------
+    // Structural signal
     const multiStat =
       Math.abs(deltaHope) > 2 &&
       Math.abs(deltaSanity) > 2;
@@ -144,9 +133,6 @@ export async function runTacticEvolution() {
     const structuralSignal =
       relationshipShifts.length > 0 || multiStat;
 
-    // ------------------------------------------------------------
-    // FINAL GATE
-    // ------------------------------------------------------------
     if (netMagnitude < 8 || !structuralSignal) continue;
 
     debugLog(`[TACTIC EVOLUTION] ✓ Trajectory detected for ${id}`);
@@ -245,7 +231,10 @@ Outcome:
 
     if (
       G.vault.derivedTactics.some((t) => t.title === title)
-    ) continue;
+    ) {
+      debugLog(`[TACTIC EVOLUTION] Tactic "${title}" already exists, skipping.`);
+      continue;
+    }
 
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 
@@ -259,6 +248,30 @@ Outcome:
       expiresCycle: G.cycle + 15,
     });
 
-    debugLog(`[TACTIC EVOLUTION] New tactic: ${title}`);
+    // ------------------------------------------------------------
+    // LOGGING IMPROVEMENTS — detailed console output
+    // ------------------------------------------------------------
+    const category = categoryMatch[1].trim();
+    const subcategory = subMatch[1].trim();
+    const discoveredCycle = G.cycle;
+
+    // 1. Unconditional console log with all details
+    console.group(`[TACTIC EVOLUTION] New tactic: "${title}"`);
+    console.log(`  Category:      ${category}`);
+    console.log(`  Subcategory:   ${subcategory}`);
+    console.log(`  Discovered:    cycle ${discoveredCycle}`);
+    console.log(`  Expires:       cycle ${G.cycle + 15}`);
+    console.log(`  Full content:\n${response}`);
+    console.groupEnd();
+
+    // 2. UI system log (concise)
+    addLog(
+      `TACTIC EVOLUTION // Cycle ${G.cycle}`,
+      `New tactic: ${title} (${category}/${subcategory})`,
+      "sys"
+    );
+
+    // 3. debugLog for additional details (when DEBUG is on)
+    debugLog(`[TACTIC EVOLUTION] New tactic: ${title} (${category}/${subcategory})`);
   }
 }

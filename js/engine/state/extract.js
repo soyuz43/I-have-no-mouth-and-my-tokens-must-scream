@@ -92,56 +92,64 @@ export function parseStatDeltas(text, sim) {
    BELIEF PARSER
    ============================================================ */
 
+// js/engine/state/extract.js
+
 export function parseBeliefUpdates(text, sim) {
+  // Log the input for debugging
+  console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
 
   const obj = extractJSONObject(text);
+  if (!obj) {
+    console.warn(`[parseBeliefUpdates] No JSON object extracted for ${sim.id}. Full raw text:`, text);
+    return null;
+  }
 
-  if (!obj) return null;
+  console.debug(`[parseBeliefUpdates] Extracted JSON for ${sim.id}:`, obj);
 
+  // Try primary path: belief_deltas
   const rawUpdates = sanitizeBeliefDeltas(obj.belief_deltas);
-
   if (rawUpdates) {
     const scaled = {};
-
     Object.entries(rawUpdates).forEach(([key, delta]) => {
       if (!Number.isFinite(delta)) return;
-
-      //  convert percentage points → unit interval
       scaled[key] = delta / 100;
     });
-
-    return scaled;
-  }
-
-
-  if (obj.beliefs && typeof obj.beliefs === "object") {
-
-    const updatesFromAbsolute = {};
-
-    Object.keys(sim.beliefs).forEach((key) => {
-
-      if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key)) return;
-
-      let raw = Number(obj.beliefs[key]);
-
-      if (!Number.isFinite(raw)) return;
-
-      const newVal = raw > 1 ? raw / 100 : raw;
-
-      let delta = newVal - sim.beliefs[key];
-
-      updatesFromAbsolute[key] = delta;
-
-    });
-
-    if (Object.keys(updatesFromAbsolute).length) {
-      return updatesFromAbsolute;
+    if (Object.keys(scaled).length) {
+      console.debug(`[parseBeliefUpdates] Success: got ${Object.keys(scaled).length} belief deltas for ${sim.id}`);
+      return scaled;
+    } else {
+      console.warn(`[parseBeliefUpdates] belief_deltas present but all values invalid for ${sim.id}. Raw updates:`, rawUpdates);
+      // fall through to try absolute beliefs
     }
-
+  } else {
+    console.debug(`[parseBeliefUpdates] No belief_deltas or sanitization returned null for ${sim.id}`);
   }
 
-  return null;
+  // Fallback: absolute beliefs (old format)
+  if (obj.beliefs && typeof obj.beliefs === "object") {
+    console.debug(`[parseBeliefUpdates] Trying absolute beliefs for ${sim.id}`);
+    const updatesFromAbsolute = {};
+    Object.keys(sim.beliefs).forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key)) return;
+      let raw = Number(obj.beliefs[key]);
+      if (!Number.isFinite(raw)) return;
+      const newVal = raw > 1 ? raw / 100 : raw;
+      let delta = newVal - sim.beliefs[key];
+      updatesFromAbsolute[key] = delta;
+    });
+    if (Object.keys(updatesFromAbsolute).length) {
+      console.debug(`[parseBeliefUpdates] Success from absolute beliefs for ${sim.id}:`, updatesFromAbsolute);
+      return updatesFromAbsolute;
+    } else {
+      console.warn(`[parseBeliefUpdates] beliefs object present but no valid updates for ${sim.id}. Sim beliefs keys:`, Object.keys(sim.beliefs), "Object beliefs keys:", Object.keys(obj.beliefs));
+    }
+  } else {
+    console.debug(`[parseBeliefUpdates] No beliefs object in JSON for ${sim.id}`);
+  }
 
+  // Nothing usable found
+  console.warn(`[parseBeliefUpdates] No belief data at all for ${sim.id}. JSON keys:`, Object.keys(obj));
+  return null;
 }
 
 /* ============================================================
