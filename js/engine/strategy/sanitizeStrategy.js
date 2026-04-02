@@ -59,8 +59,8 @@ export function sanitizeStrategyInput(raw, options = {}) {
   const beforeFenceStrip = cleaned;
 
   cleaned = cleaned
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```[\s]*$/i, "")
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
     .trim();
 
   if (DEBUG && beforeFenceStrip !== cleaned) {

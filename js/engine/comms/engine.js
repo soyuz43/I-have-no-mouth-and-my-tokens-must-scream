@@ -546,22 +546,18 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     exchanges.exchangeCount.set(pairKey, ++exchangeCountForPair);
 
+    // --- UNCONDITIONAL TURN-TAKING: always give original sender a chance to reply ---
+    if (exchangeCountForPair < SOFT_MAX) {
+      const idx = queue.indexOf(fromId);
+      if (idx !== -1) queue.splice(idx, 1);
+      queue.unshift(fromId);
+    }
+
     applyCommunicationEffect(toId, fromId, normalizedIntent);
 
     addLog(`PRIVATE ${toId}→${fromId} [AUTO]`, `"${replyText}"`, "sim");
 
-    const continueThread =
-      exchangeCountForPair < BASE_MAX ||
-      (
-        exchangeCountForPair < SOFT_MAX &&
-        ["probe_trust", "recruit_ally", "manipulate", "request_help", "test_loyalty"].includes(normalizedIntent)
-      );
-
-    if (continueThread && exchangeCountForPair < SOFT_MAX) {
-      const idx2 = queue.indexOf(fromId);
-      if (idx2 !== -1) queue.splice(idx2, 1);
-      queue.unshift(fromId);
-    }
+    // (Old conditional continueThread block removed – turn-taking is now unconditional)
 
   } catch (e) {
     console.warn(`[ENGINE] ${fromId} error:`, e.message);

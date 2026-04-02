@@ -24,6 +24,43 @@ import {
   sanitizeAnchors
 } from "./sanitize.js";
 
+//  HELPERS
+
+function extractStatDeltasFromText(text) {
+  const dirMap = { increased: +1, decreased: -1, unchanged: 0 };
+
+  const sufferingDirMatch = text.match(/suffering_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
+  const sufferingMagMatch = text.match(/suffering_magnitude["']?\s*:\s*(-?\d+)/i);
+
+  const hopeDirMatch = text.match(/hope_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
+  const hopeMagMatch = text.match(/hope_magnitude["']?\s*:\s*(-?\d+)/i);
+
+  const sanityDirMatch = text.match(/sanity_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
+  const sanityMagMatch = text.match(/sanity_magnitude["']?\s*:\s*(-?\d+)/i);
+
+  let suffering = 0, hope = 0, sanity = 0;
+
+  if (sufferingDirMatch && sufferingMagMatch) {
+    const dir = dirMap[sufferingDirMatch[1].toLowerCase()];
+    const mag = Math.abs(parseInt(sufferingMagMatch[1], 10));
+    if (dir !== undefined && Number.isFinite(mag)) suffering = dir * mag;
+  }
+
+  if (hopeDirMatch && hopeMagMatch) {
+    const dir = dirMap[hopeDirMatch[1].toLowerCase()];
+    const mag = Math.abs(parseInt(hopeMagMatch[1], 10));
+    if (dir !== undefined && Number.isFinite(mag)) hope = dir * mag;
+  }
+
+  if (sanityDirMatch && sanityMagMatch) {
+    const dir = dirMap[sanityDirMatch[1].toLowerCase()];
+    const mag = Math.abs(parseInt(sanityMagMatch[1], 10));
+    if (dir !== undefined && Number.isFinite(mag)) sanity = dir * mag;
+  }
+
+  return { suffering, hope, sanity };
+}
+
 /* ============================================================
    STAT DELTA PARSER
    ============================================================ */
@@ -38,7 +75,6 @@ export function parseStatDeltas(text, sim) {
 
   if (obj) {
 
-    // Normalize magnitude: take absolute value (positive) and default to 0 if missing/invalid
     const sufferingMag = obj.suffering_magnitude != null ? Math.abs(obj.suffering_magnitude) : null;
     const hopeMag = obj.hope_magnitude != null ? Math.abs(obj.hope_magnitude) : null;
     const sanityMag = obj.sanity_magnitude != null ? Math.abs(obj.sanity_magnitude) : null;
@@ -65,17 +101,45 @@ export function parseStatDeltas(text, sim) {
 
   }
 
+  // --- FALLBACK if JSON path failed OR returned nulls ---
+  if (suffering === null || hope === null || sanity === null) {
+
+    const fallback = extractStatDeltasFromText(text);
+
+    const before = { suffering, hope, sanity };
+
+    if (suffering === null) {
+      suffering = fallback.suffering;
+    }
+
+    if (hope === null) {
+      hope = fallback.hope;
+    }
+
+    if (sanity === null) {
+      sanity = fallback.sanity;
+    }
+
+    if (fallback.suffering !== 0 || fallback.hope !== 0 || fallback.sanity !== 0) {
+      console.warn(`[parseStatDeltas] Using regex fallback for ${sim?.id}:`, {
+        before,
+        fallback,
+        after: { suffering, hope, sanity }
+      });
+    }
+  }
+
   // normalize to numbers
   suffering = Number(suffering ?? 0);
   hope = Number(hope ?? 0);
   sanity = Number(sanity ?? 0);
 
-  // safety guard against NaN
+  // safety guard
   if (!Number.isFinite(suffering)) suffering = 0;
   if (!Number.isFinite(hope)) hope = 0;
   if (!Number.isFinite(sanity)) sanity = 0;
 
-  // clamp magnitude to avoid runaway psychology
+  // clamp magnitude
   const MAX_DELTA = 8;
 
   suffering = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, suffering));
@@ -87,9 +151,7 @@ export function parseStatDeltas(text, sim) {
     hope,
     sanity
   };
-
 }
-
 /* ============================================================
    BELIEF PARSER
    ============================================================ */

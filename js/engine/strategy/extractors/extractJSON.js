@@ -84,6 +84,18 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     return candidate;
   }
 
+  // --- FIX: remove trailing garbage after string values (safe trim) ---
+  repaired = repaired.replace(
+    /(":\s*"[^"]*")\s+([A-Za-z][^",}\]\n]*)/g,
+    (match, fullString, garbage) => {
+      // Only trim if clearly narrative (multiple words AND no JSON delimiters ahead)
+      if (/^[A-Za-z]+\s+[a-z]/.test(garbage) && !/[{}[\]":]/.test(garbage)) {
+        return `${fullString},`;
+      }
+      return match;
+    }
+  );
+
   repaired = fixBrokenStrings(repaired);
 
   return repaired;
@@ -203,7 +215,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         }
 
         if (DEBUG_EXTRACT) {
-          console.debug("[EXTRACT] candidate:", candidate.slice(0, 200));
+          console.debug("[EXTRACT] candidate:", candidate);
         }
 
         /* ------------------------------------------------------------
