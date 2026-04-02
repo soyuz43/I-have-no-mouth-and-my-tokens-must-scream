@@ -14,14 +14,6 @@ import { classifyJsonError } from "./classifyJsonError.js";
    SCHEMA-AWARE TARGETS EXTRACTION
 ============================================================ */
 
-/**
- * Attempts to extract the value of `"targets": [ ... ]`
- * even if the surrounding JSON is broken.
- *
- * This is MUCH safer than generic `{}` extraction because:
- * - It respects known schema
- * - It avoids structure hallucination
- */
 function extractTargetsArray(input) {
   const key = '"targets"';
   const idx = input.indexOf(key);
@@ -38,15 +30,8 @@ function extractTargetsArray(input) {
   for (let i = startBracket; i < input.length; i++) {
     const ch = input[i];
 
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      escape = true;
-      continue;
-    }
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
 
     if (ch === '"') {
       inString = !inString;
@@ -75,14 +60,23 @@ function extractTargetsArray(input) {
 /* ============================================================
    REPAIR PIPELINE
 ============================================================ */
+function fixUnescapedApostrophes(text) {
+  return text.replace(
+    /"((?:[^"\\]|\\.)*?)"/g,
+    (match, content) => {
+      // Skip if already contains escaped apostrophes
+      if (content.includes("\\'")) return match;
 
-/**
- * Applies structured repair passes based on classified error.
- *
- * Design:
- * - Only applies LOCAL, deterministic fixes
- * - Never invents structure
- */
+      const fixed = content.replace(
+        /(^|[^\\])'/g,
+        (_, prefix) => `${prefix}\\'`
+      );
+
+      return `"${fixed}"`;
+    }
+  );
+}
+
 function attemptRepairs(candidate, DEBUG_EXTRACT) {
   let repaired = candidate;
 
@@ -92,18 +86,12 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     console.debug("[REPAIR] classified as:", errorType);
   }
 
-  // -------------------------------
-  // BASELINE NORMALIZATION (always safe)
-  // -------------------------------
   repaired = stripJsonComments(repaired);
   repaired = fixMissingCommas(repaired);
 
-  // CRITICAL: split merged objects early
+  // critical early split
   repaired = splitMergedObjectsById(repaired);
 
-  // -------------------------------
-  // CONDITIONAL STRUCTURAL FIXES
-  // -------------------------------
   if (errorType === "structural_merge") {
     repaired = fixObjectMerges(repaired);
   }
@@ -112,36 +100,23 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     return candidate;
   }
 
-  // -------------------------------
-  // FINAL STRING REPAIR (ONCE)
-  // -------------------------------
   repaired = fixBrokenStrings(repaired);
 
   return repaired;
 }
+
 /* ============================================================
    MAIN EXTRACTION
 ============================================================ */
-
-/**
- * Extracts JSON from LLM output with:
- * - root-aware scanning
- * - repair pipeline
- * - schema-aware fallback
- * - minimal salvage fallback
- *
- * Returns:
- *   { targets: [...] }
- *   or null
- */
 export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   const candidates = [];
+
   if (DEBUG_EXTRACT) {
     console.debug("[EXTRACT][JSON] Input length:", input.length);
   }
 
   /* ------------------------------------------------------------
-     STEP 1: FIND ALL POSSIBLE ROOT STARTS
+     STEP 1: FIND ROOT STARTS
   ------------------------------------------------------------ */
 
   const starts = [];
@@ -151,7 +126,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
     if (input[i] === "[") starts.push({ index: i, type: "[" });
   }
 
-  // Prefer arrays first (more likely to be `targets`)
   starts.sort((a, b) => (a.type === "[" ? -1 : 1));
 
   /* ------------------------------------------------------------
@@ -169,15 +143,8 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
       const ch = input[i];
 
-      if (escape) {
-        escape = false;
-        continue;
-      }
-
-      if (ch === "\\") {
-        escape = true;
-        continue;
-      }
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
 
       if (ch === '"') {
         inString = !inString;
@@ -188,11 +155,9 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
       if (ch === "{") objDepth++;
       if (ch === "}") objDepth--;
-
       if (ch === "[") arrDepth++;
       if (ch === "]") arrDepth--;
 
-      // Root-aware completion condition
       const complete =
         (type === "{" && objDepth === 0) ||
         (type === "[" && objDepth === 0 && arrDepth === 0);
@@ -200,32 +165,87 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
       if (complete) {
 
         const candidate = input.slice(start, i + 1).trim();
+
+        /* ------------------------------------------------------------
+           HARD FILTER
+        ------------------------------------------------------------ */
+
+        if (
+          candidate.length < 20 ||
+          !candidate.includes(":") ||
+          !/[{\[]/.test(candidate[0])
+        ) {
+          continue;
+        }
+
+        const openBraces = (candidate.match(/{/g) || []).length;
+        const closeBraces = (candidate.match(/}/g) || []).length;
+
+        if (openBraces !== closeBraces) {
+          if (DEBUG_EXTRACT) {
+            console.debug("[EXTRACT] skipping unbalanced candidate");
+          }
+          continue;
+        }
         const hasTargetsKey = candidate.includes('"targets"');
+
         if (DEBUG_EXTRACT) {
-          console.debug("[EXTRACT][JSON] Candidate:");
-          console.debug(candidate.slice(0, 200));
+          console.debug("[EXTRACT] candidate:", candidate.slice(0, 200));
+        }
+
+        /* ------------------------------------------------------------
+           SCORING FUNCTION
+        ------------------------------------------------------------ */
+
+        function computeScore(base, parsedTargets, raw) {
+          let score = base;
+
+          // size
+          score += parsedTargets.length * 10;
+
+          // proximity
+          const idx = raw.indexOf('"targets"');
+          if (idx !== -1 && idx < 80) score += 30;
+
+          // noise (GroupLayout etc.)
+          if (/[A-Za-z_]+\s*:\s*\[[^\]]*\]/.test(raw)) {
+            score -= 50;
+          }
+
+          // duplicate IDs
+          const ids = parsedTargets.map(t => t?.id).filter(Boolean);
+          const unique = new Set(ids);
+          if (ids.length !== unique.size) {
+            score -= 40;
+          }
+
+          // impossible size
+          if (parsedTargets.length > 5) {
+            score -= 100;
+          }
+
+          return score;
         }
 
         /* --------------------------
-           PARSE ATTEMPT
+           DIRECT PARSE
         -------------------------- */
 
         try {
           const parsed = JSON.parse(candidate);
 
-          if (parsed && parsed.targets) {
+          if (parsed && parsed.targets && Array.isArray(parsed.targets)) {
             candidates.push({
               parsed,
-              score: 100 + parsed.targets.length * 10,
+              score: computeScore(100, parsed.targets, candidate),
               source: "direct"
             });
           }
 
-          // Only accept arrays or objects WITHOUT targets if we don't have better options
           if (!hasTargetsKey && Array.isArray(parsed)) {
             candidates.push({
               parsed: { targets: parsed },
-              score: 40 + parsed.length * 5,
+              score: computeScore(10, parsed, candidate) - 50,
               source: "array"
             });
           }
@@ -233,35 +253,35 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         } catch (err) {
 
           if (DEBUG_EXTRACT) {
-            console.debug("[EXTRACT][JSON] parse fail:", err.message);
+            console.debug("[EXTRACT] parse fail:", err.message);
           }
 
           /* --------------------------
-             REPAIR ATTEMPT
+             REPAIR
           -------------------------- */
-          const repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
+
+          let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
+          repaired = fixUnescapedApostrophes(repaired);
 
           if (DEBUG_EXTRACT) {
-            console.debug("[REPAIR][AFTER]:", repaired.slice(0, 200));
+            console.debug("[REPAIR] after:", repaired.slice(0, 200));
           }
 
           try {
             const reparsed = JSON.parse(repaired);
 
-            // PRIORITY
-            if (reparsed && reparsed.targets) {
+            if (reparsed && reparsed.targets && Array.isArray(reparsed.targets)) {
               candidates.push({
                 parsed: reparsed,
-                score: 80 + reparsed.targets.length * 10,
+                score: computeScore(80, reparsed.targets, repaired),
                 source: "repair"
               });
             }
 
-            // fallback only if not a targets candidate
             if (!hasTargetsKey && Array.isArray(reparsed)) {
               candidates.push({
                 parsed: { targets: reparsed },
-                score: 30 + reparsed.length * 5,
+                score: computeScore(30, reparsed, repaired),
                 source: "repair-array"
               });
             }
@@ -273,97 +293,42 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           }
         }
 
-
-        break;
+        continue;
       }
     }
   }
-  
-  // best structured + most complete + least repaired wins
+
+  /* ------------------------------------------------------------
+     BEST CANDIDATE
+  ------------------------------------------------------------ */
+
   if (candidates.length > 0) {
 
     candidates.sort((a, b) => b.score - a.score);
 
-    const best = candidates[0];
-
     if (DEBUG_EXTRACT) {
-      console.group("[EXTRACT][JSON] candidate scoring");
       console.table(candidates.map(c => ({
         source: c.source,
         score: c.score,
         targets: c.parsed.targets?.length || 0
       })));
-      console.groupEnd();
     }
 
-    return best.parsed;
+    return candidates[0].parsed;
   }
 
   /* ------------------------------------------------------------
-     STEP 3: SCHEMA-AWARE EXTRACTION
+     FALLBACK: SCHEMA-AWARE (UNCHANGED)
   ------------------------------------------------------------ */
 
-  const targetsArray = extractTargetsArray(input);
+  const extractedTargets = extractTargetsArray(input);
 
-  if (targetsArray) {
-    console.warn("[EXTRACT][JSON] recovered via targets-array");
-    return { targets: targetsArray };
-  }
-
-  /* ------------------------------------------------------------
-     STEP 4: LAST-RESORT PARTIAL SALVAGE
-  ------------------------------------------------------------ */
-
-  const targets = [];
-  let pos = 0;
-
-  while (pos < input.length) {
-
-    const start = input.indexOf("{", pos);
-    if (start === -1) break;
-
-    let depth = 0;
-    let end = -1;
-
-    for (let i = start; i < input.length; i++) {
-      if (input[i] === "{") depth++;
-      if (input[i] === "}") depth--;
-      if (depth === 0) {
-        end = i;
-        break;
-      }
-    }
-
-    if (end === -1) break;
-
-    const slice = input.slice(start, end + 1);
-
-    try {
-      const obj = JSON.parse(fixBrokenStrings(slice));
-
-      if (obj.id) {
-        targets.push({
-          id: obj.id,
-          objective: obj.objective ?? null,
-          hypothesis: obj.hypothesis ?? null,
-          why_now: obj.why_now ?? null,
-          evidence: obj.evidence ?? null
-        });
-      }
-
-    } catch { }
-
-    pos = end + 1;
-    if (targets.length >= 5) break;
-  }
-
-  if (targets.length > 0) {
-    console.warn(`[EXTRACT][JSON] salvaged ${targets.length} partial targets`);
-    return { targets };
+  if (extractedTargets) {
+    return { targets: extractedTargets };
   }
 
   if (DEBUG_EXTRACT) {
-    console.warn("[EXTRACT][JSON] no valid block");
+    console.warn("[EXTRACT] no valid JSON");
   }
 
   return null;

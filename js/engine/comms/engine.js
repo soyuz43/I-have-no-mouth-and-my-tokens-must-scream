@@ -101,11 +101,41 @@ export async function step({ fromId, state, queue }) {
           const rumorTarget =
             possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
 
-          const rumorText = `I heard ${source.from} say earlier: ${source.text.slice(0, 800)}...`;
+          /* ------------------------------------------------------------
+             BUILD RUMOR TEXT (CONTENT vs OBSERVATION)
+          ------------------------------------------------------------ */
+
+          let rumorText;
+
+          const isObservation =
+            !source.text ||
+            source.text === "(whispering observed)";
+
+          if (isObservation) {
+            const variants = [
+              `I saw ${source.from} and ${source.to} whispering earlier.`,
+              `${source.from} and ${source.to} were definitely hiding something.`,
+              `I noticed ${source.from} talking quietly with ${source.to}.`,
+            ];
+
+            rumorText =
+              variants[Math.floor(Math.random() * variants.length)] +
+              " Something feels off.";
+          } else {
+            rumorText = `I heard ${source.from} say earlier: ${source.text.slice(0, 800)}...`;
+          }
+
+          /* ------------------------------------------------------------
+             LOG + STORE
+          ------------------------------------------------------------ */
 
           timelineEvent(`${fromId} rumor → ${rumorTarget}`);
 
-          addLog(`PRIVATE ${fromId}→${rumorTarget} [AUTO]`, `"${rumorText}"`, "chat");
+          addLog(
+            `PRIVATE ${fromId}→${rumorTarget} [AUTO]`,
+            `"${rumorText}"`,
+            "chat"
+          );
 
           G.interSimLog.push({
             from: fromId,
@@ -116,16 +146,31 @@ export async function step({ fromId, state, queue }) {
             visibility: "private",
             rumor: true,
             originalSource: source.from,
+            originalTarget: source.to,
             originalText: source.text
           });
 
-          adjustRelationship(rumorTarget, source.from, -0.015);
+          /* ------------------------------------------------------------
+             RELATIONSHIP EFFECTS
+          ------------------------------------------------------------ */
+
+          if (isObservation) {
+            // suspicion spreads to both participants
+            adjustRelationship(rumorTarget, source.from, -0.01);
+            if (source.to) {
+              adjustRelationship(rumorTarget, source.to, -0.01);
+            }
+          } else {
+            // direct trust penalty for speaker
+            adjustRelationship(rumorTarget, source.from, -0.015);
+          }
 
           counters.messageCount++;
           return;
         }
       }
     }
+
 
     /* ================= OUTREACH ================= */
 

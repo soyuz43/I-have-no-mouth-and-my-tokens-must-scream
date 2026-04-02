@@ -66,7 +66,15 @@ export function sanitizeStrategyInput(raw, options = {}) {
   if (DEBUG && beforeFenceStrip !== cleaned) {
     console.trace("[SANITIZE] code fences removed");
   }
+  /* ------------------------------------------------------------
+     REMOVE NON-JSON STRUCTURAL NOISE (CRITICAL FIX)
+     e.g. GroupLayout: [1, 0, 2, 1]
+  ------------------------------------------------------------ */
 
+  cleaned = cleaned.replace(
+    /^[A-Za-z_]+\s*:\s*\[[^\]]*\]\s*$/gm,
+    ""
+  );
   /* ------------------------------------------------------------
      OUTPUT DEBUG
   ------------------------------------------------------------ */

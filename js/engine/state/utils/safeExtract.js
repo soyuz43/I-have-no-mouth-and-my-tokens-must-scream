@@ -29,6 +29,11 @@ function extractJSONObject(text) {
   return null;
 }
 
+function truncateAfterLastBrace(text) {
+  const last = text.lastIndexOf("}");
+  if (last === -1) return text;
+  return text.slice(0, last + 1);
+}
 /**
  * Remove markdown fences like ```json ... ```
  */
@@ -112,6 +117,16 @@ export function safeExtractJSON(text) {
     extracted = cleaned;
   }
 
+  // --- LOGGING: detect truncation ---
+const beforeTruncate = extracted;
+
+extracted = truncateAfterLastBrace(extracted);
+
+if (beforeTruncate.length !== extracted.length) {
+  console.warn("[safeExtractJSON] truncated trailing garbage", {
+    removedChars: beforeTruncate.length - extracted.length
+  });
+}
   // Apply comma repair only to extracted JSON candidate
   extracted = fixMissingCommas(extracted);
 
@@ -121,16 +136,24 @@ export function safeExtractJSON(text) {
   // --- Phase 4: Direct parse attempt ---
   try {
     return JSON.parse(extracted);
-  } catch (_) {}
+  } catch (err) {
+    console.debug("[safeExtractJSON] direct parse failed");
+  }
 
   // --- Phase 5: Repair + parse (even if truncated) ---
   try {
     const repaired = repairJSON(extracted);
     return JSON.parse(repaired);
-  } catch (_) {}
-
+  } catch (err) {
+    console.warn("[safeExtractJSON] repair parse failed");
+  }
   // --- Phase 6: If truncated and unrecoverable, return null ---
-  if (truncated) return null;
+
+  if (truncated) {
+    console.warn("[safeExtractJSON] unrecoverable truncated JSON");
+  } else {
+    console.warn("[safeExtractJSON] parse failed (non-truncated)");
+  }
 
   return null;
 }

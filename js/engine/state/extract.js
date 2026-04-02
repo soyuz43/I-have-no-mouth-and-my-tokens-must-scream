@@ -17,7 +17,7 @@ import {
 
 import { safeExtractJSON } from "./utils/safeExtract.js";
 import { fallbackExtractBeliefDeltas } from "./utils/fallbackBeliefs.js";
-
+import { safeExtractFields } from "./utils/fieldExtract.js";
 import {
   sanitizeBeliefDeltas,
   sanitizeDrives,
@@ -104,9 +104,27 @@ export function parseBeliefUpdates(text, sim) {
   if (!obj) {
     console.warn(`[parseBeliefUpdates] JSON extraction failed for ${sim.id}, attempting fallback`);
 
+    // --- NEW: field-level recovery ---
+    const partial = safeExtractFields(text);
+
+    if (partial?.belief_deltas) {
+      console.warn(`[parseBeliefUpdates] recovered belief_deltas via field extraction for ${sim.id}`);
+
+      const scaled = {};
+      Object.entries(partial.belief_deltas).forEach(([key, delta]) => {
+        if (!Number.isFinite(delta)) return;
+        scaled[key] = delta / 30;
+      });
+
+      if (Object.keys(scaled).length) {
+        return scaled;
+      }
+    }
+
+    // --- EXISTING fallback ---
     const fallback = fallbackExtractBeliefDeltas(text);
 
-    if (fallback) {
+    if (fallback && Object.keys(fallback).length) {
       console.debug(`[parseBeliefUpdates] Fallback succeeded for ${sim.id}:`, fallback);
 
       const scaled = {};

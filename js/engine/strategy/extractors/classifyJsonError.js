@@ -11,7 +11,11 @@ export function classifyJsonError(str) {
   if (/}\s*{/.test(str)) {
     return "structural_merge";
   }
-
+  
+  // foreign structured token (e.g. GroupLayout)
+  if (/^[A-Za-z_]+\s*:\s*\[[^\]]*\]/m.test(str)) {
+    return "foreign_structure";
+  }
   // truncation (unbalanced braces)
   const openBraces = (str.match(/{/g) || []).length;
   const closeBraces = (str.match(/}/g) || []).length;

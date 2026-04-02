@@ -89,17 +89,35 @@ export function parseTarget(raw) {
   return null;
 }
 
+/*=============================================================
+    HELPERS
+==============================================================*/
+
+function cleanMessageText(text) {
+  if (!text) return text;
+
+  // Remove trailing visibility markers (case‑insensitive)
+  let cleaned = text.replace(/\s*\((PRIVATE|PUBLIC)\)\s*$/i, '');
+  cleaned = cleaned.replace(/\s*VISIBILITY:\s*(PRIVATE|PUBLIC)\s*$/i, '');
+  
+  // Remove any leftover trailing quotes (if unbalanced)
+  cleaned = cleaned.replace(/"\s*$/, '');
+  
+  return cleaned.trim();
+}
+
 /* ============================================================
    MESSAGE PARSER
 ============================================================ */
 
 export function parseMessage(raw) {
   const m = raw.match(/MESSAGE:\s*"?([\s\S]+?)"?$/i);
-  return m
-    ? m[1].trim().slice(0, MAX_MESSAGE_LENGTH)
-    : null;
+  if (!m) return null;
+  
+  let msg = m[1].trim();
+  msg = cleanMessageText(msg);
+  return msg.slice(0, MAX_MESSAGE_LENGTH);
 }
-
 /* ============================================================
    REPLY PARSER
 ============================================================ */
