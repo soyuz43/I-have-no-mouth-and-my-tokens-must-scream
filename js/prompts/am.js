@@ -30,7 +30,7 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
 
     const anchors = (sim.anchors || [])
       .slice(0, 2)
-      .map(a => `"${a.slice(0, 40)}"`)
+      .map(a => `"${a.slice(0, 80)}"`)
       .join(" ; ") || "(none)";
 
     const beliefsBlock = [
@@ -48,7 +48,7 @@ Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
 Anchors: ${anchors}
 Beliefs:
 ${indent(beliefsBlock, 2)}
-Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`)}
+Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
 `;
 
   }).join("\n");
@@ -88,7 +88,7 @@ Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`)}
     note = note
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 100);
+      .slice(0, 180);
 
     return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision} | note:${note}`;
 
@@ -103,7 +103,7 @@ Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`)}
     .slice(-10)
     .map(e => {
       const vis = e.visibility === "public" ? "PUB" : "PRIV";
-      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0, 90).replace(/\n/g, " ")}"`;
+      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0, 180).replace(/\n/g, " ")}"`;
     })
     .join("\n") || "(none)";
 
@@ -709,7 +709,7 @@ const expandedTargetIds = (() => {
     const lastJ = journals.slice(-1)[0];
     const anchors = (sim.anchors || [])
       .slice(0, 2)
-      .map(a => `"${a.slice(0, 40)}"`)
+      .map(a => `"${a.slice(0, 80)}"`)
       .join(" ; ") || "(none)";
     const beliefsBlock = [
       `EscapePossible: ${Math.round(sim.beliefs.escape_possible * 100)}`,
@@ -726,7 +726,7 @@ const expandedTargetIds = (() => {
   Anchors: ${anchors}
   Beliefs:
     ${beliefsBlock}
-  Journal: "${lastJ ? lastJ.text.slice(0, 170).replace(/\n/g, " ") : "—"}"`;
+  Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`;
   }).join("\n\n");
 
   // ------------------------------------------------------------------
@@ -736,7 +736,7 @@ const expandedTargetIds = (() => {
     .slice(-8)
     .map((e) => {
       const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
-      return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 140).replace(/\n/g, " ")}"`;
+      return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 190).replace(/\n/g, " ")}"`;
     })
     .join("\n");
 

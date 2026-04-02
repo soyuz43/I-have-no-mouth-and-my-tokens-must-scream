@@ -20,7 +20,7 @@ export function dampBeliefDelta(sim, beliefKey, currentValue, delta) {
     const k = params.logisticK ?? 8;
     const mid = params.logisticMid ?? 0.6;
     const blend = params.hybridBlend ?? 0.6;
-    const minR = params.minResistance ?? 0.1;
+    const minR = params.minResistance ?? 0.25;
 
     const distance = Math.abs(currentValue - 0.5);
     const d = distance / 0.5;

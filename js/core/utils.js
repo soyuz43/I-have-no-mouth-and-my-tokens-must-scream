@@ -163,33 +163,67 @@ export function containsStem(text, stems) {
   );
 }
 
+export function preprocessJSONText(text) {
+  return String(text ?? "")
+    // remove code fences
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    // remove line comments
+    .replace(/\/\/.*$/gm, "")
+    .trim();
+}
+
+function fixMissingCommas(str) {
+  return str.replace(
+    /([}\]"0-9])\s*\n\s*([{\["a-zA-Z])/g,
+    (m, a, b) => `${a},\n${b}`
+  );
+}
+
+function detectInvalidArrayStructure(str) {
+  // heuristic: key:value inside array
+  // Only flag if colon appears at top level of array (not inside objects)
+  return /\[\s*([^{}]*\w+\s*:\s*[^,\]]+)/m.test(str);
+}
 
 /**
- * Extract the first balanced JSON object from a string.
- * Enhanced with logging on failure to help debug belief extraction issues.
+ * Extract the first valid JSON object from raw LLM output.
  *
- * @param {string} text - The raw text from the LLM.
- * @returns {object|null} - The parsed JSON object, or null if none found.
+ * Strategy:
+ * 1. Preprocess (strip fences, comments)
+ * 2. Try direct parse
+ * 3. Scan for balanced object
+ * 4. Try parse → repair → parse
+ * 5. Reject structurally invalid cases (array/object mixing)
  */
 export function extractJSONObject(text) {
   if (!text || typeof text !== "string") return null;
 
-  // Try direct parse
-  try {
-    const obj = JSON.parse(text.trim());
-    if (obj && typeof obj === "object") return obj;
-  } catch (_) {}
+  // ------------------------------------------------------------
+  // 1. PREPROCESS (CRITICAL)
+  // ------------------------------------------------------------
+  const cleaned = preprocessJSONText(text);
 
-  // Extract first balanced JSON block (original logic)
-  const start = text.indexOf("{");
+  // ------------------------------------------------------------
+  // 2. FAST PATH: direct parse
+  // ------------------------------------------------------------
+  try {
+    const obj = JSON.parse(cleaned);
+    if (obj && typeof obj === "object") return obj;
+  } catch (_) { }
+
+  // ------------------------------------------------------------
+  // 3. FIND FIRST JSON OBJECT (balanced braces)
+  // ------------------------------------------------------------
+  const start = cleaned.indexOf("{");
   if (start === -1) return null;
 
   let depth = 0;
   let inString = false;
   let escaped = false;
 
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
 
     if (inString) {
       if (escaped) {
@@ -210,28 +244,66 @@ export function extractJSONObject(text) {
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
+
       if (depth === 0) {
-        const candidate = text.slice(start, i + 1);
+        let candidate = cleaned.slice(start, i + 1);
+
+        // ------------------------------------------------------------
+        // 4. HARD GUARD: structural corruption (do NOT repair)
+        // ------------------------------------------------------------
+        if (detectInvalidArrayStructure(candidate)) {
+          console.warn(
+            "[extractJSONObject] Rejected due to invalid array structure"
+          );
+          return null;
+        }
+
+        // ------------------------------------------------------------
+        // 5. ATTEMPT PARSE (RAW)
+        // ------------------------------------------------------------
         try {
           const obj = JSON.parse(candidate);
           if (obj && typeof obj === "object") return obj;
-        } catch (_) {
-          // Try repairing the candidate
-          try {
-            const repairedCandidate = repairJSON(candidate);
-            const obj = JSON.parse(repairedCandidate);
-            if (obj && typeof obj === "object") return obj;
-          } catch (_) {}
+        } catch (err1) {
+          // continue to repair
+        }
+
+        // ------------------------------------------------------------
+        // 6. REPAIR PIPELINE
+        // ------------------------------------------------------------
+        try {
+          let repaired = candidate;
+
+          // missing commas (your most common failure)
+          repaired = fixMissingCommas(repaired);
+
+          // existing repair layer
+          repaired = repairJSON(repaired);
+
+          const obj = JSON.parse(repaired);
+          if (obj && typeof obj === "object") return obj;
+        } catch (err2) {
+          console.warn(
+            "[extractJSONObject] Repair failed",
+            {
+              preview: candidate.slice(0, 200),
+              error: err2?.message,
+            }
+          );
           return null;
         }
       }
     }
   }
-  // Reached end of text without finding a complete JSON object
-console.warn(
-  "[extractJSONObject] Unbalanced braces or incomplete JSON:",
-  text.slice(0, 100) + (text.length > 500 ? "…" : "")
-);
+
+  // ------------------------------------------------------------
+  // 7. NO COMPLETE OBJECT FOUND
+  // ------------------------------------------------------------
+  console.warn(
+    "[extractJSONObject] Unbalanced or incomplete JSON",
+    cleaned.slice(0, 200)
+  );
+
   return null;
 }
 
@@ -346,26 +418,55 @@ export function debugRawLLM(agent, raw, label = "RAW LLM OUTPUT") {
 }
 
 
-// js/core/utils.js (add at the end or near other JSON helpers)
-
 /**
  * Attempt to repair common JSON syntax errors.
- * @param {string} text - Potentially malformed JSON string.
- * @returns {string} Repaired JSON string, or original if no changes.
+ * Conservative, layered approach:
+ * - Never corrupt valid JSON
+ * - Only fix clearly identifiable patterns
  */
 export function repairJSON(text) {
   if (!text || typeof text !== "string") return text;
 
   let repaired = text;
 
-  // 1. Remove trailing commas before } or ]
+  /* ------------------------------------------------------------
+     1. SAFE FIXES (always low risk)
+  ------------------------------------------------------------ */
+
+  // Remove trailing commas before } or ]
   repaired = repaired.replace(/,(\s*[}\]])/g, "$1");
 
-  // 2. Add missing quotes around keys (safe subset only)
+  // Add missing quotes around keys (safe subset only)
   repaired = repaired.replace(
     /([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g,
     '$1"$2":'
   );
+
+  /* ------------------------------------------------------------
+     2. TARGETED FIX: single-quoted VALUES
+     Fixes cases like:
+     "key": 'value with "quotes" inside'
+  ------------------------------------------------------------ */
+
+  repaired = repaired.replace(
+    /:\s*'([^']*)'/g,
+    (match, content) => {
+      // Escape internal double quotes
+      const safe = content.replace(/"/g, '\\"');
+      return `: "${safe}"`;
+    }
+  );
+
+  /* ------------------------------------------------------------
+     3. OPTIONAL GUARD (very conservative)
+     Fix: stray closing quotes at end of object strings
+     (only if obviously mismatched)
+  ------------------------------------------------------------ */
+
+  // Example pattern:
+  // "... 81%."}
+  // → "... 81%."}
+  // (this is mostly a no-op safety placeholder for future tuning)
 
   return repaired;
 }
