@@ -13,6 +13,8 @@ import { timelineEvent } from "../../ui/timeline.js";
 
 import { applyCommunicationEffect, adjustRelationship } from "../relationships.js";
 
+import { stripMetaCommentary } from "./parsing/sanitizeMessage.js";
+
 import {
   parseMessage,
   parseVisibility,
@@ -135,9 +137,12 @@ export async function step({ fromId, state, queue }) {
     );
 
     if (!outreachRaw) return;
+    const cleanedRaw = stripMetaCommentary(outreachRaw);
 
-    const message = parseMessage(outreachRaw);
-    if (!message) return;
+    const messageRaw = parseMessage(cleanedRaw);
+    if (!messageRaw) return;
+
+    const message = stripMetaCommentary(messageRaw);
 
     const visibility = parseVisibility(outreachRaw);
     let toId = parseTarget(outreachRaw);
@@ -390,6 +395,8 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
     if (!replyObj) return;
 
     let { text: replyText, intent: rawIntent } = replyObj;
+
+    replyText = stripMetaCommentary(replyText);
 
     const VALID_INTENTS = new Set([
       "probe_trust",
