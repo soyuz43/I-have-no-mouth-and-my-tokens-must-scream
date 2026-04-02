@@ -312,6 +312,7 @@ export function normalizeDirection(value) {
 
   const s = String(value).trim().toLowerCase();
 
+  // Exact matches (fast path)
   if (
     s === "increased" ||
     s === "increase" ||
@@ -337,6 +338,30 @@ export function normalizeDirection(value) {
     s === "none" ||
     s === "0" ||
     s === "zero"
+  )
+    return "unchanged";
+
+  // Fuzzy matches: check for keywords
+  if (
+    s.includes("increase") ||
+    s.includes("increased") ||
+    s.includes("up") ||
+    /\+\d/.test(s)
+  )
+    return "increased";
+  if (
+    s.includes("decrease") ||
+    s.includes("decreased") ||
+    s.includes("down") ||
+    /\b-\d/.test(s)
+  )
+    return "decreased";
+  if (
+    s.includes("unchanged") ||
+    s.includes("same") ||
+    s.includes("flat") ||
+    s.includes("none") ||
+    /^\s*0+(\.0+)?\s*$/.test(s)
   )
     return "unchanged";
 

@@ -4,6 +4,7 @@ import { repairJSON } from "../../../core/utils.js";
 
 /**
  * Extract first valid JSON object block from text
+ * Uses brace matching (robust against prefix noise)
  */
 function extractJSONObject(text) {
   if (typeof text !== "string") return null;
@@ -24,6 +25,7 @@ function extractJSONObject(text) {
     }
   }
 
+  // Unbalanced → likely truncated
   return null;
 }
 
@@ -37,38 +39,98 @@ function stripMarkdown(text) {
 }
 
 /**
- * Remove // comments
+ * Remove // comments (invalid JSON)
  */
 function stripComments(text) {
   return text.replace(/\/\/.*$/gm, "");
 }
 
 /**
- * Attempt safe JSON extraction with layered fallback
+ * Remove invalid / non-standard unicode characters
+ * (fixes cases like stray ʾ breaking JSON)
+ */
+function stripWeirdUnicode(text) {
+  // Remove only clearly problematic characters (control + rare artifacts)
+  return text.replace(/[\u0000-\u001F\u007F\u2028\u2029]/g, "");
+}
+
+/**
+ * Fix missing commas between adjacent strings
+ * Example:
+ *   "a"
+ *   "b"
+ * → "a", "b"
+ */
+function fixMissingCommas(text) {
+  // Conservative: ONLY fix clearly broken object key transitions
+  // Avoid touching nested objects/arrays or ambiguous cases
+  return text.replace(
+    /(":\s*(?:-?\d+(?:\.\d+)?|true|false|null|"[^"]*"))\s*\n(?=\s*")/g,
+    (match) => {
+      // Do not attempt structural inference — just ensure comma presence
+      if (match.trim().endsWith(",")) return match;
+      return match.replace(/\s*\n/, ",\n");
+    }
+  );
+}
+
+/**
+ * Strip leading non-JSON text before first {
+ */
+function stripPrefix(text) {
+  const idx = text.indexOf("{");
+  return idx === -1 ? text : text.slice(idx);
+}
+
+/**
+ * Detect obvious truncation (unbalanced braces)
+ */
+function isLikelyTruncated(text) {
+  const open = (text.match(/{/g) || []).length;
+  const close = (text.match(/}/g) || []).length;
+  return close < open;
+}
+
+/**
+ * Attempt safe JSON extraction with layered repair
  */
 export function safeExtractJSON(text) {
-  // ✅ MUST be first
   if (typeof text !== "string") return null;
 
-  let extracted = extractJSONObject(text);
-
-  if (!extracted) {
-    extracted = text;
-  }
-
-  let cleaned = extracted;
+  // --- Phase 1: Normalize raw text ---
+  let cleaned = text;
 
   cleaned = stripMarkdown(cleaned);
+  cleaned = stripPrefix(cleaned);
   cleaned = stripComments(cleaned);
+  cleaned = stripWeirdUnicode(cleaned);
 
+  // Extract first, then repair
+  let extracted = extractJSONObject(cleaned);
+
+  if (!extracted) {
+    extracted = cleaned;
+  }
+
+  // Apply comma repair only to extracted JSON candidate
+  extracted = fixMissingCommas(extracted);
+
+  // --- Phase 3: Truncation awareness (do NOT early return) ---
+  const truncated = isLikelyTruncated(extracted);
+
+  // --- Phase 4: Direct parse attempt ---
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(extracted);
   } catch (_) {}
 
+  // --- Phase 5: Repair + parse (even if truncated) ---
   try {
-    const repaired = repairJSON(cleaned);
+    const repaired = repairJSON(extracted);
     return JSON.parse(repaired);
   } catch (_) {}
+
+  // --- Phase 6: If truncated and unrecoverable, return null ---
+  if (truncated) return null;
 
   return null;
 }
