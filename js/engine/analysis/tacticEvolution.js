@@ -3,7 +3,7 @@
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
-import { addLog } from "../../ui/logs.js";   
+import { addLog } from "../../ui/logs.js";
 
 /**
  * ============================================================
@@ -221,9 +221,9 @@ Outcome:
 
     if (!response || response.trim().startsWith("NONE")) continue;
 
-    const titleMatch = response.match(/TITLE:\s*(.+)/i);
-    const categoryMatch = response.match(/CATEGORY:\s*(.+)/i);
-    const subMatch = response.match(/SUBCATEGORY:\s*(.+)/i);
+    const titleMatch = response.match(/(?:^|\n)\s*\*{0,2}TITLE\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
+    const categoryMatch = response.match(/(?:^|\n)\s*\*{0,2}CATEGORY\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
+    const subMatch = response.match(/(?:^|\n)\s*\*{0,2}SUBCATEGORY\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
 
     if (!titleMatch || !categoryMatch || !subMatch) continue;
 
