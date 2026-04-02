@@ -5,7 +5,7 @@ import { extractJSON } from "./extractors/extractJSON.js";
 import { extractTargetsArray } from "./extractors/targetsExtractor.js";
 import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
-
+import { extractLabeledTargets } from "./extractors/extractLabeledTargets.js";
 /* ============================================================
    STRATEGY EXTRACTION PIPELINE (MERGE-AWARE)
 
@@ -89,6 +89,9 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
 
   if (repairLevel >= 1) {
     extractors.push({ name: "targets-array", fn: extractTargetsArray });
+
+    // Handles "Target TED: {...}" style output
+    extractors.push({ name: "labeled-targets", fn: extractLabeledTargets });
   }
 
   if (repairLevel >= 2) {
@@ -163,7 +166,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
 
     try {
       result = fn(input, { DEBUG_EXTRACT });
-      success = !!result;
+      success = !!result && Array.isArray(result.targets) && result.targets.length > 0;
     } catch (err) {
       if (DEBUG) {
         console.warn(`[EXTRACTOR] error in ${name}:`, err.message);
@@ -178,7 +181,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
       duration: Number(duration)
     });
 
-    if (success && result?.targets) {
+    if (success) {
 
       if (DEBUG) {
         console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
@@ -215,6 +218,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
   const EXTRACTOR_CONFIDENCE = {
     "strict-json": 1.0,
     "tolerant-json": 0.8,
+    "labeled-targets": 0.7,
     "repair-targets": 0.6,
     "heuristic": 0.4
   };
@@ -250,22 +254,53 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
         }
 
         const mergedData = { ...existing.data };
+        const fieldConfidence = existing.fieldConfidence || {};
 
         for (const key of Object.keys(t)) {
 
+          if (key === "id") continue;
+
+          const incomingValue = t[key];
+          if (incomingValue == null) continue;
+
+          const prevConfidence = fieldConfidence[key] ?? existing.confidence;
+
+          // ------------------------------------------------------------
+          // 1. If field is missing → always take it
+          // ------------------------------------------------------------
           if (!(key in mergedData)) {
-            mergedData[key] = t[key];
+            mergedData[key] = incomingValue;
+            fieldConfidence[key] = confidence;
             continue;
           }
 
-          if (confidence > existing.confidence + 0.2) {
-            mergedData[key] = t[key];
+          // ------------------------------------------------------------
+          // 2. Prefer higher-confidence extractor
+          // ------------------------------------------------------------
+          if (confidence > prevConfidence + 0.1) {
+            mergedData[key] = incomingValue;
+            fieldConfidence[key] = confidence;
+            continue;
+          }
+
+          // ------------------------------------------------------------
+          // 3. Prefer longer / richer content if similar confidence
+          // ------------------------------------------------------------
+          if (
+            typeof incomingValue === "string" &&
+            typeof mergedData[key] === "string" &&
+            confidence >= prevConfidence - 0.05 &&
+            incomingValue.length > mergedData[key].length * 1.2
+          ) {
+            mergedData[key] = incomingValue;
+            fieldConfidence[key] = confidence;
           }
         }
 
         mergedById.set(id, {
           data: mergedData,
-          confidence: Math.max(existing.confidence, confidence)
+          confidence: Math.max(existing.confidence, confidence),
+          fieldConfidence
         });
       }
     }

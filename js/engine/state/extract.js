@@ -11,10 +11,12 @@
 // It only extracts and returns data.
 
 import {
-  extractJSONObject,
   signedDeltaFromDirectionMagnitude,
   coerceLegacyDelta
 } from "../../core/utils.js";
+
+import { safeExtractJSON } from "./utils/safeExtract.js";
+import { fallbackExtractBeliefDeltas } from "./utils/fallbackBeliefs.js";
 
 import {
   sanitizeBeliefDeltas,
@@ -28,7 +30,7 @@ import {
 
 export function parseStatDeltas(text, sim) {
 
-  const obj = extractJSONObject(text);
+  const obj = safeExtractJSON(text);
 
   let suffering = null;
   let hope = null;
@@ -92,16 +94,38 @@ export function parseStatDeltas(text, sim) {
    BELIEF PARSER
    ============================================================ */
 
-// js/engine/state/extract.js
 
 export function parseBeliefUpdates(text, sim) {
   // Log the input for debugging
   console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
 
-  const obj = extractJSONObject(text);
+  const obj = safeExtractJSON(text);
+
   if (!obj) {
-    console.warn(`[parseBeliefUpdates] No JSON object extracted for ${sim.id}. Full raw text:`, text);
-    return null;
+    console.warn(`[parseBeliefUpdates] JSON extraction failed for ${sim.id}, attempting fallback`);
+
+    const fallback = fallbackExtractBeliefDeltas(text);
+
+    if (fallback) {
+      console.debug(`[parseBeliefUpdates] Fallback succeeded for ${sim.id}:`, fallback);
+
+      const scaled = {};
+      Object.entries(fallback).forEach(([key, delta]) => {
+        if (!Number.isFinite(delta)) return;
+        scaled[key] = delta / 30;
+      });
+
+      if (Object.keys(scaled).length) {
+        return scaled;
+      }
+
+      console.warn(`[parseBeliefUpdates] Fallback produced no valid deltas for ${sim.id}`);
+      return {};
+    }
+
+    console.warn(`[parseBeliefUpdates] Fallback failed for ${sim.id}. Full raw text:`, text);
+    console.warn(`[parseBeliefUpdates] USING EMPTY DELTAS for ${sim.id}`);
+    return {};
   }
 
   console.debug(`[parseBeliefUpdates] Extracted JSON for ${sim.id}:`, obj);
@@ -112,7 +136,7 @@ export function parseBeliefUpdates(text, sim) {
     const scaled = {};
     Object.entries(rawUpdates).forEach(([key, delta]) => {
       if (!Number.isFinite(delta)) return;
-      scaled[key] = delta / 100;
+      scaled[key] = delta / 30;
     });
     if (Object.keys(scaled).length) {
       console.debug(`[parseBeliefUpdates] Success: got ${Object.keys(scaled).length} belief deltas for ${sim.id}`);
@@ -148,8 +172,12 @@ export function parseBeliefUpdates(text, sim) {
   }
 
   // Nothing usable found
-  console.warn(`[parseBeliefUpdates] No belief data at all for ${sim.id}. JSON keys:`, Object.keys(obj));
-  return null;
+  console.warn(
+    `[parseBeliefUpdates] No belief data at all for ${sim.id}. Using safe fallback.`,
+    Object.keys(obj)
+  );
+
+  return {};
 }
 
 /* ============================================================
@@ -158,7 +186,7 @@ export function parseBeliefUpdates(text, sim) {
 
 export function parseDriveUpdate(text, simId) {
 
-  const obj = extractJSONObject(text);
+  const obj = safeExtractJSON(text);
 
   if (obj?.drives) {
     // Convert numeric values to strings if they appear (model sometimes outputs 0)
@@ -196,7 +224,7 @@ export function parseDriveUpdate(text, simId) {
 
 export function parseAnchorUpdate(text) {
 
-  const obj = extractJSONObject(text);
+  const obj = safeExtractJSON(text);
 
   if (obj?.anchors) {
     return sanitizeAnchors(obj.anchors);
