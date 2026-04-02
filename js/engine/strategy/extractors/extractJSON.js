@@ -60,22 +60,6 @@ function extractTargetsArray(input) {
 /* ============================================================
    REPAIR PIPELINE
 ============================================================ */
-function fixUnescapedApostrophes(text) {
-  return text.replace(
-    /"((?:[^"\\]|\\.)*?)"/g,
-    (match, content) => {
-      // Skip if already contains escaped apostrophes
-      if (content.includes("\\'")) return match;
-
-      const fixed = content.replace(
-        /(^|[^\\])'/g,
-        (_, prefix) => `${prefix}\\'`
-      );
-
-      return `"${fixed}"`;
-    }
-  );
-}
 
 function attemptRepairs(candidate, DEBUG_EXTRACT) {
   let repaired = candidate;
@@ -110,6 +94,30 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
 ============================================================ */
 export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   const candidates = [];
+
+  /* ------------------------------------------------------------
+   FAST PATH: FULL OBJECT FIRST 
+------------------------------------------------------------ */
+
+  try {
+    const start = input.indexOf("{");
+    if (start !== -1) {
+      const full = input.slice(start).trim();
+
+      const parsed = JSON.parse(full);
+
+      if (parsed?.targets && Array.isArray(parsed.targets)) {
+        if (DEBUG_EXTRACT) {
+          console.debug("[EXTRACT] full JSON success");
+        }
+        return parsed;
+      }
+    }
+  } catch (e) {
+    if (DEBUG_EXTRACT) {
+      console.debug("[EXTRACT] full JSON failed");
+    }
+  }
 
   if (DEBUG_EXTRACT) {
     console.debug("[EXTRACT][JSON] Input length:", input.length);
@@ -189,6 +197,11 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         }
         const hasTargetsKey = candidate.includes('"targets"');
 
+        // Only skip fragments that clearly cannot be repaired into targets
+        if (!hasTargetsKey && candidate.includes('"id"') && !candidate.includes("{")) {
+          continue;
+        }
+
         if (DEBUG_EXTRACT) {
           console.debug("[EXTRACT] candidate:", candidate.slice(0, 200));
         }
@@ -261,7 +274,6 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           -------------------------- */
 
           let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
-          repaired = fixUnescapedApostrophes(repaired);
 
           if (DEBUG_EXTRACT) {
             console.debug("[REPAIR] after:", repaired.slice(0, 200));

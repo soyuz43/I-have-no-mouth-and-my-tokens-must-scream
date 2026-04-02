@@ -25,6 +25,29 @@ export function fixMissingCommas(input) {
   );
 
   /* ------------------------------------------------------------
+   PASS 1.5: ARRAY ELEMENT COMMA FIX (CRITICAL)
+  ------------------------------------------------------------ */
+
+  str = str.replace(
+    /(")(\s*\n\s*)(")/g,
+    (match, endQuote, whitespace, startQuote, offset, full) => {
+
+      const before = full.slice(0, offset);
+      const quoteCount = (before.match(/"/g) || []).length;
+      if (quoteCount % 2 !== 0) return match;
+
+      const trimmed = before.trimEnd();
+      const lastChar = trimmed.slice(-1);
+
+      if (!['"', '}', ']'].includes(lastChar)) {
+        return match;
+      }
+
+      return `${endQuote},${whitespace}${startQuote}`;
+    }
+  );
+
+  /* ------------------------------------------------------------
      PASS 2: STATEFUL STRUCTURE-AWARE FIX
   ------------------------------------------------------------ */
 
@@ -34,7 +57,6 @@ export function fixMissingCommas(input) {
   let lastNonWhitespace = null;
 
   for (let i = 0; i < str.length; i++) {
-
     const ch = str[i];
 
     if (escape) {
@@ -202,38 +224,38 @@ export function splitMergedObjectsById(input) {
 
     /* ---------------- detect "id" ---------------- */
 
-if (
-  !inString &&
-  stack.length === 1 &&      // ONLY top-level object
-  arrayDepth === 1 &&        // ONLY top-level array
-  input.slice(i, i + 4) === '"id"' &&
-  (input[i + 4] === ":" || /\s/.test(input[i + 4]))
-) {
-  const current = stack[stack.length - 1];
-
-  current.idCount++;
-
-  if (current.idCount > 1) {
-
-    const prevChar = out.trimEnd().slice(-1);
-
     if (
-      prevChar !== "{" &&
-      prevChar !== "[" &&
-      prevChar !== ":"
+      !inString &&
+      stack.length === 1 &&      // ONLY top-level object
+      arrayDepth === 1 &&        // ONLY top-level array
+      input.slice(i, i + 4) === '"id"' &&
+      (input[i + 4] === ":" || /\s/.test(input[i + 4]))
     ) {
-      if (!out.endsWith("}")) {
-        out += "}";
+      const current = stack[stack.length - 1];
+
+      current.idCount++;
+
+      if (current.idCount > 1) {
+
+        const prevChar = out.trimEnd().slice(-1);
+
+        if (
+          prevChar !== "{" &&
+          prevChar !== "[" &&
+          prevChar !== ":"
+        ) {
+          if (!out.endsWith("}")) {
+            out += "}";
+          }
+
+          out += ",{";
+
+          current.idCount = 1;
+
+          continue;
+        }
       }
-
-      out += ",{";
-
-      current.idCount = 1;
-
-      continue;
     }
-  }
-}
 
     out += ch;
   }

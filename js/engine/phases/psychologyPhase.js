@@ -50,6 +50,44 @@ import {
   validateNarrativeConsistency,
 } from "../state/validate.js";
 
+
+/* ============================================================
+   BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
+   ============================================================ */
+
+function snapshotBeliefs(sim) {
+  return { ...(sim.beliefs || {}) };
+}
+
+function diffBeliefs(before, after) {
+  const rows = [];
+
+  const keys = new Set([
+    ...Object.keys(before || {}),
+    ...Object.keys(after || {})
+  ]);
+
+  for (const key of keys) {
+    const b = before?.[key];
+    const a = after?.[key];
+
+    if (!Number.isFinite(b) && !Number.isFinite(a)) continue;
+
+    const delta = (a ?? 0) - (b ?? 0);
+
+    if (delta === 0) continue;
+
+    rows.push({
+      belief: key,
+      before: Number(b ?? 0).toFixed(4),
+      after: Number(a ?? 0).toFixed(4),
+      delta: delta.toFixed(4)
+    });
+  }
+
+  return rows;
+}
+
 /* ============================================================
    PSYCHOLOGY PHASE ORCHESTRATOR
    ============================================================ */
@@ -57,7 +95,7 @@ import {
 // js/engine/phases/psychologyPhase.js – modified section
 
 export async function runPsychologyPhase(execution) {
-
+  const cycleBeliefSummary = {};
   if (!execution) return;
 
   const { targets, tacticMap, simSeesAM } = execution;
@@ -88,9 +126,45 @@ export async function runPsychologyPhase(execution) {
       console.debug(`[PSYCHOLOGY] No AM plan targets, processing all ${targets.length} prisoners.`);
     }
 
-    await stepSimJournals(journalTargets, tacticMap, simSeesAM);
+    await stepSimJournals(journalTargets, tacticMap, simSeesAM, cycleBeliefSummary);
 
     timelineEvent(`// JOURNAL PHASE COMPLETE`);
+    /* ------------------------------------------------------------
+       BELIEF SUMMARY (FULL SYSTEM VIEW)
+    ------------------------------------------------------------ */
+
+    console.group(`[BELIEF SUMMARY][Cycle ${G.cycle}]`);
+
+    const summaryRows = [];
+
+    for (const simId of SIM_IDS) {
+      const diffs = cycleBeliefSummary[simId] || [];
+
+      const totalShift = diffs.reduce(
+        (sum, d) => sum + Math.abs(Number(d.delta)),
+        0
+      );
+
+      summaryRows.push({
+        sim: simId,
+        changes: diffs.length,
+        totalShift: totalShift.toFixed(4)
+      });
+    }
+
+    console.table(summaryRows);
+
+    // Optional: show detailed diffs grouped
+    for (const simId of Object.keys(cycleBeliefSummary)) {
+      const diffs = cycleBeliefSummary[simId];
+      if (!diffs.length) continue;
+
+      console.groupCollapsed(`DETAIL ${simId}`);
+      console.table(diffs);
+      console.groupEnd();
+    }
+
+    console.groupEnd();
 
   } catch (e) {
 
@@ -106,14 +180,24 @@ export async function runPsychologyPhase(execution) {
    STEP 3 — SIM JOURNALS
    ============================================================ */
 
-async function stepSimJournals(targets, tacticMap, simSeesAM) {
+async function stepSimJournals(targets, tacticMap, simSeesAM, cycleBeliefSummary) {
 
-  await Promise.all(
+  const results = await Promise.all(
     targets.map((sim) =>
-      processSimJournalCycle(sim, tacticMap, simSeesAM),
-    ),
+      processSimJournalCycle(sim, tacticMap, simSeesAM)
+    )
   );
 
+  // Aggregate deterministically
+  for (const r of results) {
+    if (!r) continue;
+
+    if (!cycleBeliefSummary[r.simId]) {
+      cycleBeliefSummary[r.simId] = [];
+    }
+
+    cycleBeliefSummary[r.simId].push(...(r.diff || []));
+  }
 }
 /* ============================================================
    AM → SIM PERCEPTION SANITIZER
@@ -402,9 +486,29 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
     const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
 
+    // --- SNAPSHOT BEFORE ---
+    const beliefsBeforeCommit = snapshotBeliefs(sim);
+
+    // --- APPLY ---
     applyBeliefUpdates(sim, beliefUpdates);
     applyDriveUpdates(sim, driveUpdates);
     applyAnchorUpdates(sim, anchorUpdates);
+
+    // --- SNAPSHOT AFTER ---
+    const beliefsAfterCommit = sim.beliefs;
+
+    // --- DIFF ---
+    const diff = diffBeliefs(beliefsBeforeCommit, beliefsAfterCommit);
+
+
+    // --- PER-SIM LOG ---
+    if (diff.length > 0) {
+      console.groupCollapsed(`[BELIEF Δ] ${sim.id}`);
+      console.table(diff);
+      console.groupEnd();
+    } else {
+      console.debug(`[BELIEF Δ] ${sim.id} (no change)`);
+    }
 
     appendJournalEntry(
       sim.id,
@@ -434,6 +538,10 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     );
 
     updateSimDisplay(sim, statDeltas);
+    return {
+      simId: sim.id,
+      diff
+    };
 
   } catch (e) {
 
@@ -446,6 +554,11 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       String(e.message || e),
       "sys"
     );
+
+    return {
+      simId: sim.id,
+      diff: []
+    };
 
   } finally {
 
