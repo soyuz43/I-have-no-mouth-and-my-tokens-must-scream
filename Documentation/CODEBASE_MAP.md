@@ -1,858 +1,535 @@
-# Codebase Map
+# CODEBASE MAP — CURRENT ARCHITECTURE (AUTHORITATIVE)
 
-### AM Torment Engine
+## 1. SYSTEM OVERVIEW
 
-This document explains the **structure of the entire repository** and how each module participates in the simulation.
+This system is a **phase-driven simulation engine** orchestrated by a central cycle loop.
+It models adversarial psychological dynamics between a controller (AM) and multiple persistent agents (sims).
 
-It serves as the **navigation guide for developers**.
+Execution is **strictly ordered**, not event-driven.
 
----
-
-# Repository Overview
-
-```text
-.
-├── Documentation
-├── js
-│   ├── core
-│   ├── engine
-│   ├── models
-│   ├── prompts
-│   └── ui
-├── public
-├── snapshots
-├── index.html
-├── main.js
-└── styles.css
-```
-
-The project is intentionally divided into **five architectural layers**:
-
-```
-Core
-Engine
-Models
-Prompts
-UI
-```
-
-Each layer has a specific responsibility.
-
----
-
-# System Architecture
-
-```
-          USER / UI
-              │
-              ▼
-        UI Rendering
-              │
-              ▼
-        Simulation Engine
-              │
-              ▼
-          Model Layer
-              │
-              ▼
-         Prompt System
-              │
-              ▼
-          Core State
-```
-
-The system is **state-driven**.
-
-All modules read or update:
-
-```
-G (global simulation state)
-```
-
-Defined in:
-
-```
-js/core/state.js
-```
-
----
-
-# Top Level Files
-
-## `index.html`
-
-Main application shell.
-
-Responsibilities:
-
-```
-UI layout
-panel containers
-script loading
-initial DOM
-```
-
-This file loads the entire JS engine.
-
----
-
-## `main.js`
-
-System bootstrap.
-
-Responsibilities:
-
-```
-module initialization
-boot sequence
-starting simulation
-event wiring
-```
-
-Typical tasks:
-
-```
-initialize AM
-initialize prisoners
-start cycle execution
-attach UI handlers
-```
-
----
-
-## `styles.css`
-
-Defines visual style for:
-
-```
-log panels
-relationship graph
-journal display
-timeline
-```
-
-Pure presentation.
-
----
-
-# Documentation Folder
-
-```
-Documentation/
-```
-
-Contains system-level design explanations.
-
-Files include:
-
-```
-CONSCIOUSNESS_ARGUMENT.md
-INTERSIM_COMMUNICATION_SCHEDULER.md
-SIMULATION_PIPELINE_ARCHITECTURE.md
-SOCIAL_NETWORK_EVOLUTION.md
-CODEBASE_MAP.md
-```
-
-These describe **conceptual architecture rather than code**.
-
----
-
-# JS Folder
-
-All runtime logic lives inside:
-
-```
-js/
-```
-
-Structure:
-
-```
-core/
-engine/
-models/
-prompts/
-ui/
-```
-
----
-
-# Core Layer
-
-Location:
-
-```
-js/core/
-```
-
-This layer contains **foundational utilities and global state**.
-
----
-
-## `state.js`
-
-Defines the global simulation state:
-
-```javascript
-export const G = {
-  sims: {},
-  journals: {},
-  interSimLog: [],
-  relationships: {},
-  cycle: 0
-}
-```
-
-Everything in the engine reads or writes to `G`.
-
----
-
-## `constants.js`
-
-Defines global constants.
-
-Example:
-
-```
-SIM_IDS
-tactic identifiers
-limits
-```
-
-This avoids hardcoding values throughout the engine.
-
----
-
-## `utils.js`
-
-General helper functions.
-
-Typical contents:
-
-```
-formatters
-HTML escaping
-math helpers
-delta formatting
-```
-
----
-
-## `bus.js`
-
-Internal event bus used for:
-
-```
-event messaging
-decoupled module communication
-```
-
-Not all modules depend on it.
-
----
-
-## `github.js`
-
-Handles integration with GitHub features such as:
-
-```
-snapshot exporting
-state serialization
-```
-
----
-
-# Engine Layer
-
-Location:
-
-```
-js/engine/
-```
-
-This is the **core simulation logic**.
-
-It contains the systems that drive behavior.
-
----
-
-# `cycle.js`
-
-The **central orchestrator**.
-
-Defines the main pipeline:
+At a high level:
 
 ```
 runCycle()
+  → Strategy Phase
+  → Psychology Phase
+  → Social Phase
+  → Evaluation Phase
 ```
 
-Execution order:
+All subsystems operate over a shared global state object:
 
 ```
-1. AM planning
-2. AM execution
-3. Sim journals
-4. Inter-sim communication
-5. Belief contagion
-6. Assessment
-7. Tactic evolution
-8. Rendering
+G (js/core/state.js)
 ```
 
-This file is the **heart of the simulation**.
+This is the **primary integration surface** across the entire system.
 
 ---
 
-# `comms.js`
+## 2. CORE EXECUTION PIPELINE
 
-Implements the **inter-sim communication system**.
+### Entry Point
+
+File: `js/engine/cycle.js`
+
+```
+export async function runCycle()
+```
 
 Responsibilities:
 
+* Advances global time (`G.cycle`)
+* Snapshots previous state (`G.prevCycleSnapshot`)
+* Executes phases in strict order
+* Emits timeline events
+* Manages auto-run loop
+
+---
+
+## 3. GLOBAL STATE MODEL
+
+File: `js/core/state.js`
+
 ```
-message scheduling
-reply generation
-overhearing
-communication logs
-relationship effects
+export const G = { ... }
 ```
 
-Key function:
+### Key Properties
+
+* `G.sims` — agent state (beliefs, drives, relationships, journals)
+* `G.cycle` — current timestep
+* `G.amStrategy` — structured AM plan
+* `G.amTargets` — execution-level targeting
+* `G.threads` — communication history
+* `G.interSimLog` — message/event log
+* `G.journals` — per-agent private logs
+* `G.parserMetrics` — strategy parsing telemetry
+* `G.vault` — tactic storage (embedded + derived)
+
+### Architectural Reality
+
+* All subsystems **read and mutate G directly**
+* No isolation boundaries
+* No immutable state layer
+
+**Implication:**
+
+> The system behaves as a **stateful simulation kernel**, not a modular service graph.
+
+---
+
+## 4. PHASE ARCHITECTURE
+
+---
+
+### 4.1 STRATEGY PHASE
+
+File: `js/engine/phases/strategyPhase.js`
+
+```
+runStrategyPhase()
+```
+
+#### Responsibilities
+
+1. Generate AM strategic plan (LLM call)
+2. Compile plan into structured targets
+3. Execute AM actions
+
+#### Internal Pipeline
+
+```
+runStrategyPipeline()
+  → sanitizeStrategyInput
+  → extractStrategy
+      → multi-extractor system
+      → repair pipeline
+  → interpretTargets
+  → validateTargetsArray
+  → enforceStrategy
+  → commitStrategy
+```
+
+#### Outputs
+
+* `G.amStrategy`
+* `G.amTargets`
+* `G.amDoctrine`
+
+#### Key Insight
+
+This is a **fault-tolerant compiler**, not simple parsing.
+
+---
+
+### 4.2 PSYCHOLOGY PHASE
+
+File: `js/engine/phases/psychologyPhase.js`
+
+```
+runPsychologyPhase()
+```
+
+#### Responsibilities
+
+* Generate agent journals (LLM)
+* Generate structured state deltas (LLM)
+* Convert text → belief updates
+* Apply validated updates to state
+
+#### Per-Agent Pipeline
+
+```
+journalText  = callModel()
+statsJSON    = callModel()
+
+→ parseBeliefUpdates()
+→ sanitizeBeliefDeltas()
+→ validateBeliefs()
+→ applyBeliefUpdates()
+```
+
+#### Critical Property
+
+> This is the **only phase that mutates psychological state**
+
+All other phases influence but do not directly change beliefs.
+
+---
+
+### 4.3 SOCIAL PHASE
+
+File: `js/engine/phases/socialPhase.js`
+
+```
+runSocialPhase()
+```
+
+#### Subsystems
+
+---
+
+#### A. Communication Engine
+
+Files:
+
+* `js/engine/comms/engine.js`
+* `js/engine/comms/orchestrator.js`
+
+Flow:
 
 ```
 runAutonomousInterSim()
-```
-
-Features:
-
-```
-dynamic message budgets
-two-pass scheduler
-burst probability
-overhearing model
-```
-
----
-
-# `journals.js`
-
-Parses psychological state updates produced by journal analysis.
-
-Responsibilities:
-
-```
-parseStatDeltas()
-parseBeliefUpdates()
-parseDriveUpdate()
-parseAnchorUpdate()
-```
-
-Also applies updates to the simulation state.
-
----
-
-# `relationships.js`
-
-Maintains the **trust network between prisoners**.
-
-Responsibilities:
-
-```
-adjustRelationship()
-applyCommunicationEffect()
-applyRelationshipDrift()
-```
-
-Relationships influence:
-
-```
-overhearing likelihood
-belief contagion
-social dynamics
+  → step()
+      → callModel (message/reply)
+      → stripMetaCommentary
+      → parseMessage / parseReply
+      → update threads + logs
+      → applyCommunicationEffect()
+      → adjustRelationship()
 ```
 
 ---
 
-# `relationshipDrift.js`
+#### B. Overhearing System
 
-Handles slow long-term decay of relationships.
+File:
+
+* `js/engine/comms/social/overhearing.js`
+
+* Records indirect observations
+
+* Injects uncertainty + rumor dynamics
+
+---
+
+#### C. Belief Contagion
+
+File:
+
+* `js/engine/social/beliefContagion.js`
+
+```
+runBeliefContagion()
+```
+
+* Trust-weighted belief propagation
+* Thresholded influence dynamics
+
+---
+
+#### Summary
+
+> Social phase = **communication + relational + diffusion dynamics**
+
+---
+
+### 4.4 EVALUATION PHASE
+
+File: `js/engine/phases/evaluationPhase.js`
+
+```
+runEvaluationPhase()
+```
+
+#### Responsibilities
+
+* Assess strategy effectiveness
+* Evolve tactics
+* Log relational structure
+* Finalize cycle state
+
+#### Subsystems
+
+* `assessment.js` — hybrid scoring (heuristic + LLM)
+* `tacticEvolution.js` — emergent tactic discovery
+* `relationshipMatrix.js` — structural visualization
+
+#### State Updates
+
+* Updates `G.amAssessmentHistory`
+* Updates `G.vault.derivedTactics`
+* Maintains rolling histories
+
+---
+
+## 5. THREE DISTINCT PARSING SYSTEMS
+
+This system contains **three independent parsing pipelines**, each serving a different layer of the architecture.
+
+---
+
+### 5.1 STRATEGY PARSING (Compiler Layer)
+
+Location:
+
+```
+js/engine/strategy/*
+```
 
 Purpose:
 
-```
-simulate fading memories
-prevent permanent trust lock-in
-```
+* Convert AM text → structured plan
+
+Features:
+
+* Multi-extractor competition
+* JSON repair pipeline:
+
+  * `stripJsonComments`
+  * `fixMissingCommas`
+  * `splitMergedObjectsById`
+  * `fixObjectMerges`
+  * `fixBrokenStrings`
+* Error classification (`classifyJsonError`)
+* Auto-tuning repair levels
+
+**Role:**
+
+> High-level **intent compilation**
 
 ---
 
-# `validators.js`
+### 5.2 COMMS PARSING (Interaction Layer)
 
-Protects the simulation from **model output errors**.
-
-Responsibilities:
+Location:
 
 ```
-stat consistency checks
-narrative validation
-state block verification
+js/engine/comms/parsing/*
 ```
 
-Without validators, LLM output can break the simulation.
+Functions:
+
+* `parseMessage`
+* `parseReply`
+* `stripMetaCommentary`
+
+Purpose:
+
+* Convert conversational text → structured intents
+* Extract targets, visibility, tone
+
+**Role:**
+
+> Mid-level **interaction decoding**
 
 ---
 
-# `tactics.js`
+### 5.3 STATE EXTRACTION PARSING (Physics Layer)
 
-Selects which AM tactics are available during execution.
-
-Uses:
+Location:
 
 ```
-tactic vault
-target prisoner state
-strategy signals
+js/engine/state/*
 ```
+
+Functions:
+
+* `parseBeliefUpdates`
+* `safeExtractJSON`
+* `sanitizeBeliefDeltas`
+* fallback extractors
+
+Purpose:
+
+* Convert LLM stats output → numerical state deltas
+
+Pipeline:
+
+```
+text → JSON extraction → sanitization → validation → commit
+```
+
+**Role:**
+
+> Low-level **state transition decoding**
 
 ---
 
-# `analysis/`
+### Key Architectural Insight
 
-Contains meta-analysis systems.
+These three parsers operate at **different semantic layers**:
+
+| Layer    | Function                  |
+| -------- | ------------------------- |
+| Strategy | Intent / planning         |
+| Comms    | Interaction / messaging   |
+| State    | Numerical state evolution |
+
+---
+
+## 6. STATE MUTATION LAYER (PHYSICS ENGINE)
+
+File:
+
+```
+js/engine/state/commit.js
+```
+
+This is the **only authoritative mutation layer**.
+
+Functions:
+
+* `applyBeliefUpdates`
+* `applyDriveUpdates`
+* `applyAnchorUpdates`
+* `softClampBelief`
+* `dampBeliefDelta`
+
+Properties:
+
+* Enforces damping
+* Applies soft bounds
+* Logs belief dynamics
+* Computes system metrics
+
+**Architectural Role:**
+
+> Defines the **rules of the simulation**
+
+---
+
+## 7. RELATIONSHIP SYSTEM
+
+File:
+
+```
+js/engine/relationships.js
+```
+
+Core functions:
+
+* `adjustRelationship`
+* `applyCommunicationEffect`
+* `applyOverheardEffect`
+
+Properties:
+
+* Trust-based updates
+* Bidirectional effects
+* Coupled to comms + contagion
+
+---
+
+## 8. MODEL INTERFACE LAYER
 
 Files:
 
 ```
-assessment.js
-tacticEvolution.js
-relationshipDebug.js
+js/models/callModel.js
+js/models/modelQueue.js
 ```
-
----
-
-## `assessment.js`
-
-Evaluates how effective AM tactics were.
-
-Compares:
-
-```
-intended effects
-actual psychological outcomes
-```
-
----
-
-## `tacticEvolution.js`
-
-Allows AM to discover **new tactics** when patterns emerge.
-
-Purpose:
-
-```
-adaptive torment
-strategy learning
-```
-
----
-
-## `relationshipDebug.js`
-
-Developer tool.
-
-Prints:
-
-```
-trust matrices
-relationship graphs
-```
-
-to the console.
-
-Used for debugging emergent social dynamics.
-
----
-
-# `social/`
-
-Contains social simulation subsystems.
-
----
-
-## `beliefContagion.js`
-
-Implements **belief propagation across the trust network**.
-
-Example:
-
-```
-TED believes escape is possible
-↓
-BENNY trusts TED
-↓
-BENNY adopts belief
-```
-
-Creates emergent group ideology.
-
----
-
-# `strategy/`
-
-Contains strategy parsing logic.
-
----
-
-## `parseStrategy.js`
-
-Interprets AM's strategic output.
-
-Extracts:
-
-```
-targets
-intent
-tactic references
-```
-
----
-
-# Models Layer
-
-Location:
-
-```
-js/models/
-```
-
-Handles all interaction with LLM backends.
-
----
-
-## `callModel.js`
-
-Primary interface to the language model.
 
 Responsibilities:
 
-```
-construct request
-send prompt
-return response
-log debugging information
-```
+* LLM invocation abstraction
+* Concurrency control
+* Logging + instrumentation
 
-Supports:
+Used by:
 
-```
-Ollama
-future providers
-```
+* Strategy
+* Psychology
+* Comms
+* Evaluation
 
 ---
 
-## `modelQueue.js`
+## 9. PROMPT SYSTEM
 
-Implements a **request queue for LLM calls**.
-
-Purpose:
-
-```
-prevent model overload
-serialize concurrent requests
-maintain stability
-```
-
-Features:
-
-```
-queue scheduling
-active request limits
-debug instrumentation
-```
-
----
-
-# Prompts Layer
-
-Location:
+Directory:
 
 ```
 js/prompts/
 ```
 
-Contains prompt templates used by the model.
+Key prompts:
 
-Separating prompts from logic makes the system easier to maintain.
+* `am.js` — planning + execution
+* `journal.js` — internal agent logs
+* `simOutreach.js` — outgoing messages
+* `simReply.js` — responses
+* `stats.js` — structured state output
 
----
-
-## `am.js`
-
-Prompts for AM strategic thinking.
-
-Includes:
+Helper:
 
 ```
-planning prompt
-execution prompt
+buildPromptContext()
 ```
 
 ---
 
-## `journal.js`
+## 10. OBSERVABILITY + DEBUG LAYER
 
-Prompt for prisoner journal generation.
+Strong instrumentation throughout:
 
-Guides the model to produce **psychological narrative**.
-
----
-
-## `stats.js`
-
-Prompt used to analyze journal entries.
-
-Extracts structured data such as:
-
-```
-stat deltas
-belief changes
-drives
-anchors
-```
+* `timelineEvent()` — phase + action logging
+* `parserMetrics` — extraction performance
+* `beliefDynamics` — system-level metrics
+* `tacticHistory` — per-agent tracking
+* `relationshipMatrix` — structural state
 
 ---
 
-## `simOutreach.js`
+## 11. ARCHITECTURAL SUMMARY
 
-Prompt that determines whether a prisoner initiates communication.
+### This system is:
 
-Outputs:
-
-```
-VISIBILITY
-REACH_OUT
-MESSAGE
-```
+* A **phase-linear simulation engine**
+* Driven by a **global mutable state (G)**
+* Using **LLMs as stochastic transition generators**
+* Stabilized by **deterministic validation + commit layers**
 
 ---
 
-## `simReply.js`
+### It is NOT:
 
-Prompt used when prisoners respond to messages.
-
-Outputs:
-
-```
-REPLY
-INTENT
-```
-
-The intent drives relationship effects.
+* Event-driven
+* Stateless
+* Strictly modular
+* Purely LLM-driven
 
 ---
 
-# UI Layer
-
-Location:
+### Core Mental Model
 
 ```
-js/ui/
-```
-
-Handles all rendering and interface logic.
-
----
-
-## `boot.js`
-
-UI initialization.
-
-Prepares interface panels and startup messages.
-
----
-
-## `logs.js`
-
-Manages the **Transmission Log**.
-
-Handles:
-
-```
-addLog()
-system messages
-sim messages
-AM messages
+LLM outputs (text)
+    ↓
+[3 parsing layers]
+    ↓
+validated structures
+    ↓
+commit layer (physics)
+    ↓
+updated global state
+    ↓
+next cycle
 ```
 
 ---
 
-## `timeline.js`
+## 12. DESIGN TRADEOFFS
 
-Displays cycle events.
+### Strengths
 
-Example:
+* Extremely observable
+* Robust to malformed model output
+* Clear phase separation
+* Strong state validation layer
 
-```
-C0 00:07:32 → TED outreach decision
-```
+### Weaknesses
 
-Useful for debugging system flow.
-
----
-
-## `render.js`
-
-Updates prisoner panels.
-
-Displays:
-
-```
-stats
-journals
-beliefs
-drives
-```
+* Heavy reliance on global mutable state
+* Tight coupling between subsystems
+* No isolation boundaries
+* Difficult to parallelize
 
 ---
 
-## `relationships.js`
+## 13. FINAL NOTE
 
-Renders the trust network between prisoners.
+The system’s defining characteristic is not its modules, but its **controlled transformation pipeline from language → structured intent → validated state change**.
 
-Displays:
-
-```
-pair relationships
-trust strength
-color-coded hostility/alliance
-```
-
----
-
-## `events.js`
-
-Handles UI interactions such as:
-
-```
-execute cycle
-switch modes
-manual messages
-```
-
----
-
-## `export.js`
-
-Allows exporting simulation logs or state snapshots.
-
----
-
-# Public Assets
-
-Location:
-
-```
-public/
-```
-
-Contains static files.
-
-```
-favicon.svg
-favicon.ico
-```
-
----
-
-# Snapshots
-
-Location:
-
-```
-snapshots/
-```
-
-Contains historical builds.
-
-Example:
-
-```
-index.monolith.html
-```
-
-This file is the **original single-file prototype** before the system was modularized.
-
-It is preserved for:
-
-```
-historical reference
-debugging regressions
-architecture comparison
-```
-
----
-
-# Development Philosophy
-
-The codebase follows several architectural principles.
-
-### Modularization
-
-Each subsystem is isolated.
-
-```
-communication
-psychology
-strategy
-rendering
-```
-
----
-
-### State-Centered Design
-
-Everything reads and writes the shared state object:
-
-```
-G
-```
-
-This allows systems to interact indirectly.
-
----
-
-### Emergent Behavior
-
-The engine is not scripted.
-
-Behavior emerges from:
-
-```
-psychological state
-relationship networks
-belief propagation
-communication
-```
-
----
-
-# Summary
-
-The AM Torment Engine is structured as:
-
-```
-Core State
-   ↓
-Simulation Engine
-   ↓
-LLM Model Layer
-   ↓
-Prompt System
-   ↓
-UI Rendering
-```
-
-This architecture allows the simulation to produce **complex narrative behavior while remaining modular and extensible**.
-
----
+Understanding that pipeline is essential to working effectively in this codebase.

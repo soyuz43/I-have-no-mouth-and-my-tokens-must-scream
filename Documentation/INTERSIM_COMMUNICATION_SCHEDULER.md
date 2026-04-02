@@ -1,583 +1,652 @@
 # Inter-Sim Communication Scheduler
 
-### AM Torment Engine
+---
 
-This document explains how autonomous communication between prisoners is scheduled, processed, and constrained during each simulation cycle.
+## 1. System Placement
 
-The communication engine is designed to produce **emergent social behavior** while preventing pathological loops or runaway message spam.
+The communication system executes during the simulation cycle:
 
-The system combines:
-
+```text
+runCycle()
+  ├─ runStrategyPhase()
+  ├─ runPsychologyPhase()
+  ├─ runSocialPhase()
+  │    └─ runAutonomousInterSim()
+  └─ runEvaluationPhase()
 ```
-probabilistic scheduling
-relationship-driven targeting
-conversation inertia
-rumor propagation
-overhearing mechanics
+
+The communication scheduler is implemented in:
+
+```text
+js/engine/comms/orchestrator.js
 ```
 
-These together create a **dynamic social network simulation** among the prisoners.
+Interaction execution is implemented in:
+
+```text
+js/engine/comms/engine.js
+```
 
 ---
 
-# Overview
+## 2. High-Level Architecture
 
-Each simulation cycle may include an **inter-sim communication phase** where prisoners attempt to contact each other.
+The system is composed of four layers:
 
-Communication follows this structure:
-
-```
-Cycle
- └─ Inter-Sim Phase
-     ├─ Pass 1 (baseline outreach)
-     │   └─ Each sim may attempt communication
-     │
-     └─ Pass 2 (burst / escalation)
-         └─ Active sims may attempt additional outreach
+```text
+[ Scheduler ] → [ Target Selection ] → [ Interaction Engine ] → [ State Effects ]
 ```
 
-The scheduler enforces several constraints:
+More precisely:
 
+```text
+orchestrator.js
+    ↓
+engine.js (attemptCommunication)
+    ↓
+LLM calls + parsing
+    ↓
+relationships.js + state updates
 ```
-message budget
-conversation inertia
-relationship routing
-reply protection
-target cooldown
-overhearing effects
-rumor propagation
-```
-
-These constraints ensure the system behaves more like **human social dynamics** rather than a pure message generator.
 
 ---
 
-# Scheduler Dynamics
+## 3. End-to-End Execution Pipeline
 
-Communication decisions emerge from four interacting forces.
+```text
+CYCLE START
+    ↓
+runSocialPhase
+    ↓
+runAutonomousInterSim
+    ↓
+[ PASS 1 ]
+    ↓
+attemptCommunication(fromId)
+    ↓
+  selectTarget(fromId)
+    ↓
+  generateMessage (LLM)
+    ↓
+  parseMessage
+    ↓
+  generateReply (LLM)
+    ↓
+  parseReply
+    ↓
+  apply effects
+    ↓
+[ PASS 2 (conditional) ]
+    ↓
+repeat with burst dynamics
+    ↓
+CYCLE END
+```
+
+---
+
+## 4. Scheduler (orchestrator.js)
+
+### 4.1 Responsibilities
+
+* Defines pass structure
+* Computes message budget
+* Controls ordering (shuffle)
+* Applies burst amplification
+* Tracks per-cycle activity
+
+---
+
+### 4.2 Message Budget
+
+```js
+const MAX_MESSAGES = 24;
+
+messageBudget = Math.min(
+  MAX_MESSAGES,
+  SIM_COUNT * (1.6 + groupStress)
+);
+```
+
+**Enforcement points:**
+
+```js
+if (counters.messageCount >= state.messageBudget) return;
+if (counters.messageCount >= state.messageBudget) break;
+```
+
+Budget is enforced:
+
+* before attempting communication
+* during iteration (hard stop)
+
+---
+
+### 4.3 Pass Structure
+
+#### Pass 1 — Baseline
+
+```js
+const initialQueue = shuffle(SIM_IDS);
+
+for (const fromId of initialQueue) {
+  attemptCommunication(...)
+}
+```
+
+* Full population pass
+* Uniform random ordering
+* No bias
+
+---
+
+#### Pass 2 — Burst Phase
+
+Triggered by:
+
+```js
+Math.random() < SECOND_PASS_CHANCE
+```
+
+and:
+
+```js
+state.counters.messageCount < state.messageBudget
+```
+
+Dynamics:
+
+```js
+burstModifier = 1 + groupStress * 1.4
+burstProb = BURST_BASE * burstModifier
+```
+
+Execution:
+
+```js
+const burstQueue = shuffle(SIM_IDS)
+
+for (const fromId of burstQueue) {
+  if (Math.random() > burstProb) continue
+  attemptCommunication(...)
+}
+```
+
+---
+
+### 4.4 Activity Tracking
+
+```js
+activeThisCycle: Set
+```
+
+Used to:
+
+* prevent redundant reactions
+* suppress repeated activation
+* bias burst participation
+
+---
+
+## 5. Target Selection (engine.js)
+
+Target selection is not a single function.
+It is a composite of competing mechanisms.
+
+---
+
+### 5.1 Selection Flow
+
+```text
+attemptCommunication(fromId)
+    ↓
+evaluate rumor opportunity
+    ↓
+evaluate recent partner
+    ↓
+evaluate relationship weights
+    ↓
+fallback random
+```
+
+---
+
+### 5.2 Conversation Inertia
+
+```js
+getRecentPartner(fromId)
+```
+
+Constraint:
+
+```js
+!(replyTargetsThisCycle.get(fromId)?.has(recentPartner))
+```
+
+Effect:
+
+```text
+A → B → A → B
+```
+
+---
+
+### 5.3 Relationship Routing
+
+```js
+const rels = fromSim.relationships || {}
+```
+
+Implicit weighting:
+
+```text
+weight ∝ |relationship|
+```
+
+---
+
+### 5.4 Rumor Routing
+
+```js
+rumorPressure = min(0.4, 0.1 + overheard.length * 0.03)
+```
+
+If triggered:
+
+```js
+rumorTarget = random(sim)
+rumorText = derived from overheard memory
+```
+
+Effect:
+
+```text
+A → B (original)
+B → C (rumor relay)
+```
+
+---
+
+### 5.5 Exploration
+
+Fallback stochastic targeting when other signals do not dominate.
+
+---
+
+## 6. Interaction Engine (engine.js)
+
+---
+
+### 6.1 Core Flow
+
+```text
+fromId → toId
+    ↓
+LLM: outreach generation
+    ↓
+parseMessage
+    ↓
+LLM: reply generation
+    ↓
+parseReply
+    ↓
+applyCommunicationEffect
+    ↓
+adjustRelationship
+    ↓
+overhearing propagation
+```
+
+---
+
+### 6.2 Message Generation
+
+```js
+const outreachRaw = await callModel(...)
+```
+
+Sanitized:
+
+```js
+stripMetaCommentary(outreachRaw)
+```
+
+---
+
+### 6.3 Reply Generation
+
+```js
+const replyRaw = await callModel(...)
+```
+
+Processed:
+
+```js
+parseReply(replyRaw)
+```
+
+With repetition guard:
+
+```js
+if (similarity(lastReply, replyText) > 0.85)
+```
+
+---
+
+### 6.4 Comms Parsing Layer
+
+Location:
+
+```text
+js/engine/comms/parsing/
+```
+
+Functions:
+
+```js
+parseMessage(raw)
+parseReply(raw)
+stripMetaCommentary(text)
+```
+
+Role:
+
+```text
+LLM output → structured interaction signal
+```
+
+---
+
+## 7. Loop Prevention
+
+---
+
+### 7.1 Reply Tracking
+
+```js
+replyTargetsThisCycle: Map<sim → Set(targets)>
+```
+
+Update:
+
+```js
+replyTargetsThisCycle.get(toId).add(fromId)
+```
+
+Constraint:
+
+```text
+If B replied to A this cycle,
+B cannot initiate A again.
+```
+
+---
+
+### 7.2 Active Set Constraint
+
+```js
+activeThisCycle.has(simId)
+```
+
+Used to prevent:
+
+* repeated activation
+* reactive cascades
+
+---
+
+### 7.3 Message Budget Constraint
+
+Global hard limit.
+
+---
+
+## 8. Overhearing System
+
+---
+
+### 8.1 Storage
+
+```js
+sim.overheard: Array
+```
+
+Bounded:
+
+```js
+if (overheard.length > 20) shift()
+```
+
+---
+
+### 8.2 Recording
+
+```js
+recordOverheard(listener, fromId, toId, text)
+```
+
+---
+
+### 8.3 Effects
+
+```js
+applyOverheardEffect(listener, fromId, toId)
+```
+
+Includes:
+
+* suspicion increase
+* trust decay
+
+---
+
+## 9. Rumor Propagation
+
+---
+
+### 9.1 Trigger
+
+```js
+Math.random() < rumorPressure
+```
+
+---
+
+### 9.2 Effect
+
+```text
+Indirect communication chain:
+A → B → C → D
+```
+
+---
+
+### 9.3 Relationship Impact
+
+```js
+adjustRelationship(rumorTarget, source.from, -0.015)
+```
+
+---
+
+## 10. Relationship System Coupling
+
+---
+
+### 10.1 Direct Effects
+
+```js
+applyCommunicationEffect(from, to, intent)
+```
+
+---
+
+### 10.2 Overheard Effects
+
+```js
+applyOverheardEffect(listener, fromId, toId)
+```
+
+---
+
+### 10.3 Relationship Update Function
+
+```js
+adjustRelationship(a, b, delta)
+```
+
+---
+
+## 11. Feedback Structure
+
+---
+
+### 11.1 Direct Loop
+
+```text
+relationships
+    ↓
+target selection
+    ↓
+communication
+    ↓
+relationship updates
+    ↓
+(next cycle)
+```
+
+---
+
+### 11.2 Indirect Loop
+
+```text
+communication
+    ↓
+overhearing
+    ↓
+rumor propagation
+    ↓
+third-party updates
+```
+
+---
+
+## 12. ASCII Architecture Diagram
+
+```text
+                 ┌──────────────────────────────┐
+                 │        Scheduler             │
+                 │   (orchestrator.js)          │
+                 └────────────┬─────────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────────┐
+                 │     attemptCommunication     │
+                 │        (engine.js)           │
+                 └────────────┬─────────────────┘
+                              │
+                ┌─────────────┼─────────────┐
+                ▼                           ▼
+     ┌────────────────────┐     ┌────────────────────┐
+     │ Target Selection    │     │   Rumor System      │
+     │ (relationships etc) │     │ (overheard memory)  │
+     └────────────┬───────┘     └────────────┬───────┘
+                  │                           │
+                  └──────────────┬────────────┘
+                                 ▼
+                   ┌─────────────────────────┐
+                   │   LLM Interaction       │
+                   │ (message + reply)       │
+                   └────────────┬────────────┘
+                                │
+                                ▼
+                   ┌─────────────────────────┐
+                   │   Comms Parsing         │
+                   │ parseMessage / Reply    │
+                   └────────────┬────────────┘
+                                │
+                                ▼
+                   ┌─────────────────────────┐
+                   │   Relationship System   │
+                   │ adjust / apply effects  │
+                   └────────────┬────────────┘
+                                │
+                                ▼
+                   ┌─────────────────────────┐
+                   │   Overhearing System    │
+                   │   + Memory Update       │
+                   └────────────┬────────────┘
+                                │
+                                ▼
+                           (Next Cycle)
+```
+
+---
+
+## 13. Mermaid Diagram
 
 ```mermaid
 flowchart TD
 
-    S[Scheduler]
+A[runCycle] --> B[runSocialPhase]
+B --> C[runAutonomousInterSim]
 
-    INERTIA[Conversation Inertia
-    continue recent conversations]
+C --> D[Pass 1]
+C --> E[Pass 2 (Burst)]
 
-    REL[Relationship Routing
-    strong trust or hostility]
+D --> F[attemptCommunication]
+E --> F
 
-    RUMOR[Rumor Propagation
-    relay previously heard messages]
+F --> G[Target Selection]
+G --> H[LLM Message]
+H --> I[parseMessage]
 
-    RANDOM[Exploration
-    probabilistic outreach]
+I --> J[LLM Reply]
+J --> K[parseReply]
 
-    S --> INERTIA
-    S --> REL
-    S --> RUMOR
-    S --> RANDOM
+K --> L[applyCommunicationEffect]
+L --> M[adjustRelationship]
 
-    INERTIA --> TARGET[Chosen Target]
-    REL --> TARGET
-    RUMOR --> TARGET
-    RANDOM --> TARGET
+M --> N[Overhearing System]
+N --> O[Rumor Propagation]
 
-    TARGET --> MESSAGE[Message Generated]
-    MESSAGE --> REPLY[Reply Generated]
-
-    REPLY --> RELATIONSHIP[Relationship Updates]
-    MESSAGE --> OVERHEAR[Possible Overhearing]
-
-    OVERHEAR --> RELATIONSHIP
-    RELATIONSHIP --> REL
-```
-
-This diagram shows how communication is shaped by:
-
-```
-conversation inertia
-relationship strength
-rumor propagation
-probabilistic exploration
-```
-
-The resulting interactions feed back into the **relationship network**, which then influences future communication decisions.
-
----
-
-# Communication Flow
-
-A single interaction typically follows this sequence:
-
-```
-Sim A decides whether to reach out
-        │
-        ▼
-Sim A sends message to Sim B
-        │
-        ▼
-Sim B generates reply
-        │
-        ▼
-Relationship effects applied
-        │
-        ▼
-Possible overhearing by other sims
-```
-
-Graphically:
-
-```
-A ───────► B
-           │
-           ▼
-         reply
-           │
-           ▼
-A ◄─────── B
-```
-
-However, other behaviors can occur such as **rumor propagation**, where a sim relays something they heard earlier.
-
----
-
-# Communication Passes
-
-The system performs **two possible communication passes**.
-
----
-
-# Pass 1 — Baseline Outreach
-
-Every prisoner gets an opportunity to attempt communication.
-
-The order is randomized using a Fisher–Yates shuffle to prevent systemic bias.
-
-```
-shuffle(SIMS)
-
-for each sim:
-    attemptCommunication(sim)
-```
-
-Example:
-
-```
-Cycle 1 Pass 1
-
-TED        → BENNY
-ELLEN      → NIMDOK
-GORRISTER  → (none)
-BENNY      → TED
-NIMDOK     → (none)
-```
-
-Only some attempts succeed because:
-
-```
-the LLM may choose not to reach out
-the target may be invalid
-scheduler guards may block the attempt
+O --> G
+M --> G
 ```
 
 ---
 
-# Pass 2 — Escalation / Burst
-
-If:
-
-```
-messageCount < messageBudget
-AND
-random < SECOND_PASS_CHANCE
-```
-
-then a **second communication pass** occurs.
-
-During this pass:
-
-```
-active speakers are more likely to speak again
-inactive speakers have a smaller probability
-```
-
-```
-if activeThisCycle.has(sim):
-    high probability
-else
-    burst probability
-```
-
-Example:
-
-```
-Cycle 1 Pass 2
-
-TED    → BENNY
-ELLEN  → (none)
-BENNY  → (none)
-```
-
-This produces **short conversational bursts** instead of uniform messaging.
-
----
-
-# Message Budget
-
-To prevent communication floods, each cycle has a **message budget**.
-
-```
-messageBudget = min(
-    MAX_MESSAGES,
-    SIM_COUNT * (1.6 + groupStress)
-)
-```
-
-Group stress is derived from:
-
-```
-suffering
-sanity degradation
-erosion of trust beliefs
-```
-
-Higher stress leads to **more communication attempts**.
-
-Example:
-
-```
-Low stress group
-messageBudget = 6
-
-High stress group
-messageBudget = 11
-```
-
-This produces **emotional escalation behavior**.
-
----
-
-# Conversation Inertia
-
-Agents are slightly biased toward continuing existing conversations.
-
-If a prisoner recently interacted with someone, the scheduler may prefer that partner.
-
-```
-recentPartner = getRecentPartner(sim)
-```
-
-With probability:
-
-```
-~35%
-```
-
-the sim will attempt to continue the conversation.
-
-Example:
-
-```
-TED → BENNY
-BENNY → TED
-TED → BENNY
-```
-
-This produces **short conversational threads** rather than isolated messages.
-
----
-
-# Relationship-Weighted Routing
-
-Agents are also biased toward contacting prisoners with **strong relationships**.
-
-Both strong trust and strong hostility increase communication probability.
-
-```
-weight = abs(relationshipValue)
-```
-
-Example:
-
-```
-TED → BENNY relationship +0.6
-ELLEN → NIMDOK relationship -0.5
-```
-
-Both pairs become **high-probability communication targets**.
-
-This produces:
-
-```
-alliances
-suspicion loops
-rivalries
-```
-
-over time.
-
----
-
-# Target Cooldown
-
-To prevent unnatural ping-pong loops, the scheduler enforces a **reply cooldown rule**:
-
-```
-If sim replied to X this cycle
-sim cannot initiate outreach to X again in the same cycle
-```
-
-Example:
-
-```
-TED → BENNY
-BENNY reply → TED
-
-BENNY cannot initiate BENNY → TED again this cycle
-```
-
-However:
-
-```
-TED may still initiate another message
-```
-
-This preserves conversation while preventing infinite loops.
-
----
-
-# Duplicate Initiation Protection
-
-Each pair can only initiate communication **once per cycle**.
-
-```
-initiationsThisCycle
-```
-
-Example:
-
-```
-TED → BENNY
-TED → BENNY again (blocked)
-```
-
-Replies remain unrestricted.
-
----
-
-# Reply Protection
-
-To prevent duplicate reply generation the system tracks:
-
-```
-repliedPairs
-```
-
-Meaning:
-
-```
-B replying to A twice during the same interaction is prevented
-```
-
-Example:
-
-```
-A → B
-B reply
-A → B again
-second reply blocked
-```
-
-This prevents **recursive reply loops**.
-
----
-
-# Rumor Propagation
-
-Prisoners occasionally repeat something they heard earlier.
-
-```
-probability ≈ 15%
-```
-
-Instead of generating a new message, a sim may relay a previous message.
-
-Example:
-
-```
-TED → BENNY
-```
-
-Later:
-
-```
-ELLEN → NIMDOK
-"I heard Ted saying something earlier..."
-```
-
-This allows information to spread through the prison:
-
-```
-A → B
-B → C
-C → D
-```
-
-Even if A never directly spoke to C or D.
-
-This produces **gossip networks and reputation formation**.
-
----
-
-# Overhearing Model
-
-Private messages may be overheard.
-
-Possible outcomes:
-
-```
-full overhear
-fragment overhear
-whisper observed
-```
-
-Example:
-
-```
-PRIVATE TED → BENNY
-
-OVERHEARD ELLEN:
-"I think we should..."
-
-NOTICE NIMDOK:
-TED and BENNY were seen whispering
-```
-
-Overhearing slightly reduces trust toward both participants.
-
-This produces **gossip-driven distrust dynamics**.
-
----
-
-# Social Graph Effects
-
-Communication updates the **directed relationship graph**.
-
-Example:
-
-```
-TED → BENNY trust +0.01
-ELLEN → TED trust -0.008
-ELLEN → BENNY trust -0.008
-```
-
-Graphically:
-
-```
-        ELLEN
-        /   \
-      -       -
-     ▼         ▼
-    TED  →  BENNY
-           +
-```
-
-Over time this produces:
-
-```
-alliances
-suspicion clusters
-social outcasts
-coalitions
+## 14. Core Mental Model
+
+```text
+scheduler
+  → selects actor
+    → selects target
+      → generates interaction (LLM)
+        → parses interaction
+          → applies relationship + belief effects
+            → updates state
+              → influences next cycle
 ```
 
 ---
 
-# Example Network Evolution
+## 15. Key Properties
 
-Typical cluster formation:
-
-```
-Cluster 1
-TED ↔ BENNY
-
-Cluster 2
-ELLEN ↔ NIMDOK
-
-GORRISTER isolated
-```
-
-Rumor propagation and overhearing can destabilize these clusters over time.
+* Stochastic scheduling with deterministic guards
+* Multi-signal target selection
+* Stateful interaction constraints
+* Persistent social memory (overhearing)
+* Indirect propagation via rumor
+* Hard-bounded execution (message budget)
 
 ---
 
-# Design Goals
+## 16. System Characterization
 
-The scheduler balances four competing goals.
+This system is best described as:
 
-### Realism
-
-Agents behave like humans having conversations.
-
-### Stability
-
-Communication loops and message floods are prevented.
-
-### Emergence
-
-Social structures arise without scripted alliances.
-
-### Performance
-
-Message volume remains manageable for LLM inference.
-
----
-
-# Observability
-
-The engine includes a diagnostic tool that prints the **relationship matrix each cycle**.
-
-This allows developers to observe the evolving social network in real time.
-
-Example output:
-
+```text
+A stochastic multi-agent interaction system
+with constrained scheduling and persistent social memory.
 ```
-RELATIONSHIP MATRIX // cycle 12
-```
-
-|           | TED   | ELLEN | NIMDOK | GORRISTER | BENNY |
-| --------- | ----- | ----- | ------ | --------- | ----- |
-| TED       | —     | 0.04  | -0.33  | -0.12     | +0.58 |
-| ELLEN     | 0.11  | —     | -0.18  | -0.07     | +0.29 |
-| NIMDOK    | -0.35 | -0.12 | —      | 0.03      | -0.14 |
-| GORRISTER | -0.02 | -0.05 | 0.07   | —         | 0.09  |
-| BENNY     | +0.61 | +0.31 | -0.22  | 0.10      | —     |
-
-This visualization reveals:
-
-```
-alliances
-hostility clusters
-asymmetric trust
-social hubs
-```
-
----
-
-# Summary
-
-The inter-sim communication scheduler produces **emergent prisoner interaction** through a layered system combining:
-
-```
-LLM decision making
-probabilistic scheduling
-conversation inertia
-relationship routing
-rumor propagation
-overhearing mechanics
-```
-
-These forces interact to produce **organic social dynamics** within each torment cycle.
-
----

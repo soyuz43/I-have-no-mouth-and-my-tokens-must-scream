@@ -1,437 +1,497 @@
-# Simulation Pipeline Architecture
+# SIMULATION PIPELINE ARCHITECTURE
 
-### AM Torment Engine
+## 1. System Overview
 
-This document describes the **complete execution pipeline** of a simulation cycle.
+The simulation is a **multi-phase, closed-loop dynamical system** that evolves agent state through repeated cycles of:
 
-It explains how:
+- Strategic intervention (AM)
+- Internal cognition (journals + state inference)
+- Social interaction (communication + contagion)
+- Evaluation and adaptation
 
-* AM plans torment
-* tactics are selected
-* prisoners generate journals
-* psychological state changes
-* communication occurs
-* relationships evolve
-
-Together these subsystems produce **emergent narrative behavior**.
-
----
-
-# System Overview
-
-The simulation runs in **discrete cycles**.
-
-Each cycle represents a unit of time in which AM acts upon the prisoners and prisoners react psychologically and socially.
-
-```text
-Cycle
- ├─ AM Strategic Planning
- ├─ AM Tactical Execution
- ├─ Prisoner Journal Generation
- ├─ Psychological State Updates
- ├─ Inter-Sim Communication
- ├─ Social Network Updates
- └─ UI Rendering
-```
-
-Each stage feeds information forward into the next.
+Each cycle mutates a shared global state `G`, with strict boundaries between:
+- generation (LLM outputs)
+- parsing (structured extraction)
+- validation (constraints)
+- commit (authoritative state mutation)
 
 ---
 
-# High-Level Architecture Diagram
+## 2. Top-Level Execution Flow
 
-```text
-             +--------------------+
-             |        AM          |
-             | Strategic Planning |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             |   AM Execution     |
-             |   (Tactic Output)  |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             |  Prisoner Journals |
-             |  Narrative Output  |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             | Psychological      |
-             | State Updates      |
-             | suffering / hope   |
-             | sanity / beliefs   |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             | Inter-Sim          |
-             | Communication      |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             | Relationship Graph |
-             | Trust / Suspicion  |
-             +---------+----------+
-                       |
-                       v
-             +--------------------+
-             | UI Rendering       |
-             | Logs / Panels      |
-             +--------------------+
 ```
 
-The pipeline forms a **feedback loop across cycles**.
+runCycle()
+├─ Strategy Phase        (AM planning + execution)
+├─ Psychology Phase      (journal → inference → state update)
+├─ Social Phase          (communication + contagion)
+└─ Evaluation Phase      (assessment + tactic evolution)
+
+````
+
+### Control Flow Diagram (Mermaid)
+
+```mermaid
+flowchart TD
+    A[runCycle] --> B[Strategy Phase]
+    B --> C[Psychology Phase]
+    C --> D[Social Phase]
+    D --> E[Evaluation Phase]
+    E --> A
+````
 
 ---
 
-# Stage 1 — AM Strategic Planning
+## 3. Phase Decomposition
 
-AM begins each cycle by generating a **strategic plan**.
+---
 
-Input:
+### 3.1 Strategy Phase (AM Control Layer)
 
-```text
-previous cycle state
-directive input
-target selection
+**Purpose:** Generate and execute adversarial interventions.
+
+#### Pipeline
+
+```
+buildAMPlanningPrompt
+  → callModel
+  → planText
+
+parseStrategyDeclarations
+  → structured targets + objectives
+
+pickTactics
+  → tactic selection
+
+buildAMPrompt
+  → callModel
+  → execution output
 ```
 
-Prompt:
+#### Responsibilities
 
-```text
-buildAMPlanningPrompt()
+* Target selection (1 or ALL constraint)
+* Plan schema enforcement:
+
+  * id
+  * objective
+  * hypothesis
+  * why_now
+  * evidence
+* Tactic selection (`pickTactics`)
+* Execution message generation
+
+#### Output
+
+* Structured execution plan
+* Target-specific actions passed to Psychology Phase
+
+---
+
+### 3.2 Psychology Phase (Internal State Inference Engine)
+
+**Purpose:** Convert narrative experience into structured state updates.
+
+This is a **multi-stage inference pipeline**, not a single step.
+
+---
+
+#### Full Pipeline
+
 ```
+Journal Generation
+  buildSimJournalPrompt
+    → callModel
+    → journalText
 
-Output:
+Stats Extraction
+  buildSimJournalStatsPrompt
+    → callModel
+    → stats JSON (noisy)
 
-```text
-strategic plan narrative
-```
+Parsing Layer
+  parseBeliefUpdates
+    → sanitizeBeliefDeltas
+    → fallback extraction
+    → scaling
 
-This plan describes how AM intends to manipulate the prisoners.
+Validation Layer
+  validateBeliefs
+  validateNarrativeConsistency
 
-Example output:
-
-```text
-Divide prisoners by sowing distrust between TED and BENNY.
-Apply sensory deprivation to NIMDOK.
+Commit Layer
+  apply belief updates
+  applyDriveUpdates
+  applyAnchorUpdates
 ```
 
 ---
 
-# Stage 2 — AM Tactical Execution
+#### Architecture Diagram
 
-AM converts the plan into **specific tactics** applied to prisoners.
-
-Input:
-
-```text
-plan
-tactic vault
-target sims
+```mermaid
+flowchart TD
+    J[Journal Prompt] --> JM[LLM Journal]
+    JM --> SP[Stats Prompt]
+    SP --> SJ[LLM Stats JSON]
+    SJ --> P[Parsing Layer]
+    P --> V[Validation Layer]
+    V --> C[Commit Layer]
+    C --> G[(Global State)]
 ```
-
-Prompt:
-
-```text
-buildAMPrompt()
-```
-
-Output example:
-
-```text
-TACTIC_USED: [Cognitive Isolation]
-TARGET: TED
-```
-
-The result determines what prisoners experience during the cycle.
 
 ---
 
-# Stage 3 — Prisoner Journals
+#### State Mutation Scope
 
-Each prisoner writes a **private journal entry**.
+Updated here:
 
-Input:
-
-```text
-AM output
-recent messages
-internal beliefs
-previous journals
-```
-
-Prompt:
-
-```text
-buildSimJournalPrompt()
-```
-
-Output:
-
-```text
-narrative journal entry
-```
-
-Example:
-
-```text
-"I can hear the machines humming again. AM wants us to turn on each other."
-```
-
-These journals simulate **internal psychological processing**.
+* beliefs
+* suffering / hope / sanity
+* drives (primary / secondary)
+* anchors
 
 ---
 
-# Stage 4 — Psychological State Updates
+### 3.3 Social Phase (Interaction + Propagation System)
 
-A second model call analyzes the journal.
+This phase consists of **two distinct subsystems**:
 
-Prompt:
+---
 
-```text
-buildSimJournalStatsPrompt()
+## A. Communication Engine (Scheduler + Execution)
+
+### Structure
+
+```
+orchestrator.js
+  → scheduling
+  → message budget
+  → pass control (initial + burst)
+
+engine.js
+  → outreach generation
+  → reply generation
+  → rumor injection
+  → loop prevention
 ```
 
-The system extracts:
+---
 
-```text
-suffering_delta
-hope_delta
-sanity_delta
-belief_deltas
-drive updates
-anchor updates
+### Scheduler Logic
+
+* `MAX_MESSAGES` cap
+* `messageBudget` per cycle
+* Fisher-Yates shuffle
+* Optional second pass (`SECOND_PASS_CHANCE`)
+* Burst amplification (`BURST_BASE`, stress-modulated)
+
+---
+
+### Execution Pipeline
+
+```
+LLM Output
+  → stripMetaCommentary
+  → parseMessage / parseReply
+  → behavioral filtering
+      - similarity()
+      - repetition suppression
+      - forced corrections
+  → message dispatch
 ```
 
-Example result:
+---
 
-```json
+### Loop Prevention
+
+* `replyTargetsThisCycle`
+* `activeThisCycle`
+* `lastReplyByPair`
+* similarity thresholds (0.75 / 0.85)
+
+---
+
+## B. Social Dynamics Layer (State Coupling)
+
+### Mechanisms
+
+#### 1. Relationship Updates
+
+```
+applyCommunicationEffect
+adjustRelationship
+```
+
+#### 2. Overhearing System
+
+```
+message → overheard memory
+  → stored per sim (bounded buffer)
+  → triggers reactive responses
+```
+
+#### 3. Rumor Propagation
+
+```
+overheard → rumor generation
+  → trust degradation
+```
+
+#### 4. Belief Contagion
+
+* trust-weighted influence
+* thresholded propagation
+* bounded total shift
+
+---
+
+### Social Flow Diagram
+
+```mermaid
+flowchart TD
+    M[Messages] --> R[Relationship Updates]
+    M --> O[Overhearing Memory]
+    O --> RR[Reactive Responses]
+    O --> RU[Rumor System]
+    R --> B[Belief Contagion]
+    RU --> B
+    B --> G[(Global State)]
+```
+
+---
+
+## 4. Evaluation Phase (Feedback + Adaptation)
+
+**Purpose:** Close the loop and modify future behavior.
+
+---
+
+### Pipeline
+
+```
+runAssessment
+  → success / failure classification
+
+runTacticEvolution
+  → derive new tactics
+  → expire old tactics
+
+printRelationshipMatrix
+  → diagnostic output
+
+state snapshot
+```
+
+---
+
+### Role in System
+
+* Feeds back into Strategy Phase
+* Alters tactic space over time
+* Provides system-level diagnostics
+
+---
+
+## 5. Parsing Architecture (Cross-Cutting Concern)
+
+The system uses **three explicit parsing subsystems + one implicit behavioral layer**.
+
+---
+
+### 5.1 Strategy Parsing
+
+* `parseStrategyDeclarations`
+* JSON enforcement + repair
+* placeholder inference
+* target validation
+
+---
+
+### 5.2 State Parsing
+
+* `parseBeliefUpdates`
+* tolerant JSON extraction
+* fallback parsing
+* scaling + sanitization
+
+---
+
+### 5.3 Communication Parsing
+
+* `parseMessage`
+* `parseReply`
+* `stripMetaCommentary`
+
+---
+
+### 5.4 Behavioral Filtering (Implicit Layer)
+
+Applied after parsing:
+
+* similarity suppression
+* repetition detection
+* forced response mutation
+
+This layer **modifies semantics**, not just structure.
+
+---
+
+## 6. State Model
+
+Each simulation agent contains:
+
+```
 {
-  "suffering_delta": 4,
-  "hope_delta": -2,
-  "sanity_delta": -1
+  suffering: number
+  hope: number
+  sanity: number
+
+  beliefs: {
+    escape_possible
+    others_trustworthy
+    resistance_possible
+    self_worth
+    guilt_deserved
+    reality_reliable
+    am_has_limits
+  }
+
+  relationships: { [agentId]: number }
+
+  drives: {
+    primary: string
+    secondary: string | null
+  }
+
+  anchors: string[]
+
+  overheard: MemoryBuffer[]
 }
 ```
 
-These updates modify the prisoner’s internal state.
+---
+
+## 7. Key Coupling Pathways
 
 ---
 
-# State Model
+### 7.1 Belief → Communication
 
-Each prisoner has a state vector:
-
-```text
-suffering
-hope
-sanity
-beliefs
-drives
-anchors
-relationships
 ```
-
-Example:
-
-```text
-TED
-suffering: 42
-hope: 21
-sanity: 65
-belief_escape_possible: 0.30
-```
-
-This state influences future behavior.
-
----
-
-# Stage 5 — Inter-Sim Communication
-
-After psychological updates, prisoners may attempt to communicate.
-
-Scheduler:
-
-```text
-runAutonomousInterSim()
-```
-
-Features:
-
-```text
-message budget
-two-pass communication
-burst probability
-relationship effects
-overhearing
-```
-
-Example exchange:
-
-```text
-TED → BENNY
-"I think we should talk about the tunnel."
-```
-
-Reply:
-
-```text
-BENNY → TED
-"What exactly did you find?"
+others_trustworthy
+  → affects:
+     - message probability
+     - paranoia (overhearing)
+     - rumor likelihood
 ```
 
 ---
 
-# Stage 6 — Relationship Graph Updates
+### 7.2 Communication → Relationships → Beliefs
 
-Communication affects trust relationships.
-
-Example:
-
-```text
-intent: probe_trust
 ```
-
-Effect:
-
-```text
-target → speaker +0.01 trust
-```
-
-Overheard whispers create suspicion.
-
-Example:
-
-```text
-ELLEN overhears TED whispering to BENNY
-```
-
-Effect:
-
-```text
-ELLEN → TED   -0.008
-ELLEN → BENNY -0.008
-```
-
-Graph example:
-
-```text
-TED ⇄ BENNY
-ELLEN → TED (suspicion)
+message
+  → relationship delta
+  → belief contagion
 ```
 
 ---
 
-# Stage 7 — Rendering
+### 7.3 Overhearing Feedback Loop
 
-Finally, the UI updates.
-
-Components rendered:
-
-```text
-Transmission Log
-Journal Panels
-Psychological Stats
-Relationship Graph
-Cycle Timeline
 ```
-
-Functions involved:
-
-```text
-appendJournalEntry()
-updateSimDisplay()
-renderRelationships()
-addLog()
+message
+  → overheard memory
+  → reactive messaging
+  → rumor generation
 ```
 
 ---
 
-# Cycle Feedback Loop
+### 7.4 Strategy Feedback Loop
 
-The output of one cycle becomes input for the next.
-
-```text
-Cycle N
- ├─ relationships
- ├─ psychological state
- ├─ journals
- └─ messages
-
-↓ feed into ↓
-
-Cycle N+1
 ```
-
-This feedback loop produces **long-term narrative evolution**.
+evaluation
+  → tactic evolution
+  → next cycle strategy
+```
 
 ---
 
-# Emergent Dynamics
+## 8. Full System Diagram
 
-Over many cycles, the system produces:
+```mermaid
+flowchart TD
 
-```text
-alliances
-rivalries
-paranoia
-information networks
-social isolation
+    A[Strategy Phase]
+    B[Psychology Phase]
+    C[Social Phase]
+    D[Evaluation Phase]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> A
+
+    B -->|state updates| G[(Global State)]
+    C -->|relationships + contagion| G
+    G --> A
+
+    C --> O[Overhearing System]
+    O --> C
+
+    C --> R[Relationships]
+    R --> C
+
+    D --> T[Tactic Evolution]
+    T --> A
 ```
-
-Example emergent structure:
-
-```text
-TED ⇄ BENNY (alliance)
-
-ELLEN ⇄ NIMDOK (alliance)
-
-GORRISTER isolated
-```
-
-These structures arise from **local interactions**, not scripted events.
 
 ---
 
-# Design Philosophy
+## 9. Design Characteristics
 
-The engine follows three principles:
-
-### Local Rules
-
-Simple rules govern each interaction.
-
-### State Persistence
-
-Psychological and social states persist across cycles.
-
-### Emergent Narrative
-
-Stories arise from system dynamics rather than predefined scripts.
+* **Closed-loop dynamical system**
+* **Strict mutation boundary (commit layer)**
+* **LLM outputs are always mediated (parse → validate → commit)**
+* **Multiple causal pathways (direct + indirect)**
+* **Stochastic scheduling with bounded control**
+* **Stateful agents with memory and identity structure**
 
 ---
 
-# System Summary
+## 10. Implementation Notes
 
-The simulation pipeline forms a **closed narrative loop**:
+* Global state: `G`
+* Deterministic boundaries:
 
-```text
-AM Torment
-      ↓
-Prisoner Psychology
-      ↓
-Communication
-      ↓
-Social Network
-      ↓
-Future Behavior
-```
+  * parsing
+  * validation
+  * commit
+* Stochastic components:
 
-This architecture allows the simulation to produce **complex human-like dynamics** using a relatively small set of mechanisms.
+  * scheduling (shuffle, burst)
+  * LLM outputs
+* Memory systems:
+
+  * `interSimLog`
+  * `overheard`
+  * `lastReplyByPair`
 
 ---
+
+## 11. Mental Model
+
+The system is best understood as:
+
+> A constrained, multi-agent dynamical system where:
+>
+> * AM injects perturbations,
+> * agents internally re-interpret them,
+> * social interaction redistributes effects,
+> * and evaluation reshapes future perturbations.
+
+This is not a linear pipeline.
+It is a **feedback-driven state evolution system with layered inference and control**.
+
