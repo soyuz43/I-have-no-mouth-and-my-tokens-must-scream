@@ -35,31 +35,173 @@ export function softClampBelief(v) {
    STATE MUTATION
    ============================================================ */
 
-export function applyBeliefUpdates(sim, updates) {
+export function applyBeliefUpdates(sim, updates, options = {}) {
 
-  if (!updates || !sim?.beliefs) return;
+  const {
+    DEBUG = true,
+    MIN_DELTA = 0,
+    NORMALIZE_KEYS = true
+  } = options;
 
-  Object.entries(updates).forEach(([key, delta]) => {
+  if (!updates || !sim?.beliefs) {
+    if (DEBUG) {
+      console.warn("[COMMIT] skipped: invalid sim or updates", { sim, updates });
+    }
+    return;
+  }
 
-    if (!Object.prototype.hasOwnProperty.call(sim.beliefs, key)) return;
+  const originalKeys = Object.keys(updates);
+  const applied = [];
+  const skipped = [];
+  const errors = [];
 
+  if (DEBUG) {
+    console.groupCollapsed(`[COMMIT] applyBeliefUpdates → ${sim.id ?? "UNKNOWN"}`);
+    console.debug("[COMMIT] incoming updates:", updates);
+  }
+
+  // --- helper: normalize key (handles fallback artifacts) ---
+  const normalizeKey = (key) => {
+    if (!NORMALIZE_KEYS || typeof key !== "string") return key;
+
+    return key
+      .trim()
+      .replace(/[\n\r\t]/g, "")
+      .replace(/[,\s]+$/g, ""); // strip trailing commas / spaces
+  };
+
+  for (const [rawKey, deltaInitial] of Object.entries(updates)) {
+
+    const key = normalizeKey(rawKey);
+    let delta = Number(deltaInitial);
+
+    if (DEBUG) {
+      console.log("[DELTA PIPELINE][RAW]", {
+        sim: sim.id,
+        key,
+        input: deltaInitial,
+        afterScaling: delta
+      });
+    }
+
+    // --- key validation ---
+    if (!Object.prototype.hasOwnProperty.call(sim.beliefs, key)) {
+      skipped.push({ key: rawKey, reason: "unknown_key" });
+      if (DEBUG) {
+        console.warn(`[COMMIT] skipping unknown belief key`, { rawKey, normalized: key });
+      }
+      continue;
+    }
+
+    // --- delta validation ---
+    if (!Number.isFinite(delta)) {
+      skipped.push({ key, reason: "non_finite_delta", value: deltaInitial });
+      if (DEBUG) {
+        console.warn(`[COMMIT] skipping non-finite delta`, key, deltaInitial);
+      }
+      continue;
+    }
+
+    // --- current belief ---
     let belief = Number(sim.beliefs[key]);
-    if (!Number.isFinite(belief)) return;
+    if (!Number.isFinite(belief)) {
+      errors.push({ key, reason: "invalid_current_belief", value: sim.beliefs[key] });
+      if (DEBUG) {
+        console.error(`[COMMIT] invalid belief value`, key, sim.beliefs[key]);
+      }
+      continue;
+    }
 
-    delta = dampBeliefDelta(
-      sim,
-      key,
-      belief,
-      delta
-    );
+    // --- damping ---
+    const deltaBeforeDamping = delta;
 
+    try {
+      delta = dampBeliefDelta(sim, key, belief, delta);
+    } catch (err) {
+      errors.push({ key, reason: "damping_error", err });
+      if (DEBUG) {
+        console.error(`[COMMIT] damping error`, key, err);
+      }
+      continue;
+    }
+
+
+    if (DEBUG) {
+      console.log("[DELTA PIPELINE][DAMPED]", {
+        sim: sim.id,
+        key,
+        beforeDamping: deltaBeforeDamping,
+        afterDamping: delta
+      });
+    }
+
+    // --- tiny delta filter (optional) ---
+    if (Math.abs(delta) <= MIN_DELTA) {
+      skipped.push({
+        key,
+        reason: "below_threshold",
+        before: deltaBeforeDamping,
+        after: delta
+      });
+      if (DEBUG) {
+        console.debug(`[COMMIT] skipped tiny delta`, key, delta);
+      }
+      continue;
+    }
+
+    // --- apply update ---
     let newVal = belief + delta;
     newVal = softClampBelief(newVal);
 
+    if (!Number.isFinite(newVal)) {
+      errors.push({ key, reason: "non_finite_result", value: newVal });
+      if (DEBUG) {
+        console.error(`[COMMIT] non-finite result`, key, newVal);
+      }
+      continue;
+    }
+
     sim.beliefs[key] = newVal;
 
-  });
+    applied.push({
+      key,
+      before: belief,
+      deltaBefore: deltaBeforeDamping,
+      deltaAfter: delta,
+      after: newVal
+    });
 
+    if (DEBUG) {
+      console.debug(`[COMMIT] applied`, {
+        key,
+        before: belief,
+        deltaBefore: deltaBeforeDamping,
+        deltaAfter: delta,
+        after: newVal
+      });
+    }
+  }
+
+  // --- summary ---
+  if (DEBUG) {
+    console.log(`[COMMIT] summary`, {
+      sim: sim.id,
+      totalKeys: originalKeys.length,
+      applied: applied.length,
+      skipped: skipped.length,
+      errors: errors.length
+    });
+
+    if (skipped.length) {
+      console.table(skipped);
+    }
+
+    if (errors.length) {
+      console.table(errors);
+    }
+
+    console.groupEnd();
+  }
 }
 
 /* ============================================================

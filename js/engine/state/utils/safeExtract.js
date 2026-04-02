@@ -118,17 +118,46 @@ export function safeExtractJSON(text) {
   }
 
   // --- LOGGING: detect truncation ---
-const beforeTruncate = extracted;
+  const beforeTruncate = extracted;
 
-extracted = truncateAfterLastBrace(extracted);
+  extracted = truncateAfterLastBrace(extracted);
 
-if (beforeTruncate.length !== extracted.length) {
-  console.warn("[safeExtractJSON] truncated trailing garbage", {
-    removedChars: beforeTruncate.length - extracted.length
-  });
-}
+  if (beforeTruncate.length !== extracted.length) {
+    console.warn("[safeExtractJSON] truncated trailing garbage", {
+      removedChars: beforeTruncate.length - extracted.length
+    });
+  }
+
   // Apply comma repair only to extracted JSON candidate
   extracted = fixMissingCommas(extracted);
+
+  // --- DEBUG: detect mid-array corruption ---
+  if (
+    extracted.includes("\n") &&
+    extracted.includes('"]') &&
+    /"\s*\n\s*[A-Za-z]/.test(extracted)
+  ) {
+    console.warn("[safeExtractJSON] likely mid-array corruption");
+  }
+
+  // --- NEW: reject obviously corrupted JSON early ---
+  const looksCorrupted =
+    extracted &&
+    !extracted.trim().endsWith("}") &&
+    /[A-Za-z0-9_]+\s*:\s*[^"{\[\d\-]/.test(extracted);
+
+  if (looksCorrupted) {
+    console.warn("[safeExtractJSON] corrupted candidate — attempting repair but not short-circuiting");
+    try {
+      const repaired = repairJSON(extracted);
+      const parsed = JSON.parse(repaired);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (err) {
+      console.warn("[safeExtractJSON] forced repair failed");
+    }
+  }
 
   // --- Phase 3: Truncation awareness (do NOT early return) ---
   const truncated = isLikelyTruncated(extracted);
@@ -147,8 +176,8 @@ if (beforeTruncate.length !== extracted.length) {
   } catch (err) {
     console.warn("[safeExtractJSON] repair parse failed");
   }
-  // --- Phase 6: If truncated and unrecoverable, return null ---
 
+  // --- Phase 6: If truncated and unrecoverable, return null ---
   if (truncated) {
     console.warn("[safeExtractJSON] unrecoverable truncated JSON");
   } else {
