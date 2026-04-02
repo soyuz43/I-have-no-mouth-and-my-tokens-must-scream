@@ -172,28 +172,17 @@ export function containsStem(text, stems) {
  * @returns {object|null} - The parsed JSON object, or null if none found.
  */
 export function extractJSONObject(text) {
-  if (!text || typeof text !== "string") {
-    console.warn("[extractJSONObject] Invalid input (not a string)");
-    return null;
-  }
+  if (!text || typeof text !== "string") return null;
 
-  // Try direct parse (handles cases where the output is pure JSON)
+  // Try direct parse
   try {
     const obj = JSON.parse(text.trim());
     if (obj && typeof obj === "object") return obj;
-  } catch (_) {
-    // Not pure JSON, continue to scanning
-  }
+  } catch (_) {}
 
-  // Find first '{' to start scanning for a balanced JSON block
+  // Extract first balanced JSON block (original logic)
   const start = text.indexOf("{");
-  if (start === -1) {
-    console.warn(
-      "[extractJSONObject] No opening brace found in text:",
-      text
-    );
-    return null;
-  }
+  if (start === -1) return null;
 
   let depth = 0;
   let inString = false;
@@ -226,25 +215,23 @@ export function extractJSONObject(text) {
         try {
           const obj = JSON.parse(candidate);
           if (obj && typeof obj === "object") return obj;
-        } catch (parseError) {
-          // Candidate JSON is malformed
-          console.warn(
-            "[extractJSONObject] Found JSON candidate but parsing failed:",
-            parseError.message,
-            "\nFull candidate:",
-            candidate
-          );
+        } catch (_) {
+          // Try repairing the candidate
+          try {
+            const repairedCandidate = repairJSON(candidate);
+            const obj = JSON.parse(repairedCandidate);
+            if (obj && typeof obj === "object") return obj;
+          } catch (_) {}
           return null;
         }
       }
     }
   }
-
   // Reached end of text without finding a complete JSON object
-  console.warn(
-    "[extractJSONObject] Unbalanced braces or incomplete JSON:",
-    text
-  );
+console.warn(
+  "[extractJSONObject] Unbalanced braces or incomplete JSON:",
+  text.slice(0, 100) + (text.length > 500 ? "…" : "")
+);
   return null;
 }
 
@@ -356,4 +343,29 @@ export function debugRawLLM(agent, raw, label = "RAW LLM OUTPUT") {
 
   // fallback (number, boolean, etc.)
   console.debug(`${prefix} (type=${typeof raw}):`, raw);
+}
+
+
+// js/core/utils.js (add at the end or near other JSON helpers)
+
+/**
+ * Attempt to repair common JSON syntax errors.
+ * @param {string} text - Potentially malformed JSON string.
+ * @returns {string} Repaired JSON string, or original if no changes.
+ */
+export function repairJSON(text) {
+  if (!text || typeof text !== "string") return text;
+
+  let repaired = text;
+
+  // 1. Remove trailing commas before } or ]
+  repaired = repaired.replace(/,(\s*[}\]])/g, "$1");
+
+  // 2. Add missing quotes around keys (safe subset only)
+  repaired = repaired.replace(
+    /([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g,
+    '$1"$2":'
+  );
+
+  return repaired;
 }

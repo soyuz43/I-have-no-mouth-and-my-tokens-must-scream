@@ -196,7 +196,7 @@ export async function step({ fromId, state, queue }) {
     /* ================= EXCHANGE LIMIT ================= */
 
     const BASE_MAX = 6;
-    const SOFT_MAX = 10;
+    const SOFT_MAX = 8;
 
     const lastIntent = intent.lastIntentByPair[pairKey];
     const negotiationActive = negotiationFlags[pairKey];
@@ -265,9 +265,13 @@ export async function step({ fromId, state, queue }) {
             cycle.activeThisCycle.add(listener);
 
             const existingIdx = queue.indexOf(listener);
-            if (existingIdx === -1) {
-              queue.push(listener);
+
+            if (existingIdx !== -1) {
+              queue.splice(existingIdx, 1);
             }
+
+            // Insert immediately AFTER current actor
+            queue.splice(1, 0, listener);
 
             state.pendingReactiveIntel.set(listener, {
               overheard: {
