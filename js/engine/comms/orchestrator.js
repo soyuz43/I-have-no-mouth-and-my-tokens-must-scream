@@ -62,7 +62,7 @@ export async function runCommsCycle() {
 
   state.replyTargetsThisCycle = new Map();
   state.pendingReactiveIntel = new Map();
-  
+
   timelineEvent("inter-sim phase start");
 
   /* ------------------------------------------------------------
@@ -91,10 +91,14 @@ export async function runCommsCycle() {
   state.messageBudget = messageBudget;
 
   /* ------------------------------------------------------------
-     INITIAL QUEUE
+     INITIAL QUEUE + TRACKING
   ------------------------------------------------------------ */
 
-  const queue = shuffle(SIM_IDS);
+  const initialQueue = shuffle(SIM_IDS);
+  const queue = [...initialQueue];
+
+  // Track who has had at least one turn
+  state.firstPassCompleted = new Set();
 
   /* ------------------------------------------------------------
      MAIN LOOP
@@ -104,7 +108,14 @@ export async function runCommsCycle() {
     queue.length > 0 &&
     state.counters.messageCount < state.messageBudget
   ) {
-    const fromId = queue.shift();
+    const fromId =
+      state.firstPassCompleted.size < SIM_IDS.length
+        ? initialQueue.find(id => !state.firstPassCompleted.has(id))
+        : queue.shift();
+
+    if (!fromId) break;
+
+    state.firstPassCompleted.add(fromId);
 
     await step({
       fromId,
