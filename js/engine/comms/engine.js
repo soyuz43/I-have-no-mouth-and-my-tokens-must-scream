@@ -207,10 +207,11 @@ export async function step({ fromId, state, queue }) {
 
     const recentPartner = getRecentPartner(fromId);
 
-    if ((!toId || toId === "NONE") &&
+    if (
+      (!toId || toId === "NONE") &&
       recentPartner &&
-      recentPartner !== fromId &&
-      !(replyTargetsThisCycle.get(fromId)?.has(recentPartner))) {
+      recentPartner !== fromId
+    ) {
       toId = recentPartner;
     }
 
@@ -277,6 +278,21 @@ export async function step({ fromId, state, queue }) {
     });
 
     G.lastContact[fromId] = toId;
+
+    // --- NEW: mark reply continuation (ONE extra turn) ---
+    let perTarget = state.replyTargetsThisCycle.get(toId);
+
+    if (!perTarget) {
+      perTarget = new Map();
+      state.replyTargetsThisCycle.set(toId, perTarget);
+    }
+
+    const existing = perTarget.get(fromId);
+    const currentRemaining = existing ? existing.remaining : 0;
+
+    if (currentRemaining < 1) {
+      perTarget.set(fromId, { remaining: 1 });
+    }
 
     addLog(`${visibility.toUpperCase()} ${fromId}→${toId} [AUTO]`, `"${message}"`, "chat");
 
@@ -515,10 +531,6 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     timelineEvent(`${toId} reply → ${fromId}`);
 
-    if (!replyTargetsThisCycle.has(toId)) {
-      replyTargetsThisCycle.set(toId, new Set());
-    }
-    replyTargetsThisCycle.get(toId).add(fromId);
 
     G.threads[toId].push({
       role: "assistant",

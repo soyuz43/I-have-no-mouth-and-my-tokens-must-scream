@@ -61,8 +61,8 @@ export function recordReceived(simId, fromId, text) {
 
 export function maybeOverhear(fromId, toId, message) {
   const leak = G.privateLeak || {
-    full: 0.08,
-    fragment: 0.18,
+    full: 0.04,
+    fragment: 0.13,
     seen: 0.38,
   };
 

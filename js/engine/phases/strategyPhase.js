@@ -41,6 +41,25 @@ export async function runStrategyPhase(directive) {
     const result = runStrategyPipeline(planText);
 
     if (!result || result.status !== "success") {
+
+      let failureType = "unknown";
+
+      if (!result) {
+        failureType = "runtime_error";
+      } else if (result.stage === "extract") {
+        failureType = "extract_failure";
+      } else if (result.stage === "validate") {
+        failureType = "validation_failure";
+      } else if (result.targets?.length === 0) {
+        failureType = "empty_targets";
+      }
+
+      G.lastStrategyFailure = {
+        type: failureType,
+        stage: result?.stage ?? "unknown",
+        raw: result?.raw ?? null
+      };
+      
       console.warn("[STRATEGY PHASE] pipeline failed", {
         stage: result?.stage,
         error: result?.error,
@@ -50,7 +69,7 @@ export async function runStrategyPhase(directive) {
       // Prevent downstream phases from using invalid strategy
       return;
     }
-    
+
     timelineEvent(`// AM PLAN GENERATED`);
 
   } catch (e) {
