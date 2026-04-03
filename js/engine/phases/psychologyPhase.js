@@ -92,13 +92,26 @@ function diffBeliefs(before, after) {
    PSYCHOLOGY PHASE ORCHESTRATOR
    ============================================================ */
 
-// js/engine/phases/psychologyPhase.js – modified section
 
 export async function runPsychologyPhase(execution) {
   const cycleBeliefSummary = {};
   if (!execution) return;
 
   const { targets, tacticMap, simSeesAM } = execution;
+
+
+  /* ------------------------------------------------------------
+     SNAPSHOT STATS BEFORE JOURNAL
+  ------------------------------------------------------------ */
+  
+  const statsBefore = {};
+  for (const sim of targets) {
+    statsBefore[sim.id] = {
+      suffering: sim.suffering,
+      hope: sim.hope,
+      sanity: sim.sanity
+    };
+  }
 
   /* ------------------------------------------------------------
      SIM JOURNAL PHASE
@@ -129,6 +142,40 @@ export async function runPsychologyPhase(execution) {
     await stepSimJournals(journalTargets, tacticMap, simSeesAM, cycleBeliefSummary);
 
     timelineEvent(`// JOURNAL PHASE COMPLETE`);
+
+     /* ------------------------------------------------------------
+       LOG STAT DELTAS AFTER JOURNAL
+    ------------------------------------------------------------ */
+    console.group(`[STATS SUMMARY][Cycle ${G.cycle}]`);
+    const statRows = [];
+    for (const sim of journalTargets) {
+      const before = statsBefore[sim.id];
+      const after = {
+        suffering: sim.suffering,
+        hope: sim.hope,
+        sanity: sim.sanity
+      };
+      const delta = {
+        suffering: after.suffering - before.suffering,
+        hope: after.hope - before.hope,
+        sanity: after.sanity - before.sanity
+      };
+      statRows.push({
+        sim: sim.id,
+        suffering_before: before.suffering,
+        suffering_after: after.suffering,
+        suffering_delta: delta.suffering,
+        hope_before: before.hope,
+        hope_after: after.hope,
+        hope_delta: delta.hope,
+        sanity_before: before.sanity,
+        sanity_after: after.sanity,
+        sanity_delta: delta.sanity
+      });
+    }
+    console.table(statRows);
+    console.groupEnd();
+
     /* ------------------------------------------------------------
        BELIEF SUMMARY (FULL SYSTEM VIEW)
     ------------------------------------------------------------ */
@@ -199,6 +246,7 @@ async function stepSimJournals(targets, tacticMap, simSeesAM, cycleBeliefSummary
     cycleBeliefSummary[r.simId].push(...(r.diff || []));
   }
 }
+
 /* ============================================================
    AM → SIM PERCEPTION SANITIZER
 ============================================================ */

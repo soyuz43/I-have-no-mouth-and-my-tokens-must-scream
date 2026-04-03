@@ -92,7 +92,7 @@ export const G = {
      ============================================================ */
 
   DEBUG_DAMPING: true,
-  
+
   splitModels: false,
 
   models: {
@@ -143,6 +143,14 @@ export const G = {
     }
   },
 
+  failureStats: {
+    extract_failure: 0,
+    validation_failure: 0,
+    empty_targets: 0,
+    runtime_error: 0,
+    unknown: 0
+  },
+  
   parserConfig: {
     repairLevel: 1
   },

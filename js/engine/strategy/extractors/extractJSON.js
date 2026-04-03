@@ -14,7 +14,7 @@ import { classifyJsonError } from "./classifyJsonError.js";
    SCHEMA-AWARE TARGETS EXTRACTION
 ============================================================ */
 
-function extractTargetsArray(input) {
+function extractTargetsArray(source) {
   const key = '"targets"';
   const idx = input.indexOf(key);
 
@@ -28,7 +28,7 @@ function extractTargetsArray(input) {
   let escape = false;
 
   for (let i = startBracket; i < input.length; i++) {
-    const ch = input[i];
+    const ch = source[i];
 
     if (escape) { escape = false; continue; }
     if (ch === "\\") { escape = true; continue; }
@@ -108,13 +108,37 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   const candidates = [];
 
   /* ------------------------------------------------------------
+     HARD GUARD: must contain JSON root somewhere
+  ------------------------------------------------------------ */
+
+  const firstBrace = input.indexOf("{");
+  const firstBracket = input.indexOf("[");
+
+  if (firstBrace === -1 && firstBracket === -1) {
+    if (DEBUG_EXTRACT) {
+      console.warn("[EXTRACT] no JSON root detected");
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------
+     STRIP LOG CONTAMINATION (CRITICAL)
+  ------------------------------------------------------------ */
+
+  let cleanedInput = input
+    .replace(/^\s*\[(PRIV|PUBLIC)\][^\n]*\n?/gm, "")
+    .replace(/^\s*(PRIVATE|PUBLIC)[^\n]*\n?/gm, "")
+    .replace(/^\s*NOTICE[^\n]*\n?/gm, "");
+
+
+  /* ------------------------------------------------------------
    FAST PATH: FULL OBJECT FIRST 
 ------------------------------------------------------------ */
 
   try {
-    const start = input.indexOf("{");
+    const start = cleanedInput.indexOf("{");
     if (start !== -1) {
-      const full = input.slice(start).trim();
+      const full = cleanedInput.slice(start).trim();
 
       const parsed = JSON.parse(full);
 
@@ -132,7 +156,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   }
 
   if (DEBUG_EXTRACT) {
-    console.debug("[EXTRACT][JSON] Input length:", input.length);
+    console.debug("[EXTRACT][JSON] Input length:", cleanedInput.length);
   }
 
   /* ------------------------------------------------------------
@@ -141,9 +165,9 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
   const starts = [];
 
-  for (let i = 0; i < input.length; i++) {
-    if (input[i] === "{") starts.push({ index: i, type: "{" });
-    if (input[i] === "[") starts.push({ index: i, type: "[" });
+  for (let i = 0; i < cleanedInput.length; i++) {
+    if (cleanedInput[i] === "{") starts.push({ index: i, type: "{" });
+    if (cleanedInput[i] === "[") starts.push({ index: i, type: "[" });
   }
 
   starts.sort((a, b) => (a.type === "[" ? -1 : 1));
@@ -159,9 +183,8 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
     let inString = false;
     let escape = false;
 
-    for (let i = start; i < input.length; i++) {
-
-      const ch = input[i];
+    for (let i = start; i < cleanedInput.length; i++) {
+      const ch = cleanedInput[i];
 
       if (escape) { escape = false; continue; }
       if (ch === "\\") { escape = true; continue; }
@@ -184,7 +207,34 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
       if (complete) {
 
-        const candidate = input.slice(start, i + 1).trim();
+        const candidate = cleanedInput.slice(start, i + 1).trim();
+
+        /* ----------------------------
+           CONTAMINATION GUARD (CRITICAL)
+        ---------------------------- */
+
+        // find where JSON actually begins
+        const firstJsonIdx = Math.min(
+          ...[candidate.indexOf("{"), candidate.indexOf("[")].filter(i => i !== -1)
+        );
+
+        // check prefix only (before JSON)
+        const prefix = firstJsonIdx > 0 ? candidate.slice(0, firstJsonIdx) : "";
+
+        /* ------------------------------------------------------------
+           CONTAMINATION GUARD (STRUCTURAL, NOT CONTENT-BASED)
+        ------------------------------------------------------------ */
+
+        if (
+          prefix.includes("[PRIV]") ||
+          prefix.includes("[PUBLIC]")
+        ) {
+          if (DEBUG_EXTRACT) {
+            console.warn("[EXTRACT] rejecting contaminated candidate (prefix)");
+          }
+          continue;
+        }
+
 
         /* ------------------------------------------------------------
            HARD FILTER
@@ -288,7 +338,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
 
           if (DEBUG_EXTRACT) {
-            console.debug("[REPAIR] after:", repaired.slice(0, 200));
+            console.debug("[REPAIR] after (full):", repaired);
           }
 
           try {
@@ -345,7 +395,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
      FALLBACK: SCHEMA-AWARE (UNCHANGED)
   ------------------------------------------------------------ */
 
-  const extractedTargets = extractTargetsArray(input);
+  const extractedTargets = extractTargetsArray(cleanedInput);
 
   if (extractedTargets) {
     return { targets: extractedTargets };

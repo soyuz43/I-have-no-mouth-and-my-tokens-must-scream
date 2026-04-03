@@ -108,12 +108,51 @@ export async function runCommsCycle() {
     queue.length > 0 &&
     state.counters.messageCount < state.messageBudget
   ) {
-    const fromId =
-      state.firstPassCompleted.size < SIM_IDS.length
-        ? initialQueue.find(id => !state.firstPassCompleted.has(id))
-        : queue.shift();
+    let fromId = null;
+
+    console.debug(
+      "[COMMS] replyTargetsThisCycle",
+      Array.from(state.replyTargetsThisCycle.entries())
+    );
+
+    // --- PRIORITY: pending reply continuation ---
+    for (const [targetId, perSender] of state.replyTargetsThisCycle.entries()) {
+      if (state.firstPassCompleted.size < SIM_IDS.length) continue;
+
+      for (const [senderId, info] of perSender.entries()) {
+        if (info.remaining > 0) {
+          fromId = senderId;
+          info.remaining -= 1;
+
+          if (info.remaining <= 0) {
+            perSender.delete(senderId);
+          }
+
+          if (perSender.size === 0) {
+            state.replyTargetsThisCycle.delete(targetId);
+          }
+
+          break;
+        }
+      }
+
+      if (fromId) break;
+    }
+
+
+    // --- FALLBACK: normal scheduling ---
+    if (!fromId) {
+      fromId =
+        state.firstPassCompleted.size < SIM_IDS.length
+          ? initialQueue.find(id => !state.firstPassCompleted.has(id))
+          : queue.shift();
+    }
 
     if (!fromId) break;
+
+    // --- FIX: remove from queue to avoid duplicate turns ---
+    const idx = queue.indexOf(fromId);
+    if (idx !== -1) queue.splice(idx, 1);
 
     state.firstPassCompleted.add(fromId);
 
