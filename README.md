@@ -77,33 +77,77 @@ This is the actual execution path per cycle:
 ```mermaid
 flowchart TD
 
-AM[AM Plan Generation]
+%% ========================
+%% PASS 1 — GENERATION
+%% ========================
 
-PARSE[Strategy Parsing]
-SANITIZE[Sanitize]
-VALIDATE[Validate]
-COMMIT[Commit - Damped Updates]
+subgraph GENERATION
 
-JOURNAL[Agent Journals]
-STATS[Stat Deltas]
-BELIEFS[Belief Updates]
+  AM_PLAN_RAW[AM Planning Prompt]
 
-SOCIAL[Communication Phase]
-CONTAGION[Belief Contagion]
+  PLAN_PARSE[Parse Plan]
+  PLAN_REPAIR[Repair JSON]
+  PLAN_VALIDATE[Validate Plan]
 
-ASSESS[Assessment]
+  PLAN[Structured Plan]
 
-AM --> PARSE
-PARSE --> SANITIZE --> VALIDATE --> COMMIT
+  VAULT[Tactic Vault]
+  AM_EXEC[AM Execution Prompt]
 
-COMMIT --> JOURNAL
-JOURNAL --> STATS --> BELIEFS --> COMMIT
+  SIM_JOURNAL[Sim Journal]
 
-COMMIT --> SOCIAL
-SOCIAL --> CONTAGION --> COMMIT
+  AM_PLAN_RAW --> PLAN_PARSE
+  PLAN_PARSE --> PLAN_REPAIR --> PLAN_VALIDATE --> PLAN
 
-COMMIT --> ASSESS
-ASSESS --> AM
+  PLAN --> AM_EXEC
+  VAULT --> AM_EXEC
+
+  AM_EXEC --> SIM_JOURNAL
+
+end
+
+%% ========================
+%% PASS 2 — INTERPRETATION
+%% ========================
+
+subgraph INTERPRETATION
+
+  EXTRACT_PROMPT[State Extractor]
+
+  JSON_EXTRACT[Extract JSON]
+  REPAIR[Repair]
+  SANITIZE[Sanitize]
+  VALIDATE[Validate]
+  DAMP[Damp]
+  COMMIT[Commit State]
+
+  EXTRACT_PROMPT --> JSON_EXTRACT
+  JSON_EXTRACT --> REPAIR --> SANITIZE --> VALIDATE --> DAMP --> COMMIT
+
+end
+
+%% ========================
+%% FLOW
+%% ========================
+
+SIM_JOURNAL --> EXTRACT_PROMPT
+
+%% ========================
+%% SOCIAL + LOOP
+%% ========================
+
+COMMIT --> COMMS[Communication]
+COMMS --> CONTAGION[Belief Contagion]
+
+CONTAGION --> ASSESS[Assessment]
+ASSESS --> AM_PLAN_RAW
+
+%% ========================
+%% CONDITIONAL BRANCH
+%% ========================
+
+COMMIT --> EVOLVE[Tactic Evolution]
+EVOLVE -.-> VAULT
 ```
 
 ---
@@ -130,6 +174,42 @@ INIT --> FIRSTPASS
 FIRSTPASS --> CONTINUATION
 CONTINUATION --> QUEUE
 QUEUE --> BUDGET
+```
+
+## Social Perception (Overhearing)
+
+Communication is not fully private.
+
+Messages may be partially observed by other agents through a probabilistic
+overhearing model influenced by relationships and internal state.
+
+```mermaid
+flowchart TD
+
+MSG[Private Message]
+
+SELECT[Select Listener]
+PROB[Compute Leak Chance]
+
+FULL[Full Message]
+FRAG[Fragment]
+SEEN[Seen Only]
+
+MEMORY[Store Memory]
+REL[Update Relationships]
+
+MSG --> SELECT
+SELECT --> PROB
+
+PROB --> FULL
+PROB --> FRAG
+PROB --> SEEN
+
+FULL --> MEMORY
+FRAG --> MEMORY
+SEEN --> MEMORY
+
+MEMORY --> REL
 ```
 
 ### Key Mechanics
