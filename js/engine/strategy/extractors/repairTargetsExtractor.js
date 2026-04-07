@@ -1,4 +1,4 @@
-// filepath: js/engine/strategy/extractors/repairTargetsExtractor.js
+// js/engine/strategy/extractors/repairTargetsExtractor.js
 import {
   stripJsonComments,
   fixMissingCommas,
@@ -6,6 +6,10 @@ import {
   fixObjectMerges,
   fixBrokenStrings
 } from "./utils.js";
+
+import { normalizeTargetKeys } from "./normalizeKeys.js";
+
+
 
 export function repairTargetsExtractor(input, { DEBUG_EXTRACT = false } = {}) {
 
@@ -117,7 +121,9 @@ export function repairTargetsExtractor(input, { DEBUG_EXTRACT = false } = {}) {
               console.warn("[REPAIR] SUCCESS (structural)");
             }
 
-            return { targets: parsedArray };
+            const normalizedArray = parsedArray.map(t => normalizeTargetKeys(t));
+
+            return { targets: normalizedArray };
 
           } catch (err) {
             if (DEBUG_EXTRACT) {

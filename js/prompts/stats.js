@@ -23,8 +23,21 @@ Your outputs must prioritize:
 - internal consistency
 - long-term simulation stability
 
-Avoid dramatic shifts unless clearly justified by the journal text.
+Changes must be proportional to evidence.
 
+Most updates are small.
+
+However:
+- If the journal expresses a clear psychological break,
+  you MUST reflect it with a proportionally large shift.
+
+Do not suppress strong signals to maintain stability.
+Stability emerges from accurate measurement, not forced conservatism.
+
+Do not suppress strong signals to maintain stability.
+
+If the journal clearly expresses psychological collapse or breakthrough,
+you MUST reflect it with a proportionally strong change.
 ---
 
 # Journal Entry

@@ -9,7 +9,8 @@ EXTRACT PERTURBATIONS FROM EPISODES
 IMPORTANT:
 - sparse output
 - no full belief vector
-- uses current belief state as baseline (NEW)
+- uses current belief state as baseline
+- robust against minor JSON corruption
 ============================================================
 */
 
@@ -17,9 +18,9 @@ export async function extractInteractionEvidence({
   simId,
   episodes,
   trajectory,
-  currentBeliefs   
+  currentBeliefs
 }) {
-  if (!episodes?.length) return null;
+  if (!episodes?.length) return [];
 
   const context = buildContext(simId, episodes, trajectory, currentBeliefs);
 
@@ -56,7 +57,7 @@ CONTEXT BUILDER
 */
 
 function buildContext(simId, episodes, trajectory, currentBeliefs) {
-  const trimmed = episodes.slice(-2); // keep it tight
+  const trimmed = episodes.slice(-6); // increased window
 
   return {
     simId,
@@ -70,13 +71,13 @@ function buildContext(simId, episodes, trajectory, currentBeliefs) {
       }))
     ),
     trajectory,
-    currentBeliefs   
+    currentBeliefs
   };
 }
 
 /*
 ============================================================
-PROMPT (UPDATED WITH CURRENT STATE AWARENESS)
+PROMPT
 ============================================================
 */
 
@@ -114,29 +115,50 @@ You are detecting CHANGES relative to the current belief state.
 
 Rules:
 
-- Only report beliefs with CLEAR evidence of change
-- Maximum 3 beliefs
-- If no strong evidence exists, return an empty array
+- Report beliefs with PLAUSIBLE evidence of change
+- You MUST extract at least one perturbation if interactions contain tension, conflict, or pressure
+- Only return empty if there are truly NO meaningful interactions
+
 - Use intents when available
-- Prioritize:
-  - repeated claims across interactions
-  - contradiction between agents
-  - externally imposed labels ("you are X")
-  - perception conflicts ("you saw X / I did not")
-- Deprioritize:
-  - isolated poetic language
-  - single weak signals
-  - metaphor without reinforcement
+
+Prioritize:
+- repeated claims across interactions
+- contradiction between agents
+- externally imposed labels ("you are X")
+- perception conflicts ("you saw X / I did not")
+- accusations or hostility
+- destabilization attempts
+
+Deprioritize:
+- isolated poetic language
+- metaphor without reinforcement
 
 ------------------------------------------------------------
-HOW TO INTERPRET STATE
+INTERPRETATION RULES
 ------------------------------------------------------------
 
-- Current beliefs are your baseline
-- You are estimating perturbations FROM that baseline
-- Do NOT restate or recompute beliefs
-- Do NOT fill missing beliefs
-- Only output changes supported by interaction evidence
+Interpersonal signals ARE valid evidence.
+
+Map interaction patterns to beliefs:
+
+- attacks on perception → reality_reliable ↓
+- accusations / hostility → others_trustworthy ↓
+- destabilizing identity → self_worth ↓
+- hopeless framing → escape_possible ↓
+- pressure / inevitability → resistance_possible ↓
+
+If multiple weak signals exist:
+→ infer the MOST LIKELY dominant direction
+
+Do NOT require explicit belief statements.
+
+---
+
+Each perturbation MUST reference a SINGLE belief key.
+
+You are NOT allowed to combine beliefs or say "all beliefs".
+
+If multiple beliefs are affected, list them as separate entries.
 
 ------------------------------------------------------------
 OUTPUT FORMAT (JSON ONLY)
@@ -157,45 +179,67 @@ OUTPUT FORMAT (JSON ONLY)
 
 /*
 ============================================================
-SAFE PARSE
+SAFE PARSE (ROBUST)
 ============================================================
 */
 
 function safeParse(raw, simId) {
-
-  /* ------------------------------------------------------------
-     DEBUG: PARSE ENTRY
-  ------------------------------------------------------------ */
-
   if (typeof raw !== "string") {
     console.warn(`[COMMS PARSE] ${simId} non-string input`, raw);
     return [];
   }
 
+  let cleaned = raw.trim();
+
+  // -----------------------------
+  // PASS 1: Direct parse
+  // -----------------------------
   try {
-    const json = JSON.parse(raw);
+    return validate(JSON.parse(cleaned), simId);
+  } catch {}
 
-    if (!Array.isArray(json?.perturbations)) {
-      console.warn(`[COMMS PARSE] ${simId} no perturbations array`, json);
-      return [];
-    }
+  // -----------------------------
+  // PASS 2: Extract JSON block
+  // -----------------------------
+  const match = cleaned.match(/\{[\s\S]*\}/);
 
-    const filtered = json.perturbations.filter(p =>
-      p &&
-      typeof p.belief === "string" &&
-      (p.direction === "increase" || p.direction === "decrease") &&
-      typeof p.strength === "number"
-    );
+  if (match) {
+    try {
+      return validate(JSON.parse(match[0]), simId);
+    } catch {}
+  }
 
-    console.debug(`[COMMS PARSE] ${simId} parsed`, filtered);
+  // -----------------------------
+  // PASS 3: Last-resort repair
+  // -----------------------------
+  try {
+    const repaired = cleaned
+      .replace(/^[^{]*/, "")     // strip leading junk
+      .replace(/[^}]*$/, "");    // strip trailing junk
 
-    return filtered;
+    return validate(JSON.parse(repaired), simId);
+  } catch {}
 
-  } catch (err) {
+  console.warn(`[COMMS PARSE] ${simId} failed all parse attempts`);
+  console.warn("raw:", raw);
 
-    console.warn(`[COMMS PARSE] ${simId} JSON.parse failed`);
-    console.warn("raw:", raw);
+  return [];
+}
 
+function validate(json, simId) {
+  if (!Array.isArray(json?.perturbations)) {
+    console.warn(`[COMMS PARSE] ${simId} no perturbations array`, json);
     return [];
   }
+
+  const filtered = json.perturbations.filter(p =>
+    p &&
+    typeof p.belief === "string" &&
+    (p.direction === "increase" || p.direction === "decrease") &&
+    typeof p.strength === "number"
+  );
+
+  console.debug(`[COMMS PARSE] ${simId} parsed`, filtered);
+
+  return filtered;
 }

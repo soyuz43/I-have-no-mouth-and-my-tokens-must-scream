@@ -355,11 +355,14 @@ async function runInteractionAnalysisPhase() {
 
     console.debug(`[INTERACTION RESULT] ${sim.id}`, perturbations);
 
-    if (!perturbations?.length) continue;
+    // ALWAYS store result — even empty
+    nextEvidence[sim.id] = perturbations || [];
 
-    nextEvidence[sim.id] = perturbations;
-
-    console.debug(`[COMMS EVIDENCE] ${sim.id}`, perturbations);
+    if (!perturbations?.length) {
+      console.debug(`[INTERACTION EMPTY] ${sim.id}`);
+    } else {
+      console.debug(`[COMMS EVIDENCE] ${sim.id}`, perturbations);
+    }
   }
 
   /* ------------------------------------------------------------
