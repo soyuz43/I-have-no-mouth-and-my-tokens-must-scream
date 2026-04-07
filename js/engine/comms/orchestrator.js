@@ -219,6 +219,9 @@ export async function runCommsCycle() {
       messages.push({
         ...msg,
         from: fromId,
+        to: Array.isArray(msg.to)
+          ? msg.to
+          : (msg.to ? [msg.to] : []),
         cycle: G.cycle ?? 0,
       });
     }
@@ -228,25 +231,25 @@ export async function runCommsCycle() {
   G.comms.lastCycle = messages;
   G.comms.history.push(...messages);
 
-console.debug("[COMMS][PERSISTED]", {
-  lastCycleCount: messages.length,
-  totalHistory: G.comms?.history?.length ?? 0,
+  console.debug("[COMMS][PERSISTED]", {
+    lastCycleCount: messages.length,
+    totalHistory: G.comms?.history?.length ?? 0,
 
-  // sanity checks (CRITICAL)
-  hasComms: !!G.comms,
-  hasHistory: Array.isArray(G.comms?.history),
-  hasLastCycle: Array.isArray(G.comms?.lastCycle),
+    // sanity checks (CRITICAL)
+    hasComms: !!G.comms,
+    hasHistory: Array.isArray(G.comms?.history),
+    hasLastCycle: Array.isArray(G.comms?.lastCycle),
 
-  // data visibility (first message sample)
-  sample:
-    messages.length > 0
-      ? {
+    // data visibility (first message sample)
+    sample:
+      messages.length > 0
+        ? {
           from: messages[0].from,
           to: messages[0].to,
           text: String(messages[0].text || "").slice(0, 80)
         }
-      : null
-});
+        : null
+  });
 
   /* ============================================================ */
 

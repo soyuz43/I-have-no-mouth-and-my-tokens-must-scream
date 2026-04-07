@@ -66,10 +66,18 @@ function stripWeirdUnicode(text) {
  * → "a", "b"
  */
 function fixArrayCommas(text) {
-  return text.replace(
-    /"\s*\n\s*"/g,
-    '",\n"'
-  );
+  // Iteratively fix missing commas between string elements inside arrays
+  let prev;
+  let current = text;
+
+  const pattern = /"\s*\n\s*"/g;
+
+  do {
+    prev = current;
+    current = current.replace(pattern, '",\n"');
+  } while (current !== prev);
+
+  return current;
 }
 
 /**
