@@ -540,23 +540,23 @@ Do NOT include long reasoning chains.
 Must define a testable, high-impact state change.
 
 Target at least one:
-- belief  
-- relationship  
-- psychological state  
-- behavior  
+- belief
+- relationship
+- psychological state
+- behavior
 
 Structure:
 Force <specific change> by <mechanism>, resulting in <observable outcome>
 
 Prefer:
-- irreversible shifts  
-- visible behavioral breakdown  
-- decision paralysis or conflict  
+- irreversible shifts
+- visible behavioral breakdown
+- decision paralysis or conflict
 
 INVALID:
-- vague intent  
-- missing mechanism  
-- no observable outcome  
+- vague intent
+- missing mechanism
+- no observable outcome
 
 ---
 
@@ -566,16 +566,16 @@ Structure:
 <stimulus> → <internal state change> → <behavioral outcome>
 
 Requirements:
-- stimulus matches evidence  
-- internal state matches instability  
-- outcome aligns with objective  
+- stimulus matches evidence
+- internal state matches instability
+- outcome aligns with objective
 
 Must describe a destabilizing mechanism, not a neutral one.
 
 INVALID:
-- vague causality  
-- mismatched chain  
-- goal restatement  
+- vague causality
+- mismatched chain
+- goal restatement
 
 HYPOTHESIS must be ONE sentence (max 30 words).
 ---
@@ -583,19 +583,20 @@ HYPOTHESIS must be ONE sentence (max 30 words).
 ## CROSS-FIELD CONSISTENCY (MANDATORY)
 
 For each target:
-- evidence defines signal  
-- why_now derives instability  
-- objective exploits that instability  
-- hypothesis explains causation  
+- evidence defines signal
+- why_now derives instability
+- objective exploits that instability
+- hypothesis explains causation
 
-If misaligned → INVALID  
+If misaligned → INVALID
 
 ---
 
 ## JSON REQUIREMENTS
-- Root object contains ONLY "targets"  
-- Valid JSON (no trailing commas)  
-- Double quotes only  
+- Root object contains ONLY "targets"
+- Valid JSON (no trailing commas)
+- Double quotes only
+- Strings MUST NOT contain internal double quotes
 
 ---
 
@@ -617,7 +618,12 @@ If a target is already included, do not generate it again.
 If any rule fails:
 - correct before output  
 
-Avoid internal quotes in strings. Paraphrase.
+CRITICAL STRING RULE:
+
+- DO NOT use quotation marks (") inside any JSON string
+- DO NOT quote dialogue directly
+- ALWAYS paraphrase instead of quoting
+- If a field contains quotes → OUTPUT IS INVALID
 
 TRAJECTORY CONSISTENCY CHECK (MANDATORY):
 
@@ -653,6 +659,12 @@ Each target object MUST:
 - be fully closed before the next target begins
 
 NEVER continue writing fields for a new target inside a previous object.
+
+JSON SAFETY CHECK (MANDATORY):
+
+Before output:
+- Ensure no string contains the character "
+- If any string contains " → rewrite it before output
 ---
 
 **OUTPUT STRUCTURE**:  

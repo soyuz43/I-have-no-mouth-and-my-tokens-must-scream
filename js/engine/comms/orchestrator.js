@@ -196,10 +196,59 @@ export async function runCommsCycle() {
   /* ------------------------------------------------------------
      COMPLETE
   ------------------------------------------------------------ */
-
   console.debug("[COMMS] cycle complete", {
     messages: state.counters.messageCount,
   });
+
+  /* ============================================================
+     🔥 PERSIST TO GLOBAL STATE (CRITICAL FIX)
+  ============================================================ */
+
+  if (!G.comms) {
+    G.comms = {
+      history: [],
+      lastCycle: null,
+    };
+  }
+
+  // Extract messages from state
+  const messages = [];
+
+  for (const [fromId, sentList] of state.sentMessagesThisCycle.entries()) {
+    for (const msg of sentList) {
+      messages.push({
+        ...msg,
+        from: fromId,
+        cycle: G.cycle ?? 0,
+      });
+    }
+  }
+
+  // Store
+  G.comms.lastCycle = messages;
+  G.comms.history.push(...messages);
+
+console.debug("[COMMS][PERSISTED]", {
+  lastCycleCount: messages.length,
+  totalHistory: G.comms?.history?.length ?? 0,
+
+  // sanity checks (CRITICAL)
+  hasComms: !!G.comms,
+  hasHistory: Array.isArray(G.comms?.history),
+  hasLastCycle: Array.isArray(G.comms?.lastCycle),
+
+  // data visibility (first message sample)
+  sample:
+    messages.length > 0
+      ? {
+          from: messages[0].from,
+          to: messages[0].to,
+          text: String(messages[0].text || "").slice(0, 80)
+        }
+      : null
+});
+
+  /* ============================================================ */
 
   timelineEvent("inter-sim phase complete");
 

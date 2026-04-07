@@ -16,6 +16,8 @@ import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
+import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
+
 
 /* ============================================================
    MAIN CYCLE CONTROLLER
@@ -111,19 +113,79 @@ export async function runCycle() {
       );
     }
     endCycle(cycleStart);
-    return; 
+    return;
   }
-
   /* ------------------------------------------------------------
-     NORMAL PIPELINE
+     NORMAL PIPELINE (CORRECT ORDER + FULL DEBUG)
   ------------------------------------------------------------ */
 
+  console.group(`[CYCLE ${G.cycle}] PIPELINE START`);
+
+  console.debug("[DEBUG] execution object:", execution);
+  console.debug("[DEBUG] execution?.targets:", execution?.targets);
+  console.debug("[DEBUG] execution?.targets length:", execution?.targets?.length);
+  console.debug("[DEBUG] G.amStrategy:", G.amStrategy);
+  console.debug("[DEBUG] G.amStrategy.targets:", G.amStrategy?.targets);
+  console.debug("[DEBUG] sims snapshot:", Object.keys(G.sims));
+
+  /* ------------------------------------------------------------
+     PSYCHOLOGY (JOURNALS FIRST)
+  ------------------------------------------------------------ */
+
+  console.warn("[PIPELINE] ENTER PSYCHOLOGY");
+
+  if (!execution) {
+    console.error("[PIPELINE] [X] execution is NULL — aborting psychology");
+  } else if (!execution.targets || execution.targets.length === 0) {
+    console.error("[PIPELINE] [X] execution.targets EMPTY — psychology will no-op");
+  } else {
+    console.debug("[PIPELINE] [Y] execution valid, running psychology");
+  }
+
   await runPsychologyPhase(execution);
+
+  console.warn("[PIPELINE] EXIT PSYCHOLOGY");
+
+  /* ------------------------------------------------------------
+     SOCIAL (COMMS AFTER JOURNALS)
+  ------------------------------------------------------------ */
+
+  console.warn("[PIPELINE] ENTER SOCIAL");
+
   await runSocialPhase();
+
+  console.warn("[PIPELINE] EXIT SOCIAL");
+
+  /* ------------------------------------------------------------
+     INTERACTION ANALYSIS (AFTER COMMS)
+  ------------------------------------------------------------ */
+
+  console.warn("[PIPELINE] ENTER INTERACTION ANALYSIS");
+
+  await runInteractionAnalysisPhase();
+
+  console.warn("[PIPELINE] EXIT INTERACTION ANALYSIS");
+
+  /* ------------------------------------------------------------
+     EVALUATION
+  ------------------------------------------------------------ */
+
+  console.warn("[PIPELINE] ENTER EVALUATION");
+
   await runEvaluationPhase();
+
+  console.warn("[PIPELINE] EXIT EVALUATION");
+
+  /* ------------------------------------------------------------
+     METRICS + FINALIZE
+  ------------------------------------------------------------ */
+
+  console.debug("[PIPELINE] belief metrics + dynamics");
 
   logBeliefMetrics(G);
   logBeliefDynamics(G);
+
+  console.groupEnd();
 
   endCycle(cycleStart);
 }
@@ -249,4 +311,64 @@ async function autonomousLoop() {
       22000
     );
   }
+}
+
+async function runInteractionAnalysisPhase() {
+
+  timelineEvent("[INTERACTION] analysis start");
+
+  /* ------------------------------------------------------------
+   INTERACTION ANALYSIS (FIXED LIFECYCLE)
+------------------------------------------------------------ */
+
+  const nextEvidence = {};
+
+  for (const sim of Object.values(G.sims)) {
+
+    console.debug(`[INTERACTION LOOP] processing ${sim.id}`);
+
+    const sourceLog =
+      (G.comms?.history && G.comms.history.length)
+        ? G.comms.history
+        : (G.interSimLog || []);
+
+    const episodesRaw = sourceLog
+      .filter(e =>
+        e.from === sim.id ||
+        e.to === sim.id ||
+        (Array.isArray(e.to) && e.to.includes(sim.id))
+      )
+      .slice(-6);
+
+    console.debug(`[INTERACTION RAW COUNT] ${sim.id}`, episodesRaw.length);
+
+    if (!episodesRaw.length) continue;
+
+    const episodes = [episodesRaw];
+
+    const perturbations = await extractInteractionEvidence({
+      simId: sim.id,
+      episodes,
+      trajectory: G.trajectory?.[sim.id] || null,
+      currentBeliefs: sim.beliefs
+    });
+
+    console.debug(`[INTERACTION RESULT] ${sim.id}`, perturbations);
+
+    if (!perturbations?.length) continue;
+
+    nextEvidence[sim.id] = perturbations;
+
+    console.debug(`[COMMS EVIDENCE] ${sim.id}`, perturbations);
+  }
+
+  /* ------------------------------------------------------------
+      COMMIT AFTER LOOP
+  ----------------------------------------------------------- */
+
+  G.pendingBeliefEvidence = nextEvidence;
+
+  console.debug("[INTERACTION FINAL STORE]", G.pendingBeliefEvidence);
+
+  timelineEvent("[INTERACTION] analysis complete");
 }

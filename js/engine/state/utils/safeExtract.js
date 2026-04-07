@@ -34,6 +34,7 @@ function truncateAfterLastBrace(text) {
   if (last === -1) return text;
   return text.slice(0, last + 1);
 }
+
 /**
  * Remove markdown fences like ```json ... ```
  */
@@ -52,27 +53,32 @@ function stripComments(text) {
 
 /**
  * Remove invalid / non-standard unicode characters
- * (fixes cases like stray ʾ breaking JSON)
  */
 function stripWeirdUnicode(text) {
-  // Remove only clearly problematic characters (control + rare artifacts)
   return text.replace(/[\u0000-\u001F\u007F\u2028\u2029]/g, "");
 }
 
 /**
- * Fix missing commas between adjacent strings
+ * Fix missing commas between adjacent strings in arrays
  * Example:
  *   "a"
  *   "b"
  * → "a", "b"
  */
+function fixArrayCommas(text) {
+  return text.replace(
+    /"\s*\n\s*"/g,
+    '",\n"'
+  );
+}
+
+/**
+ * Fix missing commas between object fields
+ */
 function fixMissingCommas(text) {
-  // Conservative: ONLY fix clearly broken object key transitions
-  // Avoid touching nested objects/arrays or ambiguous cases
   return text.replace(
     /(":\s*(?:-?\d+(?:\.\d+)?|true|false|null|"[^"]*"))\s*\n(?=\s*")/g,
     (match) => {
-      // Do not attempt structural inference — just ensure comma presence
       if (match.trim().endsWith(",")) return match;
       return match.replace(/\s*\n/, ",\n");
     }
@@ -110,6 +116,9 @@ export function safeExtractJSON(text) {
   cleaned = stripComments(cleaned);
   cleaned = stripWeirdUnicode(cleaned);
 
+  // --- NEW: Fix array comma issues caused by comment stripping ---
+  cleaned = fixArrayCommas(cleaned);
+
   // Extract first, then repair
   let extracted = extractJSONObject(cleaned);
 
@@ -128,8 +137,9 @@ export function safeExtractJSON(text) {
     });
   }
 
-  // Apply comma repair only to extracted JSON candidate
+  // --- Apply comma fixes ---
   extracted = fixMissingCommas(extracted);
+
 
   // --- DEBUG: detect mid-array corruption ---
   if (
@@ -159,7 +169,7 @@ export function safeExtractJSON(text) {
     }
   }
 
-  // --- Phase 3: Truncation awareness (do NOT early return) ---
+  // --- Phase 3: Truncation awareness ---
   const truncated = isLikelyTruncated(extracted);
 
   // --- Phase 4: Direct parse attempt ---
@@ -169,7 +179,7 @@ export function safeExtractJSON(text) {
     console.debug("[safeExtractJSON] direct parse failed");
   }
 
-  // --- Phase 5: Repair + parse (even if truncated) ---
+  // --- Phase 5: Repair + parse ---
   try {
     const repaired = repairJSON(extracted);
     return JSON.parse(repaired);
@@ -177,7 +187,7 @@ export function safeExtractJSON(text) {
     console.warn("[safeExtractJSON] repair parse failed");
   }
 
-  // --- Phase 6: If truncated and unrecoverable, return null ---
+  // --- Phase 6: Final failure ---
   if (truncated) {
     console.warn("[safeExtractJSON] unrecoverable truncated JSON");
   } else {

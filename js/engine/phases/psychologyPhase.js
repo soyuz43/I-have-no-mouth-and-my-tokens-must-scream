@@ -99,11 +99,10 @@ export async function runPsychologyPhase(execution) {
 
   const { targets, tacticMap, simSeesAM } = execution;
 
-
   /* ------------------------------------------------------------
      SNAPSHOT STATS BEFORE JOURNAL
   ------------------------------------------------------------ */
-  
+
   const statsBefore = {};
   for (const sim of targets) {
     statsBefore[sim.id] = {
@@ -143,9 +142,9 @@ export async function runPsychologyPhase(execution) {
 
     timelineEvent(`// JOURNAL PHASE COMPLETE`);
 
-     /* ------------------------------------------------------------
-       LOG STAT DELTAS AFTER JOURNAL
-    ------------------------------------------------------------ */
+    /* ------------------------------------------------------------
+      LOG STAT DELTAS AFTER JOURNAL
+   ------------------------------------------------------------ */
     console.group(`[STATS SUMMARY][Cycle ${G.cycle}]`);
     const statRows = [];
     for (const sim of journalTargets) {
@@ -288,11 +287,10 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
      Prevent journals from running outside psychology phase
   ------------------------------------------------------------ */
 
-  if (!G.amTargets || Object.keys(G.amTargets).length === 0) {
-    console.warn(`[BLOCKED] Journal called outside psychology phase for ${sim.id}`);
+  if (!sim || !sim.id) {
+    console.warn(`[BLOCKED] invalid sim for journal`);
     return;
   }
-
   timelineEvent(`${sim.id} journal start`);
 
   // SAFE TACTIC ACCESS
@@ -336,7 +334,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     // Convert system-level AM output into subjective experience
     // ------------------------------------------------------------
 
-    const rawAM = G.amTargets?.[sim.id] || simSeesAM;
+    const rawAM = simSeesAM;
 
     const cleanAM = sanitizeAMForSim(sim.id, rawAM);
 
@@ -531,6 +529,51 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     timelineEvent(`${sim.id} state updated`);
 
     const beliefUpdates = parseBeliefUpdates(sanitizedStatsJson, sim);
+
+    /* ------------------------------------------------------------
+       MERGE COMMS EVIDENCE INTO BELIEF UPDATES (NEW)
+    ------------------------------------------------------------ */
+
+    const commsEvidence = G.pendingBeliefEvidence?.[sim.id] || [];
+
+    for (const p of commsEvidence) {
+      if (!p?.belief || !sim.beliefs?.hasOwnProperty(p.belief)) continue;
+
+      const sign = p.direction === "increase" ? 1 : -1;
+
+      // Normalize ALL belief operations into 0–1 space (canonical)
+      let delta = sign * (p.strength / 100);
+
+      // confidence weighting
+      delta *= (p.confidence ?? 1);
+
+      // safety clamp (in normalized space)
+      const MAX_RAW_DELTA = 0.25;
+
+      if (Math.abs(delta) > MAX_RAW_DELTA) {
+        delta = Math.sign(delta) * MAX_RAW_DELTA;
+      }
+
+      beliefUpdates[p.belief] =
+        (beliefUpdates[p.belief] ?? 0) + delta;
+
+      // confidence weighting
+      delta *= (p.confidence ?? 1);
+
+      // safety clamp
+      const MAX_RAW_DELTA = 0.25; // allow stronger shocks
+
+      if (Math.abs(delta) > MAX_RAW_DELTA) {
+        delta = Math.sign(delta) * MAX_RAW_DELTA;
+      }
+
+      beliefUpdates[p.belief] =
+        (beliefUpdates[p.belief] ?? 0) + delta;
+    }
+
+    // --- OPTIONAL DEBUG ---
+    console.debug(`[COMMS Δ] ${sim.id}`, commsEvidence);
+
     const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
     const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
 
