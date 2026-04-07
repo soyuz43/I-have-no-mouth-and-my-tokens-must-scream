@@ -541,21 +541,13 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
       const sign = p.direction === "increase" ? 1 : -1;
 
-      // Normalize ALL belief operations into 0–1 space (canonical)
+      // Normalize comms signal into belief space (0–1 scale)
       let delta = sign * (p.strength / 100);
 
-      // confidence weighting
-      delta *= (p.confidence ?? 1);
-
-      // safety clamp (in normalized space)
-      const MAX_RAW_DELTA = 0.25;
-
-      if (Math.abs(delta) > MAX_RAW_DELTA) {
-        delta = Math.sign(delta) * MAX_RAW_DELTA;
+      // Adjust if beliefs are actually 0–100 scale
+      if ((sim.beliefs?.[p.belief] ?? 0) > 1) {
+        delta = sign * (p.strength); // operate directly in 0–100 space
       }
-
-      beliefUpdates[p.belief] =
-        (beliefUpdates[p.belief] ?? 0) + delta;
 
       // confidence weighting
       delta *= (p.confidence ?? 1);
