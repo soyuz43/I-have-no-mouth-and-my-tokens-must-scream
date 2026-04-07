@@ -19,7 +19,7 @@ import { addLog } from "../../ui/logs.js";
 const BELIEF_RULES = {
   MIN: 0,
   MAX: 1,
-  MAX_SHIFT: 5
+  MAX_SHIFT: 0.5
 };
 
 /* ============================================================

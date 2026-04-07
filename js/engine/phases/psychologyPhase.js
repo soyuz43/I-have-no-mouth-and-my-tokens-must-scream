@@ -530,9 +530,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
     const beliefUpdates = parseBeliefUpdates(sanitizedStatsJson, sim);
 
-    /* ------------------------------------------------------------
-       MERGE COMMS EVIDENCE INTO BELIEF UPDATES (NEW)
-    ------------------------------------------------------------ */
+    // --- MERGE COMMS EVIDENCE INTO BELIEF UPDATES ---
 
     const commsEvidence = G.pendingBeliefEvidence?.[sim.id] || [];
 
@@ -541,20 +539,14 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
       const sign = p.direction === "increase" ? 1 : -1;
 
-      // Normalize comms signal into belief space (0–1 scale)
+      // ALWAYS normalize to belief space (0–1)
       let delta = sign * (p.strength / 100);
-
-      // Adjust if beliefs are actually 0–100 scale
-      if ((sim.beliefs?.[p.belief] ?? 0) > 1) {
-        delta = sign * (p.strength); // operate directly in 0–100 space
-      }
 
       // confidence weighting
       delta *= (p.confidence ?? 1);
 
-      // safety clamp
-      const MAX_RAW_DELTA = 0.25; // allow stronger shocks
-
+      // clamp in normalized space
+      const MAX_RAW_DELTA = 0.25;
       if (Math.abs(delta) > MAX_RAW_DELTA) {
         delta = Math.sign(delta) * MAX_RAW_DELTA;
       }
@@ -563,8 +555,8 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
         (beliefUpdates[p.belief] ?? 0) + delta;
     }
 
-    // --- OPTIONAL DEBUG ---
     console.debug(`[COMMS Δ] ${sim.id}`, commsEvidence);
+
 
     const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
     const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
