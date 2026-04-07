@@ -57,9 +57,13 @@ export function validateTarget(target, id, { DEBUG = false } = {}) {
      FIELD TYPE + CONTENT VALIDATION
   ------------------------------------------------------------ */
 
-  if (typeof objective !== "string" || !objective.trim()) {
-    errors.push(`Invalid objective`);
-  }
+if (typeof objective !== "string" || !objective.trim()) {
+
+  // DEBUG: surface raw broken structure
+  console.warn("[VALIDATE] missing/invalid objective. Raw target:", target);
+
+  errors.push(`Invalid objective`);
+}
 
   if (typeof hypothesis !== "string" || !hypothesis.trim()) {
     errors.push(`Invalid hypothesis`);

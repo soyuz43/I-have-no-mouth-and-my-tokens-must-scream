@@ -10,6 +10,7 @@ import {
 
 import { classifyJsonError } from "./classifyJsonError.js";
 
+import { normalizeTargetKeys } from "./normalizeKeys.js";
 /* ============================================================
    SCHEMA-AWARE TARGETS EXTRACTION
 ============================================================ */
@@ -146,6 +147,10 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         if (DEBUG_EXTRACT) {
           console.debug("[EXTRACT] full JSON success");
         }
+        if (parsed?.targets && Array.isArray(parsed.targets)) {
+          parsed.targets = parsed.targets.map(t => normalizeTargetKeys(t));
+        }
+
         return parsed;
       }
     }
@@ -307,6 +312,13 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         -------------------------- */
 
         try {
+          if (hasDuplicateKeys(candidate)) {
+            if (DEBUG_EXTRACT) {
+              console.warn("[EXTRACT] duplicate keys detected → forcing repair path");
+            }
+            throw new Error("duplicate_keys");
+          }
+
           const parsed = JSON.parse(candidate);
 
           if (parsed && parsed.targets && Array.isArray(parsed.targets)) {
@@ -406,4 +418,70 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   }
 
   return null;
+}
+
+function hasDuplicateKeys(str) {
+  let inString = false;
+  let escape = false;
+  let depth = 0;
+
+  const stack = [];
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === "{") {
+      stack.push(new Set());
+      depth++;
+      continue;
+    }
+
+    if (ch === "}") {
+      stack.pop();
+      depth--;
+      continue;
+    }
+
+    // detect keys ONLY at current object level
+    if (ch === '"' && stack.length > 0) {
+      let j = i + 1;
+      while (j < str.length && str[j] !== '"') j++;
+
+      const key = str.slice(i + 1, j);
+
+      let k = j + 1;
+      while (k < str.length && /\s/.test(str[k])) k++;
+
+      if (str[k] === ":") {
+        const current = stack[stack.length - 1];
+
+        if (current.has(key)) {
+          return true;
+        }
+
+        current.add(key);
+      }
+
+      i = j;
+    }
+  }
+
+  return false;
 }

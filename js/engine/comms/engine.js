@@ -94,7 +94,10 @@ export async function step({ fromId, state, queue }) {
           overheardList[Math.floor(Math.random() * overheardList.length)];
 
         const possibleTargets = SIM_IDS.filter(
-          (id) => id !== fromId && id !== source.from
+          (id) =>
+            id !== fromId &&
+            id !== source.from &&
+            id !== source.to
         );
 
         if (possibleTargets.length) {
@@ -315,7 +318,7 @@ export async function step({ fromId, state, queue }) {
         if (cycle.activeThisCycle.has(listener)) continue;
         if (counters.messageCount >= state.messageBudget) break;
 
-        const listenerSim = G.sims[listener]; 
+        const listenerSim = G.sims[listener];
 
         const hadBefore = beforeOverhears.has(listener);
 

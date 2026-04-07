@@ -1,5 +1,7 @@
 // js/engine/strategy/extractors/extractLabeledTargets.js
 
+import { normalizeTargetKeys } from "./normalizeKeys.js";
+
 export function extractLabeledTargets(input) {
   if (!input || typeof input !== "string") return null;
 
@@ -18,26 +20,32 @@ export function extractLabeledTargets(input) {
 
     // Conservative repair only
     jsonStr = jsonStr
-      .replace(/,\s*}/g, "}")                 // trailing commas
-      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":'); // quote keys
+      .replace(/,\s*}/g, "}")                       // trailing commas
+      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');   // quote keys
 
     try {
       const obj = JSON.parse(jsonStr);
-      targets.push({ id, ...obj });
+
+      const normalized = normalizeTargetKeys({ id, ...obj });
+
+      targets.push(normalized);
       continue;
+
     } catch (_) {
       // fall through to structured parsing
     }
 
     // If JSON fails, fall through to structured parse
     const structured = extractStructuredBlock(jsonStr);
+
     if (structured) {
-      targets.push({ id, ...structured });
+      const normalized = normalizeTargetKeys({ id, ...structured });
+      targets.push(normalized);
     }
   }
 
   // ------------------------------------------------------------
-  // 2. SECONDARY: non-JSON structured blocks (NEW, conservative)
+  // 2. SECONDARY: non-JSON structured blocks
   // ------------------------------------------------------------
   const blockRegex = /Target\s+(\w+)[^:]*:\s*([\s\S]*?)(?=\n\s*Target|\s*$)/gi;
 
@@ -51,7 +59,8 @@ export function extractLabeledTargets(input) {
     const structured = extractStructuredBlock(block);
 
     if (structured) {
-      targets.push({ id, ...structured });
+      const normalized = normalizeTargetKeys({ id, ...structured });
+      targets.push(normalized);
     }
   }
 

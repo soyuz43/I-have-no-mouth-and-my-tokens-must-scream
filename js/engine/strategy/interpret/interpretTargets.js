@@ -4,6 +4,7 @@ import { normalizeStrategyIds } from "./normalizeIds.js";
 import { inferPlaceholderTarget } from "./inferPlaceholderTarget.js";
 import { fuzzyMatchTarget } from "./fuzzyMatchTarget.js";
 import { SIM_IDS } from "../../../core/constants.js";
+import { normalizeTargetKeys } from "../extractors/normalizeKeys.js";
 
 /* ============================================================
    INTERPRET TARGETS
@@ -49,13 +50,15 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
       return;
     }
 
+    const normalizedTarget = normalizeTargetKeys(target);
+
     let {
       id,
       objective,
       hypothesis,
       why_now,
       evidence
-    } = target;
+    } = normalizedTarget;
 
     if (!id || typeof id !== "string") {
       if (DEBUG) console.warn(`[INTERPRET] missing id at ${index}`);
@@ -80,7 +83,7 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
     ids.forEach((candidateId) => {
 
       let resolvedId = candidateId;
-      let inferenceConfidence = target._inferenceConfidence ?? 0.5;
+      let inferenceConfidence = normalizedTarget._inferenceConfidence ?? 0.5;
       let derivedFromGroup = ids.length > 1;
 
       /* ------------------------------------------------------------

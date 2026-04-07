@@ -11,6 +11,12 @@ import { addLog } from "../../ui/logs.js";
  * ------------------------------------------------------------
  * Detects sustained psychological transformations (not spikes)
  * and asks AM whether a reusable manipulation tactic has emerged.
+ *
+ * UPDATED:
+ * - Hard skip for weak signals
+ * - Global signal gate
+ * - Token cap reduction
+ * - Full logging visibility (input/output/timing)
  * ============================================================
  */
 
@@ -23,6 +29,8 @@ function debugLog(...args) {
 }
 
 export async function runTacticEvolution() {
+
+  console.log(`>>> TACTIC EVOLUTION`);
   debugLog("[TACTIC EVOLUTION] Starting tactic evolution scan...");
 
   if (!G.prevCycleSnapshot) {
@@ -31,6 +39,7 @@ export async function runTacticEvolution() {
   }
 
   G.tacticHistory ??= {};
+  G.vault.derivedTactics ??= [];
 
   /* ------------------------------------------------------------
      Remove expired derived tactics
@@ -50,12 +59,10 @@ export async function runTacticEvolution() {
     const curr = G.sims[id];
     if (!prev || !curr) continue;
 
-    // Compute deltas
     const deltaHope = curr.hope - prev.hope;
     const deltaSanity = curr.sanity - prev.sanity;
     const deltaSuffering = curr.suffering - prev.suffering;
 
-    // Track short history (last 4 cycles)
     G.tacticHistory[id] ??= [];
 
     G.tacticHistory[id].push({
@@ -70,10 +77,8 @@ export async function runTacticEvolution() {
     }
 
     const history = G.tacticHistory[id];
-
     if (history.length < 2) continue;
 
-    // Relationship shifts
     const relationshipShifts = [];
 
     for (const other of SIM_IDS) {
@@ -90,7 +95,6 @@ export async function runTacticEvolution() {
       }
     }
 
-    // Directional consistency
     function consistency(arr) {
       const signs = arr.map(v => Math.sign(v)).filter(v => v !== 0);
       if (signs.length === 0) return 0;
@@ -115,7 +119,6 @@ export async function runTacticEvolution() {
       sufferingConsistency < 0.7
     ) continue;
 
-    // Net displacement
     const netHope = history.reduce((sum, h) => sum + h.hope, 0);
     const netSanity = history.reduce((sum, h) => sum + h.sanity, 0);
     const netSuffering = history.reduce((sum, h) => sum + h.suffering, 0);
@@ -125,7 +128,6 @@ export async function runTacticEvolution() {
       Math.abs(netSanity) * 0.7 +
       Math.abs(netSuffering) * 0.5;
 
-    // Structural signal
     const multiStat =
       Math.abs(deltaHope) > 2 &&
       Math.abs(deltaSanity) > 2;
@@ -137,11 +139,6 @@ export async function runTacticEvolution() {
 
     debugLog(`[TACTIC EVOLUTION] ✓ Trajectory detected for ${id}`);
     debugLog(`   Net magnitude: ${netMagnitude.toFixed(2)}`);
-    debugLog(`   Consistency:`, {
-      hopeConsistency,
-      sanityConsistency,
-      sufferingConsistency
-    });
 
     discoveries.push({
       sim: id,
@@ -152,87 +149,105 @@ export async function runTacticEvolution() {
     });
   }
 
+  /* ------------------------------------------------------------
+     GLOBAL SIGNAL GATE
+  ------------------------------------------------------------ */
   if (discoveries.length === 0) {
     debugLog("[TACTIC EVOLUTION] No trajectory-based effects found.");
+    console.log(`// TACTIC EVOLUTION COMPLETE`);
+    return;
+  }
+
+  const totalSignal = discoveries.reduce((sum, d) => {
+    return sum +
+      Math.abs(d.deltaHope) +
+      Math.abs(d.deltaSanity) +
+      Math.abs(d.deltaSuffering);
+  }, 0);
+
+  if (totalSignal < 10) {
+    debugLog("[TACTIC EVOLUTION] Skipping — total signal too weak:", totalSignal.toFixed(2));
+    console.log(`// TACTIC EVOLUTION COMPLETE`);
     return;
   }
 
   const sample = discoveries.slice(0, 2);
 
+  /* ------------------------------------------------------------
+     MODEL EVALUATION
+  ------------------------------------------------------------ */
   for (const effect of sample) {
 
+    const signalStrength =
+      Math.abs(effect.deltaHope) +
+      Math.abs(effect.deltaSanity) +
+      Math.abs(effect.deltaSuffering);
+
+    if (signalStrength < 6 && effect.relationshipShifts.length === 0) {
+      debugLog(`[TACTIC EVOLUTION] Skipping ${effect.sim} — weak signal`);
+      continue;
+    }
+
     const prompt = `
-A sustained psychological manipulation produced a consistent effect.
+Condense into a SHORT tactic definition.
 
 TARGET: ${effect.sim}
 
-Observed changes:
+Hope: ${effect.deltaHope}
+Sanity: ${effect.deltaSanity}
+Suffering: ${effect.deltaSuffering}
 
-Hope delta: ${effect.deltaHope}
-Sanity delta: ${effect.deltaSanity}
-Suffering delta: ${effect.deltaSuffering}
-
-Relationship shifts:
-${effect.relationshipShifts.join("\n") || "(none)"}
-
-Did this reveal a repeatable psychological manipulation tactic?
-
-If NO respond:
-
-NONE
-
-If YES define the tactic exactly as:
+Respond in EXACT format:
 
 TITLE:
 CATEGORY:
 SUBCATEGORY:
+OBJECTIVE: one sentence
+TRIGGER: one sentence
+EXECUTION: 1-2 steps
+OUTCOME: one sentence
 
-Objective:
-<one sentence>
-
-Trigger:
-<one sentence>
-
-Execution:
-1.
-2.
-3.
-
-Loop:
-<short explanation>
-
-Outcome:
-<short explanation>
+If not meaningful, return:
+NONE
 `;
+
+    debugLog(`[TACTIC EVOLUTION] Calling AM for ${effect.sim}`);
+    debugLog(`[TACTIC INPUT]`, effect);
 
     let response = "";
 
     try {
+      const t0 = performance.now();
+
       response = await callModel(
         "am",
-        "You are identifying emergent psychological torture tactics.",
+        "You identify reusable psychological attack patterns.",
         [{ role: "user", content: prompt }],
-        800
+        400
       );
+
+      const t1 = performance.now();
+      debugLog(`[TACTIC EVOLUTION] AM call took ${(t1 - t0).toFixed(0)}ms`);
+
     } catch (e) {
       console.error("[TACTIC EVOLUTION] Model error:", e);
       continue;
     }
 
+    debugLog(`[TACTIC RAW OUTPUT]`, response);
+
     if (!response || response.trim().startsWith("NONE")) continue;
 
-    const titleMatch = response.match(/(?:^|\n)\s*\*{0,2}TITLE\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
-    const categoryMatch = response.match(/(?:^|\n)\s*\*{0,2}CATEGORY\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
-    const subMatch = response.match(/(?:^|\n)\s*\*{0,2}SUBCATEGORY\*{0,2}\s*:\s*(.+?)(?=\n\s*\*{0,2}(?:TITLE|CATEGORY|SUBCATEGORY|$))/is);
+    const titleMatch = response.match(/TITLE:\s*(.+)/i);
+    const categoryMatch = response.match(/CATEGORY:\s*(.+)/i);
+    const subMatch = response.match(/SUBCATEGORY:\s*(.+)/i);
 
     if (!titleMatch || !categoryMatch || !subMatch) continue;
 
     const title = titleMatch[1].trim();
 
-    if (
-      G.vault.derivedTactics.some((t) => t.title === title)
-    ) {
-      debugLog(`[TACTIC EVOLUTION] Tactic "${title}" already exists, skipping.`);
+    if (G.vault.derivedTactics.some((t) => t.title === title)) {
+      debugLog(`[TACTIC EVOLUTION] Duplicate tactic "${title}"`);
       continue;
     }
 
@@ -248,30 +263,20 @@ Outcome:
       expiresCycle: G.cycle + 15,
     });
 
-    // ------------------------------------------------------------
-    // LOGGING IMPROVEMENTS — detailed console output
-    // ------------------------------------------------------------
-    const category = categoryMatch[1].trim();
-    const subcategory = subMatch[1].trim();
-    const discoveredCycle = G.cycle;
-
-    // 1. Unconditional console log with all details
     console.group(`[TACTIC EVOLUTION] New tactic: "${title}"`);
-    console.log(`  Category:      ${category}`);
-    console.log(`  Subcategory:   ${subcategory}`);
-    console.log(`  Discovered:    cycle ${discoveredCycle}`);
+    console.log(`  Category:      ${categoryMatch[1].trim()}`);
+    console.log(`  Subcategory:   ${subMatch[1].trim()}`);
+    console.log(`  Discovered:    cycle ${G.cycle}`);
     console.log(`  Expires:       cycle ${G.cycle + 15}`);
     console.log(`  Full content:\n${response}`);
     console.groupEnd();
 
-    // 2. UI system log (concise)
     addLog(
       `TACTIC EVOLUTION // Cycle ${G.cycle}`,
-      `New tactic: ${title} (${category}/${subcategory})`,
+      `New tactic: ${title}`,
       "sys"
     );
-
-    // 3. debugLog for additional details (when DEBUG is on)
-    debugLog(`[TACTIC EVOLUTION] New tactic: ${title} (${category}/${subcategory})`);
   }
+
+  console.log(`// TACTIC EVOLUTION COMPLETE`);
 }

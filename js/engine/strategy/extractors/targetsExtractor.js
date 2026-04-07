@@ -6,6 +6,8 @@ import {
   splitMergedObjectsById
 } from "./utils.js";
 
+import { normalizeTargetKeys } from "./normalizeKeys.js";
+
 /* ============================================================
    STRING REPAIR (SHARED LOGIC — KEEP IN SYNC WITH extractJSON)
 ============================================================ */
@@ -144,7 +146,10 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
               console.warn("[EXTRACT][TARGETS] SUCCESS");
             }
 
-            return { targets: parsedArray };
+
+            const normalizedArray = parsedArray.map(t => normalizeTargetKeys(t));
+
+            return { targets: normalizedArray };
 
 
           } catch (err) {

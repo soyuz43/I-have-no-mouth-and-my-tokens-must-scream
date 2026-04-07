@@ -385,7 +385,9 @@ export function signedDeltaFromDirectionMagnitude(direction, magnitude) {
   if (dir === "increased") return mag;
   if (dir === "decreased") return -mag;
 
-  return null;
+  // HARD DEFAULT (critical)
+  console.warn("[DELTA] unknown direction, defaulting to 0", { direction, magnitude });
+  return 0;
 }
 
 export function coerceLegacyDelta(value) {
@@ -399,11 +401,45 @@ export function coerceLegacyDelta(value) {
 }
 
 export function clipBeliefDelta(value) {
-  const n = Number(value);
+  let n = Number(value);
 
-  if (!Number.isFinite(n)) return 0;
+  // ------------------------------------------------------------
+  // 1. INVALID INPUT → SAFE DEFAULT
+  // ------------------------------------------------------------
+  if (!Number.isFinite(n)) {
+    console.warn("[DELTA] non-finite input, defaulting to 0", value);
+    return 0;
+  }
 
-  return Math.max(-0.25, Math.min(0.25, n));
+  // ------------------------------------------------------------
+  // 2. SCALE NORMALIZATION (CRITICAL)
+  // ------------------------------------------------------------
+  // If this looks like a % delta (e.g. 5, -10), normalize it
+  if (Math.abs(n) > 1) {
+    // You are using 1–10 magnitude → map to 0–0.1 range
+    n = n / 100;
+
+    console.debug("[DELTA] normalized from integer scale", {
+      input: value,
+      normalized: n,
+    });
+  }
+
+  // ------------------------------------------------------------
+  // 3. HARD CLAMP (SYSTEM SAFETY)
+  // ------------------------------------------------------------
+  const MAX = 0.25;
+
+  if (Math.abs(n) > MAX) {
+    console.debug("[DELTA] clipped", {
+      input: n,
+      clipped: Math.sign(n) * MAX,
+    });
+  }
+
+  n = Math.max(-MAX, Math.min(MAX, n));
+
+  return n;
 }
 
 /* ============================================================

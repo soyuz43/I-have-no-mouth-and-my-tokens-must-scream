@@ -175,7 +175,7 @@ export function parseBeliefUpdates(text, sim) {
       const scaled = {};
       Object.entries(partial.belief_deltas).forEach(([key, delta]) => {
         if (!Number.isFinite(delta)) return;
-        scaled[key] = delta;
+        scaled[key] = delta * 0.15;
       });
 
       if (Object.keys(scaled).length) {
@@ -192,7 +192,7 @@ export function parseBeliefUpdates(text, sim) {
       const scaled = {};
       Object.entries(fallback).forEach(([key, delta]) => {
         if (!Number.isFinite(delta)) return;
-        scaled[key] = delta;
+        scaled[key] = delta * 0.15;
       });
 
       if (Object.keys(scaled).length) {
@@ -216,7 +216,7 @@ export function parseBeliefUpdates(text, sim) {
     const scaled = {};
     Object.entries(rawUpdates).forEach(([key, delta]) => {
       if (!Number.isFinite(delta)) return;
-      scaled[key] = delta;
+      scaled[key] = delta * 0.15;
     });
     if (Object.keys(scaled).length) {
       console.debug(`[parseBeliefUpdates] Success: got ${Object.keys(scaled).length} belief deltas for ${sim.id}`);
