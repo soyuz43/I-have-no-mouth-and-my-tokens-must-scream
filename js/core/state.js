@@ -150,7 +150,7 @@ export const G = {
     runtime_error: 0,
     unknown: 0
   },
-  
+
   parserConfig: {
     repairLevel: 1
   },
@@ -188,6 +188,14 @@ export const G = {
     full: 0.03,
   },
 
+
+  /* ============================================================
+   DERIVED (PER-CYCLE) BELIEF EVIDENCE
+   ============================================================ */
+
+  pendingBeliefEvidence: Object.create(null),
+
+  
   /* ============================================================
      UI STATE
      ============================================================ */

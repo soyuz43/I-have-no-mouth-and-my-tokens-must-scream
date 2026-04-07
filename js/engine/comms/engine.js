@@ -315,7 +315,7 @@ export async function step({ fromId, state, queue }) {
         if (cycle.activeThisCycle.has(listener)) continue;
         if (counters.messageCount >= state.messageBudget) break;
 
-        const listenerSim = G.sims[listener]; // ✅ FIX: define it
+        const listenerSim = G.sims[listener]; 
 
         const hadBefore = beforeOverhears.has(listener);
 

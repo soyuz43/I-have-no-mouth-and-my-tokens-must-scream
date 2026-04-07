@@ -17,10 +17,10 @@ This function is PURE (no mutation).
 export function dampBeliefDelta(sim, beliefKey, currentValue, delta) {
     const params = G.dampingParams || {};
 
-    const k = params.logisticK ?? 7;
+    const k = params.logisticK ?? 5;
     const mid = params.logisticMid ?? 0.5;
-    const blend = params.hybridBlend ?? 0.6;
-    const minR = params.minResistance ?? 0.38;
+    const blend = params.hybridBlend ?? 0.78;
+    const minR = params.minResistance ?? 0.3;
 
     const distance = Math.abs(currentValue - 0.5);
     const d = distance / 0.5;
