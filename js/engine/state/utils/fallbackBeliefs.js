@@ -40,8 +40,9 @@ export function fallbackExtractBeliefDeltas(text) {
 
   // --- STEP 1: aggressively clean ---
   let cleaned = text
-    .replace(/```[\s\S]*?```/g, "")              // remove markdown blocks
-    .replace(/\/\/.*$/gm, "")                   // remove comments
+    .replace(/```json|```/g, "")
+    .replace(/\/\/.*(?=[\n\r])/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")                   // remove comments
     .replace(/[\u0000-\u001F\u007F\u2028\u2029]/g, ""); // control chars only
 
   // --- STEP 2: extract belief_deltas block safely ---
@@ -51,6 +52,7 @@ export function fallbackExtractBeliefDeltas(text) {
   // --- STEP 3: repair common issues INSIDE block ---
   block = block
     .replace(/,\s*}/g, "}") // trailing commas
+    .replace(/}\s*"/g, '},\n"')  // merged entries
     .replace(
       /(":\s*-?\d+(?:\.\d+)?)\s*\n\s*"/g,
       '$1,\n"' // missing commas between entries
