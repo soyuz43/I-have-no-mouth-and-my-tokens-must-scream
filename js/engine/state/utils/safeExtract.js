@@ -48,9 +48,14 @@ function stripMarkdown(text) {
  * Remove // comments (invalid JSON)
  */
 function stripComments(text) {
-  return text.replace(/\/\/.*$/gm, "");
+  return text
+    // remove // comments
+    .replace(/\/\/.*(?=[\n\r])/g, "")
+    // remove /* */ comments
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // remove trailing commas before closing
+    .replace(/,\s*(\]|\})/g, "$1");
 }
-
 /**
  * Remove invalid / non-standard unicode characters
  */
