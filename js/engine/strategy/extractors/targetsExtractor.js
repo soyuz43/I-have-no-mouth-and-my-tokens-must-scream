@@ -3,7 +3,8 @@
 import {
   stripJsonComments,
   fixMissingCommas,
-  splitMergedObjectsById
+  splitRepeatedObjectBlocks,
+  repairObjectBoundaries
 } from "./utils.js";
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
@@ -160,10 +161,11 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
           // 2. fix commas between fields
           repaired = fixMissingCommas(repaired);
 
-          // 3. split merged objects (critical for multi-id collapse)
-          repaired = splitMergedObjectsById(repaired);
+          // 3. unified structural repair (single entry point)
+          repaired = splitRepeatedObjectBlocks(repaired);
+          repaired = repairObjectBoundaries(repaired);
 
-          // 4. normalize object boundaries
+          // 4. normalize malformed separators
           repaired = repaired.replace(/},\s*,\s*{/g, "},{");
 
           // 5. strip trailing commas

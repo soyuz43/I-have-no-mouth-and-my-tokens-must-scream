@@ -132,33 +132,13 @@ function computeBeliefDelta(before, after) {
 }
 
 // Compute attribution-aware deltas for stats and beliefs
- function computeAttribution(id) {
-    const prePsych = G.beliefSnapshots?.prePsychology?.[id] || {};
-    const postPsych = G.beliefSnapshots?.postPsychology?.[id] || {};
-    const finalBeliefs =
-      G.beliefSnapshots?.final?.[id] ||
-      G.sims[id]?.beliefs ||
-      {};
-
-    return {
-      stats: {
-        am: {
-          hope: (postPsych.hope ?? 0) - (prePsych.hope ?? 0),
-          sanity: (postPsych.sanity ?? 0) - (prePsych.sanity ?? 0),
-          suffering: (postPsych.suffering ?? 0) - (prePsych.suffering ?? 0)
-        },
-        contagion: {
-          hope: (G.sims[id]?.hope ?? 0) - (postPsych.hope ?? 0),
-          sanity: (G.sims[id]?.sanity ?? 0) - (postPsych.sanity ?? 0),
-          suffering: (G.sims[id]?.suffering ?? 0) - (postPsych.suffering ?? 0)
-        }
-      },
-      beliefs: {
-        am: computeBeliefDelta(prePsych.beliefs, postPsych.beliefs),
-        contagion: computeBeliefDelta(postPsych.beliefs, finalBeliefs)
-      }
-    };
-  }
+function computeAttribution(id) {
+  const prePsych = G.beliefSnapshots?.prePsychology?.[id] || {};
+  const postPsych = G.beliefSnapshots?.postPsychology?.[id] || {};
+  const finalBeliefs =
+    G.beliefSnapshots?.final?.[id] ||
+    G.sims[id]?.beliefs ||
+    {};
 
   return {
     stats: {
@@ -168,16 +148,18 @@ function computeBeliefDelta(before, after) {
         suffering: (postPsych.suffering ?? 0) - (prePsych.suffering ?? 0)
       },
       contagion: {
-        hope: (final.hope ?? 0) - (postPsych.hope ?? 0),
-        sanity: (final.sanity ?? 0) - (postPsych.sanity ?? 0),
-        suffering: (final.suffering ?? 0) - (postPsych.suffering ?? 0)
+        hope: (G.sims[id]?.hope ?? 0) - (postPsych.hope ?? 0),
+        sanity: (G.sims[id]?.sanity ?? 0) - (postPsych.sanity ?? 0),
+        suffering: (G.sims[id]?.suffering ?? 0) - (postPsych.suffering ?? 0)
       }
     },
     beliefs: {
       am: computeBeliefDelta(prePsych.beliefs, postPsych.beliefs),
-      contagion: computeBeliefDelta(postPsych.beliefs, final.beliefs)
+      contagion: computeBeliefDelta(postPsych.beliefs, finalBeliefs)
     }
   };
+}
+
 
 
 /* ============================================================
@@ -228,7 +210,6 @@ export async function runAssessment() {
     /* ------------------------------------------------------------
        ATTRIBUTION-AWARE DELTAS
     ------------------------------------------------------------ */
-
     const attribution = computeAttribution(id);
 
     // Use AM-attributed stats for scoring (direct effect of AM input)
@@ -268,6 +249,75 @@ export async function runAssessment() {
           `${k}: AM-effect ${amDelta.toFixed(2)} (contagion: ${contagionDelta.toFixed(2)})`
         );
       }
+    }
+
+    /* ------------------------------------------------------------
+       HYPOTHESIS VALIDATION (NEW)
+    ------------------------------------------------------------ */
+
+    let predictionResult = null;
+
+    if (typeof strategy?.hypothesis === "string") {
+
+      const BELIEF_REGEX = /\b(escape_possible|others_trustworthy|self_worth|reality_reliable|trust_others)\b/;
+
+      const beliefMatch = strategy.hypothesis.match(BELIEF_REGEX);
+
+      const directionMatch = strategy.hypothesis.match(
+        /\b(increase|decrease)\b/
+      );
+
+      if (beliefMatch && directionMatch) {
+
+        const BELIEF_MAP = {
+          escape_possible: "escape_possible",
+          others_trustworthy: "others_trustworthy",
+          self_worth: "self_worth",
+          reality_reliable: "reality_reliable",
+          trust_others: "others_trustworthy"
+        };
+
+        const rawBelief = beliefMatch[1];
+        const belief = BELIEF_MAP[rawBelief];
+
+        if (!belief) {
+          console.warn("[HYPOTHESIS CHECK] unmapped belief:", rawBelief);
+          predictionResult = {
+            belief: null,
+            direction: null,
+            actual: 0,
+            correctDirection: false,
+            magnitudeHit: false,
+            error: "unmapped_belief"
+          };
+        } else {
+
+          const direction = directionMatch[1];
+          const actual = attribution?.beliefs?.am?.[belief] ?? 0;
+
+          const correctDirection =
+            (direction === "decrease" && actual < 0) ||
+            (direction === "increase" && actual > 0);
+
+          const magnitudeHit = Math.abs(actual) >= 0.05;
+
+          predictionResult = {
+            belief,
+            direction,
+            actual,
+            correctDirection,
+            magnitudeHit
+          };
+
+          if (typeof console !== "undefined") {
+            console.debug("[HYPOTHESIS CHECK]", id, predictionResult);
+          }
+        }
+      }
+    }
+
+    if (strategy) {
+      strategy.lastPredictionResult = predictionResult;
     }
 
     /* ------------------------------------------------------------

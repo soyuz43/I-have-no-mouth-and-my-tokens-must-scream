@@ -587,23 +587,24 @@ INVALID:
 
 ---
 
-## HYPOTHESIS RULE (CRITICAL — CAUSAL)
+## HYPOTHESIS RULE (CRITICAL — CAUSAL + MEASURABLE)
 
-Structure:
-<stimulus> → <internal state change> → <behavioral outcome>
+Structure (MANDATORY):
+<stimulus> → <change in named belief or state> → <observable outcome>
 
 Requirements:
-- stimulus matches evidence
-- internal state matches instability
-- outcome aligns with objective
-
-Must describe a destabilizing mechanism, not a neutral one.
+- MUST name at least one specific belief:
+  (escape_possible, others_trustworthy, self_worth, reality_reliable)
+- MUST imply direction (increase or decrease)
+- MUST produce an observable behavioral or relational effect
 
 INVALID:
-- vague causality
-- mismatched chain
-- goal restatement
+- vague psychological statements
+- no named belief
+- no clear direction of change
+- no observable outcome
 
+HYPOTHESIS MUST NOT contain quotation marks
 HYPOTHESIS must be ONE sentence (max 30 words).
 ---
 
