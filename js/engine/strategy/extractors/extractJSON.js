@@ -3,8 +3,8 @@
 import {
   stripJsonComments,
   fixMissingCommas,
-  fixObjectMerges,
   splitMergedObjectsById,
+  splitDuplicateIdObjects,
   fixBrokenStrings
 } from "./utils.js";
 
@@ -16,19 +16,21 @@ import { normalizeTargetKeys } from "./normalizeKeys.js";
 ============================================================ */
 
 function extractTargetsArray(source) {
+  if (typeof source !== "string") return null;
+
   const key = '"targets"';
-  const idx = input.indexOf(key);
+  const idx = source.indexOf(key);
 
   if (idx === -1) return null;
 
-  const startBracket = input.indexOf("[", idx);
+  const startBracket = source.indexOf("[", idx);
   if (startBracket === -1) return null;
 
   let depth = 0;
   let inString = false;
   let escape = false;
 
-  for (let i = startBracket; i < input.length; i++) {
+  for (let i = startBracket; i < source.length; i++) {
     const ch = source[i];
 
     if (escape) { escape = false; continue; }
@@ -45,7 +47,7 @@ function extractTargetsArray(source) {
     if (ch === "]") depth--;
 
     if (depth === 0) {
-      const candidate = input.slice(startBracket, i + 1);
+      const candidate = source.slice(startBracket, i + 1);
 
       try {
         return JSON.parse(fixBrokenStrings(candidate));
@@ -65,7 +67,18 @@ function extractTargetsArray(source) {
 function attemptRepairs(candidate, DEBUG_EXTRACT) {
   let repaired = candidate;
 
-  const errorType = classifyJsonError(candidate);
+  // Strip trailing commas 
+  repaired = repaired.trim().replace(/,\s*$/, "");
+
+  let errorType = "unknown";
+
+  try {
+    errorType = classifyJsonError(candidate);
+  } catch (err) {
+    if (DEBUG_EXTRACT) {
+      console.warn("[REPAIR] classifyJsonError failed:", err.message);
+    }
+  }
 
   if (DEBUG_EXTRACT) {
     console.debug("[REPAIR] classified as:", errorType);
@@ -74,7 +87,8 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
   repaired = stripJsonComments(repaired);
   repaired = fixMissingCommas(repaired);
 
-  // critical early split
+  // Fix duplicate id object collapse FIRST
+  repaired = splitDuplicateIdObjects(repaired);
   repaired = splitMergedObjectsById(repaired);
 
   if (errorType === "structural_merge") {
@@ -85,7 +99,11 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     return candidate;
   }
 
-  // --- FIX: remove trailing garbage after string values (safe trim) ---
+  if (errorType === "trailing_comma" && DEBUG_EXTRACT) {
+    console.debug("[REPAIR] handling trailing comma case");
+  }
+
+  //  Remove trailing garbage after string values (safe trim) s
   repaired = repaired.replace(
     /(":\s*"[^"]*")\s+([A-Za-z][^",}\]\n]*)/g,
     (match, fullString, garbage) => {
@@ -144,13 +162,45 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
       const parsed = JSON.parse(full);
 
       if (parsed?.targets && Array.isArray(parsed.targets)) {
+
+        // Detect merged-object corruption
+        if (parsed.targets.length === 1) {
+          const raw = full;
+
+          const idMatches = raw.match(/"id"\s*:/g) || [];
+
+          if (idMatches.length > 1) {
+            if (DEBUG_EXTRACT) {
+              console.warn("[REPAIR] detected merged target object in FAST PATH");
+            }
+
+            // force repair pipeline
+            const repaired = attemptRepairs(full, DEBUG_EXTRACT);
+
+            try {
+              const reparsed = JSON.parse(repaired);
+
+              if (reparsed?.targets && Array.isArray(reparsed.targets)) {
+                if (DEBUG_EXTRACT) {
+                  console.warn("[REPAIR] FAST PATH repair success");
+                }
+
+                reparsed.targets = reparsed.targets.map(t => normalizeTargetKeys(t));
+                return reparsed;
+              }
+            } catch (e) {
+              if (DEBUG_EXTRACT) {
+                console.warn("[REPAIR] FAST PATH repair failed");
+              }
+            }
+          }
+        }
+
         if (DEBUG_EXTRACT) {
           console.debug("[EXTRACT] full JSON success");
         }
-        if (parsed?.targets && Array.isArray(parsed.targets)) {
-          parsed.targets = parsed.targets.map(t => normalizeTargetKeys(t));
-        }
 
+        parsed.targets = parsed.targets.map(t => normalizeTargetKeys(t));
         return parsed;
       }
     }
@@ -162,6 +212,78 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
   if (DEBUG_EXTRACT) {
     console.debug("[EXTRACT][JSON] Input length:", cleanedInput.length);
+  }
+
+  /* ------------------------------------------------------------
+   TARGETS-FIRST EXTRACTION 
+   Finds "targets" key, then expands to balanced JSON boundaries
+------------------------------------------------------------ */
+
+  const targetsIdx = cleanedInput.indexOf('"targets"');
+  if (targetsIdx !== -1) {
+    // Scan backward to find opening brace of containing object
+    let objStart = targetsIdx;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = targetsIdx; i >= 0; i--) {
+      const ch = cleanedInput[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+
+      if (ch === "}") depth--;
+      if (ch === "{") {
+        depth++;
+        if (depth === 1) { objStart = i; break; }
+      }
+    }
+
+    // Scan forward to find matching closing brace
+    depth = 0;
+    inString = false;
+    escape = false;
+
+    for (let i = objStart; i < cleanedInput.length; i++) {
+      const ch = cleanedInput[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+
+      if (ch === "{") depth++;
+      if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = cleanedInput.slice(objStart, i + 1).trim();
+
+          // Try direct parse
+          try {
+            const parsed = JSON.parse(candidate);
+            if (parsed?.targets && Array.isArray(parsed.targets)) {
+              if (DEBUG_EXTRACT) console.debug("[EXTRACT] targets-first success");
+              parsed.targets = parsed.targets.map(t => normalizeTargetKeys(t));
+              return parsed;
+            }
+          } catch (_) { }
+
+          // Try with repairs
+          let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
+          try {
+            const reparsed = JSON.parse(repaired);
+            if (reparsed?.targets && Array.isArray(reparsed.targets)) {
+              if (DEBUG_EXTRACT) console.debug("[EXTRACT] targets-first + repair success");
+              reparsed.targets = reparsed.targets.map(t => normalizeTargetKeys(t));
+              return reparsed;
+            }
+          } catch (_) { }
+
+          break;
+        }
+      }
+    }
   }
 
   /* ------------------------------------------------------------
@@ -316,7 +438,24 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
             if (DEBUG_EXTRACT) {
               console.warn("[EXTRACT] duplicate keys detected → forcing repair path");
             }
+
+            let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
+
+            try {
+              const reparsed = JSON.parse(repaired);
+
+              if (reparsed?.targets && Array.isArray(reparsed.targets)) {
+                candidates.push({
+                  parsed: reparsed,
+                  score: computeScore(120, reparsed.targets, repaired),
+                  source: "duplicate-repair"
+                });
+                continue;
+              }
+            } catch (_) { }
+
             throw new Error("duplicate_keys");
+
           }
 
           const parsed = JSON.parse(candidate);
@@ -484,4 +623,128 @@ function hasDuplicateKeys(str) {
   }
 
   return false;
+}
+
+function splitDuplicateIdObjects(str) {
+
+  // Safety guard
+  if (typeof str !== "string") return str;
+
+  let out = "";
+  let inString = false;
+  let escape = false;
+
+  let objectDepth = 0;
+  let arrayDepth = 0;
+
+  // Track how many "id" fields we’ve seen per object
+  const idCountStack = [];
+
+  for (let i = 0; i < str.length; i++) {
+
+    const ch = str[i];
+
+    /* ---------------- ESCAPE HANDLING ---------------- */
+
+    if (escape) {
+      out += ch;
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      out += ch;
+      escape = true;
+      continue;
+    }
+
+    /* ---------------- STRING HANDLING ---------------- */
+
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+
+    if (inString) {
+      out += ch;
+      continue;
+    }
+
+    /* ---------------- STRUCTURE TRACKING ---------------- */
+
+    if (ch === "{") {
+      objectDepth++;
+      idCountStack.push(0);
+      out += ch;
+      continue;
+    }
+
+    if (ch === "}") {
+      objectDepth--;
+      idCountStack.pop();
+      out += ch;
+      continue;
+    }
+
+    if (ch === "[") {
+      arrayDepth++;
+      out += ch;
+      continue;
+    }
+
+    if (ch === "]") {
+      arrayDepth--;
+      out += ch;
+      continue;
+    }
+
+    /* ---------------- DUPLICATE "id" DETECTION ---------------- */
+
+    const isTopLevelTargetObject =
+      objectDepth === 2 &&   // inside object within array
+      arrayDepth === 1;      // inside targets[]
+
+    if (
+      isTopLevelTargetObject &&
+      str.slice(i, i + 4) === '"id"' &&
+      (str[i + 4] === ":" || /\s/.test(str[i + 4]))
+    ) {
+      const idx = idCountStack.length - 1;
+
+      if (idx >= 0) {
+        idCountStack[idx]++;
+
+        if (idCountStack[idx] > 1) {
+
+          // Walk backwards to find safe split boundary
+          let j = out.length - 1;
+          while (j >= 0 && /\s/.test(out[j])) j--;
+
+          const prev = out[j];
+
+          // Only split if we're at a structurally safe point
+          if (
+            prev === "}" ||
+            prev === '"' ||
+            prev === "]" ||
+            /[0-9]/.test(prev)
+          ) {
+            // ensure previous object is closed before splitting
+            if (prev !== "}") {
+              out += "}";
+            }
+
+            out += ",{";
+            idCountStack[idx] = 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    out += ch;
+  }
+
+  return out;
 }

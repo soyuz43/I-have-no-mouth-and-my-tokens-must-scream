@@ -59,6 +59,13 @@ function fixBrokenStrings(input) {
 
 export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
 
+  if (typeof input !== "string") {
+    if (DEBUG_EXTRACT) {
+      console.warn("[EXTRACT][TARGETS] invalid input type");
+    }
+    return null;
+  }
+
   if (DEBUG_EXTRACT) {
     console.debug("[EXTRACT][TARGETS] scanning for targets array");
   }
@@ -105,12 +112,32 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
       const start = j;
       let depth = 0;
 
+      let localInString = false;
+      let localEscape = false;
+
       for (; j < input.length; j++) {
 
         const c = input[j];
 
-        if (c === "[" && !inString) depth++;
-        if (c === "]" && !inString) depth--;
+        if (localEscape) {
+          localEscape = false;
+          continue;
+        }
+
+        if (c === "\\") {
+          localEscape = true;
+          continue;
+        }
+
+        if (c === '"') {
+          localInString = !localInString;
+          continue;
+        }
+
+        if (localInString) continue;
+
+        if (c === "[") depth++;
+        if (c === "]") depth--;
 
         if (depth === 0) {
 
@@ -127,14 +154,22 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
 
           let repaired = arrayStr;
 
+          // 1. strip comments
           repaired = stripJsonComments(repaired);
+
+          // 2. fix commas between fields
           repaired = fixMissingCommas(repaired);
+
+          // 3. split merged objects (critical for multi-id collapse)
           repaired = splitMergedObjectsById(repaired);
 
-          // optional safety
+          // 4. normalize object boundaries
           repaired = repaired.replace(/},\s*,\s*{/g, "},{");
 
-          // final pass
+          // 5. strip trailing commas
+          repaired = repaired.trim().replace(/,\s*$/, "");
+
+          // 6. final string repair
           repaired = fixBrokenStrings(repaired);
 
           try {
@@ -146,16 +181,15 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
               console.warn("[EXTRACT][TARGETS] SUCCESS");
             }
 
-
             const normalizedArray = parsedArray.map(t => normalizeTargetKeys(t));
 
             return { targets: normalizedArray };
-
 
           } catch (err) {
 
             if (DEBUG_EXTRACT) {
               console.debug("[EXTRACT][TARGETS] parse fail:", err.message);
+              console.debug("[EXTRACT][TARGETS] repaired preview:", repaired.slice(0, 200));
             }
           }
 

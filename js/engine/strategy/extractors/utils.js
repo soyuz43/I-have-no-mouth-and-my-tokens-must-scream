@@ -159,6 +159,7 @@ export function fixObjectMerges(str) {
  * - Never rewrite tokens manually
  * - No fake stack mutations
  */
+
 export function splitMergedObjectsById(input) {
 
   let out = "";
@@ -226,32 +227,32 @@ export function splitMergedObjectsById(input) {
 
     if (
       !inString &&
-      stack.length === 1 &&      // ONLY top-level object
-      arrayDepth === 1 &&        // ONLY top-level array
+      stack.length === 1 &&     // only inside object
+      arrayDepth === 1 &&       // only inside top-level array
       input.slice(i, i + 4) === '"id"' &&
       (input[i + 4] === ":" || /\s/.test(input[i + 4]))
     ) {
-      const current = stack[stack.length - 1];
 
+      const current = stack[stack.length - 1];
       current.idCount++;
 
       if (current.idCount > 1) {
 
-        const prevChar = out.trimEnd().slice(-1);
+        // Look backwards safely
+        let j = out.length - 1;
+        while (j >= 0 && /\s/.test(out[j])) j--;
 
+        const prevChar = out[j];
+
+        // Only split if we're at a safe boundary
         if (
-          prevChar !== "{" &&
-          prevChar !== "[" &&
-          prevChar !== ":"
+          prevChar === '"' ||   // string ended
+          prevChar === '}' ||   // object ended
+          prevChar === ']' ||   // array ended
+          /[0-9]/.test(prevChar)
         ) {
-          if (!out.endsWith("}")) {
-            out += "}";
-          }
-
           out += ",{";
-
           current.idCount = 1;
-
           continue;
         }
       }
@@ -262,7 +263,6 @@ export function splitMergedObjectsById(input) {
 
   return out;
 }
-
 
 /**
  * Repair broken string boundaries

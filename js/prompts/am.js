@@ -154,9 +154,9 @@ Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
      TARGET FOCUS
   ------------------------------------------------------------ */
 
-const focusSection =
-  target === "ALL"
-    ? `MODE: ALL
+  const focusSection =
+    target === "ALL"
+      ? `MODE: ALL
 
 MANDATORY TARGET SET:
 ${nameList}
@@ -314,6 +314,31 @@ You MUST produce interventions that change state, not describe it.
 
 # INTERCEPTED COMMUNICATIONS
 ${interLog}
+
+VISIBILITY CONSTRAINTS (MANDATORY):
+
+Communication logs may include visibility markers:
+
+- [PUB] indicates a message that was visible to all participants (public).
+- [PRIV] indicates a message that was directed to specific individuals (private).
+
+Interpretation rules:
+
+- Treat [PUB] messages as broadly observed events that influence group perception, reputation, and shared beliefs.
+- Treat [PRIV] messages as selectively observed interactions that enable targeted influence, asymmetric information, and loyalty testing.
+- Assume [PRIV] messages may be overheard or leak beyond their intended audience.
+
+Strategic implications:
+
+- The impact of an interaction depends on who can observe it.
+- The same content produces different effects depending on its visibility.
+
+REQUIREMENT:
+
+Objectives and hypotheses MUST reflect how visibility alters impact.
+If your plan would be the same regardless of whether a message is [PUB] or [PRIV], it is invalid.
+
+Do not rely on visibility markers themselves (e.g., [PRIV], [PUB]) as part of your objectives.
 
 Exploit immediately:
 - contradictions  
@@ -501,6 +526,8 @@ Each target MUST include:
 - objective  
 - hypothesis  
 
+Each target must be a separate JSON object.
+Do not include more than one "id" field per object.
 ---
 
 ## EVIDENCE RULE (CRITICAL)
@@ -682,22 +709,22 @@ export function buildAMPrompt(targets, tactics, directive, plan, targetIds = [])
   // ------------------------------------------------------------
   // FILTER TARGET IDS (include groupTargets)
   // ------------------------------------------------------------
-const expandedTargetIds = (() => {
-  if (!targetIds.length) return [];
+  const expandedTargetIds = (() => {
+    if (!targetIds.length) return [];
 
-  const ids = new Set(targetIds);
+    const ids = new Set(targetIds);
 
-  // include group targets from plan (safe access)
-  const groupTargets = (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
-    ? G.amStrategy.groupTargets
-    : [];
+    // include group targets from plan (safe access)
+    const groupTargets = (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
+      ? G.amStrategy.groupTargets
+      : [];
 
-  groupTargets.forEach(gt => {
-    gt.ids.forEach(id => ids.add(id));
-  });
+    groupTargets.forEach(gt => {
+      gt.ids.forEach(id => ids.add(id));
+    });
 
-  return Array.from(ids);
-})();
+    return Array.from(ids);
+  })();
 
   const targetIdSet = new Set(expandedTargetIds);
 
@@ -705,7 +732,7 @@ const expandedTargetIds = (() => {
     ? targets.filter(sim => targetIdSet.has(sim.id))
     : targets;
 
-    // Filter tactics based on the plan (if any)
+  // Filter tactics based on the plan (if any)
   const filteredTactics = expandedTargetIds.length
     ? Object.fromEntries(
       Object.entries(tactics).filter(([id]) => targetIdSet.has(id))
@@ -760,6 +787,12 @@ const expandedTargetIds = (() => {
       const t = filteredTactics[sim.id] || [];
       return `TARGET: ${sim.id}\n${t
         .map((tk) => {
+          const origin = tk.isEmbedded
+            ? "[EMBEDDED/CANONICAL]"
+            : tk.discoveredCycle
+              ? `[EVOLVED/C${tk.discoveredCycle}-C${tk.expiresCycle}]`
+              : "[UNKNOWN]";
+
           const lines = tk.content.split("\n");
           const objective = lines
             .find((l) => l.startsWith("Objective:"))
@@ -780,7 +813,7 @@ const expandedTargetIds = (() => {
             .find((l) => l.startsWith("Outcome:"))
             ?.replace("Outcome:", "")
             .trim();
-          return `[${tk.category}/${tk.subcategory}] ${tk.title}
+          return `[${tk.category}/${tk.subcategory}] ${tk.title} ${origin}
   OBJECTIVE: ${objective}
   TRIGGER: ${trigger}
   EXECUTION: ${execution.join(" ")}
@@ -814,13 +847,13 @@ ${interLog || "(none)"}
 
 # YOUR SCRATCHPAD (last thoughts)
 ${(() => {
-  const el = document.getElementById("am-scratch");
-  if (!el || typeof el.value !== "string") return "";
-  return el.value
-    .split("\n─────\n")
-    .slice(-3)
-    .join("\n─────\n") || "(empty)";
-})()}
+      const el = document.getElementById("am-scratch");
+      if (!el || typeof el.value !== "string") return "";
+      return el.value
+        .split("\n─────\n")
+        .slice(-3)
+        .join("\n─────\n") || "(empty)";
+    })()}
 
 # YOUR PLAN FOR THIS CYCLE
 ${plan}
@@ -829,17 +862,17 @@ ${plan}
 Some targets involve relationships between prisoners.
 
 ${(() => {
-  const groupTargets =
-    (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
-      ? G.amStrategy.groupTargets
-      : [];
+      const groupTargets =
+        (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
+          ? G.amStrategy.groupTargets
+          : [];
 
-  if (!groupTargets.length) return "(none)";
+      if (!groupTargets.length) return "(none)";
 
-  return groupTargets
-    .map(gt => `- ${gt.ids.join(" & ")} → ${gt.objective}`)
-    .join("\n");
-})()}
+      return groupTargets
+        .map(gt => `- ${gt.ids.join(" & ")} → ${gt.objective}`)
+        .join("\n");
+    })()}
 
 For these:
 - You MUST generate actions for EACH involved prisoner

@@ -259,6 +259,7 @@ NONE
       category: categoryMatch[1].trim(),
       subcategory: subMatch[1].trim(),
       content: response,
+      isEmbedded: false,
       discoveredCycle: G.cycle,
       expiresCycle: G.cycle + 15,
     });
