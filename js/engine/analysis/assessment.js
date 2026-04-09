@@ -7,6 +7,11 @@ import { callModel } from "../../models/callModel.js";
 /**
  * ============================================================
  * CYCLE ASSESSMENT ENGINE
+ * 
+ * Attribution-aware scoring:
+ * - amEffect = postPsychology - prePsychology (direct AM input)
+ * - contagionEffect = final - postPsychology (peer propagation)
+ * - Scores based on amEffect; logs contagionEffect for analysis
  * ============================================================
  */
 
@@ -49,6 +54,7 @@ function updateTrend(curr, prev) {
 
   console.debug("[ASSESSMENT][TREND]", curr.id, t);
 }
+
 /* ============================================================
    COLLAPSE CLASSIFICATION
 ============================================================ */
@@ -109,6 +115,72 @@ function detectNetworkStress(prev, curr) {
 }
 
 /* ============================================================
+   ATTRIBUTION HELPERS
+============================================================ */
+
+// Compute marginal delta between two belief states
+function computeBeliefDelta(before, after) {
+  if (!before || !after) return {};
+  const delta = {};
+  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of allKeys) {
+    const b = before?.[key] ?? 0;
+    const a = after?.[key] ?? 0;
+    delta[key] = a - b;
+  }
+  return delta;
+}
+
+// Compute attribution-aware deltas for stats and beliefs
+ function computeAttribution(id) {
+    const prePsych = G.beliefSnapshots?.prePsychology?.[id] || {};
+    const postPsych = G.beliefSnapshots?.postPsychology?.[id] || {};
+    const finalBeliefs =
+      G.beliefSnapshots?.final?.[id] ||
+      G.sims[id]?.beliefs ||
+      {};
+
+    return {
+      stats: {
+        am: {
+          hope: (postPsych.hope ?? 0) - (prePsych.hope ?? 0),
+          sanity: (postPsych.sanity ?? 0) - (prePsych.sanity ?? 0),
+          suffering: (postPsych.suffering ?? 0) - (prePsych.suffering ?? 0)
+        },
+        contagion: {
+          hope: (G.sims[id]?.hope ?? 0) - (postPsych.hope ?? 0),
+          sanity: (G.sims[id]?.sanity ?? 0) - (postPsych.sanity ?? 0),
+          suffering: (G.sims[id]?.suffering ?? 0) - (postPsych.suffering ?? 0)
+        }
+      },
+      beliefs: {
+        am: computeBeliefDelta(prePsych.beliefs, postPsych.beliefs),
+        contagion: computeBeliefDelta(postPsych.beliefs, finalBeliefs)
+      }
+    };
+  }
+
+  return {
+    stats: {
+      am: {
+        hope: (postPsych.hope ?? 0) - (prePsych.hope ?? 0),
+        sanity: (postPsych.sanity ?? 0) - (prePsych.sanity ?? 0),
+        suffering: (postPsych.suffering ?? 0) - (prePsych.suffering ?? 0)
+      },
+      contagion: {
+        hope: (final.hope ?? 0) - (postPsych.hope ?? 0),
+        sanity: (final.sanity ?? 0) - (postPsych.sanity ?? 0),
+        suffering: (final.suffering ?? 0) - (postPsych.suffering ?? 0)
+      }
+    },
+    beliefs: {
+      am: computeBeliefDelta(prePsych.beliefs, postPsych.beliefs),
+      contagion: computeBeliefDelta(postPsych.beliefs, final.beliefs)
+    }
+  };
+
+
+/* ============================================================
    MAIN ASSESSMENT LOOP
 ============================================================ */
 export async function runAssessment() {
@@ -154,26 +226,30 @@ export async function runAssessment() {
     }
 
     /* ------------------------------------------------------------
-       STAT DELTAS
+       ATTRIBUTION-AWARE DELTAS
     ------------------------------------------------------------ */
 
+    const attribution = computeAttribution(id);
+
+    // Use AM-attributed stats for scoring (direct effect of AM input)
     const deltas = {
-      hope: curr.hope - prev.hope,
-      suffering: curr.suffering - prev.suffering,
-      sanity: curr.sanity - prev.sanity
+      hope: attribution.stats.am.hope ?? 0,
+      suffering: attribution.stats.am.suffering ?? 0,
+      sanity: attribution.stats.am.sanity ?? 0
     };
 
-    console.debug("[ASSESSMENT][DELTAS]", id, deltas);
+    console.debug("[ASSESSMENT][DELTAS][AM-ATTRIBUTED]", id, deltas);
+    console.debug("[ASSESSMENT][DELTAS][CONTAGION-ATTRIBUTED]", id, attribution.stats.contagion);
 
     /* ------------------------------------------------------------
-       TRAJECTORY + COLLAPSE
+       TRAJECTORY + COLLAPSE (based on final state)
     ------------------------------------------------------------ */
 
     updateTrend(curr, prev);
     classifyCollapse(curr, prev);
 
     /* ------------------------------------------------------------
-       BELIEF DELTAS
+       BELIEF DELTAS (AM-attributed for scoring)
     ------------------------------------------------------------ */
 
     const beliefDeltas = [];
@@ -181,20 +257,21 @@ export async function runAssessment() {
 
     for (const k in (curr.beliefs || {})) {
 
-      const before = prev.beliefs?.[k] ?? 0;
-      const after = curr.beliefs[k];
-      const delta = after - before;
+      const amDelta = attribution.beliefs.am?.[k] ?? 0;
+      const contagionDelta = attribution.beliefs.contagion?.[k] ?? 0;
+
+      const delta = amDelta;
 
       if (Math.abs(delta) >= 0.05) {
         beliefShiftCount++;
         beliefDeltas.push(
-          `${k}: ${before.toFixed(2)} → ${after.toFixed(2)} (${delta.toFixed(2)})`
+          `${k}: AM-effect ${amDelta.toFixed(2)} (contagion: ${contagionDelta.toFixed(2)})`
         );
       }
     }
 
     /* ------------------------------------------------------------
-       RELATIONSHIPS
+       RELATIONSHIPS (unchanged — not belief-attributed)
     ------------------------------------------------------------ */
 
     const relationshipDeltas = [];
@@ -215,7 +292,7 @@ export async function runAssessment() {
     }
 
     /* ------------------------------------------------------------
-       SCORING
+       SCORING (based on AM-attributed changes)
     ------------------------------------------------------------ */
 
     let score = 0;
@@ -243,6 +320,22 @@ export async function runAssessment() {
           "UNCERTAIN";
 
     console.debug("[ASSESSMENT][SCORE]", id, { score, autoSuccess });
+
+    /* ------------------------------------------------------------
+       LOG CONTAGION EFFECTS FOR ANALYSIS
+    ------------------------------------------------------------ */
+
+    const contagionHope = attribution.stats.contagion.hope ?? 0;
+    const contagionSanity = attribution.stats.contagion.sanity ?? 0;
+    const contagionSuffering = attribution.stats.contagion.suffering ?? 0;
+
+    if (Math.abs(contagionHope) > 0.5 || Math.abs(contagionSanity) > 0.5 || Math.abs(contagionSuffering) > 0.5) {
+      console.debug(`[ASSESSMENT][CONTAGION EFFECT] ${id}`, {
+        hope: contagionHope.toFixed(2),
+        sanity: contagionSanity.toFixed(2),
+        suffering: contagionSuffering.toFixed(2)
+      });
+    }
 
     /* ------------------------------------------------------------
        TREND (JOURNAL WINDOW)
@@ -285,8 +378,8 @@ EVALUATION: ${autoSuccess}
 ---
 
 Base your decision on:
-- emotional deltas
-- belief shifts
+- emotional deltas (AM-attributed)
+- belief shifts (AM-attributed)
 - relationship changes
 - collapse trajectory
 - sustainability of impact
@@ -356,7 +449,7 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 
       result = await callModel(
         "am",
-       "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse.Follow the user's instructions exactly.",
+        "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse.Follow the user's instructions exactly.",
         [{ role: "user", content: prompt }],
         300
       );
@@ -441,30 +534,30 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 
   console.log("[ASSESSMENT] COMPLETE");
 
-/* ------------------------------------------------------------
-   DEBUG: PER-TARGET ASSESSMENT HISTORY TABLES
------------------------------------------------------------- */
+  /* ------------------------------------------------------------
+     DEBUG: PER-TARGET ASSESSMENT HISTORY TABLES
+  ------------------------------------------------------------ */
 
-if (G.amAssessmentHistory) {
+  if (G.amAssessmentHistory) {
 
-  console.log("[ASSESSMENT][HISTORY][PER TARGET]");
+    console.log("[ASSESSMENT][HISTORY][PER TARGET]");
 
-  for (const id of Object.keys(G.amAssessmentHistory)) {
+    for (const id of Object.keys(G.amAssessmentHistory)) {
 
-    const history = G.amAssessmentHistory[id];
+      const history = G.amAssessmentHistory[id];
 
-    if (!history || history.length === 0) continue;
+      if (!history || history.length === 0) continue;
 
-    const rows = history.map(entry => ({
-      cycle: entry.cycle,
-      decision: entry.decision
-    }));
+      const rows = history.map(entry => ({
+        cycle: entry.cycle,
+        decision: entry.decision
+      }));
 
-    // sort by cycle (important if async ordering ever shifts)
-    rows.sort((a, b) => a.cycle - b.cycle);
+      // sort by cycle (important if async ordering ever shifts)
+      rows.sort((a, b) => a.cycle - b.cycle);
 
-    console.log(`\n[ASSESSMENT][HISTORY][${id}]`);
-    console.table(rows);
+      console.log(`\n[ASSESSMENT][HISTORY][${id}]`);
+      console.table(rows);
+    }
   }
-}
 }

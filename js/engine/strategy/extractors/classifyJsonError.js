@@ -11,7 +11,7 @@ export function classifyJsonError(str) {
   if (/}\s*{/.test(str)) {
     return "structural_merge";
   }
-  
+
   // foreign structured token (e.g. GroupLayout)
   if (/^[A-Za-z_]+\s*:\s*\[[^\]]*\]/m.test(str)) {
     return "foreign_structure";
@@ -22,6 +22,10 @@ export function classifyJsonError(str) {
 
   if (openBraces !== closeBraces) {
     return "truncated";
+  }
+
+  if (/},\s*$/.test(str)) {
+    return "trailing_comma";
   }
 
   return "unknown";

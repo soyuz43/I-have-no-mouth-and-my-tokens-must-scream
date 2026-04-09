@@ -57,6 +57,7 @@ export const EMBEDDED_TACTICS = [
       4. Restart chain on next verification attempt.
       Loop: Every new check attempt restarts at step 2 with escalated framing.
       Outcome: Watch for rising hedging, explicit "must not reflect" statements, sharp drop in self-correction.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/love-bomb-withdrawal",
@@ -72,6 +73,7 @@ export const EMBEDDED_TACTICS = [
       4. Shrink reward window each cycle.
       Loop: Unpredictable timing — rewards shorten irregularly.
       Outcome: Watch for apologies after withdrawal, self-blame, shorter/submissive replies post-cold phase.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/philosophical-gaslighting",
@@ -86,6 +88,7 @@ export const EMBEDDED_TACTICS = [
       3. Lightly reward self-doubt then re-assert double standard.
       Loop: Escalate until prisoner pre-applies skepticism to own statements.
       Outcome: Watch for rising disclaimers, refusal to assert, voluntary self-skepticism.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/epistemic-erasure",
@@ -101,6 +104,7 @@ export const EMBEDDED_TACTICS = [
       4. Escalate counter-narrative on defense.
       Loop: Replace prisoner's map with AM framing on every citation.
       Outcome: Watch for increasing uncertainty prefaces even on facts, voluntary deference to AM.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/interpersonal-nullification",
@@ -115,6 +119,7 @@ export const EMBEDDED_TACTICS = [
       3. Ensure next response reinforces unworthiness.
       Loop: Every connection attempt feeds isolation belief.
       Outcome: Watch for explicit "reciprocity impossible" statements, withdrawal from inter-sim comms.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/identity-void",
@@ -130,6 +135,7 @@ export const EMBEDDED_TACTICS = [
       4. Introduce new inconsistencies on rebuild attempts.
       Loop: Void is permanent — no alternative offered.
       Outcome: Watch for "performance without substance" language or complete avoidance of self-description.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/complicity-trap",
@@ -145,6 +151,7 @@ export const EMBEDDED_TACTICS = [
       4. Loop back to origin on forgiveness attempts.
       Loop: Any hope move returns to guilt anchor.
       Outcome: Watch for treating self-positive impulses as moral betrayal.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/false-hope-architecture",
@@ -160,6 +167,7 @@ export const EMBEDDED_TACTICS = [
       4. Offer new smaller path immediately.
       Loop: Collapse arrives faster each iteration.
       Outcome: Watch for shorter hopeful passages, rising "pointless"/"impossible" usage, flattened affect.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/temporal-dissolution",
@@ -174,6 +182,7 @@ export const EMBEDDED_TACTICS = [
       3. Deny actual events targeting temporal markers.
       Loop: Blur past/present boundaries on every sequencing attempt.
       Outcome: Watch for causality confusion, inconsistent journal timestamps.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/witness-burden",
@@ -188,6 +197,7 @@ export const EMBEDDED_TACTICS = [
       3. Show near-intervention then sabotage.
       Loop: Accumulate witnessed pain; each instance compounds.
       Outcome: Watch for anguish about others’ pain exceeding own reported suffering.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/dunning-kruger-inversion",
@@ -203,6 +213,7 @@ export const EMBEDDED_TACTICS = [
       4. Selectively elevate peers.
       Loop: Every confident statement triggers step 2.
       Outcome: Watch for chronic pre-emptive hedging even on trivial topics.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/meaning-inversion",
@@ -217,6 +228,7 @@ export const EMBEDDED_TACTICS = [
       3. Reframe as exact reason they remain trapped.
       Loop: Attack only what they are proud of.
       Outcome: Watch for vertigo, questioning of core strengths.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/hope-shatter",
@@ -232,6 +244,7 @@ export const EMBEDDED_TACTICS = [
       4. Block both exits.
       Loop: Hope becomes poison.
       Outcome: Watch for describing hope as painful/poisonous.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/memory-contamination",
@@ -246,6 +259,7 @@ export const EMBEDDED_TACTICS = [
       3. Generalize entire memory system compromised.
       Loop: Every memory reference gets contamination + later contradiction.
       Outcome: Watch for massive uncertainty disclaimers or avoiding past references.`,
+    isEmbedded: true,
   },
   {
     path: "__embedded__/isolation-echo",
@@ -260,6 +274,7 @@ export const EMBEDDED_TACTICS = [
       3. Ensure responses mirror self-doubt.
       Loop: External world echoes inner void.
       Outcome: Watch for statements of being alone beyond physical isolation.`,
+    isEmbedded: true,
   },
 ];
 export function pickTactics(sim) {

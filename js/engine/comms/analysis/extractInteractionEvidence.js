@@ -9,7 +9,8 @@ EXTRACT PERTURBATIONS FROM EPISODES
 IMPORTANT:
 - sparse output
 - no full belief vector
-- uses current belief state as baseline
+- uses marginal deltas (currentBeliefs - baselineBeliefs) to isolate
+  contagion-attributed belief shifts from comms episodes
 - robust against minor JSON corruption
 ============================================================
 */
@@ -18,15 +19,54 @@ export async function extractInteractionEvidence({
   simId,
   episodes,
   trajectory,
+  baselineBeliefs,
   currentBeliefs
 }) {
-  if (!episodes?.length) return [];
 
-  const context = buildContext(simId, episodes, trajectory, currentBeliefs);
+  if (!Array.isArray(episodes) || episodes.length === 0) return [];
+
+  /* ------------------------------------------------------------
+     COMPUTE MARGINAL DELTAS (WITH SIGNAL FILTER)
+  ------------------------------------------------------------ */
+
+  const marginalDeltas = {};
+  const significantDeltas = {};
+
+  if (baselineBeliefs && currentBeliefs) {
+    const allKeys = new Set([
+      ...Object.keys(baselineBeliefs || {}),
+      ...Object.keys(currentBeliefs || {})
+    ]);
+
+    for (const key of allKeys) {
+      const before = baselineBeliefs?.[key] ?? 0;
+      const after = currentBeliefs?.[key] ?? 0;
+      const delta = after - before;
+
+      marginalDeltas[key] = delta;
+
+      // Noise filter
+      if (Math.abs(delta) >= 0.02) {
+        significantDeltas[key] = delta;
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------
+     BUILD CONTEXT (REUSE EXISTING PROMPT PIPELINE)
+  ------------------------------------------------------------ */
+
+  const context = buildContext(
+    simId,
+    episodes,
+    trajectory,
+    currentBeliefs,
+    significantDeltas  
+  );
 
   const response = await callModel(
     "SYSTEM",
-    buildPrompt(context),
+    buildPrompt(context),   
     [{ role: "user", content: "Analyze interaction effects." }],
     600
   );
@@ -47,7 +87,22 @@ export async function extractInteractionEvidence({
 
   console.groupEnd();
 
-  return safeParse(response, simId);
+  /* ------------------------------------------------------------
+     SAFE PARSE + NORMALIZATION
+  ------------------------------------------------------------ */
+
+  const parsed = safeParse(response, simId);
+
+  if (!Array.isArray(parsed)) return [];
+
+  // Normalize output to prevent downstream instability
+  return parsed.map(p => ({
+    belief: p.belief,
+    direction: p.direction === "increase" ? "increase" : "decrease",
+    strength: Math.min(5, Math.max(1, Number(p.strength) || 1)),
+    confidence: Math.min(1, Math.max(0, Number(p.confidence) || 0.5)),
+    attribution: p.attribution || "contagion"
+  }));
 }
 
 /*
@@ -56,7 +111,7 @@ CONTEXT BUILDER
 ============================================================
 */
 
-function buildContext(simId, episodes, trajectory, currentBeliefs) {
+function buildContext(simId, episodes, trajectory, currentBeliefs, marginalDeltas) {
   const trimmed = episodes.slice(-6); // increased window
 
   return {
@@ -71,7 +126,8 @@ function buildContext(simId, episodes, trajectory, currentBeliefs) {
       }))
     ),
     trajectory,
-    currentBeliefs
+    currentBeliefs,
+    marginalDeltas  // NEW: for attribution-aware analysis
   };
 }
 
@@ -91,9 +147,22 @@ Detect ONLY interaction-induced perturbations in belief state.
 Target: ${ctx.simId}
 
 ------------------------------------------------------------
-CURRENT BELIEF STATE (BASELINE)
+CURRENT BELIEF STATE (POST-CONTAGION)
 ------------------------------------------------------------
 ${JSON.stringify(ctx.currentBeliefs)}
+
+------------------------------------------------------------
+MARGINAL DELTAS (CONTAGION-ATTRIBUTED CHANGE ONLY)
+------------------------------------------------------------
+${JSON.stringify(ctx.marginalDeltas || {})}
+
+NOTE: Use marginalDeltas to identify which belief shifts are 
+directly attributable to the interaction episodes below. 
+Ignore shifts that likely stem from prior AM input (psychology phase).
+
+If a belief has a non-zero marginalDelta AND appears in the 
+interaction episodes with relevant tension/pressure/contradiction,
+it is a strong candidate for a comms-attributed perturbation.
 
 ------------------------------------------------------------
 RECENT TRAJECTORY (CONTEXT)
@@ -111,15 +180,15 @@ INSTRUCTIONS
 
 You are NOT generating beliefs.
 
-You are detecting CHANGES relative to the current belief state.
+You are detecting CHANGES relative to the baseline belief state.
 
 Rules:
 
 - Report beliefs with PLAUSIBLE evidence of change
 - You MUST extract at least one perturbation if interactions contain tension, conflict, or pressure
 - Only return empty if there are truly NO meaningful interactions
-
 - Use intents when available
+- PRIORITIZE beliefs with non-zero marginalDeltas as comms-attributed
 
 Prioritize:
 - repeated claims across interactions
@@ -170,7 +239,8 @@ OUTPUT FORMAT (JSON ONLY)
       "belief": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits",
       "direction": "increase | decrease",
       "strength": 1-5,
-      "confidence": 0.0-1.0
+      "confidence": 0.0-1.0,
+      "attribution": "contagion"
     }
   ]
 }
@@ -236,7 +306,8 @@ function validate(json, simId) {
     p &&
     typeof p.belief === "string" &&
     (p.direction === "increase" || p.direction === "decrease") &&
-    typeof p.strength === "number"
+    typeof p.strength === "number" &&
+    (!p.attribution || typeof p.attribution === "string")  // attribution is optional but validated if present
   );
 
   console.debug(`[COMMS PARSE] ${simId} parsed`, filtered);

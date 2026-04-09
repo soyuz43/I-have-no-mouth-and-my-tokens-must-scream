@@ -211,12 +211,6 @@ If the writing contradicts the state above, the entry is incorrect.
 8. Other people must be referred to by role only ("my sister", "the doctor").
 
 ---
-
-# CORRECT EXAMPLE
-
-"I felt seen for a moment – a warmth that made the cold bearable. Then it vanished, and now I'm colder than before. I keep searching for that approval inside my memory. Maybe I imagined it. Maybe I'm so desperate that I'll cling to anything."
-
----
 # OUTPUT
 
 Write **only** the journal entry.

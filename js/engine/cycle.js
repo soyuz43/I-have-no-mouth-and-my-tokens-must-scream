@@ -7,6 +7,15 @@
 // 2. Psychology Phase (sim journals + state mutation)
 // 3. Social Phase (inter-sim communication + belief contagion)
 // 4. Evaluation Phase (assessment + tactic evolution)
+//
+// Attribution-aware belief snapshots:
+// - prePsychology: beliefs before AM input (start of cycle)
+// - postPsychology: beliefs after AM journal input, before comms/contagion
+// - final: beliefs after contagion (end of social phase)
+//
+// Attribution deltas:
+// - amEffect = postPsychology - prePsychology
+// - contagionEffect = final - postPsychology
 
 import { G } from "../core/state.js";
 import { timelineEvent } from "../ui/timeline.js";
@@ -115,6 +124,7 @@ export async function runCycle() {
     endCycle(cycleStart);
     return;
   }
+
   /* ------------------------------------------------------------
      NORMAL PIPELINE (CORRECT ORDER + FULL DEBUG)
   ------------------------------------------------------------ */
@@ -144,6 +154,19 @@ export async function runCycle() {
 
   await runPsychologyPhase(execution);
 
+  // === NEW: Snapshot beliefs after AM input, before comms/contagion ===
+  G.beliefSnapshots = G.beliefSnapshots || {};
+  G.beliefSnapshots.postPsychology = {};
+  for (const [id, sim] of Object.entries(G.sims)) {
+    try {
+      G.beliefSnapshots.postPsychology[id] = structuredClone(sim.beliefs);
+    } catch {
+      // Fallback for environments without structuredClone
+      G.beliefSnapshots.postPsychology[id] = JSON.parse(JSON.stringify(sim.beliefs));
+    }
+  }
+  // === END NEW ===
+
   console.warn("[PIPELINE] EXIT PSYCHOLOGY");
 
   /* ------------------------------------------------------------
@@ -153,6 +176,17 @@ export async function runCycle() {
   console.warn("[PIPELINE] ENTER SOCIAL");
 
   await runSocialPhase();
+
+  // === NEW: Snapshot beliefs after contagion (final state) ===
+  G.beliefSnapshots.final = {};
+  for (const [id, sim] of Object.entries(G.sims)) {
+    try {
+      G.beliefSnapshots.final[id] = structuredClone(sim.beliefs);
+    } catch {
+      G.beliefSnapshots.final[id] = JSON.parse(JSON.stringify(sim.beliefs));
+    }
+  }
+  // === END NEW ===
 
   console.warn("[PIPELINE] EXIT SOCIAL");
 
@@ -184,6 +218,7 @@ export async function runCycle() {
 
   logBeliefMetrics(G);
   logBeliefDynamics(G);
+  logAttributionMetrics(G);  // === NEW: Log attribution-aware metrics ===
 
   console.groupEnd();
 
@@ -198,7 +233,20 @@ function beginCycle() {
 
   G.cycle++;
 
+  // prevCycleSnapshot is pre-psychology (start of cycle)
   G.prevCycleSnapshot = JSON.parse(JSON.stringify(G.sims));
+
+  // === NEW: Explicit pre-psychology belief snapshot for attribution ===
+  G.beliefSnapshots = G.beliefSnapshots || {};
+  G.beliefSnapshots.prePsychology = {};
+  for (const [id, sim] of Object.entries(G.sims)) {
+    try {
+      G.beliefSnapshots.prePsychology[id] = structuredClone(sim.beliefs);
+    } catch {
+      G.beliefSnapshots.prePsychology[id] = JSON.parse(JSON.stringify(sim.beliefs));
+    }
+  }
+  // === END NEW ===
 
   timelineEvent(`===== CYCLE ${G.cycle} START =====`);
 
@@ -260,6 +308,57 @@ function getDirective() {
 }
 
 /* ============================================================
+   ATTRIBUTION HELPERS
+============================================================ */
+
+// Compute marginal delta between two belief states
+function computeDelta(before, after) {
+  if (!before || !after) return {};
+  const delta = {};
+  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of allKeys) {
+    const b = before?.[key] ?? 0;
+    const a = after?.[key] ?? 0;
+    delta[key] = a - b;
+  }
+  return delta;
+}
+
+// Compute attribution-aware deltas for a sim
+function computeAttribution(simId) {
+  const pre = G.beliefSnapshots?.prePsychology?.[simId] || {};
+  const postPsych = G.beliefSnapshots?.postPsychology?.[simId] || {};
+  const final = G.beliefSnapshots?.final?.[simId] || {};
+
+  return {
+    am: computeDelta(pre, postPsych),
+    contagion: computeDelta(postPsych, final)
+  };
+}
+
+// Log attribution metrics for analysis
+function logAttributionMetrics(G) {
+  if (!G.beliefSnapshots?.prePsychology || !G.beliefSnapshots?.postPsychology || !G.beliefSnapshots?.final) {
+    console.warn("[ATTRIBUTION] Missing snapshot data");
+    return;
+  }
+
+  const metrics = {};
+  for (const [id, sim] of Object.entries(G.sims)) {
+    const attr = computeAttribution(id);
+    metrics[id] = {
+      am: attr.am,
+      contagion: attr.contagion
+    };
+  }
+
+  G.attributionMetrics = G.attributionMetrics || {};
+  G.attributionMetrics[G.cycle] = metrics;
+
+  console.debug(`[ATTRIBUTION METRICS][Cycle ${G.cycle}]`, metrics);
+}
+
+/* ============================================================
    EXECUTION ENTRY POINT
 ============================================================ */
 
@@ -313,6 +412,10 @@ async function autonomousLoop() {
   }
 }
 
+/* ============================================================
+   INTERACTION ANALYSIS PHASE
+============================================================ */
+
 async function runInteractionAnalysisPhase() {
 
   timelineEvent("[INTERACTION] analysis start");
@@ -327,18 +430,32 @@ async function runInteractionAnalysisPhase() {
 
     console.debug(`[INTERACTION LOOP] processing ${sim.id}`);
 
-    const sourceLog =
-      (G.comms?.history && G.comms.history.length)
-        ? G.comms.history
-        : (G.interSimLog || []);
+    // ------------------------------------------------------------
+    // MERGE ALL MESSAGE SOURCES
+    // ------------------------------------------------------------
+
+    const sourceLog = [
+      ...(Array.isArray(G.comms?.history) ? G.comms.history : []),
+      ...(Array.isArray(G.interSimLog) ? G.interSimLog : [])
+    ];
+
+    // ------------------------------------------------------------
+    // FILTER RELEVANT EVENTS SAFELY
+    // ------------------------------------------------------------
 
     const episodesRaw = sourceLog
-      .filter(e =>
-        e.from === sim.id ||
-        e.to === sim.id ||
-        (Array.isArray(e.to) && e.to.includes(sim.id))
-      )
-      .slice(-6);
+      .filter(e => {
+        if (!e || typeof e !== "object") return false;
+
+        const fromMatch = e.from === sim.id;
+
+        const toMatch =
+          e.to === sim.id ||
+          (Array.isArray(e.to) && e.to.includes(sim.id));
+
+        return fromMatch || toMatch;
+      })
+      .slice(-Math.max(6, G.simCount || 5)); // scales window with system size
 
     console.debug(`[INTERACTION RAW COUNT] ${sim.id}`, episodesRaw.length);
 
@@ -346,11 +463,21 @@ async function runInteractionAnalysisPhase() {
 
     const episodes = [episodesRaw];
 
+    const baseline = G.beliefSnapshots?.postPsychology?.[sim.id];
+    const current = G.beliefSnapshots?.final?.[sim.id];
+
+    if (!baseline || !current) {
+      console.warn(`[INTERACTION] missing attribution snapshots for ${sim.id} — skipping`);
+      nextEvidence[sim.id] = [];
+      continue;
+    }
+
     const perturbations = await extractInteractionEvidence({
       simId: sim.id,
       episodes,
       trajectory: G.trajectory?.[sim.id] || null,
-      currentBeliefs: sim.beliefs
+      baselineBeliefs: baseline,
+      currentBeliefs: current
     });
 
     console.debug(`[INTERACTION RESULT] ${sim.id}`, perturbations);

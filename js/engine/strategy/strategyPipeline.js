@@ -219,7 +219,8 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
   } catch (err) {
 
     console.error("[PIPELINE] fatal error:", err.message);
-
+    console.error(err.stack);
+    
     finalizeStrategyRun({
       status: "failure",
       stage: "fatal",
