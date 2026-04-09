@@ -2,9 +2,10 @@
 import {
   stripJsonComments,
   fixMissingCommas,
-  splitMergedObjectsById,
   fixObjectMerges,
-  fixBrokenStrings
+  fixBrokenStrings,
+  repairObjectBoundaries,
+  splitRepeatedObjectBlocks
 } from "./utils.js";
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
@@ -101,9 +102,14 @@ export function repairTargetsExtractor(input, { DEBUG_EXTRACT = false } = {}) {
 
           repaired = stripJsonComments(repaired);
           repaired = fixMissingCommas(repaired);
-          repaired = splitMergedObjectsById(repaired);
+
+          // unified structural repair
+          repaired = splitRepeatedObjectBlocks(repaired);
+          repaired = repairObjectBoundaries(repaired);
+
           // structural normalization
           repaired = fixObjectMerges(repaired);
+
           // final string repair
           repaired = fixBrokenStrings(repaired);
 

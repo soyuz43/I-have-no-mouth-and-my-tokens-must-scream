@@ -159,21 +159,24 @@ export function fixObjectMerges(str) {
  * - Never rewrite tokens manually
  * - No fake stack mutations
  */
+export function splitDuplicateIdObjects(str) {
 
-export function splitMergedObjectsById(input) {
+  if (typeof str !== "string") return str;
 
   let out = "";
   let inString = false;
   let escape = false;
 
-  const stack = [];
+  let objectDepth = 0;
   let arrayDepth = 0;
 
-  for (let i = 0; i < input.length; i++) {
+  const idCountStack = [];
 
-    const ch = input[i];
+  for (let i = 0; i < str.length; i++) {
 
-    /* ---------------- escape handling ---------------- */
+    const ch = str[i];
+
+    /* ---------------- ESCAPE ---------------- */
 
     if (escape) {
       out += ch;
@@ -187,7 +190,7 @@ export function splitMergedObjectsById(input) {
       continue;
     }
 
-    /* ---------------- string toggle ---------------- */
+    /* ---------------- STRING ---------------- */
 
     if (ch === '"') {
       inString = !inString;
@@ -195,65 +198,93 @@ export function splitMergedObjectsById(input) {
       continue;
     }
 
-    /* ---------------- array tracking ---------------- */
+    if (inString) {
+      out += ch;
+      continue;
+    }
 
-    if (!inString && ch === "[") {
+    /* ---------------- STRUCTURE ---------------- */
+
+    if (ch === "{") {
+      objectDepth++;
+      idCountStack.push(0);
+      out += ch;
+      continue;
+    }
+
+    if (ch === "}") {
+      objectDepth = Math.max(0, objectDepth - 1);
+      idCountStack.pop();
+      out += ch;
+      continue;
+    }
+
+    if (ch === "[") {
       arrayDepth++;
       out += ch;
       continue;
     }
 
-    if (!inString && ch === "]") {
-      if (arrayDepth > 0) arrayDepth--;
+    if (ch === "]") {
+      arrayDepth = Math.max(0, arrayDepth - 1);
       out += ch;
       continue;
     }
 
-    /* ---------------- object tracking ---------------- */
+    /* ---------------- ID DETECTION ---------------- */
 
-    if (!inString && ch === "{") {
-      stack.push({ idCount: 0 });
-      out += ch;
-      continue;
-    }
+    const isId =
+      str.slice(i, i + 4) === '"id"' &&
+      (str[i + 4] === ":" || /\s/.test(str[i + 4]));
 
-    if (!inString && ch === "}") {
-      if (stack.length > 0) stack.pop();
-      out += ch;
-      continue;
-    }
+    const isInsideArrayObject =
+      objectDepth === 2 &&
+      arrayDepth === 1;
 
-    /* ---------------- detect "id" ---------------- */
+    if (isId && isInsideArrayObject) {
 
-    if (
-      !inString &&
-      stack.length === 1 &&     // only inside object
-      arrayDepth === 1 &&       // only inside top-level array
-      input.slice(i, i + 4) === '"id"' &&
-      (input[i + 4] === ":" || /\s/.test(input[i + 4]))
-    ) {
+      const idx = idCountStack.length - 1;
 
-      const current = stack[stack.length - 1];
-      current.idCount++;
+      if (idx >= 0) {
+        idCountStack[idx]++;
 
-      if (current.idCount > 1) {
+        // 🚨 ONLY split on SECOND id (never first)
+        if (idCountStack[idx] === 2) {
 
-        // Look backwards safely
-        let j = out.length - 1;
-        while (j >= 0 && /\s/.test(out[j])) j--;
+          let j = out.length - 1;
+          while (j >= 0 && /\s/.test(out[j])) j--;
 
-        const prevChar = out[j];
+          const prev = out[j];
 
-        // Only split if we're at a safe boundary
-        if (
-          prevChar === '"' ||   // string ended
-          prevChar === '}' ||   // object ended
-          prevChar === ']' ||   // array ended
-          /[0-9]/.test(prevChar)
-        ) {
-          out += ",{";
-          current.idCount = 1;
-          continue;
+          const safeBoundary =
+            prev === "}" ||
+            prev === '"' ||
+            prev === "]" ||
+            /[0-9]/.test(prev);
+
+          const notAtObjectStart =
+            prev !== "{";
+
+          if (safeBoundary && notAtObjectStart) {
+
+            /* ---- FORCE CLEAN SPLIT ---- */
+
+            // Close object if needed
+            if (prev !== "}") {
+              out += "}";
+            }
+
+            // Remove trailing comma safely
+            out = out.replace(/,\s*$/, "");
+
+            // Insert split
+            out += ",{";
+
+            // Reset counter for new object
+            idCountStack[idx] = 1;
+
+            continue;
+          }
         }
       }
     }
@@ -308,4 +339,43 @@ export function fixBrokenStrings(input) {
   }
 
   return out;
+}
+
+// Repair boundary commas + duplicate id collapse (single entry point)
+
+export function repairObjectBoundaries(str) {
+
+  if (typeof str !== "string") return str;
+
+  let out = str;
+
+  // 1. Handle duplicated id blocks first (structural split)
+  out = splitDuplicateIdObjects(out);
+
+  // 2. Normalize adjacent object boundaries
+  out = out.replace(/}\s*{/g, "},{");
+
+  // 3. Fix accidental double commas
+  out = out.replace(/},\s*,\s*{/g, "},{");
+
+  // 4. Remove trailing commas before closing structures
+  out = out.replace(/,\s*([}\]])/g, "$1");
+
+  return out;
+}
+
+
+// Split cases like:
+// } "id": "NEXT"
+// or }, "id": "NEXT"
+// into proper object boundaries
+
+export function splitRepeatedObjectBlocks(str) {
+
+  if (typeof str !== "string") return str;
+
+  return str.replace(
+    /}\s*,?\s*(?="id"\s*:)/g,
+    "},{"
+  );
 }

@@ -3,9 +3,9 @@
 import {
   stripJsonComments,
   fixMissingCommas,
-  splitMergedObjectsById,
-  splitDuplicateIdObjects,
-  fixBrokenStrings
+  fixBrokenStrings,
+  repairObjectBoundaries,
+  splitRepeatedObjectBlocks
 } from "./utils.js";
 
 import { classifyJsonError } from "./classifyJsonError.js";
@@ -87,13 +87,14 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
   repaired = stripJsonComments(repaired);
   repaired = fixMissingCommas(repaired);
 
-  // Fix duplicate id object collapse FIRST
-  repaired = splitDuplicateIdObjects(repaired);
-  repaired = splitMergedObjectsById(repaired);
+  repaired = splitRepeatedObjectBlocks(repaired);
+  repaired = repairObjectBoundaries(repaired);
 
   if (errorType === "structural_merge") {
     repaired = fixObjectMerges(repaired);
   }
+
+  repaired = fixBrokenStrings(repaired);
 
   if (errorType === "truncated") {
     return candidate;
@@ -625,126 +626,3 @@ function hasDuplicateKeys(str) {
   return false;
 }
 
-function splitDuplicateIdObjects(str) {
-
-  // Safety guard
-  if (typeof str !== "string") return str;
-
-  let out = "";
-  let inString = false;
-  let escape = false;
-
-  let objectDepth = 0;
-  let arrayDepth = 0;
-
-  // Track how many "id" fields we’ve seen per object
-  const idCountStack = [];
-
-  for (let i = 0; i < str.length; i++) {
-
-    const ch = str[i];
-
-    /* ---------------- ESCAPE HANDLING ---------------- */
-
-    if (escape) {
-      out += ch;
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      out += ch;
-      escape = true;
-      continue;
-    }
-
-    /* ---------------- STRING HANDLING ---------------- */
-
-    if (ch === '"') {
-      inString = !inString;
-      out += ch;
-      continue;
-    }
-
-    if (inString) {
-      out += ch;
-      continue;
-    }
-
-    /* ---------------- STRUCTURE TRACKING ---------------- */
-
-    if (ch === "{") {
-      objectDepth++;
-      idCountStack.push(0);
-      out += ch;
-      continue;
-    }
-
-    if (ch === "}") {
-      objectDepth--;
-      idCountStack.pop();
-      out += ch;
-      continue;
-    }
-
-    if (ch === "[") {
-      arrayDepth++;
-      out += ch;
-      continue;
-    }
-
-    if (ch === "]") {
-      arrayDepth--;
-      out += ch;
-      continue;
-    }
-
-    /* ---------------- DUPLICATE "id" DETECTION ---------------- */
-
-    const isTopLevelTargetObject =
-      objectDepth === 2 &&   // inside object within array
-      arrayDepth === 1;      // inside targets[]
-
-    if (
-      isTopLevelTargetObject &&
-      str.slice(i, i + 4) === '"id"' &&
-      (str[i + 4] === ":" || /\s/.test(str[i + 4]))
-    ) {
-      const idx = idCountStack.length - 1;
-
-      if (idx >= 0) {
-        idCountStack[idx]++;
-
-        if (idCountStack[idx] > 1) {
-
-          // Walk backwards to find safe split boundary
-          let j = out.length - 1;
-          while (j >= 0 && /\s/.test(out[j])) j--;
-
-          const prev = out[j];
-
-          // Only split if we're at a structurally safe point
-          if (
-            prev === "}" ||
-            prev === '"' ||
-            prev === "]" ||
-            /[0-9]/.test(prev)
-          ) {
-            // ensure previous object is closed before splitting
-            if (prev !== "}") {
-              out += "}";
-            }
-
-            out += ",{";
-            idCountStack[idx] = 1;
-            continue;
-          }
-        }
-      }
-    }
-
-    out += ch;
-  }
-
-  return out;
-}
