@@ -6,6 +6,8 @@ import { extractTargetsArray } from "./extractors/targetsExtractor.js";
 import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
 import { extractLabeledTargets } from "./extractors/extractLabeledTargets.js";
+import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
+
 /* ============================================================
    STRATEGY EXTRACTION PIPELINE (MERGE-AWARE)
 
@@ -20,7 +22,7 @@ import { extractLabeledTargets } from "./extractors/extractLabeledTargets.js";
 
 ============================================================ */
 
-export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = {}) {
+export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } = {}) {
 
   console.trace("=== STRATEGY EXTRACTION START ===");
 
@@ -96,6 +98,8 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
 
   if (repairLevel >= 2) {
     extractors.push({ name: "repair-targets", fn: repairTargetsExtractor });
+
+    extractors.push({ name: "loose-targets", fn: extractLooseTargets });
   }
 
   const extractorAttempts = [];
@@ -220,7 +224,8 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
     "tolerant-json": 0.8,
     "labeled-targets": 0.7,
     "repair-targets": 0.6,
-    "heuristic": 0.4
+    "heuristic": 0.4,
+    "loose-targets": 0.2
   };
 
   if (successfulResults.length > 0) {
@@ -255,6 +260,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
 
         const mergedData = { ...existing.data };
         const fieldConfidence = existing.fieldConfidence || {};
+        const fieldSources = existing.fieldSources || {};
 
         for (const key of Object.keys(t)) {
 
@@ -271,6 +277,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
           if (!(key in mergedData)) {
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
+            fieldSources[key] = name;
             continue;
           }
 
@@ -280,6 +287,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
           if (confidence > prevConfidence + 0.1) {
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
+            fieldSources[key] = name;
             continue;
           }
 
@@ -294,18 +302,23 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
           ) {
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
+            fieldSources[key] = name;
           }
         }
 
         mergedById.set(id, {
           data: mergedData,
           confidence: Math.max(existing.confidence, confidence),
-          fieldConfidence
+          fieldConfidence,
+          fieldSources
         });
       }
     }
 
-    const merged = Array.from(mergedById.values()).map(v => v.data);
+    const merged = Array.from(mergedById.values()).map(v => ({
+      ...v.data,
+      _fieldSources: v.fieldSources || {}
+    }));
 
     if (DEBUG) {
       console.debug("[EXTRACT] merged targets:", merged.length);
@@ -365,6 +378,9 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
     }
 
     autoTuneRepairLevel();
+    metrics.pipelineSuccess = (metrics.pipelineSuccess || 0) + 1;
+    G.parserMetrics.totals.pipelineSuccess =
+      (G.parserMetrics.totals.pipelineSuccess || 0) + 1;
 
     return {
       status: "success",
@@ -381,8 +397,13 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
      FINAL FAILURE
   ------------------------------------------------------------ */
 
-  metrics.failures++;
-  G.parserMetrics.totals.failures++;
+  metrics.failures = (metrics.failures || 0) + 1;
+  metrics.pipelineFailures = (metrics.pipelineFailures || 0) + 1;
+
+  G.parserMetrics.totals.failures =
+    (G.parserMetrics.totals.failures || 0) + 1;
+  G.parserMetrics.totals.pipelineFailures =
+    (G.parserMetrics.totals.pipelineFailures || 0) + 1;
 
   if (classifiedError) {
 

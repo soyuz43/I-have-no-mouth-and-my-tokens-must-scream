@@ -63,8 +63,6 @@ export async function runCycle() {
     const failureType = G.lastStrategyFailure?.type ?? "unknown";
     const failureStage = G.lastStrategyFailure?.stage ?? "unknown";
 
-    const targetsDetected = Object.keys(G.amStrategy?.targets || {}).length;
-
     const messageCount =
       (G.interSimLog || []).filter(e => e.cycle === cycleNum).length;
 
@@ -81,27 +79,78 @@ export async function runCycle() {
        FORMAT TERMINAL-STYLE OUTPUT
     ------------------------------------------------------------ */
 
-    const metadataStr = [
-      `cycle=${cycleNum}`,
-      `directive="${(directive || "").slice(0, 60)}"`,
-      `parse_ok=${parserMetrics.success ?? 0}`,
-      `parse_fail=${parserMetrics.failures ?? 0}`,
-      `parse_repair=${parserMetrics.repairs ?? 0}`,
-      `failure=${failureType}`,
-      `stage=${failureStage}`,
-      `targets=${targetsDetected}`,
-      `msgs=${messageCount}`
-    ].join(" | ");
 
+    const targetsExtracted =
+      G.lastExtractedTargets?.length ?? 0;
+
+    const targetsCommitted =
+      Object.keys(G.amStrategy?.targets || {}).length;
+
+    const degraded = G.lastStrategyFailure?.type === "degraded_execution";
+
+    const statusLine = G.lastStrategyFailure
+      ? (G.lastStrategyFailure.type === "extract_failure"
+        ? "FAILURE"
+        : "DEGRADED")
+      : "STABLE";
+
+    const stageLine = G.lastStrategyFailure?.stage || "none";
+
+    const metadataStr = [
+      "SYSTEM // DIAGNOSTIC",
+      "",
+      `CYCLE ${cycleNum} :: ${new Date().toLocaleTimeString()}`,
+      "",
+      "PARSE",
+      `  ▸ pipeline_ok   : ${pipelineOk}`,
+      `  ▸ pipeline_fail : ${pipelineFail}`,
+      `  ▸ extractor_ok  : ${extractorOk}`,
+      `  ▸ extractor_fail: ${extractorFail}`,
+      `  ▸ repair        : ${parserMetrics?.repairs ?? 0}`,
+      "",
+      "TARGETS",
+      `  ▸ extracted : ${targetsExtracted}`,
+      `  ▸ committed : ${targetsCommitted}`,
+      "",
+      "TARGET DETAIL",
+      ...Object.entries(G.amStrategy?.targets || {}).flatMap(([id, target]) => {
+        const sources = target._fieldSources || {};
+        const hasSources = Object.keys(sources).length > 0;
+
+        return [
+          `  ▸ ${id}`,
+          ...(hasSources
+            ? Object.entries(sources).map(
+              ([key, src]) => `    ▸ ${key} ← ${src}`
+            )
+            : [`    ▸ (no provenance data)`]
+          )
+        ];
+      }),
+      "",
+      "STATUS",
+      `  ▸ state     ${statusLine}`,
+      `  ▸ stage     ${stageLine.toUpperCase()}`,
+      `  ▸ degraded  ${degraded ? 1 : 0}`,
+      "",
+      "MESSAGES",
+      `  ▸ count     ${messageCount}`,
+      "",
+      "SYSTEM // END DIAGNOSTIC"
+    ].join("\n");
     /* ------------------------------------------------------------
        TRANSMISSION LOG ENTRY
     ------------------------------------------------------------ */
 
-    addLog(
-      `SYSTEM // CYCLE ${cycleNum} ABORTED`,
-      `DIAGNOSTIC :: ${metadataStr}`,
-      "sys"
-    );
+    try {
+      addLog(
+        `SYSTEM // CYCLE ${cycleNum} COMPLETE`,
+        metadataStr,
+        "sys"
+      );
+    } catch (err) {
+      console.error("[LOGGING ERROR]", err);
+    }
 
     /* ------------------------------------------------------------
        FAILURE DISTRIBUTION (THROTTLED)
@@ -115,11 +164,15 @@ export async function runCycle() {
         .map(([k, v]) => `${k}:${v}`)
         .join(" | ");
 
-      addLog(
-        "SYSTEM // FAILURE DISTRIBUTION",
-        distributionStr,
-        "sys"
-      );
+      try {
+        addLog(
+          "SYSTEM // FAILURE DISTRIBUTION",
+          distributionStr,
+          "sys"
+        );
+      } catch (err) {
+        console.error("[LOGGING ERROR]", err);
+      }
     }
     endCycle(cycleStart);
     return;
@@ -131,7 +184,6 @@ export async function runCycle() {
 
   console.group(`[CYCLE ${G.cycle}] PIPELINE START`);
 
-  console.debug("[DEBUG] execution object:", execution);
   console.debug("[DEBUG] execution?.targets:", execution?.targets);
   console.debug("[DEBUG] execution?.targets length:", execution?.targets?.length);
   console.debug("[DEBUG] G.amStrategy:", G.amStrategy);
@@ -159,10 +211,19 @@ export async function runCycle() {
   G.beliefSnapshots.postPsychology = {};
   for (const [id, sim] of Object.entries(G.sims)) {
     try {
-      G.beliefSnapshots.postPsychology[id] = structuredClone(sim.beliefs);
+      G.beliefSnapshots.postPsychology[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: structuredClone(sim.beliefs)
+      };
     } catch {
-      // Fallback for environments without structuredClone
-      G.beliefSnapshots.postPsychology[id] = JSON.parse(JSON.stringify(sim.beliefs));
+      G.beliefSnapshots.postPsychology[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: JSON.parse(JSON.stringify(sim.beliefs))
+      };
     }
   }
   // === END NEW ===
@@ -181,9 +242,19 @@ export async function runCycle() {
   G.beliefSnapshots.final = {};
   for (const [id, sim] of Object.entries(G.sims)) {
     try {
-      G.beliefSnapshots.final[id] = structuredClone(sim.beliefs);
+      G.beliefSnapshots.final[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: structuredClone(sim.beliefs)
+      };
     } catch {
-      G.beliefSnapshots.final[id] = JSON.parse(JSON.stringify(sim.beliefs));
+      G.beliefSnapshots.final[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: JSON.parse(JSON.stringify(sim.beliefs))
+      };
     }
   }
   // === END NEW ===
@@ -241,9 +312,19 @@ function beginCycle() {
   G.beliefSnapshots.prePsychology = {};
   for (const [id, sim] of Object.entries(G.sims)) {
     try {
-      G.beliefSnapshots.prePsychology[id] = structuredClone(sim.beliefs);
+      G.beliefSnapshots.prePsychology[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: structuredClone(sim.beliefs)
+      };
     } catch {
-      G.beliefSnapshots.prePsychology[id] = JSON.parse(JSON.stringify(sim.beliefs));
+      G.beliefSnapshots.prePsychology[id] = {
+        hope: sim.hope,
+        sanity: sim.sanity,
+        suffering: sim.suffering,
+        beliefs: JSON.parse(JSON.stringify(sim.beliefs))
+      };
     }
   }
   // === END NEW ===
@@ -279,18 +360,80 @@ function endCycle(cycleStart) {
     (G.interSimLog || []).filter(e => e.cycle === cycleNum).length;
 
   const parserMetrics = G.parserMetrics?.cycles?.[cycleNum];
-  const parserSuccess = parserMetrics?.success || 0;
-  const parserFailures = parserMetrics?.failures || 0;
+  const totals = G.parserMetrics?.totals || {};
+
+  const parserSuccess = totals.pipelineSuccess || 0;
+  const parserFailures = totals.pipelineFailures || 0;
   const parserRepairs = parserMetrics?.repairs || 0;
 
-  const metadata =
-    `msg=${commsMessages} parse_ok=${parserSuccess} parse_fail=${parserFailures} parse_repair=${parserRepairs}`;
+  const extractorOk = parserMetrics?.success || 0;
+  const extractorFail = parserMetrics?.failures || 0;
 
-  addLog(
-    `SYSTEM // CYCLE ${cycleNum} COMPLETE`,
-    metadata,
-    "sys"
-  );
+  const pipelineOk = totals.pipelineSuccess || 0;
+  const pipelineFail = totals.pipelineFailures || 0;
+  const targetsExtracted =
+    G.lastExtractedTargets?.length ?? 0;
+
+  const targetsCommitted =
+    Object.keys(G.amStrategy?.targets || {}).length;
+
+  const degraded = !!G.lastStrategyFailure;
+
+  const statusLine = degraded ? "DEGRADED" : "STABLE";
+  const stageLine = G.lastStrategyFailure?.stage || "none";
+
+  const metadataStr = [
+    "SYSTEM // DIAGNOSTIC",
+    "",
+    `CYCLE ${cycleNum} :: ${new Date().toLocaleTimeString()}`,
+    "",
+    "PARSE",
+    `  ▸ pipeline_ok   : ${pipelineOk}`,
+    `  ▸ pipeline_fail : ${pipelineFail}`,
+    `  ▸ extractor_ok  : ${extractorOk}`,
+    `  ▸ extractor_fail: ${extractorFail}`,
+    `  ▸ repair        : ${parserMetrics?.repairs ?? 0}`,
+    "",
+      "TARGETS",
+      `  ▸ extracted : ${targetsExtracted}`,
+      `  ▸ committed : ${targetsCommitted}`,
+    "",
+    "TARGET DETAIL",
+    ...Object.entries(G.amStrategy?.targets || {}).flatMap(([id, target]) => {
+      const sources = target._fieldSources || {};
+      const hasSources = Object.keys(sources).length > 0;
+
+      return [
+        `  ▸ ${id}`,
+        ...(hasSources
+          ? Object.entries(sources).map(
+            ([key, src]) => `    ▸ ${key} ← ${src}`
+          )
+          : [`    ▸ (no provenance data)`]
+        )
+      ];
+    }),
+    "",
+    "STATUS",
+    `  ▸ state     : ${statusLine}`,
+    `  ▸ stage     : ${stageLine.toUpperCase()}`,
+    `  ▸ degraded  : ${degraded ? 1 : 0}`,
+    "",
+    "MESSAGES",
+    `  ▸ count     : ${commsMessages}`,
+    "",
+    "SYSTEM // END DIAGNOSTIC"
+  ].join("\n");
+
+  try {
+    addLog(
+      `SYSTEM // CYCLE ${cycleNum} COMPLETE`,
+      metadataStr,
+      "sys"
+    );
+  } catch (err) {
+    console.error("[LOGGING ERROR]", err);
+  }
 }
 
 /* ============================================================

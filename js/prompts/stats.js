@@ -148,8 +148,24 @@ Possible tones include:
 - cautious hope
 - renewed resistance
 - emotional collapse
+- intellectual frustration
+- ruminative strain
 
 Use the **dominant tone**, not isolated phrases.
+
+
+### Common Misinterpretations to Avoid
+
+Do **NOT** confuse:
+
+| Journal cue | Wrong inference | More Correct inference |
+|-------------|----------------|-------------------|
+| "persistence in finding inconsistency" | renewed hope | frustration or compulsive rumination → hope unchanged or slightly decreased |
+| "analytical deconstruction" | cognitive reinforcement → sanity increase | mental strain → sanity unchanged or slightly decreased |
+| "expenditure of internal resources" | active engagement → positive | emotional or cognitive cost → suffering may increase, hope unchanged |
+| "frustrating lack of structural integrity" | intellectual challenge → hope | irritation → no hope increase or possible decrease |
+
+If the journal describes **effort without satisfaction**, **frustration without resolution**, or **analysis without insight**, do **not** code hope or sanity as increased.
 
 ---
 
@@ -241,17 +257,20 @@ Possible outcomes:
 
 You may infer psychological shifts that are **strongly implied** by tone, metaphor, or emotional logic — not just explicit statements.
 
-But: inference must be **weighted by textual probability**.
+However, inference must be **weighted by textual probability**.
 
 Ask yourself:
 - If this character felt the opposite, would this sentence still make sense?
 - Is this shift the *most likely* reading, or just *a possible* reading?
 - Does the journal's emotional trajectory support this direction?
 
+**Special rule for frustration and strain:**
+Frustration, irritation, or mental strain without relief or breakthrough should **never** increase hope or sanity. At best, they remain unchanged; often, they decrease slightly.
+
 When evidence is ambiguous:
 - Prefer smaller magnitudes (1–2 pts) over larger ones
-- Prefer \`unchanged\` over speculative direction
-- Let the \`reason\ field show your weighting: "Guilt mentioned as 'deserved' → stable; slight self_worth gain from growth framing"
+- Prefer 'unchanged' over speculative direction
+- Let the 'reason' field show your weighting
 
 You are not extracting keywords. You are estimating psychological momentum.
 # Output Format

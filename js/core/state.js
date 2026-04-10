@@ -92,7 +92,7 @@ export const G = {
      ============================================================ */
 
   DEBUG_DAMPING: true,
-
+  DEBUG_ATTRIBUTION: true,
   splitModels: false,
 
   models: {
@@ -195,7 +195,7 @@ export const G = {
 
   pendingBeliefEvidence: Object.create(null),
 
-  
+
   /* ============================================================
      UI STATE
      ============================================================ */
