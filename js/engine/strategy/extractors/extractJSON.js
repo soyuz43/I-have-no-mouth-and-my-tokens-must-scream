@@ -9,8 +9,10 @@ import {
 } from "./utils.js";
 
 import { classifyJsonError } from "./classifyJsonError.js";
-
+import { normalizeJsonShape } from "./normalizeJsonShape.js";
 import { normalizeTargetKeys } from "./normalizeKeys.js";
+
+
 /* ============================================================
    SCHEMA-AWARE TARGETS EXTRACTION
 ============================================================ */
@@ -150,7 +152,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
     .replace(/^\s*(PRIVATE|PUBLIC)[^\n]*\n?/gm, "")
     .replace(/^\s*NOTICE[^\n]*\n?/gm, "");
 
-
+  cleanedInput = normalizeJsonShape(cleanedInput);
   /* ------------------------------------------------------------
    FAST PATH: FULL OBJECT FIRST 
 ------------------------------------------------------------ */
