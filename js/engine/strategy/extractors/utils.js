@@ -379,3 +379,140 @@ export function splitRepeatedObjectBlocks(str) {
     "},{"
   );
 }
+
+
+export function splitMultiIdCascade(str) {
+
+  if (typeof str !== "string") return str;
+
+  let out = "";
+  let inString = false;
+  let escape = false;
+
+  let objectDepth = 0;
+  let arrayDepth = 0;
+
+  let currentId = null;
+  let idCount = 0;
+
+  for (let i = 0; i < str.length; i++) {
+
+    const ch = str[i];
+
+    // ---------------- ESCAPE ----------------
+    if (escape) {
+      out += ch;
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      out += ch;
+      escape = true;
+      continue;
+    }
+
+    // ---------------- STRING ----------------
+    if (ch === '"') {
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+
+    if (inString) {
+      out += ch;
+      continue;
+    }
+
+    // ---------------- STRUCTURE ----------------
+    if (ch === "{") {
+      objectDepth++;
+      currentId = null;
+      idCount = 0;
+      out += ch;
+      continue;
+    }
+
+    if (ch === "}") {
+      objectDepth--;
+      out += ch;
+      continue;
+    }
+
+    if (ch === "[") {
+      arrayDepth++;
+      out += ch;
+      continue;
+    }
+
+    if (ch === "]") {
+      arrayDepth--;
+      out += ch;
+      continue;
+    }
+
+    // ---------------- DETECT ID ----------------
+    const isId =
+      str.slice(i, i + 4) === '"id"' &&
+      (str[i + 4] === ":" || /\s/.test(str[i + 4]));
+
+    if (isId && objectDepth >= 2 && arrayDepth >= 1) {
+
+      // extract ID value safely
+      const match = str.slice(i).match(/"id"\s*:\s*"([^"]+)"/);
+
+      const nextId = match ? match[1] : null;
+
+      idCount++;
+
+      // first id in object
+      if (idCount === 1) {
+        currentId = nextId;
+      }
+
+      // repeated id handling
+      if (idCount > 1) {
+
+        let j = out.length - 1;
+        while (j >= 0 && /\s/.test(out[j])) j--;
+
+        const prev = out[j];
+
+        // CASE 1: SAME ID → IGNORE DUPLICATE
+        if (nextId && nextId === currentId) {
+          // Skip ONLY the duplicate "id" key, not the entire content
+          // Advance pointer past this id token safely
+          const idMatch = str.slice(i).match(/"id"\s*:\s*"[^"]+"/);
+          if (idMatch) {
+            i += idMatch[0].length - 1;
+            continue;
+          }
+        }
+
+        // CASE 2: DIFFERENT ID → SPLIT OBJECT
+        if (prev !== "{") {
+
+          if (prev !== "}") {
+            out += "}";
+          }
+
+          if (out.endsWith(",")) {
+            out = out.slice(0, -1);
+          }
+
+          out += ",{";
+
+          // reset tracking for new object
+          currentId = nextId;
+          idCount = 1;
+
+          continue;
+        }
+      }
+    }
+
+    out += ch;
+  }
+
+  return out;
+}

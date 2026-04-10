@@ -469,7 +469,7 @@ OUTPUT RULES (STRICT):
 
 OUTPUT FORMAT (STRICT — MUST FOLLOW EXACTLY — MACHINE PARSED)
 
-EXPLANATION: <max 20 words, must reference at least one signal>
+EXPLANATION: <must reference at least one signal>
 
 DECISION: <ESCALATE | PIVOT | ABANDON>
 

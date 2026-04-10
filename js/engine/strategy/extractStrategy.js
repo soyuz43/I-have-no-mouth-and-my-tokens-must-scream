@@ -310,6 +310,59 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = true } = 
     if (DEBUG) {
       console.debug("[EXTRACT] merged targets:", merged.length);
     }
+    // ------------------------------------------------------------
+    // TARGET COMPLETENESS POLICY (RETRY → THEN DEGRADE)
+    // ------------------------------------------------------------
+
+    const expectedCount = Object.keys(G.sims || {}).length;
+    const isAllMode = G.executionMode === "ALL" || expectedCount > 1;
+
+    // fallback if executionMode not wired yet
+    const mustHaveAll = isAllMode;
+
+    if (mustHaveAll && merged.length < expectedCount) {
+
+      const recoveredIds = merged.map(t => t.id);
+      const recoveredSet = new Set(recoveredIds);
+      const allIds = Object.keys(G.sims || {});
+      const missing = allIds.filter(id => !recoveredSet.has(id));
+
+      console.warn("[EXTRACT] incomplete target recovery", {
+        expected: expectedCount,
+        actual: merged.length,
+        recoveredIds,
+        missing
+      });
+
+      // ------------------------------------------------------------
+      // RETRY ONCE WITH HIGHER REPAIR LEVEL
+      // ------------------------------------------------------------
+      if ((G.parserConfig?.repairLevel ?? 0) < 2) {
+        console.warn("[EXTRACT] escalating repairLevel → 2 and retrying");
+
+        G.parserConfig = {
+          ...(G.parserConfig || {}),
+          repairLevel: 2
+        };
+
+        return extractStrategy(input, { DEBUG, DEBUG_EXTRACT });
+      }
+      // ------------------------------------------------------------
+      // DEGRADED MODE (ALLOW PARTIAL EXECUTION)
+      // ------------------------------------------------------------
+      console.warn("[EXTRACT] proceeding with PARTIAL strategy (degraded mode)");
+
+      G.executionMeta = {
+        ...(G.executionMeta || {}),
+        degraded: true,
+        expectedTargets: expectedCount,
+        actualTargets: merged.length,
+        missingTargets: missing
+      };
+
+      //  DO NOT return failure
+      //  DO NOT abort
+    }
 
     autoTuneRepairLevel();
 
