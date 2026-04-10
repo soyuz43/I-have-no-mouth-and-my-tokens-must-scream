@@ -11,7 +11,7 @@ import { commitStrategy } from "./commitStrategy.js";
 
 import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
-
+import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
 import {
   startStrategyRun,
   setCleanedInput,
@@ -56,34 +56,65 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
        EXTRACT
     ------------------------------------------------------------ */
 
-    const extracted = extractStrategy(cleaned, { DEBUG });
+    let extracted = extractStrategy(cleaned, { DEBUG });
 
     if (!extracted || !extracted.targets) {
 
-      const errorType = classifyJsonError(cleaned);
+      console.warn("[PIPELINE] extract failed → attempting loose fallback");
 
-      logStrategyStage("extract", {
-        error: true,
-        errorType,
-        output: { targetsFound: 0 }
-      });
+      const fallback = extractLooseTargets(cleaned, { DEBUG_EXTRACT: DEBUG });
 
-      finalizeStrategyRun({
-        status: "failure",
+      if (!fallback || !fallback.targets || fallback.targets.length === 0) {
+
+        const errorType = classifyJsonError(cleaned);
+
+        G.lastExtractedTargets = extracted?.targets || [];
+
+        logStrategyStage("extract", {
+          error: true,
+          errorType,
+          output: { targetsFound: G.lastExtractedTargets.length }
+        });
+
+        finalizeStrategyRun({
+          status: "failure",
+          stage: "extract",
+          errorType
+        });
+
+        G.lastStrategyFailure = {
+          type: "extract_failure",
+          stage: "extract",
+          recovered: G.lastExtractedTargets?.length || 0
+        };
+
+        return {
+          status: "failure",
+          stage: "extract",
+          errorType
+        };
+      }
+
+      extracted = fallback;
+
+      G.lastStrategyFailure = {
+        type: "degraded_execution",
         stage: "extract",
-        errorType
-      });
+        recovered: fallback.targets.length
+      };
 
-      return {
-        status: "failure",
-        stage: "extract",
-        errorType
+      G.executionMeta = {
+        ...(G.executionMeta || {}),
+        degraded: true,
+        fallback: "loose-extractor"
       };
     }
 
     logStrategyStage("extract", {
       output: { targetsFound: extracted.targets.length }
     });
+
+    G.lastExtractedTargets = extracted.targets || [];
 
     /* ------------------------------------------------------------
        INTERPRET
@@ -136,14 +167,20 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
 
     if (!validated || validated.length === 0) {
 
-      finalizeStrategyRun({
-        status: "failure",
-        stage: "validate"
-      });
+      console.warn("[PIPELINE] validation empty → degraded continuation");
 
-      return {
-        status: "failure",
-        stage: "validate"
+      validated = interpreted;
+
+      G.executionMeta = {
+        ...(G.executionMeta || {}),
+        degraded: true,
+        fallback: "validation-salvage"
+      };
+
+      G.lastStrategyFailure = {
+        type: "degraded_execution",
+        stage: "validate",
+        recovered: validated.length
       };
     }
 
@@ -202,6 +239,8 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
 
     visualizeParserCycle(G.cycle, G);
 
+    G.lastStrategyFailure = null;
+
     finalizeStrategyRun({
       status: "success",
       targetCount: enforced.targets.length,
@@ -220,7 +259,7 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
 
     console.error("[PIPELINE] fatal error:", err.message);
     console.error(err.stack);
-    
+
     finalizeStrategyRun({
       status: "failure",
       stage: "fatal",

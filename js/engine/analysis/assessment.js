@@ -135,6 +135,10 @@ function computeBeliefDelta(before, after) {
 function computeAttribution(id) {
   const prePsych = G.beliefSnapshots?.prePsychology?.[id] || {};
   const postPsych = G.beliefSnapshots?.postPsychology?.[id] || {};
+  if (G.DEBUG_ATTRIBUTION) {
+    console.log("[DEBUG] prePsych for", id, prePsych);
+    console.log("[DEBUG] postPsych for", id, postPsych);
+  }
   const finalBeliefs =
     G.beliefSnapshots?.final?.[id] ||
     G.sims[id]?.beliefs ||

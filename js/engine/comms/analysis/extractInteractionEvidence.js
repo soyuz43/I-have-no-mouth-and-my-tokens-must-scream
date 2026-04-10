@@ -71,21 +71,21 @@ export async function extractInteractionEvidence({
     600
   );
 
-  /* ------------------------------------------------------------
-     DEBUG: RAW MODEL OUTPUT
-  ------------------------------------------------------------ */
+ /* ------------------------------------------------------------
+    DEBUG: RAW MODEL OUTPUT
+ ------------------------------------------------------------ */
 
-  console.groupCollapsed(`[COMMS RAW] ${simId}`);
-  console.log("type:", typeof response);
+  // console.groupCollapsed(`[COMMS RAW] ${simId}`);
+  // console.log("type:", typeof response);
 
-  if (typeof response === "string") {
-    console.log("full:", response);
-    console.log("preview:", response.slice(0, 500));
-  } else {
-    console.log("non-string response:", response);
-  }
+  // if (typeof response === "string") {
+  //   console.log("full:", response);
+  //   console.log("preview:", response.slice(0, 500));
+  // } else {
+  //   console.log("non-string response:", response);
+  // }
 
-  console.groupEnd();
+  // console.groupEnd();
 
   /* ------------------------------------------------------------
      SAFE PARSE + NORMALIZATION
@@ -309,8 +309,6 @@ function validate(json, simId) {
     typeof p.strength === "number" &&
     (!p.attribution || typeof p.attribution === "string")  // attribution is optional but validated if present
   );
-
-  console.debug(`[COMMS PARSE] ${simId} parsed`, filtered);
 
   return filtered;
 }

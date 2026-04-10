@@ -159,7 +159,7 @@ export function parseStatDeltas(text, sim) {
 
 export function parseBeliefUpdates(text, sim) {
   // Log the input for debugging
-  console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
+ // console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
 
   const obj = safeExtractJSON(text);
 

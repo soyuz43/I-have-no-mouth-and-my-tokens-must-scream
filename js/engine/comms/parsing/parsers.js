@@ -36,9 +36,6 @@ export function parseTarget(raw) {
 
   if (exactMatch) {
     const result = exactMatch[1].toUpperCase().trim();
-    console.debug(
-      `[MESSAGE PARSER] parseTarget exact: "${raw.slice(0, 1000)}" → ${result}`
-    );
     return result;
   }
 

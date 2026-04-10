@@ -100,7 +100,10 @@ export function validateTargetsArray(targets, { DEBUG = true } = {}) {
   ------------------------------------------------------------ */
 
   if (validTargets.length === 0) {
-    throw new Error("No valid targets parsed");
+
+    console.warn("[VALIDATE] no valid targets — allowing degraded execution");
+
+    return [];
   }
 
   if (validTargets.length > SIM_IDS.length) {

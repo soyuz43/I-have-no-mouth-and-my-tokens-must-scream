@@ -281,7 +281,6 @@ function sanitizeAMForSim(simId, amText) {
 async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
 
-  console.trace(`[TRACE] JOURNAL CALL → ${sim.id}`);
   /* ------------------------------------------------------------
      PHASE GUARD (CRITICAL)
      Prevent journals from running outside psychology phase

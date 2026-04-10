@@ -23,7 +23,7 @@
 export function sanitizeStrategyInput(raw, options = {}) {
 
   const {
-    DEBUG = true
+    DEBUG = false
   } = options;
 
   if (DEBUG) {
@@ -80,7 +80,7 @@ export function sanitizeStrategyInput(raw, options = {}) {
   ------------------------------------------------------------ */
 
   if (DEBUG) {
-    console.debug("[SANITIZE] cleaned output:\n", cleaned);
+  //  console.debug("[SANITIZE] cleaned output:\n", cleaned);
   }
 
   /* ------------------------------------------------------------

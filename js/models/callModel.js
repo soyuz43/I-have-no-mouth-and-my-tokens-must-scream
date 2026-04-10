@@ -7,13 +7,13 @@
 //  - Ollama
 //
 // Handles:
-//  - logging
 //  - role→model routing
 //  - provider normalization
 
 import { G } from "../core/state.js";
 import { stripThinkTags } from "../core/utils.js";
 import { enqueueModelCall } from "./modelQueue.js";
+
 /* ============================================================
    PUBLIC ENTRY
    ============================================================ */
@@ -22,8 +22,6 @@ export async function callModel(role, systemPrompt, messages, maxTokens = 1500) 
   const model = resolveModel(role);
 
   return enqueueModelCall(async () => {
-
-    debugRequest(role, model, systemPrompt, messages);
 
     if (G.backend === "anthropic") {
       return callAnthropic(model, systemPrompt, messages, maxTokens);
@@ -38,6 +36,7 @@ export async function callModel(role, systemPrompt, messages, maxTokens = 1500) 
   }, `${role}:${model}`);
 
 }
+
 /* ==========================================================
    MODEL ROUTING
    ============================================================ */
@@ -75,8 +74,6 @@ async function callAnthropic(model, systemPrompt, messages, maxTokens) {
 
   const d = await r.json();
 
-  debugResponse("Anthropic", d);
-
   if (d.error) {
     throw new Error(d.error.message);
   }
@@ -113,8 +110,6 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
     }
   };
 
-  debugBody(body);
-
   const r = await fetch("http://localhost:11434/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,123 +118,19 @@ async function callOllama(model, systemPrompt, messages, maxTokens) {
 
   const d = await r.json();
 
-  debugResponse("Ollama", d);
-
-  /* ============================================================
-     ======== RESPONSE GUARD (STRUCTURAL VALIDATION) ============
-     ============================================================ */
-
   if (!d.message || typeof d.message.content !== "string") {
     console.warn(
-      "===== [OLLAMA WARNING] INVALID RESPONSE SHAPE =====",
+      "[OLLAMA WARNING] Invalid response shape",
       d
     );
   }
 
   const raw = d.message?.content || "";
-
-  /* ============================================================
-     ===================== RAW OUTPUT ===========================
-     ============================================================ */
-
-  // console.log(
-  //   "%c++++ RAW MODEL OUTPUT ++++",
-  //   "color:#ff8800;font-weight:bold"
-  // );
-  // console.log(raw || "[EMPTY STRING]");
-
-  /* ============================================================
-     ===================== CLEANING =============================
-     ============================================================ */
-
   const cleaned = stripThinkTags(raw);
-
-  // console.log(
-  //   "%c++++ CLEANED MODEL OUTPUT ++++",
-  //   "color:#aa00aa;font-weight:bold"
-  // );
-  // console.log(cleaned || "[EMPTY STRING]");
-
-  /* ============================================================
-     ===================== SANITY CHECKS ========================
-     ============================================================ */
-
-  if (!raw.trim()) {
-    console.warn("===== [OLLAMA WARNING] RAW OUTPUT EMPTY =====");
-  }
-
-  if (!cleaned.trim()) {
-    console.warn("===== [OLLAMA WARNING] CLEANED OUTPUT EMPTY =====");
-  }
-
-  if (raw !== cleaned) {
-    console.log(
-      "%c[INFO] stripThinkTags modified output",
-      "color:#8888ff"
-    );
-  }
-
-  /* ============================================================
-     ===================== FINAL DIVIDER ========================
-     ============================================================ */
-
-  console.log(
-    "%c==================== [OLLAMA END] ====================",
-    "color:#00aa00;font-weight:bold"
-  );
 
   if (d.error) {
     throw new Error(d.error);
   }
 
   return cleaned;
-}
-
-
-
-/* ============================================================
-   DEBUG LOGGING
-   ============================================================ */
-
-function debugRequest(role, model, systemPrompt, messages) {
-
-  console.group(
-    `%c[MODEL CALL] role:${role} model:${model}`,
-    "color:#cc3300;font-weight:bold"
-  );
-
-  // console.log(
-  //   "%cSYSTEM PROMPT",
-  //   "color:#884400;font-weight:bold",
-  //   systemPrompt
-  // );
-
-  console.log(
-    "%cMESSAGES",
-    "color:#884400;font-weight:bold",
-    JSON.parse(JSON.stringify(messages))
-  );
-
-}
-
-function debugBody(body) {
-
-  console.log(
-    "%cREQUEST BODY",
-    "color:#004488;font-weight:bold",
-    JSON.parse(JSON.stringify(body))
-  );
-
-}
-
-function debugResponse(provider, response) {
-
-  console.log(
-    `%cRAW RESPONSE (${provider})`,
-    "color:#006600;font-weight:bold",
-    response
-  );
-
-  console.groupEnd();
-
 }

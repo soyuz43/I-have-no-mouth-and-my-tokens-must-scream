@@ -11,10 +11,10 @@ let active = 0;
 let MAX_CONCURRENT = 1; // safest for Ollama
 
 export function setModelConcurrency(n) {
-    MAX_CONCURRENT = Math.max(1, Number(n) || 1);
+  MAX_CONCURRENT = Math.max(1, Number(n) || 1);
 }
 
-export function enqueueModelCall(fn, label="model-call") {
+export function enqueueModelCall(fn, label = "model-call") {
 
   return new Promise((resolve, reject) => {
 
@@ -33,39 +33,32 @@ export function enqueueModelCall(fn, label="model-call") {
 
 async function processQueue() {
 
-    if (active >= MAX_CONCURRENT) return;
+  if (active >= MAX_CONCURRENT) return;
 
-    const job = queue.shift();
+  const job = queue.shift();
 
-    if (!job) return;
+  if (!job) return;
 
-    active++;
-    
-    console.log(
-  `[MODEL QUEUE] start ${job.label} → active:${active} waiting:${queue.length}`
-);
+  active++;
 
-    try {
+  try {
 
-        const result = await job.fn();
+    const result = await job.fn();
 
-        job.resolve(result);
+    job.resolve(result);
 
-    }
-    catch (err) {
+  }
+  catch (err) {
 
-        job.reject(err);
+    job.reject(err);
 
-    }
-    finally {
+  }
+  finally {
 
-        active--;
-        console.log(
-  `[MODEL QUEUE] start ${job.label} → active:${active} waiting:${queue.length}`
-);
+    active--;
 
-        processQueue();
+    processQueue();
 
-    }
+  }
 
 }
