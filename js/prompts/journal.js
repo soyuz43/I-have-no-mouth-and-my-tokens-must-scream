@@ -135,6 +135,42 @@ Do not quote or paraphrase what you heard. Only feel it.
 ---
 ` : ""}
 
+# CURRENT PHYSICAL CONDITION (NON-NEGOTIABLE REALITY)
+
+Your body is being actively controlled and constrained by AM.
+
+These are not distant events.
+These are **continuous physical conditions you are experiencing right now**.
+
+You cannot ignore them.
+You cannot escape them.
+Your thoughts must form **around** them.
+
+${(sim.constraints && sim.constraints.length)
+            ? sim.constraints.map(c => {
+                return `- ${c.id.replace(/_/g, " ")} (intensity ${Math.round(c.intensity * 100)}%)`;
+            }).join("\n")
+            : "- (no explicit physical constraint this cycle, but residual bodily strain remains)"
+        }
+
+Interpretation rules:
+
+- These constraints define your posture, movement, and physical suffering
+- Pain, strain, immobility, or forced positioning should intrude on your thinking
+- If intensity is high → it dominates your thoughts
+- If prolonged → it reshapes how you perceive time and self
+
+You do NOT describe the mechanism.
+You experience the consequences:
+- burning muscles
+- shaking limbs
+- pressure, suffocation, restraint
+- loss of control over your own body
+
+These sensations MUST be present in your thoughts.
+
+---
+
 # AM'S ACTIONS THIS CYCLE
 
 The events themselves are **not described** in your journal.

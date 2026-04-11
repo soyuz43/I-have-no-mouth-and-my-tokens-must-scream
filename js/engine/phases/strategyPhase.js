@@ -18,6 +18,7 @@ import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
 import { pickTactics } from "../tactics.js";
+import { applyConstraint, CONSTRAINT_LIBRARY } from "../constraints.js"; // <-- NEW IMPORT
 
 /* ============================================================
    STRATEGY PHASE ORCHESTRATOR
@@ -59,7 +60,7 @@ export async function runStrategyPhase(directive) {
         stage: result?.stage ?? "unknown",
         raw: result?.raw ?? null
       };
-      
+
       console.warn("[STRATEGY PHASE] pipeline failed", {
         stage: result?.stage,
         error: result?.error,
@@ -219,13 +220,63 @@ async function stepExecuteAM(planText, directive) {
 
   const simSeesAM = sanitizeAMOutput(amResponse);
 
+  const constraintMap = extractConstraintsFromText(amResponse);
+
+  console.debug("[EXECUTION] constraintMap:", constraintMap);
+
+  /* ------------------------------------------------------------
+     APPLY CONSTRAINTS USING PROPER HELPER (FIXED)
+  ------------------------------------------------------------ */
+
+  for (const sim of targets) {
+
+    const incoming = constraintMap[sim.id] || [];
+
+    if (!incoming.length) continue;
+
+    for (const c of incoming) {
+      const def = CONSTRAINT_LIBRARY.find(x => x.id === c.id);
+
+      if (!def) {
+        console.warn("[CONSTRAINT] Unknown constraint id:", c.id);
+        continue;
+      }
+
+      const alreadyActive = sim.constraints?.some(active => active.id === c.id);
+      if (alreadyActive) {
+        console.debug("[CONSTRAINT] already active, skipping reapply", {
+          sim: sim.id,
+          constraint: c.id
+        });
+        continue;
+      }
+
+      applyConstraint(sim, c.id, {
+        title: def.title,
+        subcategory: def.subcategory,
+        content: def.content,
+        intensity: Number(
+          c.intensity ??
+          (def.intensity && typeof def.intensity.default === "number"
+            ? def.intensity.default
+            : 1)
+        ),
+        duration: Number(c.duration ?? def.duration?.base_cycles ?? 1),
+        remaining: Number(c.duration ?? def.duration?.base_cycles ?? 1),
+        source: c.source ?? "AM"
+      });
+    }
+
+    console.debug("[CONSTRAINT APPLIED TO SIM]", sim.id, sim.constraints);
+  }
+
   return {
     amResponse,
     simSeesAM,
     targets,
     tacticMap,
+    constraintMap
   };
-
 }
 
 /* ============================================================
@@ -272,7 +323,9 @@ function parseAMTargets(amText) {
   while ((match = blockRegex.exec(amText)) !== null) {
 
     const action = match[1].trim();
-    const target = match[2].toUpperCase();
+    const target = resolveSimId(match[2]);
+
+    if (!target) continue;
 
     if (targets[target])
       targets[target] += " " + action;
@@ -291,6 +344,65 @@ function parseAMTargets(amText) {
 
   return targets;
 
+}
+
+/* ============================================================
+   CONSTRAINT PARSER (AM → EXECUTION)
+   ============================================================ */
+
+function extractConstraintsFromText(text) {
+
+  const lines = String(text || "").split("\n");
+  const map = {};
+
+  for (const line of lines) {
+
+    if (!line.includes("CONSTRAINT_APPLY:")) continue;
+
+    const match = line.match(
+      /CONSTRAINT_APPLY:\s*([a-zA-Z0-9_-]+)\s+TARGET:\s*([a-zA-Z0-9_-]+)(?:\s+DURATION:\s*(\d+))?(?:\s+INTENSITY:\s*([\d.]+))?/i
+    );
+
+    if (!match) continue;
+
+    const [, idRaw, targetRaw, durationRaw, intensityRaw] = match;
+
+    const id = String(idRaw).trim();
+    const target = resolveSimId(targetRaw);
+
+    if (!target) {
+      console.warn("[CONSTRAINT PARSER] invalid target, skipping", {
+        raw: targetRaw,
+        line
+      });
+      continue;
+    }
+
+    if (!map[target]) map[target] = [];
+
+    const durationNum = Number(durationRaw);
+    const intensityNum = Number(intensityRaw);
+
+    map[target].push({
+      id,
+      duration: Number.isFinite(durationNum) ? durationNum : 1,
+      remaining: Number.isFinite(durationNum) ? durationNum : 1,
+      intensity: Number.isFinite(intensityNum) ? intensityNum : 0.5,
+      source: "AM",
+      appliedAt: G.cycle
+    });
+    
+    console.debug("[CONSTRAINT PARSED]", {
+      target,
+      id,
+      duration: durationRaw,
+      intensity: intensityRaw
+    });
+  }
+
+  console.debug("[CONSTRAINT MAP BUILT]", JSON.parse(JSON.stringify(map)));
+
+  return map;
 }
 
 function buildTrajectorySummary() {
@@ -466,6 +578,16 @@ function sanitizeAMOutput(text) {
     .trim();
 }
 
+function resolveSimId(raw) {
+  if (!raw) return null;
+
+  const cleaned = String(raw)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+
+  return SIM_IDS.includes(cleaned) ? cleaned : null;
+}
 /* ============================================================
    AM STRATEGIC PHASE ENGINE (REACTIVE)
    ------------------------------------------------------------

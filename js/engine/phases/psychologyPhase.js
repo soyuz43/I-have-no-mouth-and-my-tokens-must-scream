@@ -50,6 +50,7 @@ import {
   validateNarrativeConsistency,
 } from "../state/validate.js";
 
+import { tickConstraints, CONSTRAINT_LIBRARY } from "../constraints.js";
 
 /* ============================================================
    BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
@@ -332,6 +333,11 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     // SANITIZE AM INPUT (CRITICAL)
     // Convert system-level AM output into subjective experience
     // ------------------------------------------------------------
+    const statsBefore = {
+      suffering: sim.suffering,
+      hope: sim.hope,
+      sanity: sim.sanity
+    };
 
     const rawAM = simSeesAM;
 
@@ -403,34 +409,80 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     // Allow validator to inspect deltas directly
     correctStatInconsistencies(sim, statDeltas);
 
-    // Apply stat changes with resistance
+    // Apply stat changes with resistance + cap + floor protection
 
-    const sufferingDelta =
-      statDeltas.suffering * statResistance(sim.suffering);
+    // ------------------------------------------------------------
+    const MAX_STEP = 8;
+    function capStep(x) {
+      return Math.max(-MAX_STEP, Math.min(MAX_STEP, x));
+    }
 
-    const hopeDelta =
-      statDeltas.hope * statResistance(sim.hope);
+    function floorResistStat(value) {
+      if (value < 15) return 0.5;
+      if (value < 35) return 0.8;
+      return 1;
+    }
 
-    const sanityDelta =
-      statDeltas.sanity * statResistance(sim.sanity);
+    function sufferingResist(value) {
+      if (value > 85) return 0.4;
+      if (value > 65) return 0.7;
+      return 1;
+    }
 
-    sim.suffering = clamp(
-      sim.suffering + sufferingDelta,
-      0,
-      99
-    );
+    const sufferingDeltaRaw = statDeltas.suffering * statResistance(sim.suffering);
+    const hopeDeltaRaw = statDeltas.hope * statResistance(sim.hope);
+    const sanityDeltaRaw = statDeltas.sanity * statResistance(sim.sanity);
 
-    sim.hope = clamp(
-      sim.hope + hopeDelta,
-      0,
-      99
-    );
+    const sufferingDelta = capStep(sufferingDeltaRaw) * sufferingResist(sim.suffering);
+    const hopeDelta = capStep(hopeDeltaRaw) * floorResistStat(sim.hope);
+    const sanityDelta = capStep(sanityDeltaRaw) * floorResistStat(sim.sanity);
 
-    sim.sanity = clamp(
-      sim.sanity + sanityDelta,
-      5,
-      99
-    );
+    sim.suffering = clamp(sim.suffering + sufferingDelta, 0, 99);
+    sim.hope = clamp(sim.hope + hopeDelta, 0, 99);
+    sim.sanity = clamp(sim.sanity + sanityDelta, 5, 99);
+
+    console.debug("[CONSTRAINT STATE]", sim.id, {
+      count: sim.constraints?.length ?? 0,
+      constraints: sim.constraints
+    });
+
+    if (sim.constraints?.length) {
+      console.debug("[CONSTRAINT RESOLUTION TEST]", sim.id,
+        sim.constraints.map(c => {
+          const def = CONSTRAINT_LIBRARY.find(x => x.id === c.id);
+          return {
+            id: c.id,
+            resolved: !!def
+          };
+        })
+      );
+    }
+    // ------------------------------------------------------------
+    // APPLY CONSTRAINT FORCES (CRITICAL)
+    // Constraints are deterministic physical pressure,
+    // separate from narrative-driven journal effects.
+    // ------------------------------------------------------------
+
+    if (sim.constraints?.length) {
+
+      if (G.DEBUG_CONSTRAINTS) {
+        console.debug("[CONSTRAINT][BEFORE TICK]", sim.id, {
+          suffering: sim.suffering,
+          hope: sim.hope,
+          sanity: sim.sanity
+        });
+      }
+
+      tickConstraints(sim);
+
+      if (G.DEBUG_CONSTRAINTS) {
+        console.debug("[CONSTRAINT][AFTER TICK]", sim.id, {
+          suffering: sim.suffering,
+          hope: sim.hope,
+          sanity: sim.sanity
+        });
+      }
+    }
     // ATTACH DELTAS TO CURRENT CYCLE TACTICS
 
     const recent = sim.tacticHistory
@@ -610,12 +662,13 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       "sim",
       tacticLabel,
     );
-
-    updateSimDisplay(sim, statDeltas);
-    return {
-      simId: sim.id,
-      diff
+    const actualDeltas = {
+      suffering: Math.round(sim.suffering - statsBefore.suffering),
+      hope: Math.round(sim.hope - statsBefore.hope),
+      sanity: Math.round(sim.sanity - statsBefore.sanity)
     };
+
+    updateSimDisplay(sim, actualDeltas);
 
   } catch (e) {
 
@@ -656,7 +709,7 @@ function statResistance(v) {
 
   // gentle linear resistance (weaker than beliefs)
   const resistance = Math.max(
-    0.4,
+    0.2,
     1 - (distance * 0.8)
   );
 
@@ -664,6 +717,7 @@ function statResistance(v) {
 }
 
 function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
+  const n = Number(v);
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
 }
-

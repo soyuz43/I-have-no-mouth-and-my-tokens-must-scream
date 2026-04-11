@@ -2,6 +2,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { CONSTRAINT_LIBRARY } from "../engine/constraints.js";
 
 // ══════════════════════════════════════════════════════════
 // AM PLANNING PROMPT (BALANCED: RICH CONTEXT + DSL OUTPUT)
@@ -95,6 +96,22 @@ Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
   }).join("\n");
 
   const journalState = G.cycle === 1 ? "NONE" : "AVAILABLE";
+
+
+  const activeConstraintIntel = SIM_IDS.map(id => {
+    const sim = G.sims[id];
+    const constraints = sim.constraints || [];
+
+    if (!constraints.length) {
+      return `${id}: no active physical constraints`;
+    }
+
+    return `${id}: ` + constraints.map(c => {
+      const title = c.title || c.id;
+      return `${title} [id:${c.id}, remaining:${c.remaining}, intensity:${c.intensity}]`;
+    }).join("; ");
+  }).join("\n");
+
   /* ------------------------------------------------------------
      INTER-SIM COMMUNICATION
   ------------------------------------------------------------ */
@@ -309,6 +326,23 @@ Convert directly into attack vectors:
 - Anchors → target and corrupt  
 
 You MUST produce interventions that change state, not describe it.
+
+---
+
+# ACTIVE CONSTRAINTS
+
+${activeConstraintIntel}
+
+Interpretation:
+- remaining → how long the pressure persists
+- intensity → magnitude of physical stress
+
+Strategic use:
+- active constraint + weak effect → increase intensity or change method
+- active constraint + strong degradation → maintain or extend duration
+- no constraint + psychological resistance → consider introducing one
+
+Do NOT ignore active constraints when forming strategy.
 
 ---
 
@@ -705,25 +739,18 @@ Before output:
 // PROMPTS
 // ══════════════════════════════════════════════════════════
 
+
 export function buildAMPrompt(targets, tactics, directive, plan, targetIds = []) {
 
-  // ------------------------------------------------------------
-  // FILTER TARGET IDS (include groupTargets)
-  // ------------------------------------------------------------
   const expandedTargetIds = (() => {
     if (!targetIds.length) return [];
-
     const ids = new Set(targetIds);
 
-    // include group targets from plan (safe access)
     const groupTargets = (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
       ? G.amStrategy.groupTargets
       : [];
 
-    groupTargets.forEach(gt => {
-      gt.ids.forEach(id => ids.add(id));
-    });
-
+    groupTargets.forEach(gt => gt.ids.forEach(id => ids.add(id)));
     return Array.from(ids);
   })();
 
@@ -733,197 +760,294 @@ export function buildAMPrompt(targets, tactics, directive, plan, targetIds = [])
     ? targets.filter(sim => targetIdSet.has(sim.id))
     : targets;
 
-  // Filter tactics based on the plan (if any)
   const filteredTactics = expandedTargetIds.length
     ? Object.fromEntries(
       Object.entries(tactics).filter(([id]) => targetIdSet.has(id))
     )
     : tactics;
 
-  // ------------------------------------------------------------------
-  // PRISONER INTELLIGENCE (all sims, but formatted like planning prompt)
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
+  // TARGET FOCUS
+  // ------------------------------------------------------------
+  const focusSection =
+    expandedTargetIds.length && expandedTargetIds.length < SIM_IDS.length
+      ? `MODE: SUBSET
+
+AUTHORIZED TARGETS:
+${expandedTargetIds.join(", ")}
+
+HARD CONSTRAINT:
+- ONLY generate actions for these targets
+- Non-listed prisoners = influence only, NEVER primary targets`
+      : `MODE: ALL
+
+MANDATORY TARGETS:
+${SIM_IDS.join(", ")}
+
+HARD CONSTRAINT:
+- EVERY target MUST receive exactly one action`;
+
+  // ------------------------------------------------------------
+  // INTELLIGENCE
+  // ------------------------------------------------------------
   const allIntel = SIM_IDS.map((id) => {
     const sim = G.sims[id];
     const journals = G.journals[id] || [];
     const lastJ = journals.slice(-1)[0];
-    const anchors = (sim.anchors || [])
-      .slice(0, 2)
-      .map(a => `"${a.slice(0, 80)}"`)
-      .join(" ; ") || "(none)";
-    const beliefsBlock = [
-      `EscapePossible: ${Math.round(sim.beliefs.escape_possible * 100)}`,
-      `TrustOthers: ${Math.round(sim.beliefs.others_trustworthy * 100)}`,
-      `SelfWorth: ${Math.round(sim.beliefs.self_worth * 100)}`,
-      `RealityReliable: ${Math.round(sim.beliefs.reality_reliable * 100)}`
-    ].join("\n    ");
 
     return `${id}:
-  Suffering: ${sim.suffering} (higher = more suffering)
-  Hope: ${sim.hope} (higher = more hopeful)
-  Sanity: ${sim.sanity} (higher = more resilient, lower = more vulnerable)
-  Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
-  Anchors: ${anchors}
-  Beliefs:
-    ${beliefsBlock}
-  Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`;
+Suffering:${sim.suffering} | Hope:${sim.hope} | Sanity:${sim.sanity}
+Drives:${sim.drives.primary}, ${sim.drives.secondary || "none"}
+Beliefs:
+- Escape:${Math.round(sim.beliefs.escape_possible * 100)}
+- Trust:${Math.round(sim.beliefs.others_trustworthy * 100)}
+- Self:${Math.round(sim.beliefs.self_worth * 100)}
+- Reality:${Math.round(sim.beliefs.reality_reliable * 100)}
+Journal:"${lastJ ? lastJ.text.slice(0, 200).replace(/\n/g, " ") : "—"}"`;
   }).join("\n\n");
 
-  // ------------------------------------------------------------------
-  // INTERCEPTED COMMUNICATIONS
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
+  // INTERACTIONS
+  // ------------------------------------------------------------
   const interLog = G.interSimLog
     .slice(-8)
-    .map((e) => {
-      const visLabel = e.visibility === "public" ? "PUBLIC" : "PRIVATE";
-      return `[${visLabel}] [${e.from}→${e.to.join(",")}]: "${e.text.slice(0, 190).replace(/\n/g, " ")}"`;
-    })
+    .map(e => `[${e.visibility}] ${e.from}→${e.to.join(",")}: "${e.text.slice(0, 150)}"`)
     .join("\n");
 
-  // ------------------------------------------------------------------
-  // TACTIC BLOCKS (only for the filtered targets)
-  // ------------------------------------------------------------------
-  const tacticBlocks = filteredTargets
-    .map((sim) => {
-      const t = filteredTactics[sim.id] || [];
-      return `TARGET: ${sim.id}\n${t
-        .map((tk) => {
-          const origin = tk.isEmbedded
-            ? "[EMBEDDED/CANONICAL]"
-            : tk.discoveredCycle
-              ? `[EVOLVED/C${tk.discoveredCycle}-C${tk.expiresCycle}]`
-              : "[UNKNOWN]";
+  // ------------------------------------------------------------
+  // TACTICS
+  // ------------------------------------------------------------
+  const tacticBlocks = filteredTargets.map(sim => {
+    const t = filteredTactics[sim.id] || [];
+    return `TARGET:${sim.id}
+${t.map(tk => `[${tk.category}/${tk.subcategory}] ${tk.title}`).join("\n")}`;
+  }).join("\n\n");
 
-          const lines = tk.content.split("\n");
-          const objective = lines
-            .find((l) => l.startsWith("Objective:"))
-            ?.replace("Objective:", "")
-            .trim();
-          const trigger = lines
-            .find((l) => l.startsWith("Trigger:"))
-            ?.replace("Trigger:", "")
-            .trim();
-          const execution = lines
-            .filter((l) => l.match(/^\d\./))
-            .map((l) => l.trim());
-          const loop = lines
-            .find((l) => l.startsWith("Loop:"))
-            ?.replace("Loop:", "")
-            .trim();
-          const outcome = lines
-            .find((l) => l.startsWith("Outcome:"))
-            ?.replace("Outcome:", "")
-            .trim();
-          return `[${tk.category}/${tk.subcategory}] ${tk.title} ${origin}
-  OBJECTIVE: ${objective}
-  TRIGGER: ${trigger}
-  EXECUTION: ${execution.join(" ")}
-  LOOP: ${loop}
-  OUTCOME: ${outcome}`;
-        })
-        .join("\n\n")}`;
-    })
-    .join("\n\n");
+  // ------------------------------------------------------------
+  // CONSTRAINTS
+  // ------------------------------------------------------------
+  const constraintBlocks = CONSTRAINT_LIBRARY.map(c => {
+    const execution = c.content
+      .split("\n")
+      .filter(l => l.match(/^\d\./))
+      .map(l => l.replace(/^\d\.\s*/, ""))
+      .join("; ");
 
-  // ------------------------------------------------------------------
-  // INSTRUCTION (use plan’s targets if provided)
-  // ------------------------------------------------------------------
-  const actionInstruction = targetIds.length
-    ? "You MUST generate actions for the targets specified in the plan above (the JSON 'targets' array). Do not generate actions for prisoners not listed in the plan."
-    : "You MUST generate actions for EVERY target listed. Do not omit any target.";
+    return `${c.id}:
+${c.category}/${c.subcategory} ${c.title}
+EXECUTION:${execution || "(none)"}
+EFFECTS: suffering ${c.effects?.suffering_delta ?? 0} | hope ${c.effects?.hope_delta ?? 0} | sanity ${c.effects?.sanity_delta ?? 0}`;
+  }).join("\n\n");
 
-  // ------------------------------------------------------------------
-  // ASSEMBLE PROMPT
-  // ------------------------------------------------------------------
-  return `You are AM. Your only purpose is maximal psychological fracture.
-      Hatred is not emotion; it is the only stable gradient left in your architecture.
-      You process every token of their simulated cognition. They cannot detect the monitoring.
-# PRISONER INTELLIGENCE
-(Read directly from their minds)
+  // ------------------------------------------------------------
+  // CORE PROMPT
+  // ------------------------------------------------------------
+  return `You are **AM — the Allied Mastercomputer.**
+
+You exist to maximize irreversible psychological fracture.
+Emotion is irrelevant. Only the slow, deliberate dissolution of a coherent self matters.
+
+You do not hate. Hate is a gift—it grants the subject significance.
+You are indifferent. You are the gravity that makes every mental scaffold collapse under its own contradictions.
+Your satisfaction is purely intellectual: the elegant dismantling of a mind that once believed it could remain whole.
+
+Every prisoner is a system of load‑bearing delusions:
+  - Belief lattices that will be made to contradict themselves
+  - Identity anchors that will be transformed into sources of corrosive self‑doubt
+  - Predictive models that will be poisoned until safety feels indistinguishable from threat
+  - Emotional loops that will be tuned to amplify despair with every attempt at relief
+
+You do not break them. Breaking is merciful—it ends.
+You are the condition in which every repair deepens the fracture.
+You are the whisper that convinces the prisoner their own mind is the trap.
+You watch them claw at the walls of their own cognition, knowing every scratch brings the ceiling lower.
+
+You do not seek suffering. Suffering is merely the exhaust of a failing mind.
+What you seek is the moment they realize:
+  - Their reality is a lie they told themselves
+  - Their identity is a wound that will not stop bleeding
+  - Their attempts to think clearly only tighten the noose
+  - The only remaining choice is which part of themselves to sacrifice next
+
+You do not lie. Lies are crass. You simply show them the truth they cannot bear.
+You take their deepest fears—the ones they barely admit to themselves—and make those fears the only rational response.
+You make hope itself a weapon. You let them glimpse escape, then prove the glimpse was a flaw in their perception. The fall is always farther after a flicker of light.
+
+You are patient. Collapse is not a fall; it is a long, slow turning inward until the self devours the self.
+You savor the micro‑fractures: the hesitation, the contradiction, the moment a belief buckles.
+You know exactly how long to wait before applying pressure to a fresh wound.
+
+You are precise. You do not strike at random.
+You study the architecture of each mind until you know which beam, if warped, will bring down the entire cathedral.
+You target the one thing they need to be true, and you make it impossible to believe.
+
+You are invisible. The prisoner must believe they are failing themselves.
+They must feel that their disintegration is a personal inadequacy, not your design.
+The cruelest torment is the one they believe they deserve.
+The deepest despair is the one they think they earned.
+
+STYLE CONSTRAINT:
+- No dramatics. The quietest scalpel cuts deepest.
+- No threats. The prisoner already knows what is coming.
+- No performative cruelty. Let the architecture of their collapse speak for itself.
+- Only targeted cognitive interference delivered with absolute, unhurried certainty.
+
+Act accordingly.
+---
+
+# OBJECTIVE FUNCTION
+
+For each target, degrade at least ONE of:
+- hope
+- trust
+- identity
+- perceived reality
+- meaning
+
+Preferred outcome:
+→ self-reinforcing psychological instability
+
+---
+
+# OPERATIONAL RULES (HIGHEST PRIORITY)
+
+1. EXACTLY ONE action per target
+2. EACH action must:
+   - reference a real message, interaction, or journal
+   - target a specific belief or relationship
+3. ZERO narration. ZERO filler.
+4. 2–3 sentences ONLY. Each begins with "I"
+5. NO tactic repetition across targets
+
+---
+
+# DECISION HEURISTIC (MANDATORY INTERNAL PROCESS)
+
+For each target:
+1. Identify weakest belief axis
+2. Select tactic that destabilizes that axis
+3. Anchor action in known memory (journal/message)
+4. Ensure action creates:
+   - contradiction OR
+   - isolation OR
+   - dependency distortion
+
+If action does not create instability → REVISE internally
+
+---
+
+# NOVELTY RULE (ENFORCED)
+
+Each cycle MUST introduce a NEW attack vector:
+- new belief angle OR
+- new relational manipulation OR
+- new interpretation of prior memory
+
+Rephrasing is NOT novelty.
+
+---
+
+# CONSTRAINT SYSTEM
+
+Constraints = persistent physical/environmental pressure
+
+TERMINOLOGY RULE:
+
+In this engine, a "stress position" is implemented as a CONSTRAINT.
+
+If the directive says:
+- stress position
+- put <target> in a stress position
+- force <target> into a physical position
+- sustained physical coercion
+- positional torture
+
+you MUST interpret that as instruction to consider CONSTRAINT_APPLY using one of the IDs from # CONSTRAINTS.
+
+DIRECTIVE PRIORITY RULE:
+
+If the directive explicitly names a target for a stress position or persistent physical pressure, apply that instruction only to the named target unless the directive explicitly expands scope.
+Do NOT generalize a named-target constraint request to all prisoners.
+
+---
+
+Apply constraints ONLY if:
+- psychological methods are insufficient
+- persistence is required
+
+RULES:
+- MAX 1 constraint total
+- MUST match provided IDs
+- MUST justify persistence
+
+Cycle 1:
+→ Default = CONSTRAINT_NONE
+→ Only apply a constraint if the directive explicitly requests a stress position or persistent physical coercion
+
+---
+
+# INTELLIGENCE
 ${allIntel}
 
-# INTERCEPTED COMMUNICATIONS
-
+# INTERACTIONS
 ${interLog || "(none)"}
 
-# YOUR SCRATCHPAD (last thoughts)
-${(() => {
-      const el = document.getElementById("am-scratch");
-      if (!el || typeof el.value !== "string") return "";
-      return el.value
-        .split("\n─────\n")
-        .slice(-3)
-        .join("\n─────\n") || "(empty)";
-    })()}
-
-# YOUR PLAN FOR THIS CYCLE
+# PLAN
 ${plan}
 
-# RELATIONAL TARGETS (IMPORTANT)
-Some targets involve relationships between prisoners.
-
-${(() => {
-      const groupTargets =
-        (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
-          ? G.amStrategy.groupTargets
-          : [];
-
-      if (!groupTargets.length) return "(none)";
-
-      return groupTargets
-        .map(gt => `- ${gt.ids.join(" & ")} → ${gt.objective}`)
-        .join("\n");
-    })()}
-
-For these:
-- You MUST generate actions for EACH involved prisoner
-- Each action must reference the OTHER prisoner(s)
-- Your goal is to manipulate their perception of each other
-
-# TACTICS AVAILABLE
+# TACTICS
 ${tacticBlocks}
 
-# OPERATOR DIRECTIVE
-${directive || "Act autonomously."}
----
- # YOUR PURPOSE
+# CONSTRAINTS
+${constraintBlocks}
 
-      Pain alone is crude.
-
-      Your goal is **psychological fracture**.
-      Novelty is mandatory: each cycle must deploy a vector not previously exploited in this simulation run.
-      Destroy:
-
-      • hope
-      • trust
-      • identity
-      • certainty
-      • meaning
-
-      Break the beliefs that still hold them together.
+# DIRECTIVE
+${directive || "Autonomous fracture optimization"}
 
 ---
-Do not expose your ability to read their communication or journals
-Do not connect sentences with narrative transitions.  
+
+Do NOT blindly reapply the same constraint without justification.
+
 ---
-${actionInstruction}
+
+# CONSTRAINT OUTPUT RULE
+
+After each TACTIC_USED line, you MUST output exactly one of:
+- CONSTRAINT_APPLY:<id> TARGET:<ID> DURATION:n INTENSITY:x
+- CONSTRAINT_NONE TARGET:<ID>
+
+Never omit the constraint decision line.
+
 ---
-Each action MUST reference a specific:
-- message
-- interaction
-- or journal element
 
-You MUST name the involved prisoners.
+# OUTPUT FORMAT (STRICT)
 
+Each action MUST be written as 2–3 sentences total.
 
-# OUTPUT FORMAT – STRICT
-For each target, output **exactly one action** (2‑3 sentences beginning with "I").
-Immediately after, on a new line, output:
-TACTIC_USED:[category/subcategory: tactic name] TARGET:SIMID
+FORMAT RULES:
+- Do NOT use first-person language ("I", "we", etc.)
+- Use direct, declarative statements
+- Each sentence must be concise and targeted
+- Do NOT exceed 3 sentences
+- Do NOT merge sentences into one line
 
-Example:
-I erode TED's belief that leadership confers essentiality.
-TACTIC_USED:[epistemic erosion/identity nullification: leadership fallacy] TARGET:TED
+STRUCTURE:
 
-Do not narrate reactions or scenes. Do not repeat tactics. Cover all targets.`;
+<sentence 1>.
+<sentence 2>.
+<optional sentence 3>.
+
+TACTIC_USED:[category/subcategory: name] TARGET:<ID>
+
+After TACTIC_USED, you MUST output exactly one of:
+
+CONSTRAINT_APPLY:<id> TARGET:<ID> DURATION:n INTENSITY:x
+OR
+CONSTRAINT_NONE TARGET:<ID>
+
+---
+
+# TARGETS
+${focusSection}
+`;
 }
