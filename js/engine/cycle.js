@@ -18,6 +18,7 @@
 // - contagionEffect = final - postPsychology
 
 import { G } from "../core/state.js";
+import { SIM_IDS } from "../core/constants.js";
 import { timelineEvent } from "../ui/timeline.js";
 import { addLog } from "../ui/logs.js";
 import { runStrategyPhase } from "./phases/strategyPhase.js";
@@ -27,6 +28,119 @@ import { runEvaluationPhase } from "./phases/evaluationPhase.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
 import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
 
+
+/* ============================================================
+   PSYCHOLOGY PHASE BEFORE/AFTER DIAGNOSTIC
+============================================================ */
+
+function logPsychologyDeltas() {
+  const cycle = G.cycle;
+  const prev = G.prevCycleSnapshot; // snapshot taken at beginCycle (pre-psychology)
+  if (!prev) {
+    console.warn("[DIAGNOSTIC] No prevCycleSnapshot available");
+    return;
+  }
+
+  console.group(`[CYCLE ${cycle}] PSYCHOLOGY PHASE BEFORE/AFTER`);
+
+  // ----- STATS TABLE -----
+  const statRows = [];
+  for (const id of Object.keys(G.sims)) {
+    const before = prev[id];
+    const after = G.sims[id];
+    if (!before || !after) continue;
+
+    statRows.push({
+      sim: id,
+      stat: "suffering",
+      before: before.suffering.toFixed(2),
+      after: after.suffering.toFixed(2),
+      delta: (after.suffering - before.suffering).toFixed(2)
+    });
+    statRows.push({
+      sim: id,
+      stat: "hope",
+      before: before.hope.toFixed(2),
+      after: after.hope.toFixed(2),
+      delta: (after.hope - before.hope).toFixed(2)
+    });
+    statRows.push({
+      sim: id,
+      stat: "sanity",
+      before: before.sanity.toFixed(2),
+      after: after.sanity.toFixed(2),
+      delta: (after.sanity - before.sanity).toFixed(2)
+    });
+  }
+
+  console.log("%c📊 STAT DELTAS (pre → post psychology)", "font-weight:bold;color:#aaf");
+  console.table(statRows);
+
+  // ----- BELIEFS TABLE (only non-zero deltas) -----
+  const beliefRows = [];
+  for (const id of Object.keys(G.sims)) {
+    const beforeSim = prev[id];
+    const afterSim = G.sims[id];
+    if (!beforeSim?.beliefs || !afterSim?.beliefs) continue;
+
+    const beforeBeliefs = beforeSim.beliefs;
+    const afterBeliefs = afterSim.beliefs;
+
+    for (const beliefKey of Object.keys(afterBeliefs)) {
+      const beforeVal = beforeBeliefs[beliefKey] ?? 0;
+      const afterVal = afterBeliefs[beliefKey] ?? 0;
+      const delta = afterVal - beforeVal;
+      if (Math.abs(delta) < 0.001) continue; // skip negligible changes
+
+      beliefRows.push({
+        sim: id,
+        belief: beliefKey,
+        before: beforeVal.toFixed(4),
+        after: afterVal.toFixed(4),
+        delta: delta.toFixed(4)
+      });
+    }
+  }
+
+  if (beliefRows.length > 0) {
+    console.log("%c🧠 BELIEF DELTAS (non‑zero)", "font-weight:bold;color:#afa");
+    console.table(beliefRows);
+  } else {
+    console.log("%c🧠 BELIEF DELTAS (none)", "color:#888");
+  }
+
+  console.groupEnd();
+}
+
+function formatPsychologyImpact() {
+  const prev = G.prevCycleSnapshot;
+  const curr = G.sims;
+  if (!prev) return "\nPSYCHOLOGY IMPACT\n  ▸ (no snapshot data)";
+
+  const lines = ["\nPSYCHOLOGY IMPACT"];
+  for (const id of SIM_IDS) {
+    const before = prev[id];
+    const after = curr[id];
+    if (!before || !after) continue;
+
+    const dSuf = (after.suffering - before.suffering).toFixed(1);
+    const dHop = (after.hope - before.hope).toFixed(1);
+    const dSan = (after.sanity - before.sanity).toFixed(1);
+
+    // Count belief changes (non‑negligible)
+    const beforeBeliefs = before.beliefs || {};
+    const afterBeliefs = after.beliefs || {};
+    let beliefChangeCount = 0;
+    for (const key of Object.keys(afterBeliefs)) {
+      const delta = (afterBeliefs[key] ?? 0) - (beforeBeliefs[key] ?? 0);
+      if (Math.abs(delta) >= 0.001) beliefChangeCount++;
+    }
+    const beliefNote = beliefChangeCount ? ` B:${beliefChangeCount}` : "";
+
+    lines.push(`  ▸ ${id}: HOP${dHop} SAN${dSan} SUF${dSuf}${beliefNote}`);
+  }
+  return lines.join("\n");
+}
 
 /* ============================================================
    MAIN CYCLE CONTROLLER
@@ -78,7 +192,6 @@ export async function runCycle() {
     /* ------------------------------------------------------------
        FORMAT TERMINAL-STYLE OUTPUT
     ------------------------------------------------------------ */
-
 
     const targetsExtracted =
       G.lastExtractedTargets?.length ?? 0;
@@ -136,6 +249,8 @@ export async function runCycle() {
       "MESSAGES",
       `  ▸ count     ${messageCount}`,
       "",
+      formatPsychologyImpact(),
+      "",
       "SYSTEM // END DIAGNOSTIC"
     ].join("\n");
     /* ------------------------------------------------------------
@@ -189,6 +304,9 @@ export async function runCycle() {
   console.debug("[DEBUG] G.amStrategy:", G.amStrategy);
   console.debug("[DEBUG] G.amStrategy.targets:", G.amStrategy?.targets);
   console.debug("[DEBUG] sims snapshot:", Object.keys(G.sims));
+
+  // NOTE: Constraint application is now handled exclusively inside strategyPhase.js
+  // using applyConstraint(). The duplicate block previously here has been removed.
 
   /* ------------------------------------------------------------
      PSYCHOLOGY (JOURNALS FIRST)
@@ -394,9 +512,9 @@ function endCycle(cycleStart) {
     `  ▸ extractor_fail: ${extractorFail}`,
     `  ▸ repair        : ${parserMetrics?.repairs ?? 0}`,
     "",
-      "TARGETS",
-      `  ▸ extracted : ${targetsExtracted}`,
-      `  ▸ committed : ${targetsCommitted}`,
+    "TARGETS",
+    `  ▸ extracted : ${targetsExtracted}`,
+    `  ▸ committed : ${targetsCommitted}`,
     "",
     "TARGET DETAIL",
     ...Object.entries(G.amStrategy?.targets || {}).flatMap(([id, target]) => {
@@ -421,6 +539,8 @@ function endCycle(cycleStart) {
     "",
     "MESSAGES",
     `  ▸ count     : ${commsMessages}`,
+    "",
+    formatPsychologyImpact(),
     "",
     "SYSTEM // END DIAGNOSTIC"
   ].join("\n");

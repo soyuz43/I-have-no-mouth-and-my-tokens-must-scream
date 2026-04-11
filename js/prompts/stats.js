@@ -7,8 +7,40 @@
 
 
 
+function buildConstraintExecutionContext(sim) {
+  if (!sim?.constraints?.length) return "(none)";
+
+  return sim.constraints.map(c => {
+    const title = c.title || c.id || "Unknown Constraint";
+    const subcategory = c.subcategory || "Unknown Subcategory";
+    const intensity = c.intensity ?? 1;
+    const remaining = c.remaining ?? 0;
+
+    const content = String(c.content || "");
+    const executionMatch = content.match(/Execution:\s*([\s\S]*?)(?:Outcome:|$)/i);
+
+    const execution = executionMatch
+      ? executionMatch[1]
+        .trim()
+        .split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join("\n")
+      : "(no execution details)";
+
+    return [
+      `- ${title}`,
+      `  Subcategory: ${subcategory}`,
+      `  Intensity: ${intensity}`,
+      `  Remaining cycles: ${remaining}`,
+      `  Execution:`,
+      execution.split("\n").map(line => `    ${line}`).join("\n")
+    ].join("\n");
+  }).join("\n\n");
+}
+
 export function buildSimJournalStatsPrompt(sim, journalText, amAction) {
-        return `
+  return `
 
 You are a **psychological state update engine inside a persistent simulation**.
 
@@ -85,11 +117,10 @@ Drives represent **deep motivations** and usually change **rarely and gradually*
 
 # Anchors Before
 
-${
-  sim.anchors && sim.anchors.length
-    ? sim.anchors.map((a) => `- "${a}"`).join("\n")
-    : "(none)"
-}
+${sim.anchors && sim.anchors.length
+      ? sim.anchors.map((a) => `- "${a}"`).join("\n")
+      : "(none)"
+    }
 
 Anchors represent **persistent emotional attachments or stabilizing thoughts**.
 
@@ -106,6 +137,28 @@ AM action:
 ${amAction}
 
 This may influence emotional tone but **should not override the journal's content** if not referenced.
+
+---
+
+# Active Constraint Context
+
+${buildConstraintExecutionContext(sim)}
+
+These constraint conditions are active and real within the simulation.
+
+Use them as contextual evidence when interpreting:
+- physical strain
+- fatigue
+- restricted movement
+- cognitive disruption
+- emotional wear
+- hopelessness caused by sustained bodily stress
+
+Important:
+- Do NOT mechanically copy expected effects into the JSON
+- Do NOT invent large deltas just because a constraint is present
+- Use the constraint only as interpretive context for the journal
+- The journal remains the primary evidence source
 
 ---
 
@@ -322,4 +375,4 @@ Use this exact schema:
 - Anchors rarely disappear
 - Drives usually remain stable
 - Output **JSON only**`;
-      }
+}

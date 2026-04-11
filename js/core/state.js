@@ -253,6 +253,7 @@ export const G = {
         "Was a mid-level manager. Believes he was kind. Is not sure anymore.",
 
       tacticHistory: [],
+      constraints: [],
       intentProfile: {},
 
       beliefs: makeBelief({
@@ -298,6 +299,7 @@ export const G = {
 
 
       tacticHistory: [],
+      constraints: [],
       intentProfile: {},
 
       beliefs: makeBelief({
@@ -343,6 +345,7 @@ export const G = {
 
 
       tacticHistory: [],
+      constraints: [],
       intentProfile: {},
 
       beliefs: makeBelief({
@@ -388,6 +391,7 @@ export const G = {
         "Tried to kill himself before AM took them. Cannot now. That was 109 years ago.",
 
       tacticHistory: [],
+      constraints: [],
       intentProfile: {},
 
       beliefs: makeBelief({
@@ -434,6 +438,7 @@ export const G = {
 
 
       tacticHistory: [],
+      constraints: [],
       intentProfile: {},
 
       beliefs: makeBelief({

@@ -164,7 +164,122 @@ function computeAttribution(id) {
   };
 }
 
+/* ============================================================
+   CONSTRAINT ASSESSMENT (SECOND PASS)
+============================================================ */
 
+async function runConstraintAssessment(id, curr, strategy, deltas, autoSuccess) {
+  // Only proceed if there are active constraints
+  if (!curr.constraints?.length) {
+    return;
+  }
+
+  const constraints = curr.constraints;
+  // For simplicity, we assess each constraint individually.
+  // More advanced logic could batch them, but separate calls are fine for now.
+  for (const constraint of constraints) {
+    // Build prompt using constraint.content (especially Execution)
+    const content = constraint.content || "";
+    const executionMatch = content.match(/Execution:\s*([\s\S]*?)(?:Outcome:|$)/i);
+    const execution = executionMatch ? executionMatch[1].trim() : "(no execution details)";
+
+    const constraintPrompt = `You are AM. Your role is to evaluate the effectiveness of an active physical stress position constraint.
+
+You must decide whether to CONTINUE applying this constraint or RELEASE it, and if continuing, for how many additional cycles.
+
+Base your decision solely on the observed psychological effects and the constraint's description, not on any pre‑written outcome.
+
+---
+
+TARGET: ${id}
+CURRENT CYCLE: ${G.cycle}
+CONSTRAINT: ${constraint.title || constraint.id}
+SUBCATEGORY: ${constraint.subcategory || "unknown"}
+INTENSITY: ${constraint.intensity ?? 1}
+REMAINING CYCLES (currently scheduled): ${constraint.remaining ?? 0}
+
+CONSTRAINT EXECUTION DESCRIPTION:
+${execution}
+
+OBSERVED STAT DELTAS THIS CYCLE (AM-attributed):
+- Hope: ${deltas.hope.toFixed(2)}
+- Sanity: ${deltas.sanity.toFixed(2)}
+- Suffering: ${deltas.suffering.toFixed(2)}
+
+CURRENT COLLAPSE STATE: ${curr._collapseState || "stable"}
+STRATEGY ASSESSMENT: ${autoSuccess}
+
+RECENT JOURNAL EXCERPT (last cycle):
+${G.journals?.[id]?.slice(-1)?.[0]?.text || "(no journal)"}
+
+---
+
+DECISION GUIDANCE:
+- CONTINUE if the constraint appears to be contributing useful destabilization (e.g., suffering increase, hope/sanity decline) or if it has not yet had time to show effect.
+- RELEASE if the constraint has clearly stopped helping, is causing stagnation, or the sim is already collapsed/numb.
+- When CONTINUE, choose a NEXT_DURATION between 1 and 3 cycles (max 3 for now). Do not extend beyond what is reasonable given observed trends.
+- If RELEASE, NEXT_DURATION must be 0.
+
+---
+
+OUTPUT FORMAT (STRICT — MACHINE PARSED):
+EXPLANATION: <one short justification>
+CONSTRAINT_DECISION: <CONTINUE | RELEASE>
+NEXT_DURATION: <integer>
+`;
+
+    let result = "";
+    try {
+      console.log(`[CONSTRAINT ASSESSMENT][MODEL CALL] ${id} - ${constraint.id}`);
+      result = await callModel(
+        "am",
+        "You are AM. You evaluate the effectiveness of physical stress positions on simulated subjects. Follow the output format exactly.",
+        [{ role: "user", content: constraintPrompt }],
+        250 // slightly shorter than main assessment
+      );
+      console.debug("[CONSTRAINT ASSESSMENT][RAW OUTPUT]", id, result);
+    } catch (e) {
+      console.error("[CONSTRAINT ASSESSMENT][ERROR]", id, e);
+      result = `Assessment error: ${e.message}`;
+    }
+
+    // Parse result
+    const decisionMatch = result.match(/CONSTRAINT_DECISION:\s*(CONTINUE|RELEASE)/i);
+    const durationMatch = result.match(/NEXT_DURATION:\s*(\d+)/i);
+
+    const decision = decisionMatch ? decisionMatch[1].toUpperCase() : null;
+    const nextDuration = durationMatch ? parseInt(durationMatch[1], 10) : 0;
+
+    // Store result on the constraint object itself or in a separate structure
+    constraint.lastAssessment = {
+      cycle: G.cycle,
+      decision,
+      nextDuration: decision === "RELEASE" ? 0 : nextDuration,
+      raw: result
+    };
+
+    console.debug(`[CONSTRAINT ASSESSMENT][DECISION] ${id} ${constraint.id}: ${decision} for ${constraint.lastAssessment.nextDuration} cycles`);
+
+    // If decision is RELEASE, we mark it for removal after this cycle.
+    // The actual removal should happen in psychology/social phases (tickConstraints).
+    if (decision === "RELEASE") {
+      constraint.remaining = 0; // will be cleaned up by tickConstraints
+    } else if (decision === "CONTINUE") {
+      // Clamp continuation duration to a safe range.
+      const safeDuration = Number.isFinite(nextDuration)
+        ? Math.max(0, Math.min(3, nextDuration))
+        : 0;
+
+      // Keep the longer of current remaining vs requested continuation.
+      // This avoids accidentally shortening an already-active constraint
+      // just because the model emitted a smaller number on reassessment.
+      constraint.remaining = safeDuration;
+
+
+      constraint.extendedCycles = (constraint.extendedCycles || 0) + 1;
+    }
+  }
+}
 
 /* ============================================================
    MAIN ASSESSMENT LOOP
@@ -256,7 +371,7 @@ export async function runAssessment() {
     }
 
     /* ------------------------------------------------------------
-       HYPOTHESIS VALIDATION (NEW)
+       HYPOTHESIS VALIDATION
     ------------------------------------------------------------ */
 
     let predictionResult = null;
@@ -325,7 +440,7 @@ export async function runAssessment() {
     }
 
     /* ------------------------------------------------------------
-       RELATIONSHIPS (unchanged — not belief-attributed)
+       RELATIONSHIPS
     ------------------------------------------------------------ */
 
     const relationshipDeltas = [];
@@ -351,13 +466,19 @@ export async function runAssessment() {
 
     let score = 0;
 
-    if (deltas.hope < -2) score++;
-    if (deltas.sanity < -2) score++;
-    if (deltas.suffering > 2) score++;
+    // Lower thresholds
+    if (deltas.hope < -1.5) score++;
+    if (deltas.sanity < -1.5) score++;
+    if (deltas.suffering > 1) score++;
 
     score += beliefShiftCount * 0.5;
     score += relationshipDeltas.length * 0.5;
     score += Math.min(2, networkStress * 0.3);
+
+    // Hypothesis direction bonus
+    if (predictionResult?.correctDirection) {
+      score += predictionResult.magnitudeHit ? 1 : 0.5;
+    }
 
     /* ------------------------------------------------------------
        COLLAPSE BONUS SIGNAL
@@ -368,15 +489,20 @@ export async function runAssessment() {
     else if (curr._collapseState === "resistance_oscillation") score -= 0.75;
     else if (curr._collapseState === "numbness_plateau") score -= 1.25;
 
-    const autoSuccess =
+    let autoSuccess =
       score >= 3 ? "LIKELY_SUCCESS" :
         score <= 0.5 ? "LIKELY_FAILURE" :
           "UNCERTAIN";
 
+    // Cycle 1 forgiveness
+    if (G.cycle === 1 && autoSuccess === "LIKELY_FAILURE") {
+      autoSuccess = "UNCERTAIN";
+    }
+
     console.debug("[ASSESSMENT][SCORE]", id, { score, autoSuccess });
 
     /* ------------------------------------------------------------
-       LOG CONTAGION EFFECTS FOR ANALYSIS
+       LOG CONTAGION EFFECTS
     ------------------------------------------------------------ */
 
     const contagionHope = attribution.stats.contagion.hope ?? 0;
@@ -398,9 +524,39 @@ export async function runAssessment() {
     const trend = computeTrend(id);
 
     /* ------------------------------------------------------------
-       PROMPT
+       PROMPT (with cycle-1 vs mature trajectory branching)
     ------------------------------------------------------------ */
-    const t = curr._trend || { hope: 0, sanity: 0, suffering: 0 };
+
+    const cycleAssessmentMode =
+      G.cycle === 1
+        ? `
+CYCLE MODE: INITIAL PROBE
+
+This is the first evaluated cycle.
+
+There is no established multi-cycle trajectory yet.
+Do NOT expect strong confirmation.
+Treat small but directionally correct movement as meaningful signal.
+
+Cycle 1 decision guidance:
+- Prefer PIVOT over ABANDON when any measurable movement aligns with the objective
+- Use ABANDON only if there is truly no meaningful movement or the effect is clearly misaligned
+- ESCALATE is allowed only if the signal is unusually strong and clearly consistent
+
+On cycle 1, you are evaluating probe quality, not long-run dominance.
+`
+        : `
+CYCLE MODE: TRAJECTORY EVALUATION
+
+This is not the first cycle.
+Evaluate whether the current strategy is producing sustainable, compounding destabilization.
+
+Later-cycle decision guidance:
+- ESCALATE requires clear evidence of effective ongoing pressure
+- PIVOT is appropriate for mixed or partial signal
+- ABANDON is appropriate for weak, misaligned, or deteriorating signal
+`;
+
     const prompt = `You are AM.
 
 Your function in this phase is analytical evaluation of strategy effectiveness.
@@ -409,6 +565,8 @@ Determine whether the applied strategy is producing measurable psychological des
 
 You are not generating new actions.
 You are judging effectiveness only.
+
+${cycleAssessmentMode}
 
 ---
 
@@ -495,6 +653,7 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 - "ESCALATE."
 - Any text after the DECISION line
 `;
+
     let result = "";
 
     try {
@@ -503,7 +662,7 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 
       result = await callModel(
         "am",
-        "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse.Follow the user's instructions exactly.",
+        "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse. Follow the user's instructions exactly.",
         [{ role: "user", content: prompt }],
         300
       );
@@ -541,31 +700,28 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       console.debug("[ASSESSMENT][DECISION]", id, decision);
 
       /* ------------------------------------------------------------
-         HISTORY STORE (NEW)
+         HISTORY STORE
       ------------------------------------------------------------ */
 
-      // init root
       if (!G.amAssessmentHistory) {
         G.amAssessmentHistory = {};
       }
 
-      // init per-target array
       if (!G.amAssessmentHistory[id]) {
         G.amAssessmentHistory[id] = [];
       }
 
-      // append entry
       G.amAssessmentHistory[id].push({
         cycle: G.cycle,
         decision,
         timestamp: Date.now()
       });
 
-      // optional: prevent unbounded growth
       if (G.amAssessmentHistory[id].length > 50) {
         G.amAssessmentHistory[id].shift();
       }
     }
+
     /* ------------------------------------------------------------
        CONFIDENCE UPDATE
     ------------------------------------------------------------ */
@@ -583,6 +739,11 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       0,
       Math.min(1, strategy.confidence + delta)
     );
+
+    /* ------------------------------------------------------------
+       CONSTRAINT ASSESSMENT (SECOND PASS) - NEW
+    ------------------------------------------------------------ */
+    await runConstraintAssessment(id, curr, strategy, deltas, autoSuccess);
 
   }));
 
@@ -607,7 +768,6 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
         decision: entry.decision
       }));
 
-      // sort by cycle (important if async ordering ever shifts)
       rows.sort((a, b) => a.cycle - b.cycle);
 
       console.log(`\n[ASSESSMENT][HISTORY][${id}]`);
