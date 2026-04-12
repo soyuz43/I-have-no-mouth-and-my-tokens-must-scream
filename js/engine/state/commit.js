@@ -37,10 +37,17 @@ export function softClampBelief(v) {
 
 export function applyBeliefUpdates(sim, updates, options = {}) {
 
+  for (const [k, v] of Object.entries(sim.beliefs)) {
+    if (v < 0 || v > 1) {
+      console.error(`[PRE-COMMIT CORRUPTION][${sim.id}.${k}]`, v);
+    }
+  }
+
   const {
     DEBUG = true,
     MIN_DELTA = 0,
-    NORMALIZE_KEYS = true
+    NORMALIZE_KEYS = true,
+    SKIP_DAMPING = false
   } = options;
 
   if (!updates || !sim?.beliefs) {
@@ -115,14 +122,16 @@ export function applyBeliefUpdates(sim, updates, options = {}) {
     // --- damping ---
     const deltaBeforeDamping = delta;
 
-    try {
-      delta = dampBeliefDelta(sim, key, belief, delta);
-    } catch (err) {
-      errors.push({ key, reason: "damping_error", err });
-      if (DEBUG) {
-        console.error(`[COMMIT] damping error`, key, err);
+    if (!SKIP_DAMPING) {
+      try {
+        delta = dampBeliefDelta(sim, key, belief, delta);
+      } catch (err) {
+        errors.push({ key, reason: "damping_error", err });
+        if (DEBUG) {
+          console.error(`[COMMIT] damping error`, key, err);
+        }
+        continue;
       }
-      continue;
     }
 
 
@@ -149,9 +158,28 @@ export function applyBeliefUpdates(sim, updates, options = {}) {
       continue;
     }
 
-    // --- apply update ---
-    let newVal = belief + delta;
-    newVal = softClampBelief(newVal);
+
+    // --- boundary-aware scaling BEFORE apply ---
+    let adjustedDelta = delta;
+
+    // --- STRICT boundary enforcement ---
+    const maxUp = 1 - belief;
+    const maxDown = -belief;
+
+    adjustedDelta = Math.max(
+      maxDown,
+      Math.min(maxUp, adjustedDelta)
+    );
+
+    let newVal = belief + adjustedDelta;
+
+    if (newVal > 1 || newVal < 0) {
+      console.error(`[OVERFLOW BEFORE CLAMP][${sim.id}.${key}]`, {
+        belief,
+        adjustedDelta,
+        attempted: newVal
+      });
+    }
 
     if (!Number.isFinite(newVal)) {
       errors.push({ key, reason: "non_finite_result", value: newVal });
@@ -161,7 +189,27 @@ export function applyBeliefUpdates(sim, updates, options = {}) {
       continue;
     }
 
+    // FINAL SAFETY CLAMP (must always hold invariant)
+    if (!Number.isFinite(newVal)) {
+      console.warn(`[COMMIT] invalid belief value for ${sim.id}.${key}`, newVal);
+      return;
+    }
+
+    if (newVal < 0 || newVal > 1) {
+      console.warn(`[COMMIT] clamping ${sim.id}.${key}`, {
+        before: newVal,
+        clamped: Math.max(0, Math.min(1, newVal))
+      });
+    }
+
+    newVal = Math.max(0, Math.min(1, newVal));
+
     sim.beliefs[key] = newVal;
+
+
+    if (sim.beliefs[key] < 0 || sim.beliefs[key] > 1) {
+      console.error(`[POST-COMMIT WRITE CORRUPTION][${sim.id}.${key}]`, sim.beliefs[key]);
+    }
 
     applied.push({
       key,
@@ -170,15 +218,30 @@ export function applyBeliefUpdates(sim, updates, options = {}) {
       deltaAfter: delta,
       after: newVal
     });
+    const theoretical = belief + deltaBeforeDamping;
+    const damped = belief + delta;
+
+    const hitUpper = damped > 1;
+    const hitLower = damped < 0;
+    const wasClamped = hitUpper || hitLower;
 
     if (DEBUG) {
-      console.debug(`[COMMIT] applied`, {
-        key,
+      console.groupCollapsed(`[BELIEF FLOW][${sim.id}] ${key}`);
+
+      console.table({
         before: belief,
-        deltaBefore: deltaBeforeDamping,
-        deltaAfter: delta,
-        after: newVal
+        raw_delta: deltaBeforeDamping,
+        damped_delta: delta,
+        adjusted_delta: adjustedDelta,
+        theoretical_after: theoretical,
+        damped_after: damped,
+        final_after: newVal,
+        hit_upper_bound: hitUpper,
+        hit_lower_bound: hitLower,
+        was_clamped: wasClamped
       });
+
+      console.groupEnd();
     }
   }
 

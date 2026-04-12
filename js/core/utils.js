@@ -428,7 +428,7 @@ export function clipBeliefDelta(value) {
   // ------------------------------------------------------------
   // 3. HARD CLAMP (SYSTEM SAFETY)
   // ------------------------------------------------------------
-  const MAX = 0.25;
+  const MAX = 0.4;
 
   if (Math.abs(n) > MAX) {
     console.debug("[DELTA] clipped", {

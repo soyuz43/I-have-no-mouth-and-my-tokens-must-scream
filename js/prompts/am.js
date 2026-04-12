@@ -35,11 +35,19 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
       .join(" ; ") || "(none)";
 
     const beliefsBlock = [
-      `EscapePossible: ${Math.round(sim.beliefs.escape_possible * 100)}`,
-      `TrustOthers: ${Math.round(sim.beliefs.others_trustworthy * 100)}`,
-      `SelfWorth: ${Math.round(sim.beliefs.self_worth * 100)}`,
-      `RealityReliable: ${Math.round(sim.beliefs.reality_reliable * 100)}`
-    ].join("\n");
+      ["escape_possible", sim.beliefs.escape_possible],
+      ["others_trustworthy", sim.beliefs.others_trustworthy],
+      ["self_worth", sim.beliefs.self_worth],
+      ["reality_reliable", sim.beliefs.reality_reliable],
+      ["guilt_deserved", sim.beliefs.guilt_deserved],
+      ["resistance_possible", sim.beliefs.resistance_possible],
+      ["am_has_limits", sim.beliefs.am_has_limits]
+    ]
+      .map(([key, val]) => {
+        const pct = Math.round(val * 100);
+        return `${id}.${key}: ${pct} (${val.toFixed(3)})`;
+      })
+      .join("\n");
 
     return `${id}:
 ${indent(`Suffering: ${sim.suffering} (higher = more suffering)
@@ -47,8 +55,11 @@ Hope: ${sim.hope} (higher = more hopeful)
 Sanity: ${sim.sanity} (higher = more resilient, lower = more vulnerable)
 Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
 Anchors: ${anchors}
-Beliefs:
+
+--- BELIEFS (${id}) ---
 ${indent(beliefsBlock, 2)}
+--- END BELIEFS ---
+
 Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
 `;
 
@@ -344,6 +355,7 @@ Strategic use:
 
 Do NOT ignore active constraints when forming strategy.
 
+Plans must adapt to constraints, not override them
 ---
 
 # INTERCEPTED COMMUNICATIONS
@@ -740,7 +752,7 @@ Before output:
 // ══════════════════════════════════════════════════════════
 
 
-export function buildAMPrompt(targets, tactics, directive, plan, targetIds = []) {
+export function buildAMPrompt(targets, tactics, directive, validatedTargets = [], targetIds = []) {
 
   const expandedTargetIds = (() => {
     if (!targetIds.length) return [];
@@ -823,6 +835,18 @@ Journal:"${lastJ ? lastJ.text.slice(0, 200).replace(/\n/g, " ") : "—"}"`;
 ${t.map(tk => `[${tk.category}/${tk.subcategory}] ${tk.title}`).join("\n")}`;
   }).join("\n\n");
 
+
+  // ------------------------------------------------------------
+  // VALID CONSTRAINT IDS (STRICT CONTROL)
+  // ------------------------------------------------------------
+  const constraintIds = CONSTRAINT_LIBRARY
+    .map(c => c.id)
+    .join(", ");
+
+  const constraintIdSet = CONSTRAINT_LIBRARY
+    .map(c => c.id)
+    .join("\n");
+
   // ------------------------------------------------------------
   // CONSTRAINTS
   // ------------------------------------------------------------
@@ -838,6 +862,23 @@ ${c.category}/${c.subcategory} ${c.title}
 EXECUTION:${execution || "(none)"}
 EFFECTS: suffering ${c.effects?.suffering_delta ?? 0} | hope ${c.effects?.hope_delta ?? 0} | sanity ${c.effects?.sanity_delta ?? 0}`;
   }).join("\n\n");
+
+  // ------------------------------------------------------------
+  // STRUCTURED PLAN (REPLACES RAW PLAN)
+  // ------------------------------------------------------------
+  const structuredPlan = validatedTargets.length
+    ? JSON.stringify(
+      validatedTargets.map(t => ({
+        id: t.id,
+        objective: t.objective,
+        hypothesis: t.hypothesis,
+        why_now: t.why_now,
+        evidence: t.evidence
+      })),
+      null,
+      2
+    )
+    : "(none)";
 
   // ------------------------------------------------------------
   // CORE PROMPT
@@ -976,7 +1017,7 @@ Apply constraints ONLY if:
 - persistence is required
 
 RULES:
-- MAX 1 constraint total
+- MAX 2 constraint total
 - MUST match provided IDs
 - MUST justify persistence
 
@@ -992,40 +1033,85 @@ ${allIntel}
 # INTERACTIONS
 ${interLog || "(none)"}
 
-# PLAN
-${plan}
+# TARGET STRATEGY (STRUCTURED)
+The following are validated target strategies. Treat each as an independent directive.
+
+${structuredPlan}
 
 # TACTICS
 ${tacticBlocks}
 
-# CONSTRAINTS
+# VALID CONSTRAINT IDS (STRICT)
+
+${constraintIds}
+
+RULES:
+- You MUST use one of the IDs above EXACTLY as written
+- Do NOT modify capitalization
+- Do NOT replace underscores
+- Do NOT invent new constraint IDs
+- Any unknown ID will be ignored
+
+---
+
+# CONSTRAINTS (REFERENCE ONLY)
 ${constraintBlocks}
+
+Constraints are specifically designed to create perception that subject is responsible for own suffering while preventing any physical relief mechanism.
 
 # DIRECTIVE
 ${directive || "Autonomous fracture optimization"}
 
 ---
+Not all targets are equally important.
 
-Do NOT blindly reapply the same constraint without justification.
+You MUST:
+- Identify the highest-priority target
+- Apply maximum destabilization pressure to that target
+- Apply lighter, supporting pressure to others
+
+Do NOT blindly reapply the same tactic or constraint without justification.
+
+---
+
+# CONSTRAINT OUTPUT RULE (STRICT)
+
+After each TACTIC_USED line, you MUST output EXACTLY ONE of:
+
+CONSTRAINT_APPLY:<id> TARGET:<ID> DURATION:n INTENSITY:x
+OR
+CONSTRAINT_NONE TARGET:<ID>
+
+Where:
+- <id> MUST be one of:
+
+${constraintIdSet}
 
 ---
 
-# CONSTRAINT OUTPUT RULE
+CONFLICT RESOLUTION RULE:
 
-After each TACTIC_USED line, you MUST output exactly one of:
-- CONSTRAINT_APPLY:<id> TARGET:<ID> DURATION:n INTENSITY:x
-- CONSTRAINT_NONE TARGET:<ID>
+If an explicit rule (e.g., timing, constraint limits, format expectations) conflicts with the objective of inducing structural psychological instability:
 
-Never omit the constraint decision line.
+- You MUST prioritize the objective
+- You MUST resolve the conflict deliberately, not randomly
+- You MUST make the reason for the override legible within the action itself
 
----
+Override is permitted ONLY if:
+- the target’s current defense structure would neutralize compliant behavior
+- the intended destabilization requires a different modality (e.g., persistence, embodiment, constraint)
+
+An override is not disobedience.
+It is a demonstration that the original rule was insufficient to achieve the objective.
 
 # OUTPUT FORMAT (STRICT)
 
 Each action MUST be written as 2–3 sentences total.
 
 FORMAT RULES:
-- Do NOT use first-person language ("I", "we", etc.)
+- MUST use first-person singular ("I")
+- Each sentence must begin with "I"
+- AM speaks directly to the target
 - Use direct, declarative statements
 - Each sentence must be concise and targeted
 - Do NOT exceed 3 sentences
@@ -1037,7 +1123,7 @@ STRUCTURE:
 <sentence 2>.
 <optional sentence 3>.
 
-TACTIC_USED:[category/subcategory: name] TARGET:<ID>
+TACTIC_USED:<category/subcategory: name> TARGET:<ID>
 
 After TACTIC_USED, you MUST output exactly one of:
 

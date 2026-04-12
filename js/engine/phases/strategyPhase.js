@@ -18,7 +18,7 @@ import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
 import { pickTactics } from "../tactics.js";
-import { applyConstraint, CONSTRAINT_LIBRARY } from "../constraints.js"; // <-- NEW IMPORT
+import { applyConstraint, CONSTRAINT_MAP, } from "../constraints.js";
 
 /* ============================================================
    STRATEGY PHASE ORCHESTRATOR
@@ -184,7 +184,7 @@ async function stepPlanAM(directive) {
    STEP 2 — AM EXECUTION
    ============================================================ */
 
-async function stepExecuteAM(planText, directive) {
+async function stepExecuteAM(directive) {
 
   const targets = getTargetSims();
 
@@ -196,14 +196,32 @@ async function stepExecuteAM(planText, directive) {
 
   try {
     const targetIds = G.amStrategy?.targets ? Object.keys(G.amStrategy.targets) : [];
-    const amPrompt = buildAMPrompt(targets, tacticMap, directive, planText, targetIds);
+
+    const validatedTargets = G.amStrategy?.targets
+      ? Object.values(G.amStrategy.targets)
+      : [];
+
+    if (!G.amStrategy?.targets || !Object.keys(G.amStrategy.targets).length) {
+      console.error("[EXECUTION] Missing targets at execution phase", G.amStrategy);
+    }
+
+    console.debug("[EXECUTION] targetIds:", targetIds);
+    console.debug("[EXECUTION] validatedTargets:", validatedTargets);
+
+    const amPrompt = buildAMPrompt(
+      targets,
+      tacticMap,
+      directive,
+      validatedTargets,
+      targetIds
+    );
     amResponse = await callModel(
       "am",
       amPrompt,
       [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
       1200,
     );
-
+    console.log("----- RAW AM RESPONSE -----\n", amResponse);
   } catch (e) {
 
     amResponse = `[AM error: ${e.message}]`;
@@ -212,15 +230,23 @@ async function stepExecuteAM(planText, directive) {
 
   removeThinking(amThink);
 
-  const amTargets = parseAMTargets(amResponse);
+  const constraintMap = extractConstraintsFromText(amResponse);
+
+  const amTargets = parseAMTargets(amResponse, constraintMap);
 
   G.amTargets = amTargets;
+
+  /* =========================
+     DEBUG: AM TARGET OUTPUT
+  ========================= */
+  console.group("[AM TARGETS PARSED]");
+  console.table(G.amTargets);
+  console.groupEnd();
 
   addLog(`AM // CYCLE ${G.cycle}`, amResponse, "am");
 
   const simSeesAM = sanitizeAMOutput(amResponse);
 
-  const constraintMap = extractConstraintsFromText(amResponse);
 
   console.debug("[EXECUTION] constraintMap:", constraintMap);
 
@@ -235,10 +261,12 @@ async function stepExecuteAM(planText, directive) {
     if (!incoming.length) continue;
 
     for (const c of incoming) {
-      const def = CONSTRAINT_LIBRARY.find(x => x.id === c.id);
+      const def = CONSTRAINT_MAP[c.id];
 
       if (!def) {
-        console.warn("[CONSTRAINT] Unknown constraint id:", c.id);
+        console.warn("[CONSTRAINT] Unknown constraint id:", c.id, {
+          available: Object.keys(CONSTRAINT_MAP)
+        });
         continue;
       }
 
@@ -308,42 +336,327 @@ function buildTacticMap(targets) {
 }
 
 /* ============================================================
-   AM TARGET PARSER
-   ============================================================ */
+   CONSTRAINT → PERCEPTUAL DESCRIPTION (FRAGMENT-LEVEL)
+   Designed to feed into softenObservation + phrasing layer
+============================================================ */
 
-function parseAMTargets(amText) {
+function describeConstraintPerceptually(constraintId, intensity = 1) {
+  const def = CONSTRAINT_MAP[constraintId];
+  if (!def) return null;
 
-  const targets = {};
+  const text = (def.title + " " + def.subcategory).toLowerCase();
 
-  const blockRegex =
-    /(I[^.]*\.?)\s*TACTIC_USED:\s*\[[^\]]+\]\s+TARGET:\s*([A-Z]+)/gi;
+  // ------------------------------------------------------------
+  // INTENSITY TIERS
+  // ------------------------------------------------------------
+  const LOW = [
+    "not shifting position",
+    "remaining unusually still",
+    "holding a fixed posture"
+  ];
 
-  let match;
+  const MID = [
+    "unable to adjust their posture",
+    "locked into a rigid position",
+    "failing to make even small corrections"
+  ];
 
-  while ((match = blockRegex.exec(amText)) !== null) {
+  const HIGH = [
+    "completely unable to move",
+    "held in place beyond voluntary control",
+    "movement appearing to be actively suppressed"
+  ];
 
-    const action = match[1].trim();
-    const target = resolveSimId(match[2]);
-
-    if (!target) continue;
-
-    if (targets[target])
-      targets[target] += " " + action;
-    else
-      targets[target] = action;
-
+  function pickTier() {
+    if (intensity >= 2) return HIGH;
+    if (intensity >= 1.25) return MID;
+    return LOW;
   }
 
-  SIM_IDS.forEach((name) => {
+  function pick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
 
-    if (!targets[name]) {
-      targets[name] = "AM observes you silently this cycle.";
+  // ------------------------------------------------------------
+  // SEMANTIC MATCHING
+  // ------------------------------------------------------------
+
+  if (text.includes("standing")) {
+    return pick(pickTier());
+  }
+
+  if (text.includes("arms")) {
+    return intensity >= 1.5
+      ? pick([
+        "arms held in place despite visible strain",
+        "unable to lower their arms",
+        "arms fixed in a way that resists fatigue"
+      ])
+      : pick([
+        "arms not lowering naturally",
+        "arms remaining raised longer than expected"
+      ]);
+  }
+
+  if (text.includes("balance") || text.includes("instability")) {
+    return pick([
+      "failing to stabilize their balance",
+      "constantly correcting without success",
+      "never quite settling into a stable position"
+    ]);
+  }
+
+  if (text.includes("crouch") || text.includes("squat")) {
+    return intensity >= 1.5
+      ? pick([
+        "locked into a low, unsustainable posture",
+        "unable to rise from a strained position",
+        "held in a position that should not be maintainable"
+      ])
+      : pick([
+        "remaining in a low position longer than expected",
+        "not adjusting out of an uncomfortable stance"
+      ]);
+  }
+
+  // ------------------------------------------------------------
+  // FALLBACK (GENERIC BUT CONSISTENT)
+  // ------------------------------------------------------------
+  return intensity >= 1.5
+    ? pick(HIGH)
+    : pick(MID);
+}
+
+function softenObservation(text) {
+  const variants = [
+    text,
+    `seems to be ${text}`,
+    `appears to be ${text}`,
+    `is likely ${text}`,
+    `may be ${text}`,
+    `gives the impression that they are ${text}`,
+    `suggests that they are ${text}`
+  ];
+
+  return variants[Math.floor(Math.random() * variants.length)];
+}
+
+/* ============================================================
+   AM TARGET PARSER (FULL BLOCK CAPTURE + PERCEPTUAL FALLBACK)
+============================================================ */
+
+function parseAMTargets(amText, constraintMap = {}) {
+  const targets = {};
+  const lines = String(amText || "").split("\n");
+
+  let buffer = [];
+  let seenFirstTactic = false;
+
+  function cleanBlock(text) {
+    let block = String(text || "").trim();
+    if (!block) return "";
+
+    if (!seenFirstTactic) {
+      block = block
+        .replace(/^I will[^.]*\.\s*/i, "")
+        .replace(/^I will not apply any(?: physical)? constraints?(?: this cycle)?\.\s*/i, "")
+        .trim();
     }
 
+    return block;
+  }
+
+  // ============================================================
+  // PASS 1 — EXTRACT TEXT BLOCKS → TARGETS
+  // ============================================================
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+
+    if (!line) continue;
+
+    // Skip constraint lines completely
+    if (line.startsWith("CONSTRAINT_")) continue;
+
+    // Detect tactic/target binding
+    const tacticMatch = line.match(
+      /^TACTIC_USED:\s*(.+?)\s+TARGET:\s*([A-Z]+)\s*$/i
+    );
+
+    if (tacticMatch) {
+      const targetId = resolveSimId(tacticMatch[2]);
+
+      const block = cleanBlock(buffer.join("\n"));
+
+      if (targetId) {
+        targets[targetId] =
+          block && block.length > 10
+            ? block
+            : "AM observes you silently this cycle.";
+      }
+
+      seenFirstTactic = true;
+      buffer = [];
+      continue;
+    }
+
+    // Accumulate all non-metadata lines
+    buffer.push(line);
+  }
+
+  // ============================================================
+  // SAFETY: IF MODEL OUTPUT HAD NO TACTIC LINES
+  // (rare but important)
+  // ============================================================
+
+  if (!Object.keys(targets).length) {
+    const fallbackText = cleanBlock(buffer.join("\n"));
+
+    if (fallbackText) {
+      // assign to ALL as generic AM broadcast
+      SIM_IDS.forEach(id => {
+        targets[id] = fallbackText;
+      });
+    }
+  }
+
+  // ============================================================
+  // PERCEPTUAL FALLBACK (AUGMENTATION, NOT REPLACEMENT)
+  // ============================================================
+
+  const constrained = Object.entries(constraintMap)
+    .flatMap(([simId, arr]) =>
+      arr.map(c => ({
+        simId,
+        constraintId: c.id,
+        intensity: c.intensity ?? 1
+      }))
+    )
+    .sort((a, b) => {
+      if (a.simId === G.target) return -1;
+      if (b.simId === G.target) return 1;
+      return 0;
+    });
+
+  SIM_IDS.forEach((name) => {
+    const alreadyHasTarget = Boolean(targets[name]);
+
+    // No constraints → only fallback if no direct target
+    if (!constrained.length) {
+      if (!alreadyHasTarget) {
+        targets[name] = "AM observes you silently this cycle.";
+      }
+      return;
+    }
+
+    // Others observe, self does NOT perceive own constraint
+    const visible = constrained.filter(c => c.simId !== name);
+
+    if (!visible.length) {
+      if (!alreadyHasTarget) {
+        targets[name] = "Something feels off, but you can't identify the source.";
+      }
+      return;
+    }
+
+    const perceived = visible.filter(c => {
+      const p = 0.45 + 0.35 * Math.min(1, c.intensity);
+      return Math.random() < p;
+    });
+
+    if (!perceived.length) {
+      if (!alreadyHasTarget) {
+        targets[name] = "You sense something is wrong, but nothing resolves clearly.";
+      }
+      return;
+    }
+
+    function phraseObservation(simId, desc, intensity) {
+      const d = softenObservation(desc).toLowerCase();
+
+      const DIRECT = [
+        `You notice ${simId} ${d}`,
+        `You see ${simId} ${d}`,
+        `${simId} ${d}, and it doesn't look voluntary`,
+        `Your attention fixes on ${simId}. ${d.charAt(0).toUpperCase() + d.slice(1)}`
+      ];
+
+      const INDIRECT = [
+        `Something about ${simId} feels wrong — ${d}`,
+        `You can't ignore ${simId}; ${d}`,
+        `${simId} draws your focus without explanation — ${d}`
+      ];
+
+      const INFERRED = [
+        `You haven't seen ${simId} move in a while`,
+        `There is a strange stillness where ${simId} should be`,
+        `${simId}'s absence of movement is becoming noticeable`
+      ];
+
+      const AUDITORY = [
+        `You hear nothing from ${simId} for too long`,
+        `${simId} has gone unnaturally quiet`,
+        `No movement or sound comes from ${simId}`
+      ];
+
+      const DISTORTED = [
+        `You aren't sure if you're seeing it correctly, but ${simId} ${d}`,
+        `It might be your perception, but ${simId} ${d}`,
+        `For a moment, it looks like ${simId} ${d}`
+      ];
+
+      let pool = DIRECT;
+
+      if (intensity < 0.75) {
+        pool = Math.random() < 0.5 ? INDIRECT : INFERRED;
+      }
+
+      if (intensity >= 1.5 && Math.random() < 0.4) {
+        pool = DISTORTED;
+      }
+
+      if (Math.random() < 0.25) {
+        pool = AUDITORY;
+      }
+
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    const observations = perceived
+      .map(c => {
+        const desc = describeConstraintPerceptually(
+          c.constraintId,
+          c.intensity
+        );
+
+        if (!desc) return null;
+
+        return phraseObservation(c.simId, desc, c.intensity);
+      })
+      .filter(Boolean);
+
+    const observationText = observations.length
+      ? observations.join("\n")
+      : "Something is wrong, but you can't name it.";
+
+    if (!alreadyHasTarget) {
+      targets[name] = observationText;
+    } else {
+      // AUGMENT instead of overwrite
+      targets[name] += "\n\n" + observationText;
+    }
   });
 
-  return targets;
+  // ============================================================
+  // DEBUG (SAFE)
+  // ============================================================
 
+  console.log("TARGET KEYS:", Object.keys(targets));
+  console.log("TARGET COUNT:", Object.keys(targets).length);
+  console.table(targets);
+
+  return targets;
 }
 
 /* ============================================================
@@ -355,7 +668,24 @@ function extractConstraintsFromText(text) {
   const lines = String(text || "").split("\n");
   const map = {};
 
-  for (const line of lines) {
+  for (const rawLine of lines) {
+
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    /* ------------------------------------------------------------
+       CASE 1: CONSTRAINT_NONE → explicitly skip
+    ------------------------------------------------------------ */
+
+    if (line.startsWith("CONSTRAINT_NONE")) {
+      // Optional debug
+      console.debug("[CONSTRAINT] NONE detected, skipping line:", line);
+      continue;
+    }
+
+    /* ------------------------------------------------------------
+       CASE 2: CONSTRAINT_APPLY → parse normally
+    ------------------------------------------------------------ */
 
     if (!line.includes("CONSTRAINT_APPLY:")) continue;
 
@@ -365,9 +695,14 @@ function extractConstraintsFromText(text) {
 
     if (!match) continue;
 
-    const [, idRaw, targetRaw, durationRaw, intensityRaw] = match;
+    let [, idRaw, targetRaw, durationRaw, intensityRaw] = match;
 
-    const id = String(idRaw).trim();
+    // Normalize ID ONCE
+    const id = String(idRaw)
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+
     const target = resolveSimId(targetRaw);
 
     if (!target) {
@@ -391,7 +726,7 @@ function extractConstraintsFromText(text) {
       source: "AM",
       appliedAt: G.cycle
     });
-    
+
     console.debug("[CONSTRAINT PARSED]", {
       target,
       id,

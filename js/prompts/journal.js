@@ -3,7 +3,47 @@
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 
+import { CONSTRAINT_MAP } from "../engine/constraints.js";
 
+function buildConstraintExperience(sim) {
+  if (!sim.constraints?.length) {
+    return `
+Your body is currently your own.
+
+No external force is controlling your posture or movement.
+Any physical sensation is transient and secondary to thought.
+`.trim();
+  }
+
+  return sim.constraints.map(c => {
+    const def = CONSTRAINT_MAP[c.id];
+    if (!def) return null;
+
+    // --- Extract execution steps cleanly ---
+    const steps = (def.content || "")
+      .split("\n")
+      .filter(line => /^\d+\./.test(line))
+      .map(line => line.replace(/^\d+\.\s*/, "").trim());
+
+    return `
+${def.title}
+
+${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+You are not describing this.
+You are inside it.
+
+Your thoughts must account for:
+- restricted movement
+- inability to relieve strain
+- continuous physical enforcement
+
+Any reference to your body must match this condition exactly.
+Do not generalize. Do not abstract. Do not explain the mechanism.
+`.trim();
+
+  }).filter(Boolean).join("\n\n");
+}
 export function buildSimJournalPrompt(sim, amAction) {
     const prevJ = G.journals[sim.id]
         .slice(-2)
@@ -135,39 +175,9 @@ Do not quote or paraphrase what you heard. Only feel it.
 ---
 ` : ""}
 
-# CURRENT PHYSICAL CONDITION (NON-NEGOTIABLE REALITY)
+# CURRENT PHYSICAL REALITY
 
-Your body is being actively controlled and constrained by AM.
-
-These are not distant events.
-These are **continuous physical conditions you are experiencing right now**.
-
-You cannot ignore them.
-You cannot escape them.
-Your thoughts must form **around** them.
-
-${(sim.constraints && sim.constraints.length)
-            ? sim.constraints.map(c => {
-                return `- ${c.id.replace(/_/g, " ")} (intensity ${Math.round(c.intensity * 100)}%)`;
-            }).join("\n")
-            : "- (no explicit physical constraint this cycle, but residual bodily strain remains)"
-        }
-
-Interpretation rules:
-
-- These constraints define your posture, movement, and physical suffering
-- Pain, strain, immobility, or forced positioning should intrude on your thinking
-- If intensity is high → it dominates your thoughts
-- If prolonged → it reshapes how you perceive time and self
-
-You do NOT describe the mechanism.
-You experience the consequences:
-- burning muscles
-- shaking limbs
-- pressure, suffocation, restraint
-- loss of control over your own body
-
-These sensations MUST be present in your thoughts.
+${buildConstraintExperience(sim)}
 
 ---
 
@@ -214,24 +224,64 @@ Every entry must reflect:
 If these are ignored, the entry is incorrect.
 
 ---
-# STATE LOCK
 
-Your writing must reflect the state above.
 
-Guidelines:
+# STATE LOCK (CAUSAL CONSTRAINT MODEL)
 
-• Suffering above 70 → intrusive pain, exhaustion  
-• Hope below 30 → resignation or despair  
-• Sanity below 40 → fragmented or unstable thoughts  
+All writing must strictly reflect the defined state variables.
+No condition, sensation, or instability may appear unless it is **explicitly supported by the state or controller-defined conditions**.
 
-Beliefs also shape tone:
+## Core Principle
 
-• Low self_worth → shame or self-erasure  
-• Low reality_reliable → doubt about perception  
-• High guilt_deserved → belief punishment is justified  
-• Low resistance_possible → paralysis or surrender  
+States do not imply outcomes by default.
+They define the **range of permitted expressions**, not guaranteed ones.
 
-If the writing contradicts the state above, the entry is incorrect.
+→ The model must NOT invent or assume additional effects beyond what is logically justified.
+→ All physical, emotional, and cognitive details must be **state-authorized**.
+
+## Threshold Guidelines (Permission, Not Obligation)
+
+• Suffering >70 → allows severe strain, distress, or discomfort
+• Hope <30 → allows resignation, absence of forward expectation
+• Sanity <40 → allows fragmentation, instability, or disordered thought
+
+These do NOT require expression—they only permit it.
+
+## Physical Sensation Rules
+
+* Physical sensations (e.g., pain, fatigue, bodily strain) may ONLY appear if:
+
+  1. Explicitly enabled by the state (e.g., high suffering), AND
+  2. Contextually justified (e.g., a defined condition such as restraint, stress position, or exertion)
+
+* If no physical cause or controller condition is present →
+  **No physical discomfort may be described.**
+
+## Belief Modifiers (Interpretation Filters)
+
+• Low self_worth → reduces self-importance, suppresses agency
+• Low reality_reliable → introduces perceptual doubt or contradiction
+• High guilt_deserved → frames negative states as justified
+• Low resistance_possible → removes attempts to oppose conditions
+
+Modifiers alter interpretation, not baseline events.
+
+## Prohibited Behaviors
+
+* No “ambient” suffering (e.g., unexplained aches, tension, distress)
+* No adding details for mood or dramatization
+* No escalation beyond what the state and conditions support
+
+## Consistency Enforcement
+
+Before finalizing, verify:
+
+1. Every described condition has a **clear causal basis** in the state or controller
+2. No sensory or emotional detail appears without authorization
+3. The output does not exceed or contradict defined constraints
+
+If any violation occurs, the output is invalid and must be corrected.
+
 
 ---
 
@@ -245,6 +295,9 @@ If the writing contradicts the state above, the entry is incorrect.
 6. Fragmented language is allowed.
 7. You may mention only these names: **TED, ELLEN, NIMDOK, GORRISTER, BENNY**.
 8. Other people must be referred to by role only ("my sister", "the doctor").
+
+Physical sensations only occur if explicitly caused by external constraints.
+Otherwise, distress must be described as cognitive or emotional tension, not bodily pain.
 
 ---
 # OUTPUT

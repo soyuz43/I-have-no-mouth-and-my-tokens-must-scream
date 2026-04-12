@@ -50,7 +50,7 @@ import {
   validateNarrativeConsistency,
 } from "../state/validate.js";
 
-import { tickConstraints, CONSTRAINT_LIBRARY } from "../constraints.js";
+import { tickConstraints, CONSTRAINT_MAP } from "../constraints.js";
 
 /* ============================================================
    BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
@@ -105,7 +105,13 @@ export async function runPsychologyPhase(execution) {
   ------------------------------------------------------------ */
 
   const statsBefore = {};
+
   for (const sim of targets) {
+    console.log(`[CONSTRAINT STATE BEFORE JOURNAL][${sim.id}]`, {
+      constraints: sim.constraints,
+      count: sim.constraints?.length ?? 0
+    });
+
     statsBefore[sim.id] = {
       suffering: sim.suffering,
       hope: sim.hope,
@@ -326,8 +332,6 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
   showWriting(sim.id, true);
 
-  const beliefsBefore = { ...sim.beliefs };
-
   try {
     // ------------------------------------------------------------
     // SANITIZE AM INPUT (CRITICAL)
@@ -339,9 +343,21 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       sanity: sim.sanity
     };
 
-    const rawAM = simSeesAM;
+    // --- USE PARSED PER-TARGET ACTION (CRITICAL FIX) ---
+    const rawAM = G.amTargets?.[sim.id] || "AM observes you silently this cycle.";
 
-    const cleanAM = sanitizeAMForSim(sim.id, rawAM);
+    const cleanAM = rawAM; // already isolated, no need for line filtering
+
+    if (!G.amTargets?.[sim.id]) {
+      console.error("[CRITICAL] Missing AM target at psychology phase", sim.id, G.amTargets);
+    }
+    /* =========================
+   DEBUG: AM PERCEPTION
+========================= */
+    console.group(`[AM PERCEPTION][${sim.id}]`);
+    console.log("AM TARGET BLOCK:", rawAM);
+    console.log("FINAL INPUT TO MODEL:", cleanAM);
+    console.groupEnd();
 
     // ------------------------------------------------------------
 
@@ -349,6 +365,27 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       sim,
       cleanAM,
     );
+
+    /* =========================
+   DEBUG: JOURNAL INPUT
+========================= */
+    // console.group(`[JOURNAL INPUT][${sim.id}]`);
+
+    // console.log("STATE:", {
+    //   suffering: sim.suffering,
+    //   hope: sim.hope,
+    //   sanity: sim.sanity
+    // });
+
+    // console.log("BELIEFS:", sim.beliefs);
+
+    // console.log("CONSTRAINTS:", sim.constraints);
+
+    // console.log("AM INPUT:", cleanAM);
+
+    // console.log("LAST JOURNAL:", (G.journals?.[sim.id] || []).slice(-1)[0]?.text);
+
+    // console.groupEnd();
 
     const rawJournal = await callModel(
       sim.id,
@@ -359,6 +396,12 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
 
     const cleanJournal = String(rawJournal ?? "").trim();
 
+
+    /* =========================
+        DEBUG: JOURNAL RAW OUTPUT
+      ========================= */
+    console.log(`[JOURNAL RAW][${sim.id}]`, rawJournal);
+
     timelineEvent(`${sim.id} journal written`);
 
     const statsPrompt = buildSimJournalStatsPrompt(
@@ -366,6 +409,21 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       cleanJournal,
       cleanAM,
     );
+
+    /* =========================
+       DEBUG: STATS INPUT
+    ========================= */
+    // console.group(`[STATS INPUT][${sim.id}]`);
+
+    // console.log("JOURNAL TEXT:", cleanJournal);
+    // console.log("AM INPUT:", cleanAM);
+    // console.log("CURRENT STATE:", {
+    //   suffering: sim.suffering,
+    //   hope: sim.hope,
+    //   sanity: sim.sanity
+    // });
+
+    // console.groupEnd();
 
     const rawStatsJson = await callModel(
       sim.id,
@@ -389,6 +447,12 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     }
 
     const statDeltas = parseStatDeltas(sanitizedStatsJson, sim);
+
+    /* =========================
+   DEBUG: PARSED STAT DELTAS
+========================= */
+    console.log(`[STAT DELTAS][${sim.id}]`, statDeltas);
+
 
     console.debug(
       `[STATE] ${sim.id}`,
@@ -449,8 +513,13 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     if (sim.constraints?.length) {
       console.debug("[CONSTRAINT RESOLUTION TEST]", sim.id,
         sim.constraints.map(c => {
-          const def = CONSTRAINT_LIBRARY.find(x => x.id === c.id);
-          return {
+          const def = CONSTRAINT_MAP[c.id];
+
+          if (!def) {
+            console.warn("[CONSTRAINT] Unknown constraint id:", c.id, {
+              available: Object.keys(CONSTRAINT_MAP)
+            });
+          } return {
             id: c.id,
             resolved: !!def
           };
@@ -597,7 +666,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       delta *= (p.confidence ?? 1);
 
       // clamp in normalized space
-      const MAX_RAW_DELTA = 0.25;
+      const MAX_RAW_DELTA = 0.4;
       if (Math.abs(delta) > MAX_RAW_DELTA) {
         delta = Math.sign(delta) * MAX_RAW_DELTA;
       }
@@ -644,15 +713,24 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
         cycle: G.cycle,
         deltas: statDeltas,
       },
-      beliefsBefore,
+      beliefsBeforeCommit,
     );
 
     timelineEvent(`${sim.id} journal committed`);
 
+    const validatedBeliefShifts = {};
+
+    for (const d of diff || []) {
+      const k = d.belief;
+      const v = Number(d.delta);
+
+      validatedBeliefShifts[k] = (validatedBeliefShifts[k] ?? 0) + v;
+    }
+
     parseAndValidateStateBlock(
       sim.id,
-      beliefsBefore,
-      beliefUpdates,
+      beliefsBeforeCommit,
+      validatedBeliefShifts,
       sanitizedStatsJson
     );
 
@@ -669,6 +747,11 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     };
 
     updateSimDisplay(sim, actualDeltas);
+
+    return {
+      simId: sim.id,
+      diff
+    };
 
   } catch (e) {
 
