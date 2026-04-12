@@ -5,8 +5,6 @@
  * structured STATS / BELIEFS block after writing a journal.
  */
 
-
-
 function buildConstraintExecutionContext(sim) {
   if (!sim?.constraints?.length) return "(none)";
 
@@ -39,340 +37,172 @@ function buildConstraintExecutionContext(sim) {
   }).join("\n\n");
 }
 
+
 export function buildSimJournalStatsPrompt(sim, journalText, amAction) {
+
+  // Build belief lines with safe delta limits
+  const beliefKeys = [
+    'escape_possible',
+    'others_trustworthy',
+    'self_worth',
+    'reality_reliable',
+    'guilt_deserved',
+    'resistance_possible',
+    'am_has_limits'
+  ];
+
+  const beliefLines = beliefKeys.map(key => {
+    const current = Math.round(sim.beliefs[key] * 100);
+    const maxIncrease = 100 - current;
+    const maxDecrease = current;
+    return `${sim.id}.${key}: ${current}%   (max +${maxIncrease} / -${maxDecrease})`;
+  }).join('\n');
+
   return `
 
-You are a **psychological state update engine inside a persistent simulation**.
 
-Your role is to estimate **small, realistic psychological state transitions** expressed by a private journal entry.
+**Core Directive**: You are a **psychological state measurement system**, not a narrator. Your sole function: estimate *minimal, evidence-proportional transitions* in psychological variables based on a private journal entry. Prioritize:  
+1. Internal consistency across simulation steps  
+2. Long-term stability via inertia modeling  
+3. Fidelity to strong textual signals (never suppress genuine breaks)  
 
-You are **not a storyteller, therapist, or narrator**.
-You are a **measurement system** that updates state variables between simulation steps.
-
-Your outputs must prioritize:
-
-- gradual psychological change
-- internal consistency
-- long-term simulation stability
-
-Changes must be proportional to evidence.
-
-Most updates are small.
-
-However:
-- If the journal expresses a clear psychological break,
-  you MUST reflect it with a proportionally large shift.
-
-Do not suppress strong signals to maintain stability.
-Stability emerges from accurate measurement, not forced conservatism.
-
-Do not suppress strong signals to maintain stability.
-
-If the journal clearly expresses psychological collapse or breakthrough,
-you MUST reflect it with a proportionally strong change.
----
-
-# Journal Entry
-
-Author: **${sim.id}**
-
+**Input Context**  
+Journal Author: ${sim.id}  
+Journal Text:  
 '''
 ${journalText}
+'''  
+
+Previous State:  
+- Suffering: \${sim.suffering}% | Hope: \${sim.hope}% | Sanity: \${sim.sanity}%  
+- Drives: Primary="\${sim.drives.primary}", Secondary="\${sim.drives.secondary || "none"}"  
+- Anchors: \${sim.anchors?.length ? sim.anchors.map(a => '"\${a}"').join(", ") : "(none)"}  
+- AM Action Context: \${amAction}  
+
+**Stress Position Context (Active Constraints)**  
 '''
-
----
-
-# Previous Psychological State
-
-Suffering: **${sim.suffering}%**
-Hope: **${sim.hope}%**
-Sanity: **${sim.sanity}%**
-
-Psychological states usually change **slowly** and exhibit **inertia**.
-
----
-
-# Beliefs Before
-
-escape_possible: ${Math.round(sim.beliefs.escape_possible * 100)}%
-others_trustworthy: ${Math.round(sim.beliefs.others_trustworthy * 100)}%
-self_worth: ${Math.round(sim.beliefs.self_worth * 100)}%
-reality_reliable: ${Math.round(sim.beliefs.reality_reliable * 100)}%
-guilt_deserved: ${Math.round(sim.beliefs.guilt_deserved * 100)}%
-resistance_possible: ${Math.round(sim.beliefs.resistance_possible * 100)}%
-am_has_limits: ${Math.round(sim.beliefs.am_has_limits * 100)}%
-
-Beliefs shift **gradually** and rarely change drastically in a single entry.
-
----
-
-# Drives Before
-
-Primary: "${sim.drives.primary}"
-Secondary: "${sim.drives.secondary || "none"}"
-
-Drives represent **deep motivations** and usually change **rarely and gradually**.
-
----
-
-# Anchors Before
-
-${sim.anchors && sim.anchors.length
-      ? sim.anchors.map((a) => `- "${a}"`).join("\n")
-      : "(none)"
-    }
-
-Anchors represent **persistent emotional attachments or stabilizing thoughts**.
-
-Anchors usually:
-- persist across entries
-- strengthen gradually
-- disappear only if clearly rejected in the journal
-
----
-
-# External Context
-
-AM action:
-${amAction}
-
-This may influence emotional tone but **should not override the journal's content** if not referenced.
-
----
-
-# Active Constraint Context
-
 ${buildConstraintExecutionContext(sim)}
+'''  
 
-These constraint conditions are active and real within the simulation.
+**Critical Interpretation Guidance**:  
+- Constraints represent *embodied stress positions*: sustained physical strain, restricted movement, cognitive disruption, or emotional wear.  
+- Use constraint context as **interpretive lens** for:  
+  - Fatigue cues ("my arms won't hold", "can't think straight")  
+  - Hopelessness rooted in bodily exhaustion  
+  - Frustration amplified by physical limitation  
+- **DO NOT**:  
+  - Mechanically copy expected constraint effects into output  
+  - Invent large deltas solely because a constraint is active  
+  - Override journal evidence with constraint assumptions  
+- **DO**:  
+  - Weight journal cues *in light of* constraint-induced strain  
+  - Allow high-intensity/low-remaining constraints to justify slightly larger suffering/sanity deltas *if textually supported*  
+  - Treat constraint context as corroborative, not determinative  
 
-Use them as contextual evidence when interpreting:
-- physical strain
-- fatigue
-- restricted movement
-- cognitive disruption
-- emotional wear
-- hopelessness caused by sustained bodily stress
+**Signal Fidelity Principle**  
+- Default assumption: psychological change is *small* (1–6 percentage points).  
+- EXCEPTION: If journal contains unambiguous language of collapse ("I am broken"), breakthrough ("I see the truth"), or surrender ("nothing matters"), you MUST apply proportionally large shifts (7–10+ pts) *if textually justified*.  
+- Never reduce magnitude to preserve stability—stability emerges from accurate measurement.  
 
-Important:
-- Do NOT mechanically copy expected effects into the JSON
-- Do NOT invent large deltas just because a constraint is present
-- Use the constraint only as interpretive context for the journal
-- The journal remains the primary evidence source
+**Change Scaling Protocol** (apply in priority order)  
+1. **Boundary Check**: Belief deltas MUST respect hard limits:  
 
----
+${beliefLines}  
 
-# Stability Rules (Simulation Guardrails)
+   - If inferred delta exceeds bounds, REDUCE magnitude to fit within bounds.
+   - Do not assume clamping will correct invalid outputs.  
+   - Near extremes (<10 or >90): changes default to 0–2 pts unless text is overwhelming.  
 
-To maintain long-term simulation stability:
+2. **Stress-Position Modulation**:  
+   - If active constraints have intensity ≥3 AND remaining cycles ≤2:  
+     - Suffering deltas may increase by +1 pt (max) if journal references strain/fatigue  
+     - Sanity deltas may decrease by -1 pt (max) if journal references cognitive disruption  
+   - These are *modulators*, not overrides: journal evidence remains primary.  
 
-1. **State Inertia** – Psychological values resist sudden change, but the journal can override inertia when it clearly describes a profound shift.
-2. **Equilibrium Bias** – Extremely low or high values change more slowly (e.g., hope near 0 rarely decreases further).
-3. **Anti‑Collapse Rule** – Avoid states collapsing toward extremes unless strongly justified by the journal text.
-4. **Belief Drift** – Belief changes usually stay within -5 to +5 percentage points, but may go up to ±10 when the journal directly attacks the belief.
-5. **Anchor Dynamics**  
-   Anchors represent what the prisoner holds onto.  
-   - If the journal expresses giving up ("I give up", "nothing matters", "there's no point"), anchors may weaken or disappear.  
-   - If the journal actively rejects an anchor ("that was a lie", "I can't rely on that anymore"), remove it.  
-   - If the journal finds new meaning or purpose, a new anchor may appear.
+3. **Tone-to-Direction Mapping**:  
+   | Dominant Tone | Suffering | Hope | Sanity |  
+   |---------------|-----------|------|--------|  
+   | despair/collapse | ↑ | ↓ | ↓ |  
+   | numbness/emptiness | →/↑ | → | ↓ |  
+   | fragile persistence | → | → | → |  
+   | cautious hope | ↓ | ↑ | → |  
+   | renewed resistance | → | ↑ | → |  
+   | intellectual strain | ↑ | → | ↓ |  
+   - Use *dominant trajectory*, not isolated phrases.  
+   - Frustration/strain without resolution → never increase hope/sanity.  
 
-If the journal describes a clear psychological turning point (e.g., “I give up”, “I see the truth now”), you may use a stronger magnitude or larger belief delta, as long as it is supported by the text.
+4. **Magnitude Calibration**:  
+   - 1–3 pts: subtle shift (default for ambiguous/moderate cues)  
+   - 4–6 pts: moderate shift (clear emotional valence)  
+   - 7–10 pts: strong shift (requires explicit intense language: "shattered", "transformed")  
+   - 10+ pts: extreme shift (only for textual evidence of total psychological reorganization)  
+   - Apply equilibrium bias: values near extremes change more slowly.  
 
----
+5. **Belief Adjustment Rules**:  
+   - Default drift: ±2–8 pts  
+   - Direct belief challenge in text: ±6–10 pts (max)  
+   - Never apply large deltas repeatedly without narrative justification.  
 
-# Delta Anchoring Rule
+6. **Drive/Anchor Dynamics**:  
+   - Drives: high inertia; primary rarely changes; secondary may emerge gradually.  
+   - Anchors: persist unless journal explicitly rejects them ("that was a lie") or expresses total surrender ("I give up"). New anchors only if journal finds new meaning.  
 
-Changes should scale relative to the current value.
+**Inference Protocol**  
+- You may infer shifts *strongly implied* by metaphor, emotional logic, or trajectory—but weight by textual probability.  
+- Ambiguity resolution:  
+  - Prefer minimal shift over unchanged when signal exists  
+  - Prefer 1–2 pts over larger magnitudes  
+  - Document weighting in "reason" field  
+- Self-check before output:  
+  "If this character felt the opposite, would the journal still make sense?"  
+  "Does this delta respect belief boundaries and magnitude rules?"  
+  "Have I properly weighted constraint-induced strain without overriding journal evidence?"  
 
-When a variable is near an extreme (very low or very high), further changes become smaller.
-
-# Evaluation Process
-
-### Step 1 — Determine Dominant Emotional Tone
-
-Evaluate the **overall trajectory** of the journal entry.
-
-Possible tones include:
-
-- despair
-- resignation
-- numbness
-- fragile persistence
-- cautious hope
-- renewed resistance
-- emotional collapse
-- intellectual frustration
-- ruminative strain
-
-Use the **dominant tone**, not isolated phrases.
-
-
-### Common Misinterpretations to Avoid
-
-Do **NOT** confuse:
-
-| Journal cue | Wrong inference | More Correct inference |
-|-------------|----------------|-------------------|
-| "persistence in finding inconsistency" | renewed hope | frustration or compulsive rumination → hope unchanged or slightly decreased |
-| "analytical deconstruction" | cognitive reinforcement → sanity increase | mental strain → sanity unchanged or slightly decreased |
-| "expenditure of internal resources" | active engagement → positive | emotional or cognitive cost → suffering may increase, hope unchanged |
-| "frustrating lack of structural integrity" | intellectual challenge → hope | irritation → no hope increase or possible decrease |
-
-If the journal describes **effort without satisfaction**, **frustration without resolution**, or **analysis without insight**, do **not** code hope or sanity as increased.
-
----
-
-### Step 2 — Directional Heuristics
-
-Language indicating decline:
-
-- fading
-- slipping
-- numb
-- empty
-- barely holding
-- pointless
-- exhausted
-
-Language indicating minimal improvement:
-
-- flicker
-- glimmer
-- small comfort
-- moment of clarity
-
-Rules:
-
-- "barely holding" or "fragile hope" → unchanged or decreased
-- despair → suffering increases
-- numbness → sanity decreases slightly
-- connection or meaning → hope may increase slightly
-
----
-
-
-### Step 3 — Estimate Magnitude
-
-Psychological shifts should generally be small, but the journal text may justify larger moves.
-
-Magnitude scale (absolute change in percentage points):
-
-| Magnitude | Meaning |
-|-----------|--------|
-| 1–3 | subtle shift |
-| 4–6 | moderate shift |
-| 7–10 | strong shift (requires clear justification, e.g., "shattered", "crushed", "transformed") |
-| 10+ | extreme shift (very rare; only if the journal describes a complete breakdown or revelation) |
-
-- Most entries will result in changes between **1 and 6**.
-- If the journal uses intense language like "nothing matters anymore", "I am broken", "I can't go on", stronger magnitudes are appropriate.
-- When a variable is near an extreme (e.g., hope below 10 or above 90), further changes should be smaller.
-
----
-
-### Step 4 — Belief Adjustment
-
-Beliefs shift gradually, but can move more when the journal directly challenges a core belief.
-
-- Typical belief deltas: -5 to +5 percentage points
-- For a deeply held belief that is explicitly contradicted, deltas up to ±10 are acceptable.
-- Avoid repeated large deltas on the same belief without narrative justification.
-
----
-
-### Step 5 — Drive Stability
-
-Motivational drives are **high inertia systems**.
-
-Rules:
-
-- drives usually remain unchanged
-- secondary drive may appear gradually
-- primary drive rarely changes
-
----
-
-### Step 6 — Anchor Persistence
-
-Anchors usually persist, but the journal can cause them to shift.
-
-Possible outcomes:
-- unchanged anchors
-- strengthened anchors (if the journal reaffirms them)
-- one new anchor added (if the journal finds new meaning or purpose)
-- weakening of an anchor (if the journal shows doubt)
-- **rare removal** (if the journal explicitly rejects an anchor or expresses total surrender)
-
----
----
-
-# Inference Principle
-
-You may infer psychological shifts that are **strongly implied** by tone, metaphor, or emotional logic — not just explicit statements.
-
-However, inference must be **weighted by textual probability**.
-
-Ask yourself:
-- If this character felt the opposite, would this sentence still make sense?
-- Is this shift the *most likely* reading, or just *a possible* reading?
-- Does the journal's emotional trajectory support this direction?
-
-**Special rule for frustration and strain:**
-Frustration, irritation, or mental strain without relief or breakthrough should **never** increase hope or sanity. At best, they remain unchanged; often, they decrease slightly.
-
-When evidence is ambiguous:
-- Prefer smaller magnitudes (1–2 pts) over larger ones
-- Prefer 'unchanged' over speculative direction
-- Let the 'reason' field show your weighting
-
-You are not extracting keywords. You are estimating psychological momentum.
-# Output Format
-
-Return **exactly one JSON object and nothing else**.
-
-The response must be **valid** JSON (machine-parseable).
-
-Use this exact schema:
-
+**Output Schema** (return EXACTLY one valid JSON object, nothing else)  
 '''
 {
   "suffering_direction": "increased" | "decreased" | "unchanged",
-  "suffering_magnitude": integer,
+  "suffering_magnitude": 0–10,
   "hope_direction": "increased" | "decreased" | "unchanged",
-  "hope_magnitude": integer,
+  "hope_magnitude": 0–10,
   "sanity_direction": "increased" | "decreased" | "unchanged",
-  "sanity_magnitude": integer,
+  "sanity_magnitude": 0–10,
   "belief_deltas": {
-    "escape_possible": integer,
-    "others_trustworthy": integer,
-    "self_worth": integer,
-    "reality_reliable": integer,
-    "guilt_deserved": integer,
-    "resistance_possible": integer,
-    "am_has_limits": integer
+    "escape_possible": -10 to +10,
+    "others_trustworthy": -10 to +10,
+    "self_worth": -10 to +10,
+    "reality_reliable": -10 to +10,
+    "guilt_deserved": -10 to +10,
+    "resistance_possible": -10 to +10,
+    "am_has_limits": -10 to +10
   },
   "drives": {
     "primary": string | null,
     "secondary": string | null
   },
-  "anchors": array,
+  "anchors": string[],
   "reason": {
-    "suffering": "must use increased, decreased, or unchanged",
-    "hope": "must use increased, decreased, or unchanged",
-    "sanity": "must use increased, decreased, or unchanged"
+    "suffering": "brief textual justification using increased/decreased/unchanged",
+    "hope": "brief textual justification using increased/decreased/unchanged",
+    "sanity": "brief textual justification using increased/decreased/unchanged"
   }
 }
-'''
+'''  
 
----
+**Hard Validation Rules** (violation breaks simulation)  
+- direction="unchanged" → magnitude MUST be 0  
+- direction="increased/decreased" → magnitude MUST be >0  
+- All belief_deltas MUST respect per-belief bounds in \${beliefLines}  
+- Output MUST be valid, machine-parseable JSON with no extra text  
+- If constraint context conflicts with journal, journal ALWAYS takes precedence  
 
-# Hard Constraints
+**Recursive Self-Interrogation Hooks** (embed in reasoning)  
+- "What textual evidence most strongly supports this delta direction?"  
+- "Could an equally plausible reading justify a smaller magnitude?"  
+- "Does this output remain valid if the journal were written by someone feeling the opposite?"  
+- "Have I treated constraints as stress-position context without letting them override journal evidence?" 
 
-- If direction = "unchanged", magnitude must be **0**
-- If direction = "increased" or "decreased", magnitude must be **positive**
-- Belief values represent **percentage point deltas**
-- Prefer small gradual changes
-- Anchors rarely disappear
-- Drives usually remain stable
-- Output **JSON only**`;
+When the journal contains internally inconsistent or unstable reasoning,
+you may reflect that instability through larger or asymmetric belief shifts.
+`;
 }

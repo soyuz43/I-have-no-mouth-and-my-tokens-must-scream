@@ -310,6 +310,46 @@ Execution:
 Outcome: Slow cumulative degradation.`,
 
     isEmbedded: true
+  },
+  {
+    id: "palestinian_chair",
+    path: "__embedded__/constraint-palestinian-chair",
+    title: "Stress Position: Palestinian Chair",
+    category: "Physical Coercion",
+    subcategory: "Forced Crouch",
+    type: "constraint",
+
+    duration: { base_cycles: 1, extendable: true, max_cycles: 2 },
+    stacking: { mode: "replace", cap: 1 },
+    intensity: { default: 2, max: 3 },
+
+    effects: {
+      suffering_delta: 15,
+      sanity_delta: -7,
+      hope_delta: -6,
+      physical_stress_delta: 40
+    },
+
+    fatigue: { growth_rate: 0.55 },
+
+    posture: {
+      mobility_restriction: 1.0,
+      stability: 0.1,
+      pain_type: ["muscular", "circulatory", "joint"]
+    },
+
+    content: `Objective: Induce rapid physical collapse and psychological capitulation.
+Trigger: High resistance requiring immediate breakdown.
+Execution:
+1. Force seated crouch on low platform (18-24 inches)
+2. Secure hands to base via restraints
+3. Prevent any weight redistribution or relief
+4. Sustain until muscle failure
+Outcome: Extreme muscular exhaustion, circulatory stress, complete immobilization. Prisoners unable to maintain position experience perception of self-inflicted failure. Rapid progression to dissociation and compliance.
+
+Historical note: Operationally deployed Abu Ghraib/Fallujah 2003-2004. Named for forced crouch posture common in regional interrogation practices. Specifically designed to create perception that subject is responsible for own suffering while preventing any physical relief mechanism.`,
+
+    isEmbedded: true
   }
 ];
 

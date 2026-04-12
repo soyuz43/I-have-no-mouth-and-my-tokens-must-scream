@@ -147,13 +147,10 @@ export function validateBeliefs(agent, before = {}, shifts = {}) {
       warnings.push(`⚠ ${agent}.${k} unusually large shift: ${dv}`);
     }
 
-    const pre = before[k] ?? 0.5;
-    const post = pre + dv;
-
-    if (post < MIN || post > MAX) {
-      warnings.push(`⚠ ${agent}.${k} post-shift out of bounds: ${post}`);
-    }
-
+    // NOTE:
+    // We do NOT validate post-shift bounds here,
+    // because commit.js applies damping + bounding + clamping.
+    // Raw shifts may exceed limits but will be corrected downstream.
   }
 
   return warnings;

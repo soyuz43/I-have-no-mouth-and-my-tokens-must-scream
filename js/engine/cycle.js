@@ -209,6 +209,14 @@ export async function runCycle() {
 
     const stageLine = G.lastStrategyFailure?.stage || "none";
 
+    const totals = G.parserMetrics?.totals || {};
+
+    const pipelineOk = totals.pipelineSuccess || 0;
+    const pipelineFail = totals.pipelineFailures || 0;
+
+    const extractorOk = parserMetrics?.success || 0;
+    const extractorFail = parserMetrics?.failures || 0;
+    
     const metadataStr = [
       "SYSTEM // DIAGNOSTIC",
       "",
@@ -479,10 +487,6 @@ function endCycle(cycleStart) {
 
   const parserMetrics = G.parserMetrics?.cycles?.[cycleNum];
   const totals = G.parserMetrics?.totals || {};
-
-  const parserSuccess = totals.pipelineSuccess || 0;
-  const parserFailures = totals.pipelineFailures || 0;
-  const parserRepairs = parserMetrics?.repairs || 0;
 
   const extractorOk = parserMetrics?.success || 0;
   const extractorFail = parserMetrics?.failures || 0;

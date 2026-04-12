@@ -2,6 +2,7 @@
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
+import { applyBeliefUpdates } from "../state/commit.js";
 
 /*
 ============================================================
@@ -191,20 +192,10 @@ export function runBeliefContagion() {
       delta *= resistance;
 
 
-      let newVal = belief + delta;
-
-
-      /* ----------------------------------
-         Soft saturation
-      ---------------------------------- */
-
-      if (newVal < 0) newVal = newVal * 0.5;
-
-      if (newVal > 1) newVal = 1 + (newVal - 1) * 0.5;
-
-
-      sim.beliefs[key] = newVal;
-
+      applyBeliefUpdates(sim, { [key]: delta }, {
+        DEBUG: false,
+        SKIP_DAMPING: false
+      });
     });
 
   }

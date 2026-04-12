@@ -19,8 +19,8 @@ export function dampBeliefDelta(sim, beliefKey, currentValue, delta) {
 
     const k = params.logisticK ?? 5;
     const mid = params.logisticMid ?? 0.5;
-    const blend = params.hybridBlend ?? 0.78;
-    const minR = params.minResistance ?? 0.3;
+    const blend = params.hybridBlend ?? 0.68;
+    const minR = params.minResistance ?? 0.5;
 
     const distance = Math.abs(currentValue - 0.5);
     const d = distance / 0.5;
@@ -32,7 +32,7 @@ export function dampBeliefDelta(sim, beliefKey, currentValue, delta) {
     const stress = (sim.suffering ?? 0) / 100;
     const trust = sim.beliefs?.others_trustworthy ?? 0.5;
 
-    const adjustedMid = mid - (stress * 0.15) + (trust * 0.1);
+    const adjustedMid = mid - (stress * 0.12) + (trust * 0.1);
 
     /* -----------------------------
        LOGISTIC
