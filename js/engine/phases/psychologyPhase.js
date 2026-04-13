@@ -558,14 +558,20 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       ?.filter(h => h.cycle === G.cycle) || [];
 
     for (const h of recent) {
-
       h.deltas = {
-        hope: statDeltas.hope,
-        sanity: statDeltas.sanity,
-        suffering: statDeltas.suffering
+        reported: {
+          hope: statDeltas.hope,
+          sanity: statDeltas.sanity,
+          suffering: statDeltas.suffering
+        },
+        effective: {
+          hope: +(sim.hope - statsBefore.hope).toFixed(2),
+          sanity: +(sim.sanity - statsBefore.sanity).toFixed(2),
+          suffering: +(sim.suffering - statsBefore.suffering).toFixed(2)
+        }
       };
-
     }
+
     /* ------------------------------------------------------------
        PSYCHOLOGICAL PRESSURE FIELD
        Emotional shock propagates through the social network.
@@ -649,35 +655,6 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     timelineEvent(`${sim.id} state updated`);
 
     const beliefUpdates = parseBeliefUpdates(sanitizedStatsJson, sim);
-
-    // --- MERGE COMMS EVIDENCE INTO BELIEF UPDATES ---
-
-    const commsEvidence = G.pendingBeliefEvidence?.[sim.id] || [];
-
-    for (const p of commsEvidence) {
-      if (!p?.belief || !sim.beliefs?.hasOwnProperty(p.belief)) continue;
-
-      const sign = p.direction === "increase" ? 1 : -1;
-
-      // ALWAYS normalize to belief space (0–1)
-      let delta = sign * (p.strength / 100);
-
-      // confidence weighting
-      delta *= (p.confidence ?? 1);
-
-      // clamp in normalized space
-      const MAX_RAW_DELTA = 0.4;
-      if (Math.abs(delta) > MAX_RAW_DELTA) {
-        delta = Math.sign(delta) * MAX_RAW_DELTA;
-      }
-
-      beliefUpdates[p.belief] =
-        (beliefUpdates[p.belief] ?? 0) + delta;
-    }
-
-    console.debug(`[COMMS Δ] ${sim.id}`, commsEvidence);
-
-
     const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
     const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
 
@@ -741,9 +718,9 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       tacticLabel,
     );
     const actualDeltas = {
-      suffering: Math.round(sim.suffering - statsBefore.suffering),
-      hope: Math.round(sim.hope - statsBefore.hope),
-      sanity: Math.round(sim.sanity - statsBefore.sanity)
+      suffering: +(sim.suffering - statsBefore.suffering).toFixed(2),
+      hope: +(sim.hope - statsBefore.hope).toFixed(2),
+      sanity: +(sim.sanity - statsBefore.sanity).toFixed(2)
     };
 
     updateSimDisplay(sim, actualDeltas);

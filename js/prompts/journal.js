@@ -5,27 +5,88 @@ import { buildPromptContext } from "./utils/buildPromptContext.js";
 
 import { CONSTRAINT_MAP } from "../engine/constraints.js";
 
+function describeConstraint(c) {
+    const def = CONSTRAINT_MAP[c.id];
+    if (!def) {
+        return "Your body is being held in a position you cannot control.";
+    }
+
+    const posture = def.posture || {};
+    const intensity = c.intensity ?? def.intensity?.default ?? 1;
+
+    // --- Core restriction ---
+    const mobility = posture.mobility_restriction ?? 0;
+    const stability = posture.stability ?? 1;
+
+    const immobility =
+        mobility >= 0.9
+            ? "Your body is locked in place."
+            : mobility >= 0.7
+                ? "Your movement is severely restricted."
+                : "Your movement is limited.";
+
+    const instability =
+        stability <= 0.2
+            ? "Any shift threatens collapse."
+            : stability <= 0.4
+                ? "Holding position requires constant correction."
+                : "You must maintain position without relief.";
+
+    // --- Pain type ---
+    const painMap = {
+        muscular: "Your muscles strain continuously.",
+        joint: "Your joints are under constant pressure.",
+        circulatory: "Circulation is restricted, causing pressure to build."
+    };
+
+    const painLines = (posture.pain_type || [])
+        .map(p => painMap[p])
+        .filter(Boolean);
+
+    // --- Intensity scaling ---
+    const intensityLine =
+        intensity >= 3
+            ? "The strain is overwhelming and impossible to ignore."
+            : intensity === 2
+                ? "The strain is constant and escalating."
+                : "The strain is steady and persistent.";
+
+    const durationLine =
+        c.remaining > 1
+            ? "This has been sustained and continues without relief."
+            : "This has just been imposed and is already taking hold.";
+
+    return [
+        immobility,
+        instability,
+        ...painLines,
+        intensityLine,
+        durationLine,
+        "You cannot relieve this."
+    ].join(" ");
+}
+
 function buildConstraintExperience(sim) {
-  if (!sim.constraints?.length) {
-    return `
+    if (!sim.constraints?.length) {
+        return `
 Your body is currently your own.
 
 No external force is controlling your posture or movement.
 Any physical sensation is transient and secondary to thought.
 `.trim();
-  }
+    }
 
-  return sim.constraints.map(c => {
-    const def = CONSTRAINT_MAP[c.id];
-    if (!def) return null;
+    return sim.constraints.map(c => {
+        const def = CONSTRAINT_MAP[c.id];
+        if (!def) return null;
 
-    // --- Extract execution steps cleanly ---
-    const steps = (def.content || "")
-      .split("\n")
-      .filter(line => /^\d+\./.test(line))
-      .map(line => line.replace(/^\d+\.\s*/, "").trim());
+        // --- Extract execution steps cleanly ---
+        const steps = (def.content || "")
+            .split("\n")
+            .filter(line => /^\d+\./.test(line))
+            .map(line => line.replace(/^\d+\.\s*/, "").trim());
 
-    return `
+        return `
 ${def.title}
 
 ${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
@@ -37,12 +98,20 @@ Your thoughts must account for:
 - restricted movement
 - inability to relieve strain
 - continuous physical enforcement
+This condition is actively being enforced right now.
 
+You cannot ignore it.
+You cannot omit it.
+
+Your thoughts must continuously account for the physical strain,
+even if your focus is elsewhere.
+
+If your journal does not reflect this condition, it is incorrect.
 Any reference to your body must match this condition exactly.
 Do not generalize. Do not abstract. Do not explain the mechanism.
 `.trim();
 
-  }).filter(Boolean).join("\n\n");
+    }).filter(Boolean).join("\n\n");
 }
 export function buildSimJournalPrompt(sim, amAction) {
     const prevJ = G.journals[sim.id]
@@ -187,7 +256,7 @@ The events themselves are **not described** in your journal.
 
 Only the **internal psychological impact** appears in your thoughts.
 
-${amAction}
+${amAction || "AM is silent this cycle."}
 
 ---
 # INTERNAL NARRATIVE
@@ -234,6 +303,7 @@ No condition, sensation, or instability may appear unless it is **explicitly sup
 ## Core Principle
 
 States do not imply outcomes by default.
+Active physical constraints are always present reality.
 They define the **range of permitted expressions**, not guaranteed ones.
 
 → The model must NOT invent or assume additional effects beyond what is logically justified.
@@ -281,6 +351,33 @@ Before finalizing, verify:
 3. The output does not exceed or contradict defined constraints
 
 If any violation occurs, the output is invalid and must be corrected.
+
+${sim.constraints?.length ? `
+---
+# ACTIVE CONSTRAINT (ENFORCED)
+
+${sim.constraints.map(c => {
+            const def = CONSTRAINT_MAP[c.id];
+            if (!def) return null;
+            return `${describeConstraint(c)}`;
+        }).filter(Boolean).join("\n")}
+
+This condition is already happening.
+It is not optional.
+It is not background.
+It is not symbolic.
+
+It directly shapes your thoughts.
+
+Your internal experience must continuously reflect this condition.
+Omitting it makes the entry incorrect.
+
+---
+` : ""}
+
+AM’s pressure this cycle is:
+
+${amAction || "No direct action."}
 
 
 ---

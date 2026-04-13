@@ -152,6 +152,101 @@ EVOLVE -.-> VAULT
 
 ---
 
+# Constraint System (Stress Positions)
+
+Constraints are **stateful pressure modifiers** applied by AM to individual agents.
+
+They are not narrative flavor. They are **interpreted physical-psychological states** that:
+
+* inject contextual cues into journal generation prompts
+* bias permissible stat delta ranges (suffering ↑, hope/sanity ↓)
+* persist across cycles with tracked duration/intensity
+* are independently assessed for continuation, escalation, or release
+
+---
+
+## Constraint Lifecycle
+
+```mermaid
+flowchart TD
+
+AM_OUTPUT[AM Strategy Output] --> PARSE[Parse CONSTRAINT_APPLY]
+
+PARSE --> VALIDATE{Valid?}
+VALIDATE -->|No| SKIP[Skip / Log Warning]
+VALIDATE -->|Yes| BUILD[Build Constraint Object]
+
+BUILD --> APPLY[Apply to Sim State]
+APPLY --> PERSIST[Store: duration, intensity, id, applied_cycle]
+
+PERSIST --> JOURNAL[Modify Journal Prompt Context]
+JOURNAL --> STATS[Influence Delta Ranges]
+
+STATS --> ASSESS[Constraint Assessment Phase]
+ASSESS --> DECIDE{Decision}
+
+DECIDE -->|CONTINUE| EXTEND[Adjust Duration]
+DECIDE -->|RELEASE| CLEAR[Remove from Sim]
+DECIDE -->|ESCALATE| INTENSIFY[Increase Intensity]
+
+EXTEND --> PERSIST
+CLEAR --> END[Constraint Ended]
+INTENSIFY --> PERSIST
+```
+
+
+## How Constraints Affect Simulation
+
+### 1. Journal Context Injection
+Before an agent generates their internal journal, active constraints are appended to the prompt:
+
+```
+[CONSTRAINT ACTIVE: static_stand • DURATION: 2 • INTENSITY: 2]
+You notice BENNY movement appearing to be actively suppressed
+```
+
+This biases the LLM toward themes of:
+* physical restriction → psychological confinement
+* sustained effort → accumulating fatigue
+* imposed posture → loss of autonomy
+
+### 2. Stat Delta Modulation
+Constraints do not directly set stat values. Instead, they **expand the permissible delta range** for suffering and contract it for hope/sanity:
+
+```
+Base delta range: suffering ∈ [-2, +3]
+With intensity=2 constraint: suffering ∈ [-1, +5]
+```
+
+### 3. Assessment Feedback Loop
+Each cycle, constraints are evaluated independently:
+
+```
+[CONSTRAINT ASSESSMENT][RAW OUTPUT] TED
+EXPLANATION: High suffering increase and significant drops in hope/sanity 
+             suggest the constraint is effectively destabilizing the subject.
+CONSTRAINT_DECISION: CONTINUE
+NEXT_DURATION: 1
+```
+
+Decisions:
+* `CONTINUE` — maintain, optionally adjust duration
+* `RELEASE` — remove constraint (target destabilized or tactic shifted)
+* `ESCALATE` — increase intensity (if system permits)
+
+---
+
+## Design Notes
+
+* Constraints are **orthogonal to tactics**: a single tactic may apply zero, one, or multiple constraints; a constraint may persist across multiple tactics.
+* `CONSTRAINT_NONE` is explicit: it signals intentional absence of physical pressure, not parser failure.
+* Duration is **dynamic**: assessment can shorten or extend based on observed effect.
+* Intensity is **capped per agent**: prevents stacking runaway pressure.
+* Constraints do **not block communication**, but they bias its content and tone via social perception (agents observe each other's constrained states).
+
+
+---
+
 # Communication System
 
 The communication layer is **not random chat**.
