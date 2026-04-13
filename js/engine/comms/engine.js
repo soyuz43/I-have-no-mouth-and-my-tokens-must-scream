@@ -49,6 +49,53 @@ All logic ordering and conditions are preserved exactly.
 ================================================================
 */
 
+// ========== GLOBAL LOGGING CONTROL ==========
+const ENABLE_RUMOR_LOGGING = false;      // full rumor details (console.table)
+const ENABLE_OUTREACH_LOGGING = false;   // full outreach details
+const ENABLE_REPLY_LOGGING = false;       // full reply details
+const ENABLE_OVERHEAR_LOGGING = false;    // full overhear reaction details
+
+// NEW: Action occurrence logging (no content)
+const LOG_ACTION_ONLY = true;            // log simple "[ACTION] type from→to"
+// ============================================
+
+// Helper functions
+function logRumor(data) {
+  if (LOG_ACTION_ONLY) {
+    console.log(`[RUMOR] ${data.from} → ${data.target}`);
+  }
+  if (ENABLE_RUMOR_LOGGING) {
+    console.table([data]);
+  }
+}
+
+function logOutreach(data) {
+  if (LOG_ACTION_ONLY) {
+    console.log(`[OUTREACH] ${data.from} → ${data.to} (${data.visibility})`);
+  }
+  if (ENABLE_OUTREACH_LOGGING) {
+    console.log("[OUTREACH]", data);
+  }
+}
+
+function logReply(data) {
+  if (LOG_ACTION_ONLY) {
+    console.log(`[REPLY] ${data.from} → ${data.to} [intent: ${data.normalizedIntent}]`);
+  }
+  if (ENABLE_REPLY_LOGGING) {
+    console.log("[REPLY]", data);
+  }
+}
+
+function logOverhearReaction(data) {
+  if (LOG_ACTION_ONLY) {
+    console.log(`[OVERHEAR EVENT] ${data.listener} heard ${data.from}→${data.to} (suspicion: ${data.suspicion})`);
+  }
+  if (ENABLE_OVERHEAR_LOGGING) {
+    console.log("[OVERHEAR EVENT]", data);
+  }
+}
+
 const MAX_MESSAGE_LENGTH = 800;
 
 export async function step({ fromId, state, queue }) {
@@ -133,6 +180,14 @@ export async function step({ fromId, state, queue }) {
           ------------------------------------------------------------ */
 
           timelineEvent(`${fromId} rumor → ${rumorTarget}`);
+
+          logRumor({
+            from: fromId,
+            target: rumorTarget,
+            text: rumorText,
+            originalSource: source.from,
+            originalTarget: source.to
+          });
 
           addLog(
             `PRIVATE ${fromId}→${rumorTarget} [AUTO]`,
@@ -271,6 +326,14 @@ export async function step({ fromId, state, queue }) {
 
     timelineEvent(`${fromId} → ${toId} message`);
 
+    // Conditional outreach logging
+    logOutreach({
+      from: fromId,
+      to: toId,
+      text: message,
+      visibility
+    });
+
     G.interSimLog.push({
       from: fromId,
       to: [toId],
@@ -349,6 +412,14 @@ export async function step({ fromId, state, queue }) {
                 text: message.slice(0, 440),
                 visibility
               }
+            });
+
+            // Conditional overhear reaction logging
+            logOverhearReaction({
+              listener,
+              from: fromId,
+              to: toId,
+              suspicion
             });
 
             timelineEvent(`[REACTIVE] ${listener} may respond to overheard: ${fromId}→${toId}`);
@@ -534,6 +605,14 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     timelineEvent(`${toId} reply → ${fromId}`);
 
+    // Conditional reply logging
+    logReply({
+      from: toId,
+      to: fromId,
+      text: replyText,
+      intent: rawIntent,
+      normalizedIntent
+    });
 
     G.threads[toId].push({
       role: "assistant",
