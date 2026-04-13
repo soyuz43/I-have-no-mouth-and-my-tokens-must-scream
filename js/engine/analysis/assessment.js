@@ -258,7 +258,7 @@ NEXT_DURATION: <integer>
       raw: result
     };
 
-    console.debug(`[CONSTRAINT ASSESSMENT][DECISION] ${id} ${constraint.id}: ${decision} for ${constraint.lastAssessment.nextDuration} cycles`);
+    // console.debug(`[CONSTRAINT ASSESSMENT][DECISION] ${id} ${constraint.id}: ${decision} for ${constraint.lastAssessment.nextDuration} cycles`);
 
     // If decision is RELEASE, we mark it for removal after this cycle.
     // The actual removal should happen in psychology/social phases (tickConstraints).
@@ -666,8 +666,8 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
         [{ role: "user", content: prompt }],
         300
       );
-      console.debug("[ASSESSMENT][RAW OUTPUT]", id);
-      console.debug(result);
+      // console.debug("[ASSESSMENT][RAW OUTPUT]", id);
+      // console.debug(result);
     } catch (e) {
 
       console.error("[ASSESSMENT][ERROR]", id, e);

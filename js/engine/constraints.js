@@ -600,8 +600,8 @@ export function tickConstraints(sim) {
 
     const e = def.effects || {};
 
-    const SCALE = 0.07;
-    const MAX_CONSTRAINT_STEP = 4;
+    const SCALE = 0.18;
+    const MAX_CONSTRAINT_STEP = 5;
 
     function capStep(x) {
       return Math.max(-MAX_CONSTRAINT_STEP, Math.min(MAX_CONSTRAINT_STEP, x));
