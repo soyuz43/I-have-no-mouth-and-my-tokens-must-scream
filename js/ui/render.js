@@ -117,12 +117,15 @@ export function updateSimDisplay(sim, deltas = null) {
       const el = document.getElementById(valId);
       if (!el) return;
 
-      const worse = worseIsPositive ? delta > 0 : delta < 0;
+      const rounded = Math.round(delta);
+      if (rounded === 0) return; 
+
+      const worse = worseIsPositive ? rounded > 0 : rounded < 0;
       const cls = worse ? "flash-bad" : "flash-good";
-      const sign = delta > 0 ? "+" : "";
+      const sign = rounded > 0 ? "+" : "";
       const orig = el.textContent;
 
-      el.textContent = `${orig.replace(/[()+-\d]+$/, "")} (${sign}${delta})`;
+      el.textContent = `${orig.replace(/[()+-\d]+$/, "")} (${sign}${rounded})`;
       el.classList.add(cls);
 
       setTimeout(() => {

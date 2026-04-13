@@ -25,6 +25,7 @@ import { runStrategyPhase } from "./phases/strategyPhase.js";
 import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
+import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
 import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
 
@@ -216,7 +217,7 @@ export async function runCycle() {
 
     const extractorOk = parserMetrics?.success || 0;
     const extractorFail = parserMetrics?.failures || 0;
-    
+
     const metadataStr = [
       "SYSTEM // DIAGNOSTIC",
       "",
@@ -398,6 +399,16 @@ export async function runCycle() {
   console.warn("[PIPELINE] EXIT INTERACTION ANALYSIS");
 
   /* ------------------------------------------------------------
+     BELIEF INTEGRATION 
+  ------------------------------------------------------------ */
+
+  console.warn("[PIPELINE] ENTER BELIEF INTEGRATION");
+
+  runBeliefIntegrationPhase();
+
+  console.warn("[PIPELINE] EXIT BELIEF INTEGRATION");
+
+  /* ------------------------------------------------------------
      EVALUATION
   ------------------------------------------------------------ */
 
@@ -429,6 +440,8 @@ export async function runCycle() {
 function beginCycle() {
 
   G.cycle++;
+
+  G.pendingBeliefEvidence = {};
 
   // prevCycleSnapshot is pre-psychology (start of cycle)
   G.prevCycleSnapshot = JSON.parse(JSON.stringify(G.sims));
@@ -471,10 +484,32 @@ function endCycle(cycleStart) {
   timelineEvent(`// CYCLE ${G.cycle} RUNTIME ${runtimeStr}`);
 
   for (const id of Object.keys(G.sims)) {
-    console.log(
-      `[TACTIC HISTORY][C${G.cycle}] ${id}`,
-      JSON.stringify(G.sims[id]?.tacticHistory?.slice(-2), null, 2)
-    );
+    const history = G.sims[id]?.tacticHistory?.slice(-2) || [];
+
+    console.group(`[TACTIC HISTORY][C${G.cycle}] ${id}`);
+
+    for (const h of history) {
+      console.log(`• ${h.title} (cycle ${h.cycle})`);
+
+      if (h.deltas?.reported) {
+        console.log("  reported:", h.deltas.reported);
+        console.log("  effective:", h.deltas.effective);
+
+        // optional: effectiveness ratio (VERY useful)
+        const ratio = {
+          hope: safeRatio(h.deltas.effective.hope, h.deltas.reported.hope),
+          sanity: safeRatio(h.deltas.effective.sanity, h.deltas.reported.sanity),
+          suffering: safeRatio(h.deltas.effective.suffering, h.deltas.reported.suffering)
+        };
+
+        console.log("  ratio:", ratio);
+      } else {
+        // backward compatibility
+        console.log("  deltas:", h.deltas);
+      }
+    }
+
+    console.groupEnd();
   }
 
   timelineEvent(`===== CYCLE ${G.cycle} END =====`);
@@ -574,6 +609,10 @@ function getDirective() {
   return el ? el.value.trim() : "";
 }
 
+function safeRatio(eff, rep) {
+  if (!rep) return 0;
+  return +(eff / rep).toFixed(2);
+}
 /* ============================================================
    ATTRIBUTION HELPERS
 ============================================================ */

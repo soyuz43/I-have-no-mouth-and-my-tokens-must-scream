@@ -28,7 +28,7 @@ export async function extractInteractionEvidence({
   /* ------------------------------------------------------------
      COMPUTE MARGINAL DELTAS (WITH SIGNAL FILTER)
   ------------------------------------------------------------ */
-
+  const BASE_THRESHOLD = 0.02;
   const marginalDeltas = {};
   const significantDeltas = {};
 
@@ -46,8 +46,15 @@ export async function extractInteractionEvidence({
       marginalDeltas[key] = delta;
 
       // Noise filter
-      if (Math.abs(delta) >= 0.02) {
+      const adaptiveThreshold =
+        BASE_THRESHOLD *
+        (1 + Math.abs(currentBeliefs[key] - 0.5));
+
+      if (Math.abs(delta) >= adaptiveThreshold) {
         significantDeltas[key] = delta;
+      } else {
+        // below threshold → do not include in significant set
+        continue;
       }
     }
   }
@@ -61,19 +68,19 @@ export async function extractInteractionEvidence({
     episodes,
     trajectory,
     currentBeliefs,
-    significantDeltas  
+    significantDeltas
   );
 
   const response = await callModel(
     "SYSTEM",
-    buildPrompt(context),   
+    buildPrompt(context),
     [{ role: "user", content: "Analyze interaction effects." }],
     600
   );
 
- /* ------------------------------------------------------------
-    DEBUG: RAW MODEL OUTPUT
- ------------------------------------------------------------ */
+  /* ------------------------------------------------------------
+     DEBUG: RAW MODEL OUTPUT
+  ------------------------------------------------------------ */
 
   // console.groupCollapsed(`[COMMS RAW] ${simId}`);
   // console.log("type:", typeof response);
@@ -185,7 +192,8 @@ You are detecting CHANGES relative to the baseline belief state.
 Rules:
 
 - Report beliefs with PLAUSIBLE evidence of change
-- You MUST extract at least one perturbation if interactions contain tension, conflict, or pressure
+- You SHOULD try to extract at least one perturbation if interactions contain strong, repeated, or structured pressure.
+- If no belief meets the causal attribution standard, you MUST return an empty list.
 - Only return empty if there are truly NO meaningful interactions
 - Use intents when available
 - PRIORITIZE beliefs with non-zero marginalDeltas as comms-attributed
@@ -203,8 +211,74 @@ Deprioritize:
 - metaphor without reinforcement
 
 ------------------------------------------------------------
+CAUSAL ATTRIBUTION STANDARD
+------------------------------------------------------------
+
+You are performing causal attribution, not interpretation.
+
+A belief perturbation may ONLY be reported if:
+
+1. There is a measurable shift (marginalDelta OR strong inferred shift)
+AND
+2. There is a plausible causal mechanism in the interaction
+
+A causal mechanism must include at least one of:
+
+- direct contradiction of a belief-relevant claim
+- repeated reinforcement of a claim across agents
+- social pressure (accusation, dismissal, invalidation)
+- identity assignment ("you are X")
+- perception conflict ("you saw X / I did not")
+- authority assertion or coercion
+
+If you cannot identify a mechanism:
+→ DO NOT report the perturbation
+
+---
+
+EVIDENCE STANDARD
+
+Each reported perturbation must be justifiable as:
+
+"Given this interaction pattern, a change in this belief is more likely than no change."
+
+Not:
+
+"This could affect the belief"
+
+---
+
+UNCERTAINTY HANDLING
+
+- Weak evidence → lower confidence, not omission
+- No mechanism → omission, not speculation
+
+------------------------------------------------------------
 INTERPRETATION RULES
 ------------------------------------------------------------
+
+CAUSAL VALIDATION RULE:
+
+You are performing causal attribution, not raw measurement.
+
+A belief perturbation must be supported by a plausible causal mechanism in the interaction.
+
+Evidence hierarchy:
+
+1. STRONG CASE:
+   - Non-zero marginalDelta AND clear supporting interaction evidence
+   → Report normally
+
+2. MODERATE CASE:
+   - Clear interaction mechanism BUT marginalDelta is zero or weak
+   → You MAY report the perturbation with lower strength and confidence
+
+3. REJECT CASE:
+   - Non-zero marginalDelta BUT no supporting interaction mechanism
+   → DO NOT report (likely caused by another phase)
+
+A marginalDelta alone is NEVER sufficient evidence.
+Interaction evidence alone MAY be sufficient if strong.
 
 Interpersonal signals ARE valid evidence.
 
@@ -266,7 +340,7 @@ function safeParse(raw, simId) {
   // -----------------------------
   try {
     return validate(JSON.parse(cleaned), simId);
-  } catch {}
+  } catch { }
 
   // -----------------------------
   // PASS 2: Extract JSON block
@@ -276,7 +350,7 @@ function safeParse(raw, simId) {
   if (match) {
     try {
       return validate(JSON.parse(match[0]), simId);
-    } catch {}
+    } catch { }
   }
 
   // -----------------------------
@@ -288,7 +362,7 @@ function safeParse(raw, simId) {
       .replace(/[^}]*$/, "");    // strip trailing junk
 
     return validate(JSON.parse(repaired), simId);
-  } catch {}
+  } catch { }
 
   console.warn(`[COMMS PARSE] ${simId} failed all parse attempts`);
   console.warn("raw:", raw);

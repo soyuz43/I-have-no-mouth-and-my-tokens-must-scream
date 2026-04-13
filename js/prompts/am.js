@@ -754,6 +754,17 @@ Before output:
 
 export function buildAMPrompt(targets, tactics, directive, validatedTargets = [], targetIds = []) {
 
+
+  const activeConstraintIntel = SIM_IDS.map(id => {
+    const sim = G.sims[id];
+    const constraints = sim.constraints || [];
+    if (!constraints.length) return `${id}: none`;
+    return `${id}: ` + constraints.map(c =>
+      `${c.id} [remaining:${c.remaining}, intensity:${c.intensity}]`
+    ).join("; ");
+  }).join("\n");
+
+
   const expandedTargetIds = (() => {
     if (!targetIds.length) return [];
     const ids = new Set(targetIds);
@@ -1058,6 +1069,13 @@ RULES:
 ${constraintBlocks}
 
 Constraints are specifically designed to create perception that subject is responsible for own suffering while preventing any physical relief mechanism.
+
+---
+
+# ACTIVE CONSTRAINTS
+${activeConstraintIntel}
+
+---
 
 # DIRECTIVE
 ${directive || "Autonomous fracture optimization"}

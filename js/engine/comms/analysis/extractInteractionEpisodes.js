@@ -31,9 +31,9 @@ export function buildEpisodes(cycle) {
 
     const overlap =
       msg.from === last.from ||
-      msg.to?.[0] === last.to?.[0] ||
-      msg.from === last.to?.[0] ||
-      msg.to?.[0] === last.from;
+      msg.to?.includes(last.from) ||
+      last.to?.includes(msg.from) ||
+      msg.to?.some(t => Array.isArray(last.to) && last.to.includes(t));
 
     if (overlap) {
       current.push(msg);
