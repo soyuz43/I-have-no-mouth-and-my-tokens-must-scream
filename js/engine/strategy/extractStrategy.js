@@ -8,6 +8,47 @@ import { classifyJsonError } from "./extractors/classifyJsonError.js";
 import { extractLabeledTargets } from "./extractors/extractLabeledTargets.js";
 import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
 
+// ========== GLOBAL LOGGING CONTROL ==========
+const LOG_EXTRACT_FLOW = true;           // High-level: start, success/failure, merged count
+const LOG_EXTRACT_ACTION_ONLY = true;    // Show each successful extractor name (no details)
+const LOG_EXTRACT_DETAILS = false;       // Show per-extractor debug, merge decisions, auto-tune
+const LOG_EXTRACT_MERGE = true;          // Show merge results (count, field sources summary)
+const LOG_EXTRACT_ERRORS = true;         // Show warnings, retries, degraded mode
+// ============================================
+
+function logFlow(message) {
+  if (LOG_EXTRACT_FLOW) {
+    console.log(`[EXTRACT] ${message}`);
+  }
+}
+
+function logAction(extractorName, success, durationMs) {
+  if (LOG_EXTRACT_ACTION_ONLY && success) {
+    console.log(`[EXTRACT ACTION] ${extractorName} ✓ (${durationMs}ms)`);
+  } else if (LOG_EXTRACT_DETAILS) {
+    const status = success ? "✓" : "✗";
+    console.debug(`[EXTRACT] ${extractorName} ${status} (${durationMs}ms)`);
+  }
+}
+
+function logDetail(message, data = null) {
+  if (LOG_EXTRACT_DETAILS) {
+    console.debug(`[EXTRACT DETAIL] ${message}`, data || "");
+  }
+}
+
+function logMerge(summary) {
+  if (LOG_EXTRACT_MERGE) {
+    console.log(`[EXTRACT MERGE] ${summary}`);
+  }
+}
+
+function logError(message, data = null) {
+  if (LOG_EXTRACT_ERRORS) {
+    console.warn(`[EXTRACT ERROR] ${message}`, data || "");
+  }
+}
+
 /* ============================================================
    STRATEGY EXTRACTION PIPELINE (MERGE-AWARE)
 
@@ -24,9 +65,12 @@ import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
 
 export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } = {}) {
 
+  logFlow("starting extraction pipeline");
+
   console.trace("=== STRATEGY EXTRACTION START ===");
 
   if (!input || typeof input !== "string") {
+    logError("invalid input (not a string)");
     return {
       status: "failure",
       errorType: "invalid_input",
@@ -75,9 +119,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
 
   const repairLevel = G.parserConfig.repairLevel ?? 1;
 
-  if (DEBUG) {
-    console.debug("[EXTRACT][CONFIG] repairLevel:", repairLevel);
-  }
+  logDetail(`repairLevel: ${repairLevel}`);
 
   /* ------------------------------------------------------------
      EXTRACTOR SETUP
@@ -145,7 +187,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
     }
 
     if (nextLevel !== currentLevel) {
-      console.warn(`[AUTO-TUNE] repairLevel ${currentLevel} → ${nextLevel}`);
+      logError(`auto-tune: repairLevel ${currentLevel} → ${nextLevel}`);
       G.parserConfig.repairLevel = nextLevel;
     }
   }
@@ -158,7 +200,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
 
   for (const { name, fn } of extractors) {
 
-    if (DEBUG) console.debug(`[EXTRACTOR] trying ${name}`);
+    logDetail(`trying extractor: ${name}`);
 
     metrics.extractorUsage[name] =
       (metrics.extractorUsage[name] || 0) + 1;
@@ -173,7 +215,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       success = !!result && Array.isArray(result.targets) && result.targets.length > 0;
     } catch (err) {
       if (DEBUG) {
-        console.warn(`[EXTRACTOR] error in ${name}:`, err.message);
+        logError(`error in ${name}: ${err.message}`);
       }
     }
 
@@ -185,10 +227,12 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       duration: Number(duration)
     });
 
+    logAction(name, success, duration);
+
     if (success) {
 
-      if (DEBUG) {
-        console.debug(`[EXTRACTOR] SUCCESS: ${name} (${duration}ms)`);
+      if (LOG_EXTRACT_DETAILS) {
+        console.debug(`[EXTRACT] SUCCESS: ${name} (${duration}ms) - targets: ${result.targets.length}`);
       }
 
       successfulResults.push({
@@ -210,9 +254,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
         classifiedError = classifyJsonError(input);
       }
 
-      if (DEBUG) {
-        console.debug(`[EXTRACTOR] failed: ${name} (${duration}ms)`);
-      }
+      logDetail(`failed: ${name} (${duration}ms)`);
     }
   }
 
@@ -231,6 +273,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
   if (successfulResults.length > 0) {
 
     const mergedById = new Map();
+    const mergeLog = [];
 
     for (const { name, targets } of successfulResults) {
 
@@ -255,6 +298,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
             data: t,
             confidence
           });
+          if (LOG_EXTRACT_MERGE) mergeLog.push(`${id} ← ${name} (conf=${confidence.toFixed(2)})`);
           continue;
         }
 
@@ -278,6 +322,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
             fieldSources[key] = name;
+            if (LOG_EXTRACT_MERGE) mergeLog.push(`  ${id}.${key} ← ${name} (new field)`);
             continue;
           }
 
@@ -288,6 +333,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
             fieldSources[key] = name;
+            if (LOG_EXTRACT_MERGE) mergeLog.push(`  ${id}.${key} ← ${name} (higher conf: ${confidence.toFixed(2)} > ${prevConfidence.toFixed(2)})`);
             continue;
           }
 
@@ -303,6 +349,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
             mergedData[key] = incomingValue;
             fieldConfidence[key] = confidence;
             fieldSources[key] = name;
+            if (LOG_EXTRACT_MERGE) mergeLog.push(`  ${id}.${key} ← ${name} (longer text)`);
           }
         }
 
@@ -320,9 +367,13 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       _fieldSources: v.fieldSources || {}
     }));
 
-    if (DEBUG) {
-      console.debug("[EXTRACT] merged targets:", merged.length);
+    logFlow(`merged ${merged.length} targets from ${successfulResults.length} extractors`);
+    if (LOG_EXTRACT_MERGE && mergeLog.length) {
+      console.groupCollapsed(`[EXTRACT MERGE DETAIL] (${mergeLog.length} decisions)`);
+      mergeLog.forEach(line => console.debug(line));
+      console.groupEnd();
     }
+
     // ------------------------------------------------------------
     // TARGET COMPLETENESS POLICY (RETRY → THEN DEGRADE)
     // ------------------------------------------------------------
@@ -340,7 +391,7 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       const allIds = Object.keys(G.sims || {});
       const missing = allIds.filter(id => !recoveredSet.has(id));
 
-      console.warn("[EXTRACT] incomplete target recovery", {
+      logError("incomplete target recovery", {
         expected: expectedCount,
         actual: merged.length,
         recoveredIds,
@@ -351,19 +402,17 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       // RETRY ONCE WITH HIGHER REPAIR LEVEL
       // ------------------------------------------------------------
       if ((G.parserConfig?.repairLevel ?? 0) < 2) {
-        console.warn("[EXTRACT] escalating repairLevel → 2 and retrying");
-
+        logError("escalating repairLevel → 2 and retrying");
         G.parserConfig = {
           ...(G.parserConfig || {}),
           repairLevel: 2
         };
-
         return extractStrategy(input, { DEBUG, DEBUG_EXTRACT });
       }
       // ------------------------------------------------------------
       // DEGRADED MODE (ALLOW PARTIAL EXECUTION)
       // ------------------------------------------------------------
-      console.warn("[EXTRACT] proceeding with PARTIAL strategy (degraded mode)");
+      logError("proceeding with PARTIAL strategy (degraded mode)");
 
       G.executionMeta = {
         ...(G.executionMeta || {}),
@@ -381,6 +430,8 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
     metrics.pipelineSuccess = (metrics.pipelineSuccess || 0) + 1;
     G.parserMetrics.totals.pipelineSuccess =
       (G.parserMetrics.totals.pipelineSuccess || 0) + 1;
+
+    logFlow("extraction successful");
 
     return {
       status: "success",
@@ -415,6 +466,8 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
   }
 
   autoTuneRepairLevel();
+
+  logFlow(`extraction FAILED (${classifiedError || "unknown error"})`);
 
   console.trace("=== STRATEGY EXTRACTION FAILED ===");
 

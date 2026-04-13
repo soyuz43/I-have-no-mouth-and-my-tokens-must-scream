@@ -8,6 +8,32 @@ import { timelineEvent } from "../../ui/timeline.js";
 import { createCommsState } from "./state/createCommsState.js";
 import { step } from "./engine.js";
 
+// ========== GLOBAL LOGGING CONTROL ==========
+const LOG_ORCHESTRATOR_FLOW = true;        // High-level: start, budget, phases, complete
+const LOG_ORCHESTRATOR_DETAILS = false;    // Queue state, reply targets, burst decisions
+const LOG_ORCHESTRATOR_ACTION_ONLY = true; // Show each sim turn without message content
+const LOG_ORCHESTRATOR_PERSIST = true;     // Show persistence summary after cycle
+// ============================================
+
+function logFlow(message, data = null) {
+  if (LOG_ORCHESTRATOR_FLOW) {
+    console.log(`[COMMS FLOW] ${message}`);
+    if (data && LOG_ORCHESTRATOR_DETAILS) console.debug(data);
+  }
+}
+
+function logDetail(message, data = null) {
+  if (LOG_ORCHESTRATOR_DETAILS) {
+    console.debug(`[COMMS DETAIL] ${message}`, data || "");
+  }
+}
+
+function logAction(simId, turnType) {
+  if (LOG_ORCHESTRATOR_ACTION_ONLY) {
+    console.log(`[COMMS TURN] ${simId} → ${turnType}`);
+  }
+}
+
 /*
 ================================================================
 ORCHESTRATOR: INTER-SIM COMMUNICATION CYCLE
@@ -48,6 +74,8 @@ function shuffle(list) {
 
 export async function runCommsCycle() {
   const MAX_MESSAGES = 24;
+
+  logFlow("starting inter-sim communication cycle");
 
   /* ------------------------------------------------------------
      INIT STATE
@@ -90,12 +118,16 @@ export async function runCommsCycle() {
 
   state.messageBudget = messageBudget;
 
+  logFlow(`budget: ${messageBudget} messages (groupStress: ${groupStress.toFixed(3)})`);
+
   /* ------------------------------------------------------------
      INITIAL QUEUE + TRACKING
   ------------------------------------------------------------ */
 
   const initialQueue = shuffle(SIM_IDS);
   const queue = [...initialQueue];
+
+  logDetail(`initial queue order: ${initialQueue.join(" → ")}`);
 
   // Track who has had at least one turn
   state.firstPassCompleted = new Set();
@@ -110,10 +142,7 @@ export async function runCommsCycle() {
   ) {
     let fromId = null;
 
-    console.debug(
-      "[COMMS] replyTargetsThisCycle",
-      Array.from(state.replyTargetsThisCycle.entries())
-    );
+    logDetail("replyTargetsThisCycle", Array.from(state.replyTargetsThisCycle.entries()));
 
     // --- PRIORITY: pending reply continuation ---
     for (const [targetId, perSender] of state.replyTargetsThisCycle.entries()) {
@@ -123,6 +152,8 @@ export async function runCommsCycle() {
         if (info.remaining > 0) {
           fromId = senderId;
           info.remaining -= 1;
+
+          logDetail(`reply continuation: ${senderId} (remaining: ${info.remaining})`);
 
           if (info.remaining <= 0) {
             perSender.delete(senderId);
@@ -139,13 +170,16 @@ export async function runCommsCycle() {
       if (fromId) break;
     }
 
-
     // --- FALLBACK: normal scheduling ---
     if (!fromId) {
       fromId =
         state.firstPassCompleted.size < SIM_IDS.length
           ? initialQueue.find(id => !state.firstPassCompleted.has(id))
           : queue.shift();
+      
+      if (fromId) {
+        logDetail(`normal schedule: ${fromId} (firstPass: ${state.firstPassCompleted.size}/${SIM_IDS.length})`);
+      }
     }
 
     if (!fromId) break;
@@ -155,6 +189,8 @@ export async function runCommsCycle() {
     if (idx !== -1) queue.splice(idx, 1);
 
     state.firstPassCompleted.add(fromId);
+    
+    logAction(fromId, "turn");
 
     await step({
       fromId,
@@ -162,6 +198,8 @@ export async function runCommsCycle() {
       queue,
     });
   }
+
+  logFlow(`main loop complete (messages: ${state.counters.messageCount}/${state.messageBudget})`);
 
   /* ------------------------------------------------------------
      OPTIONAL BURST PASS
@@ -172,11 +210,13 @@ export async function runCommsCycle() {
 
   const burstModifier = 1 + groupStress * 1.4;
 
-  if (
-    state.counters.messageCount < state.messageBudget &&
-    Math.random() < SECOND_PASS_CHANCE
-  ) {
+  const willBurst = state.counters.messageCount < state.messageBudget && Math.random() < SECOND_PASS_CHANCE;
+  
+  logDetail(`burst pass: willBurst=${willBurst}, chance=${SECOND_PASS_CHANCE}, modifier=${burstModifier.toFixed(2)}`);
+
+  if (willBurst) {
     const burstQueue = shuffle(SIM_IDS);
+    let burstMessages = 0;
 
     for (const fromId of burstQueue) {
       if (state.counters.messageCount >= state.messageBudget) break;
@@ -185,20 +225,27 @@ export async function runCommsCycle() {
 
       if (Math.random() > burstProb) continue;
 
+      logDetail(`burst turn: ${fromId} (prob=${burstProb.toFixed(3)})`);
+      logAction(fromId, "burst");
+
       await step({
         fromId,
         state,
         queue: burstQueue,
       });
+      
+      burstMessages++;
     }
+    
+    logFlow(`burst pass complete (${burstMessages} extra messages)`);
+  } else {
+    logDetail(`burst pass skipped`);
   }
 
   /* ------------------------------------------------------------
      COMPLETE
   ------------------------------------------------------------ */
-  console.debug("[COMMS] cycle complete", {
-    messages: state.counters.messageCount,
-  });
+  logFlow(`cycle complete: ${state.counters.messageCount} messages sent`);
 
   /* ============================================================
      🔥 PERSIST TO GLOBAL STATE (CRITICAL FIX)
@@ -231,25 +278,22 @@ export async function runCommsCycle() {
   G.comms.lastCycle = messages;
   G.comms.history.push(...messages);
 
-  console.debug("[COMMS][PERSISTED]", {
-    lastCycleCount: messages.length,
-    totalHistory: G.comms?.history?.length ?? 0,
-
-    // sanity checks (CRITICAL)
-    hasComms: !!G.comms,
-    hasHistory: Array.isArray(G.comms?.history),
-    hasLastCycle: Array.isArray(G.comms?.lastCycle),
-
-    // data visibility (first message sample)
-    sample:
-      messages.length > 0
-        ? {
-          from: messages[0].from,
-          to: messages[0].to,
-          text: String(messages[0].text || "").slice(0, 80)
-        }
-        : null
-  });
+  if (LOG_ORCHESTRATOR_PERSIST) {
+    console.groupCollapsed("[COMMS PERSIST]");
+    console.debug(`lastCycleCount: ${messages.length}`);
+    console.debug(`totalHistory: ${G.comms?.history?.length ?? 0}`);
+    console.debug(`hasComms: ${!!G.comms}`);
+    console.debug(`hasHistory: ${Array.isArray(G.comms?.history)}`);
+    console.debug(`hasLastCycle: ${Array.isArray(G.comms?.lastCycle)}`);
+    if (messages.length > 0) {
+      console.debug("sample:", {
+        from: messages[0].from,
+        to: messages[0].to,
+        text: String(messages[0].text || "").slice(0, 80)
+      });
+    }
+    console.groupEnd();
+  }
 
   /* ============================================================ */
 
