@@ -355,7 +355,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
    DEBUG: AM PERCEPTION
 ========================= */
     console.group(`[AM PERCEPTION][${sim.id}]`);
-    console.log("AM TARGET BLOCK:", rawAM);
+    // console.log("AM TARGET BLOCK:", rawAM);
     console.log("FINAL INPUT TO MODEL:", cleanAM);
     console.groupEnd();
 
@@ -395,12 +395,10 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     );
 
     const cleanJournal = String(rawJournal ?? "").trim();
-
-
-    /* =========================
-        DEBUG: JOURNAL RAW OUTPUT
-      ========================= */
-    console.log(`[JOURNAL RAW][${sim.id}]`, rawJournal);
+  
+   // DEBUG: JOURNAL RAW OUTPUT
+  
+   // console.log(`[JOURNAL RAW][${sim.id}]`, rawJournal);
 
     timelineEvent(`${sim.id} journal written`);
 

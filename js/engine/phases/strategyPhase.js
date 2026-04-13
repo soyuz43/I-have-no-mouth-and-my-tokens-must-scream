@@ -221,7 +221,7 @@ async function stepExecuteAM(directive) {
       [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
       1200,
     );
-    console.log("----- RAW AM RESPONSE -----\n", amResponse);
+    // console.log("----- RAW AM RESPONSE -----\n", amResponse);
   } catch (e) {
 
     amResponse = `[AM error: ${e.message}]`;
@@ -231,6 +231,11 @@ async function stepExecuteAM(directive) {
   removeThinking(amThink);
 
   const constraintMap = extractConstraintsFromText(amResponse);
+
+  if (G.DEBUG_CONSTRAINTS) {
+    console.log("[AFTER AM PARSE]", constraintMap);
+  }
+
 
   const amTargets = parseAMTargets(amResponse, constraintMap);
 
@@ -255,6 +260,10 @@ async function stepExecuteAM(directive) {
   ------------------------------------------------------------ */
 
   for (const sim of targets) {
+
+    if (G.DEBUG_CONSTRAINTS) {
+      console.log("[BEFORE APPLY]", sim.id, sim.constraints);
+    }
 
     const incoming = constraintMap[sim.id] || [];
 

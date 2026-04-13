@@ -90,7 +90,7 @@ export const G = {
   /* ============================================================
      DEBUG FLAGS
      ============================================================ */
-
+  DEBUG_CONSTRAINTS: true,
   DEBUG_DAMPING: true,
   DEBUG_ATTRIBUTION: true,
   splitModels: false,
