@@ -289,7 +289,11 @@ export async function step({ fromId, state, queue }) {
     if (!SIM_IDS.includes(toId)) return;
     if (toId === fromId) return;
 
+    // === STRUCTURAL KEY (bidirectional: for exchange limits) ===
     const pairKey = [fromId, toId].sort().join("|");
+
+    // === INTENT KEY (directional: who is replying to whom) ===
+    const intentKey = `${toId}->${fromId}`;
 
     let exchangeCountForPair =
       exchanges.exchangeCount.get(pairKey) || 0;
@@ -307,7 +311,7 @@ export async function step({ fromId, state, queue }) {
     const BASE_MAX = 6;
     const SOFT_MAX = 8;
 
-    const lastIntent = intent.lastIntentByPair[pairKey];
+    const lastIntent = intent.lastIntentByPair[intentKey];
     const negotiationActive = negotiationFlags[pairKey];
 
     const allowExtension =
@@ -453,7 +457,22 @@ export async function step({ fromId, state, queue }) {
       content: `${fromId} says to you: "${message}"`
     });
 
-    const intentHistory = intentHistoryByPair[pairKey] || [];
+    const intentHistory = intentHistoryByPair[intentKey] || [];
+
+    // === NEW: Detect repeated intent pattern ===
+    let repeatedIntentType = null;
+    let repeatedIntentHistoryText = null;
+
+    if (intentHistory.length >= 3) {
+      const lastThree = intentHistory.slice(-3);
+
+      const allSame = lastThree.every(i => i === lastThree[0]);
+
+      if (allSame) {
+        repeatedIntentType = lastThree[0];
+        repeatedIntentHistoryText = lastThree.join(" → ");
+      }
+    }
 
     const repeatedIntent =
       intentHistory.length >= 2 &&
@@ -488,7 +507,7 @@ export async function step({ fromId, state, queue }) {
         "You strongly distrust others. You are more likely to conceal, test, or manipulate rather than cooperate.";
     }
 
-    const lastReply = lastReplyByPair[pairKey];
+    const lastReply = lastReplyByPair[intentKey];
 
     let loopDetected = false;
 
@@ -518,7 +537,9 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
         G.journals[toId],
         intentConstraint,
         escalationNote,
-        beliefNote
+        beliefNote,
+        repeatedIntentType,
+        repeatedIntentHistoryText
       ),
       G.threads[toId],
       MAX_MESSAGE_LENGTH
@@ -577,16 +598,16 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
     escalationLevel[toId] =
       prevEsc * 0.9 + (escalationWeights[normalizedIntent] || 0);
 
-    intent.lastIntentByPair[pairKey] = normalizedIntent;
+    intent.lastIntentByPair[intentKey] = normalizedIntent;
 
-    if (!intentHistoryByPair[pairKey]) {
-      intentHistoryByPair[pairKey] = [];
+    if (!intentHistoryByPair[intentKey]) {
+      intentHistoryByPair[intentKey] = [];
     }
 
-    intentHistoryByPair[pairKey].push(normalizedIntent);
+    intentHistoryByPair[intentKey].push(normalizedIntent);
 
-    if (intentHistoryByPair[pairKey].length > 3) {
-      intentHistoryByPair[pairKey].shift();
+    if (intentHistoryByPair[intentKey].length > 3) {
+      intentHistoryByPair[intentKey].shift();
     }
 
     if (["recruit_ally", "manipulate", "request_help"].includes(normalizedIntent)) {
@@ -601,7 +622,7 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       }
     }
 
-    lastReplyByPair[pairKey] = replyText;
+    lastReplyByPair[intentKey] = replyText;
 
     timelineEvent(`${toId} reply → ${fromId}`);
 

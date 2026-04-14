@@ -29,6 +29,12 @@ import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
 import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
 
+// === EXPORTER HOOKS ===
+import {
+  initExporter,
+  snapshotPrevState,
+  recordCycle,
+} from "../utils/exporter.js";
 
 /* ============================================================
    PSYCHOLOGY PHASE BEFORE/AFTER DIAGNOSTIC
@@ -162,6 +168,9 @@ export async function runCycle() {
   ------------------------------------------------------------ */
 
   execution = await runStrategyPhase(directive);
+
+  // === EXPORTER: capture decisions (for later) ===
+  const decisions = execution?.decisions || execution?.targets || [];
 
   /* ------------------------------------------------------------
      HARD FAIL: strategy must succeed
@@ -430,6 +439,18 @@ export async function runCycle() {
 
   console.groupEnd();
 
+  try {
+    const metrics = G.beliefMetrics?.[G.cycle] || {
+      entropy: G.lastEntropy,
+      variance: G.lastVariance,
+      mean: G.lastMean,
+    };
+
+    recordCycle(G, metrics, decisions);
+  } catch (err) {
+    console.error("[EXPORTER] recordCycle failed:", err);
+  }
+
   endCycle(cycleStart);
 }
 
@@ -445,6 +466,9 @@ function beginCycle() {
 
   // prevCycleSnapshot is pre-psychology (start of cycle)
   G.prevCycleSnapshot = JSON.parse(JSON.stringify(G.sims));
+
+  // === EXPORTER: snapshot pre-cycle state ===
+  snapshotPrevState(G);
 
   // === NEW: Explicit pre-psychology belief snapshot for attribution ===
   G.beliefSnapshots = G.beliefSnapshots || {};
@@ -480,6 +504,8 @@ function endCycle(cycleStart) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const runtimeStr = `${minutes}m ${seconds}s`;
+
+  G.cycleTimeMs = performance.now() - cycleStart;
 
   timelineEvent(`// CYCLE ${G.cycle} RUNTIME ${runtimeStr}`);
 
@@ -695,6 +721,10 @@ export async function executeMain() {
 
   execBtn.disabled = true;
 
+  if (!G._exporterInitialized) {
+    initExporter();
+    G._exporterInitialized = true;
+  }
   await runCycle();
 
   execBtn.disabled = false;
