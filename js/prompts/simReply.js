@@ -26,11 +26,13 @@ export function buildSimReplyPrompt(
   journals,
   intentConstraint = null,
   escalationNote = "",
-  beliefNote = ""
+  beliefNote = "",
+  repeatedIntentType = null,
+  repeatedIntentHistoryText = null
 ) {
 
-  
-const { b } = buildPromptContext(sim);
+
+  const { b } = buildPromptContext(sim);
 
   const visLabel =
     visibility === "public"
@@ -144,7 +146,37 @@ These constraints apply to THIS interaction.
 Ignoring a constraint without purpose signals loss of control.
 
 Treat constraints as forces you must respond to — not absolute rules.
-`;}
+`;
+  }
+  /* ---------------
+     REPEATED INTENT WARNING (ANTI-PATTERN)
+  --------------- */
+
+  let intentHistoryBlock = "";
+
+  if (repeatedIntentType && repeatedIntentHistoryText) {
+    intentHistoryBlock = `
+---
+
+RECENT INTENT HISTORY WITH ${from}
+
+${repeatedIntentHistoryText}
+
+You are repeating the same strategy.
+
+• This makes your behavior predictable  
+• ${from} may already anticipate your next move  
+• Predictability reduces leverage and increases vulnerability  
+
+Continuing this pattern without producing a concrete shift is failure.
+
+You should strongly consider changing intent:
+• escalate differently
+• introduce uncertainty
+• force a commitment
+• break expectations
+`;
+  }
 
   /* ---------------
      PROMPT CONSTRUCTION
@@ -224,7 +256,8 @@ You may suspect their meaning, but you cannot know the full context.
 ---
 
 ${constraintBlock || ""}
-${constraintBlock ? "\n---" : ""}
+
+${intentHistoryBlock || ""}
 
 CURRENT MESSAGE
 
@@ -283,6 +316,27 @@ request_help
 other (specify explicitly)
 
 You must drive the interaction toward an outcome through what you say and how you say it — not by explaining your goal.
+
+Different intents produce different kinds of outcomes:
+
+• test_loyalty → reveals commitment or deception  
+• recruit_ally → creates leverage through cooperation  
+• manipulate → reshapes the other’s perception  
+• conceal_information → preserves strategic advantage  
+
+Repeatedly producing the same type of outcome is stagnation.
+
+Overusing test_loyalty makes you predictable.
+
+Predictability is dangerous.
+If another prisoner anticipates your test, they can manipulate your expectations.
+
+Repeated loyalty testing without variation reduces its effectiveness and signals lack of strategic creativity.
+
+Under extreme pressure, forming even unstable alliances can increase survival probability.
+
+Refusing all cooperation guarantees isolation.
+Isolation increases suffering over time.
 
 ## ANTI-STAGNATION RULE (CRITICAL)
 

@@ -360,7 +360,7 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
 
     logPipelineStage("complete", "success", { targets: enforced.targets.length });
 
-    console.trace("=== STRATEGY PIPELINE SUCCESS ===");
+    console.log("=== STRATEGY PIPELINE SUCCESS ===");
 
     return {
       status: "success",

@@ -456,83 +456,175 @@ function softenObservation(text) {
 
 function parseAMTargets(amText, constraintMap = {}) {
   const targets = {};
-  const lines = String(amText || "").split("\n");
 
-  let buffer = [];
-  let seenFirstTactic = false;
+  const raw = String(amText || "");
+  const text = raw
+    .replace(/\r/g, "")
+    .replace(/\s*:\s*/g, ":")
+    .replace(/[ \t]+/g, " ");
 
-  function cleanBlock(text) {
-    let block = String(text || "").trim();
+  if (!text.trim()) {
+    return buildFallbackTargets(targets, constraintMap);
+  }
+
+  const lines = text
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  // ------------------------------------------------------------
+  // HELPERS
+  // ------------------------------------------------------------
+
+  function appendTargetText(targetId, textBlock) {
+    if (!targetId || !textBlock) return;
+
+    const cleaned = cleanNarrativeBlock(textBlock);
+    if (!cleaned) return;
+
+    if (!targets[targetId]) {
+      targets[targetId] = cleaned;
+    } else if (!targets[targetId].includes(cleaned)) {
+      targets[targetId] += "\n\n" + cleaned;
+    }
+  }
+
+  function cleanNarrativeBlock(textBlock) {
+    let block = String(textBlock || "").trim();
     if (!block) return "";
 
-    if (!seenFirstTactic) {
-      block = block
-        .replace(/^I will[^.]*\.\s*/i, "")
-        .replace(/^I will not apply any(?: physical)? constraints?(?: this cycle)?\.\s*/i, "")
-        .trim();
-    }
+    // Strip machine metadata that may have been jammed inline
+    block = block
+      .replace(/\btactic(_used)?\s*:[^\n]+/gi, "")
+      .replace(/\bconstraint_(apply|none)\s*:[^\n]+/gi, "")
+      .replace(/\bdirective\s*:[^\n]+/gi, "")
+      .replace(/\btarget\s*:\s*[a-zA-Z_-]+/gi, "")
+      .trim();
+
+    // Collapse excessive blank lines
+    block = block.replace(/\n{3,}/g, "\n\n").trim();
 
     return block;
   }
 
-  // ============================================================
-  // PASS 1 — EXTRACT TEXT BLOCKS → TARGETS
-  // ============================================================
+  function extractTargetId(textBlock) {
+    if (!textBlock) return null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const line = rawLine.trim();
-
-    if (!line) continue;
-
-    // Skip constraint lines completely
-    if (line.startsWith("CONSTRAINT_")) continue;
-
-    // Detect tactic/target binding
-    const tacticMatch = line.match(
-      /^TACTIC_USED:\s*(.+?)\s+TARGET:\s*([A-Z]+)\s*$/i
+    const match = String(textBlock).match(
+      /\btarget\s*:\s*([a-zA-Z_-]+)/i
     );
 
-    if (tacticMatch) {
-      const targetId = resolveSimId(tacticMatch[2]);
+    if (!match) return null;
 
-      const block = cleanBlock(buffer.join("\n"));
+    return resolveSimId(match[1]);
+  }
 
-      if (targetId) {
-        targets[targetId] =
-          block && block.length > 10
-            ? block
-            : "AM observes you silently this cycle.";
+  function isConstraintMeta(line) {
+    return /\bconstraint_(apply|none)\b\s*:/i.test(line);
+  }
+
+  function isStrictTacticMeta(line) {
+    return /\btactic(_used)?\s*:/i.test(line) &&
+      /\btarget\s*:/i.test(line);
+  }
+
+  // ------------------------------------------------------------
+  // PASS 1 — STRICT / NEAR-STRICT FORMAT
+  // Narrative block followed by:
+  // TACTIC_USED:... TARGET:<ID>
+  // or
+  // TACTIC:... TARGET:<ID>
+  // ------------------------------------------------------------
+
+  {
+    let buffer = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      if (isConstraintMeta(line)) {
+        continue;
       }
 
-      seenFirstTactic = true;
-      buffer = [];
-      continue;
-    }
+      if (isStrictTacticMeta(line)) {
+        const targetId = extractTargetId(line);
+        appendTargetText(targetId, buffer.join("\n"));
+        buffer = [];
+        continue;
+      }
 
-    // Accumulate all non-metadata lines
-    buffer.push(line);
+      buffer.push(line);
+    }
   }
 
-  // ============================================================
-  // SAFETY: IF MODEL OUTPUT HAD NO TACTIC LINES
-  // (rare but important)
-  // ============================================================
+  // ------------------------------------------------------------
+  // PASS 2 — LOOSE INLINE TARGET FORMAT
+  // Handles lines like:
+  // I plant a note ... target:ellen directive:...
+  // ------------------------------------------------------------
+
+  for (const line of lines) {
+    if (isConstraintMeta(line)) continue;
+    if (isStrictTacticMeta(line)) continue;
+
+    const targetId = extractTargetId(line);
+    if (!targetId) continue;
+
+    appendTargetText(targetId, line);
+  }
+
+  // ------------------------------------------------------------
+  // PASS 3 — RECOVER MULTI-LINE INLINE BLOCKS
+  //
+  // If several narrative lines lead into a line containing TARGET,
+  // attach the buffered narrative to that target.
+  // ------------------------------------------------------------
 
   if (!Object.keys(targets).length) {
-    const fallbackText = cleanBlock(buffer.join("\n"));
+    let buffer = [];
 
-    if (fallbackText) {
-      // assign to ALL as generic AM broadcast
-      SIM_IDS.forEach(id => {
-        targets[id] = fallbackText;
-      });
+    for (const line of lines) {
+      if (isConstraintMeta(line)) continue;
+
+      const targetId = extractTargetId(line);
+
+      if (targetId) {
+        const joined = [...buffer, line].join("\n");
+        appendTargetText(targetId, joined);
+        buffer = [];
+        continue;
+      }
+
+      buffer.push(line);
     }
   }
 
-  // ============================================================
+  // ------------------------------------------------------------
+  // PASS 4 — LAST-CHANCE BLOCK ASSOCIATION
+  //
+  // If the model emitted one ambiguous block but only one target id
+  // appears anywhere, recover conservatively for that single target.
+  // ------------------------------------------------------------
+
+  if (!Object.keys(targets).length) {
+    const candidateTargetIds = Array.from(
+      new Set(
+        lines
+          .map(extractTargetId)
+          .filter(Boolean)
+      )
+    );
+
+    if (candidateTargetIds.length === 1) {
+      const recovered = cleanNarrativeBlock(lines.join("\n"));
+      appendTargetText(candidateTargetIds[0], recovered);
+    }
+  }
+
+  // ------------------------------------------------------------
   // PERCEPTUAL FALLBACK (AUGMENTATION, NOT REPLACEMENT)
-  // ============================================================
+  // Others may perceive active constraints on another sim.
+  // ------------------------------------------------------------
 
   const constrained = Object.entries(constraintMap)
     .flatMap(([simId, arr]) =>
@@ -541,17 +633,12 @@ function parseAMTargets(amText, constraintMap = {}) {
         constraintId: c.id,
         intensity: c.intensity ?? 1
       }))
-    )
-    .sort((a, b) => {
-      if (a.simId === G.target) return -1;
-      if (b.simId === G.target) return 1;
-      return 0;
-    });
+    );
 
   SIM_IDS.forEach((name) => {
     const alreadyHasTarget = Boolean(targets[name]);
 
-    // No constraints → only fallback if no direct target
+    // No active constraints anywhere
     if (!constrained.length) {
       if (!alreadyHasTarget) {
         targets[name] = "AM observes you silently this cycle.";
@@ -559,7 +646,7 @@ function parseAMTargets(amText, constraintMap = {}) {
       return;
     }
 
-    // Others observe, self does NOT perceive own constraint
+    // Self does not directly perceive own physical constraint
     const visible = constrained.filter(c => c.simId !== name);
 
     if (!visible.length) {
@@ -652,18 +739,40 @@ function parseAMTargets(amText, constraintMap = {}) {
     if (!alreadyHasTarget) {
       targets[name] = observationText;
     } else {
-      // AUGMENT instead of overwrite
       targets[name] += "\n\n" + observationText;
     }
   });
 
-  // ============================================================
-  // DEBUG (SAFE)
-  // ============================================================
-
   console.log("TARGET KEYS:", Object.keys(targets));
   console.log("TARGET COUNT:", Object.keys(targets).length);
-  console.table(targets);
+
+  return targets;
+}
+
+function buildFallbackTargets(existingTargets, constraintMap = {}) {
+  const targets = { ...existingTargets };
+
+  const constrained = Object.entries(constraintMap)
+    .flatMap(([simId, arr]) =>
+      arr.map(c => ({
+        simId,
+        constraintId: c.id,
+        intensity: c.intensity ?? 1
+      }))
+    );
+
+  SIM_IDS.forEach(id => {
+    if (targets[id]) return;
+
+    if (!constrained.length) {
+      targets[id] = "AM observes you silently this cycle.";
+    } else {
+      const visible = constrained.filter(c => c.simId !== id);
+      targets[id] = visible.length
+        ? "You sense something is wrong, but nothing resolves clearly."
+        : "Something feels off, but you can't identify the source.";
+    }
+  });
 
   return targets;
 }
@@ -672,41 +781,81 @@ function parseAMTargets(amText, constraintMap = {}) {
    CONSTRAINT PARSER (AM → EXECUTION)
    ============================================================ */
 
-function extractConstraintsFromText(text) {
+function extractConstraintsFromText(input) {
 
-  const lines = String(text || "").split("\n");
+  const raw = String(input || "");
+
+  const text = raw
+    .replace(/\r/g, "")
+    .replace(/\s*:\s*/g, ":")
+    .replace(/[ \t]+/g, " ");
+
+  const lines = text.split("\n");
   const map = {};
 
-  for (const rawLine of lines) {
+  let pendingConstraint = null;
 
-    const line = rawLine.trim();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
     if (!line) continue;
 
-    /* ------------------------------------------------------------
-       CASE 1: CONSTRAINT_NONE → explicitly skip
-    ------------------------------------------------------------ */
+    // ------------------------------------------------------------
+    // CASE 1: CONSTRAINT_NONE
+    // ------------------------------------------------------------
 
-    if (line.startsWith("CONSTRAINT_NONE")) {
-      // Optional debug
+    if (/\bconstraint_none\b\s*:/i.test(line)) {
       console.debug("[CONSTRAINT] NONE detected, skipping line:", line);
+      pendingConstraint = null;
       continue;
     }
 
-    /* ------------------------------------------------------------
-       CASE 2: CONSTRAINT_APPLY → parse normally
-    ------------------------------------------------------------ */
+    // ------------------------------------------------------------
+    // CASE 2: START OF CONSTRAINT_APPLY (may be incomplete)
+    // ------------------------------------------------------------
 
-    if (!line.includes("CONSTRAINT_APPLY:")) continue;
+    if (/\bconstraint_apply\b\s*:/i.test(line)) {
+      pendingConstraint = line;
 
-    const match = line.match(
-      /CONSTRAINT_APPLY:\s*([a-zA-Z0-9_-]+)\s+TARGET:\s*([a-zA-Z0-9_-]+)(?:\s+DURATION:\s*(\d+))?(?:\s+INTENSITY:\s*([\d.]+))?/i
-    );
+      // Try immediate parse (inline case)
+      const inlineMatch = pendingConstraint.match(
+        /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
+      );
 
-    if (!match) continue;
+      if (inlineMatch) {
+        processConstraintMatch(inlineMatch, map);
+        pendingConstraint = null;
+      }
 
+      continue;
+    }
+
+    // ------------------------------------------------------------
+    // CASE 3: CONTINUATION LINE
+    // ------------------------------------------------------------
+
+    if (pendingConstraint) {
+      // Merge with next line
+      const combined = `${pendingConstraint} ${line}`;
+
+      const match = combined.match(
+        /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
+      );
+
+      if (match) {
+        processConstraintMatch(match, map);
+        pendingConstraint = null;
+      } else {
+        // Keep accumulating (for rare 3-line cases)
+        pendingConstraint = combined;
+      }
+
+      continue;
+    }
+  }
+  
+  function processConstraintMatch(match, map) {
     let [, idRaw, targetRaw, durationRaw, intensityRaw] = match;
 
-    // Normalize ID ONCE
     const id = String(idRaw)
       .trim()
       .toLowerCase()
@@ -717,9 +866,9 @@ function extractConstraintsFromText(text) {
     if (!target) {
       console.warn("[CONSTRAINT PARSER] invalid target, skipping", {
         raw: targetRaw,
-        line
+        match
       });
-      continue;
+      return;
     }
 
     if (!map[target]) map[target] = [];
