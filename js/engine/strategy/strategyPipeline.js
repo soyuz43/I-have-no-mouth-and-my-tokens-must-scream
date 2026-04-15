@@ -20,13 +20,13 @@ import {
 } from "./logging/logStrategyRun.js";
 
 // ========== GLOBAL LOGGING CONTROL ==========
-const LOG_PIPELINE_ONLY = false;      // Log just the stage transitions (no details)
-const LOG_SANITIZE_DETAILS = false;  // Log sanitize input/output
-const LOG_EXTRACT_DETAILS = false;   // Log extracted targets structure
-const LOG_INTERPRET_DETAILS = false; // Log interpreted target IDs
-const LOG_VALIDATE_DETAILS = false;  // Log validation results
-const LOG_ENFORCE_DETAILS = false;   // Log enforcement details
-const LOG_COMMIT_DETAILS = false;    // Log commit actions
+const LOG_PIPELINE_ONLY = true;      // Log just the stage transitions (no details)
+const LOG_SANITIZE_DETAILS = true;  // Log sanitize input/output
+const LOG_EXTRACT_DETAILS = true;   // Log extracted targets structure
+const LOG_INTERPRET_DETAILS = true; // Log interpreted target IDs
+const LOG_VALIDATE_DETAILS = true;  // Log validation results
+const LOG_ENFORCE_DETAILS = true;   // Log enforcement details
+const LOG_COMMIT_DETAILS = true;    // Log commit actions
 const LOG_FALLBACK_DETAILS = true;   // Log when fallbacks are used (important)
 const LOG_ERROR_DETAILS = true;      // Log all errors
 // ============================================
@@ -241,7 +241,7 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
     let validated;
 
     try {
-      validated = validateTargetsArray(interpreted, { DEBUG });
+      validated = validateTargetsArray(interpreted, { DEBUG: true });
     } catch (err) {
       logError("validate", err);
       logPipelineStage("validate", "exception", { error: err.message });

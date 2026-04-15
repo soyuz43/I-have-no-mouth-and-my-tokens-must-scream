@@ -18,7 +18,7 @@ import { validateTarget } from "./validateTarget.js";
    - Returns filtered targets
 ============================================================ */
 
-export function validateTargetsArray(targets, { DEBUG = true } = {}) {
+export function validateTargetsArray(targets, { DEBUG = false } = {}) {
 
   if (DEBUG) {
     console.debug("[VALIDATE][ARRAY] start");
@@ -73,7 +73,7 @@ export function validateTargetsArray(targets, { DEBUG = true } = {}) {
       return;
     }
 
-    const result = validateTarget(target, id, { DEBUG });
+    const result = validateTarget(target, id, { DEBUG: true });
 
     if (!result.valid) {
       console.warn(
