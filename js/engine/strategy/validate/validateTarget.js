@@ -1,131 +1,166 @@
 // js/engine/strategy/validate/validateTarget.js
+//
+// TARGET VALIDATION — DELEGATES ALL OBSERVABILITY TO DEDICATED MODULE
+//
+// DESIGN PRINCIPLES:
+// - No mutation, no global state access
+// - Returns structured result (no throwing)
+// - Validates STRUCTURE only: required fields, basic format
+// - Delegates SEMANTICS (belief refs, direction, observability) to observability.js
+//
 
-/* ============================================================
-   TARGET VALIDATION
+// Import ONLY what we actually use (clean up unused imports)
+import { validateHypothesisStructure } from "../hypothesis/observability.js";
 
-   PURPOSE:
-   Validates a single parsed target object.
-
-   DESIGN PRINCIPLES:
-   - No mutation
-   - No global state access
-   - Returns structured result (no throwing)
-   - Preserves original parser behavior
-   - Separates errors vs warnings
-
-   RETURNS:
-   {
-     valid: boolean,
-     errors: string[],
-     warnings: string[]
-   }
-============================================================ */
+// ============================================================================
+// MAIN EXPORT: validateTarget()
+// ============================================================================
 
 export function validateTarget(target, id, { DEBUG = false } = {}) {
+  if (DEBUG) {
+    console.log(`[VALIDATE TARGET] ENTER`, { id, DEBUG });
+  }
 
   const errors = [];
   const warnings = [];
 
-  /* ------------------------------------------------------------
-     BASIC STRUCTURE VALIDATION
-  ------------------------------------------------------------ */
-
-  if (!target || typeof target !== "object") {
-    errors.push(`Target must be an object`);
-    return { valid: false, errors, warnings };
-  }
-
-  const {
-    objective,
-    hypothesis,
-    why_now,
-    evidence
-  } = target;
-
-  /* ------------------------------------------------------------
-     REQUIRED FIELD VALIDATION
-  ------------------------------------------------------------ */
-
-  const requiredKeys = ["objective", "hypothesis", "why_now", "evidence"];
-  const missing = requiredKeys.filter((k) => !(k in target));
-
-  if (missing.length > 0) {
-    errors.push(`Missing required keys: ${missing.join(", ")}`);
-  }
-
-  /* ------------------------------------------------------------
-     FIELD TYPE + CONTENT VALIDATION
-  ------------------------------------------------------------ */
-
-if (typeof objective !== "string" || !objective.trim()) {
-
-  // DEBUG: surface raw broken structure
-  console.warn("[VALIDATE] missing/invalid objective. Raw target:", target);
-
-  errors.push(`Invalid objective`);
-}
-
-  if (typeof hypothesis !== "string" || !hypothesis.trim()) {
-    errors.push(`Invalid hypothesis`);
-  }
-
-  if (typeof why_now !== "string" || why_now.trim().length < 15) {
-    errors.push(`Invalid or weak why_now`);
-  }
-
-  if (typeof evidence !== "string" || evidence.trim().length < 10) {
-    errors.push(`Invalid or weak evidence`);
-  }
-
-  /* ------------------------------------------------------------
-     HYPOTHESIS STRUCTURE CHECK (WARNING ONLY)
-  ------------------------------------------------------------ */
-
-  if (
-    typeof hypothesis === "string" &&
-    (!hypothesis.includes("causes") || !hypothesis.includes("leads"))
-  ) {
-    warnings.push(`Weak hypothesis structure`);
-  }
-
-  /* ------------------------------------------------------------
-     ALIGNMENT CHECK (WARNING ONLY)
-  ------------------------------------------------------------ */
-
-  if (id && typeof id === "string") {
-
-    const combined = (
-      (evidence || "") +
-      " " +
-      (why_now || "") +
-      " " +
-      (hypothesis || "")
-    ).toLowerCase();
-
-    if (!combined.includes(id.toLowerCase())) {
-      warnings.push(`Alignment issue: fields may not reference target consistently`);
+  try {
+    // --------------------------------------------------
+    // BASIC STRUCTURE VALIDATION
+    // --------------------------------------------------
+    if (!target || typeof target !== "object") {
+      errors.push(`Target must be an object`);
+      if (DEBUG) console.warn("[VALIDATE TARGET] [X] Invalid target object");
+      return { valid: false, errors, warnings };
     }
 
-  }
+    const { objective, hypothesis, why_now, evidence } = target;
 
-  /* ------------------------------------------------------------
-     FINAL RESULT
-  ------------------------------------------------------------ */
-
-  const valid = errors.length === 0;
-
-  if (DEBUG) {
-    if (!valid) {
-      console.warn("[VALIDATE] errors:", errors);
+    // --------------------------------------------------
+    // REQUIRED FIELDS
+    // --------------------------------------------------
+    const requiredKeys = ["objective", "hypothesis", "why_now", "evidence"];
+    const missing = requiredKeys.filter((k) => !(k in target));
+    if (missing.length > 0) {
+      errors.push(`Missing required keys: ${missing.join(", ")}`);
+      if (DEBUG) console.warn("[VALIDATE TARGET] [X] Missing keys:", missing);
     }
-    if (warnings.length) {
-      console.warn("[VALIDATE] warnings:", warnings);
-    }
-  }
 
-  return {
-    valid,
-    errors,
-    warnings
-  };
+    // --------------------------------------------------
+    // FIELD VALIDATION
+    // --------------------------------------------------
+    if (typeof objective !== "string" || !objective.trim()) {
+      console.warn("[VALIDATE] missing/invalid objective. Raw target:", target);
+      errors.push(`Invalid objective`);
+    }
+
+    if (typeof hypothesis !== "string" || !hypothesis.trim()) {
+      errors.push(`Invalid hypothesis`);
+    }
+
+    if (typeof why_now !== "string" || why_now.trim().length < 15) {
+      errors.push(`Invalid or weak why_now`);
+    }
+
+    if (typeof evidence !== "string" || evidence.trim().length < 10) {
+      errors.push(`Invalid or weak evidence`);
+    }
+
+    // --------------------------------------------------
+    // HYPOTHESIS OBSERVABILITY CHECK (CLEAN STRUCTURE)
+    // --------------------------------------------------
+
+    let hasHypothesis = false;
+
+    if (typeof hypothesis !== "string") {
+      if (DEBUG) console.log(`[VALIDATE TARGET] ⚠️ Hypothesis not a string`);
+    } else if (!hypothesis.trim()) {
+      if (DEBUG) console.log(`[VALIDATE TARGET] ⚠️ Hypothesis empty`);
+    } else {
+      // ✅ THIS is the only "normal path"
+      hasHypothesis = true;
+
+      if (DEBUG) {
+        console.log(`[VALIDATE TARGET] Checking hypothesis`, {
+          id,
+          preview: hypothesis.slice(0, 150)
+        });
+      }
+
+      if (typeof validateHypothesisStructure === "function") {
+        try {
+          const result = validateHypothesisStructure(hypothesis);
+          const { isValid, components, warnings: structureWarnings } = result || {};
+
+          if (!isValid && Array.isArray(structureWarnings)) {
+            warnings.push(...structureWarnings);
+          }
+
+          if (DEBUG) {
+            console.log(`[VALIDATE TARGET] Observability result`, {
+              isValid,
+              format: components?.format,
+              belief: components?.beliefRef?.canonical,
+              hasBeliefRef: components?.beliefRef?.hasReference,
+              direction: components?.direction?.type,
+              hasDirection: components?.direction?.hasDirection,
+              tier: components?.observability?.tier
+            });
+          }
+
+        } catch (err) {
+          console.warn(`[VALIDATE TARGET] Observability failed`, err);
+        }
+      } else {
+        if (DEBUG) {
+          console.warn(`[VALIDATE TARGET] ⚠️ validateHypothesisStructure missing`);
+        }
+      }
+    }
+
+    // --------------------------------------------------
+    // ALIGNMENT CHECK
+    // --------------------------------------------------
+    if (id && typeof id === "string") {
+      const combined = ((evidence || "") + " " + (why_now || "") + " " + (hypothesis || "")).toLowerCase();
+
+      if (!combined.includes(id.toLowerCase())) {
+        warnings.push(`Alignment issue: fields may not reference target consistently`);
+        if (DEBUG) console.warn(`[VALIDATE TARGET] ⚠️ Alignment issue`, { id });
+      }
+    }
+
+    // --------------------------------------------------
+    // FINAL RESULT
+    // --------------------------------------------------
+    const valid = errors.length === 0;
+
+    if (DEBUG) {
+      console.log(`[VALIDATE TARGET] EXIT`, {
+        id,
+        valid,
+        errorCount: errors.length,
+        warningCount: warnings.length,
+        hasHypothesis
+      });
+
+      if (errors.length) console.warn("[VALIDATE TARGET] errors:", errors);
+      if (warnings.length) console.warn("[VALIDATE TARGET] warnings:", warnings);
+    }
+
+    return {
+      valid,
+      errors,
+      warnings
+    };
+
+  } catch (err) {
+    console.error(`[VALIDATE TARGET] [!!] UNEXPECTED ERROR`, { id, err });
+
+    return {
+      valid: false,
+      errors: [`Unexpected validation error: ${err?.message || err}`],
+      warnings
+    };
+  }
 }

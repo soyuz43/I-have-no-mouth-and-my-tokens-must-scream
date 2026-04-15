@@ -7,22 +7,148 @@
 // All functions are pure and side-effect free for testability.
 
 /* ============================================================
-   CORE DERIVED METRICS
+   EXPORT ENTRY POINT: exportMetric()
+   Unified handler for all metric types including observability unknowns
+============================================================ */
+import { G } from "../../core/state.js";
+
+// Module-scope batch buffer for non-blocking writes
+const _metricBuffer = [];
+const _BATCH_SIZE = 10;
+const _BATCH_DELAY_MS = 100;
+let _batchTimer = null;
+
+// Dedupe set for observability_unknown (reset per cycle)
+let _unknownVerbHashes = new Set();
+
+/**
+ * Public entry point for exporting metrics.
+ * Non-blocking, batch-friendly, type-agnostic.
+ * 
+ * @param {Object} metric - Metric object with `type` field
+ * @param {string} metric.type - Metric type identifier
+ * @returns {Promise<void>} Resolves when metric is queued
+ */
+export async function exportMetric(metric) {
+  if (!metric?.type) {
+    console.warn('[EXPORT] Missing metric type', metric);
+    return;
+  }
+
+  // Handle observability_unknown with deduplication
+  if (metric.type === 'observability_unknown') {
+    const hash = `${metric.verb?.toLowerCase() || 'null'}:${(metric.outcome || '').slice(0, 50).toLowerCase()}`;
+
+    // Skip if already seen this cycle
+    if (_unknownVerbHashes.has(hash)) {
+      return;
+    }
+    _unknownVerbHashes.add(hash);
+
+    // Enrich with cycle context
+    metric.cycle = metric.cycle ?? G?.cycle ?? null;
+    metric.timestamp = metric.timestamp ?? Date.now();
+  }
+
+  // Queue for batched write
+  _metricBuffer.push(metric);
+
+
+  // Trigger batch flush if threshold reached
+  if (_metricBuffer.length >= _BATCH_SIZE) {
+    _flushBuffer();
+  } else if (!_batchTimer) {
+    // Ensure at least one synchronous flush per cycle window
+    _batchTimer = setTimeout(() => {
+      _flushBuffer();
+    }, _BATCH_DELAY_MS);
+  }
+}
+
+
+/**
+ * Flush buffered metrics to persistent storage.
+ * Non-blocking: uses setTimeout to avoid main thread contention.
+ */
+function _flushBuffer() {
+  if (_batchTimer) {
+    clearTimeout(_batchTimer);
+    _batchTimer = null;
+  }
+
+  if (_metricBuffer.length === 0) return;
+
+  const batch = [..._metricBuffer];
+  _metricBuffer.length = 0; // Clear buffer
+
+  // Async write: doesn't block main execution
+  try {
+    if (G) {
+      const currentCycle = G.cycle;
+
+      if (!Array.isArray(G.observabilityUnknowns)) {
+        G.observabilityUnknowns = [];
+      }
+
+      // Only retain metrics for current cycle OR last cycle (safety window)
+      const filteredExisting = G.observabilityUnknowns.filter(
+        m => m.cycle === currentCycle || m.cycle === currentCycle - 1
+      );
+
+      const next = filteredExisting.concat(batch);
+
+      G.observabilityUnknowns = next.length > 500
+        ? next.slice(-500)
+        : next;
+    }
+
+    if (G?.DEBUG_OBSERVABILITY_LEXICON) {
+      console.debug(`[EXPORT] Flushed ${batch.length} metrics`, batch.map(m => m.type));
+    }
+  } catch (err) {
+    console.debug('[EXPORT] Flush failed', err?.message || err);
+  }
+}
+
+/**
+ * Reset observability dedupe state at cycle start.
+ * Call this from cycle.js beginCycle() to clear unknown-verb tracking.
+ */
+export function resetObservabilityExport() {
+  // Cancel any scheduled async flush FIRST
+  if (_batchTimer) {
+    clearTimeout(_batchTimer);
+    _batchTimer = null;
+  }
+
+  // Flush remaining buffered metrics synchronously
+  if (_metricBuffer.length > 0) {
+    _flushBuffer();
+  }
+
+  _unknownVerbHashes.clear();
+
+  if (G?.DEBUG_OBSERVABILITY_LEXICON) {
+    console.debug('[EXPORT] Reset observability dedupe state');
+  }
+}
+/* ============================================================
+   CORE DERIVED METRICS (unchanged)
 ============================================================ */
 
 // Compute second derivative (acceleration) of a time series
 export function computeSecondDerivative(values, key = 'value') {
   if (values.length < 3) return [];
-  
+
   const result = [];
   for (let i = 2; i < values.length; i++) {
-    const v0 = values[i-2]?.[key] ?? 0;
-    const v1 = values[i-1]?.[key] ?? 0;
+    const v0 = values[i - 2]?.[key] ?? 0;
+    const v1 = values[i - 1]?.[key] ?? 0;
     const v2 = values[i]?.[key] ?? 0;
-    
+
     // Second derivative: f''(t) ≈ f(t+1) - 2f(t) + f(t-1)
-    const accel = v2 - 2*v1 + v0;
-    
+    const accel = v2 - 2 * v1 + v0;
+
     result.push({
       cycle: values[i].cycle,
       agent: values[i].agent,
@@ -35,17 +161,17 @@ export function computeSecondDerivative(values, key = 'value') {
 // Compute rolling window statistics
 export function computeRollingStats(values, key, windowSize = 3) {
   const result = [];
-  
+
   for (let i = 0; i < values.length; i++) {
     const window = values.slice(Math.max(0, i - windowSize + 1), i + 1);
     const vals = window.map(v => v[key]).filter(v => v != null);
-    
+
     if (vals.length < 2) continue;
-    
-    const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
+
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     const variance = vals.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / vals.length;
     const std = Math.sqrt(variance);
-    
+
     result.push({
       cycle: values[i].cycle,
       agent: values[i].agent,
@@ -67,14 +193,14 @@ export function normalizeMinMax(values, key, agentKey = 'agent') {
     if (!byAgent[agent]) byAgent[agent] = [];
     byAgent[agent].push(v);
   }
-  
+
   const result = [];
   for (const [agent, agentVals] of Object.entries(byAgent)) {
     const vals = agentVals.map(v => v[key]).filter(v => v != null);
     const min = Math.min(...vals);
     const max = Math.max(...vals);
     const range = max - min || 1; // Avoid division by zero
-    
+
     for (const v of agentVals) {
       const normalized = (v[key] - min) / range;
       result.push({
@@ -94,13 +220,13 @@ export function normalizeZScore(values, key, agentKey = 'agent') {
     if (!byAgent[agent]) byAgent[agent] = [];
     byAgent[agent].push(v);
   }
-  
+
   const result = [];
   for (const [agent, agentVals] of Object.entries(byAgent)) {
     const vals = agentVals.map(v => v[key]).filter(v => v != null);
-    const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     const std = Math.sqrt(vals.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / vals.length) || 1;
-    
+
     for (const v of agentVals) {
       const zscore = (v[key] - mean) / std;
       result.push({
@@ -113,26 +239,26 @@ export function normalizeZScore(values, key, agentKey = 'agent') {
 }
 
 /* ============================================================
-   PHASE TRANSITION DETECTION
+   PHASE TRANSITION DETECTION (unchanged)
 ============================================================ */
 
 // Detect inflection points in a time series using curvature
 export function detectInflectionPoints(values, key, threshold = 0.1) {
   const inflections = [];
-  
+
   for (let i = 2; i < values.length - 1; i++) {
-    const v0 = values[i-2]?.[key] ?? 0;
-    const v1 = values[i-1]?.[key] ?? 0;
+    const v0 = values[i - 2]?.[key] ?? 0;
+    const v1 = values[i - 1]?.[key] ?? 0;
     const v2 = values[i]?.[key] ?? 0;
-    const v3 = values[i+1]?.[key] ?? 0;
-    
+    const v3 = values[i + 1]?.[key] ?? 0;
+
     // Curvature approximation: change in slope
     const slope1 = v1 - v0;
     const slope2 = v2 - v1;
     const slope3 = v3 - v2;
-    
+
     const curvature = Math.abs((slope2 - slope1) + (slope3 - slope2)) / 2;
-    
+
     if (curvature > threshold) {
       inflections.push({
         cycle: values[i].cycle,
@@ -152,15 +278,15 @@ export function detectPhaseTransitions(phaseRecords) {
     if (!byAgent[r.agent]) byAgent[r.agent] = [];
     byAgent[r.agent].push(r);
   }
-  
+
   const transitions = [];
   for (const [agent, records] of Object.entries(byAgent)) {
-    records.sort((a,b) => a.cycle - b.cycle);
-    
+    records.sort((a, b) => a.cycle - b.cycle);
+
     for (let i = 1; i < records.length; i++) {
-      const prev = records[i-1];
+      const prev = records[i - 1];
       const curr = records[i];
-      
+
       if (prev.phase !== curr.phase) {
         transitions.push({
           cycle: curr.cycle,
@@ -179,39 +305,39 @@ export function detectPhaseTransitions(phaseRecords) {
 }
 
 /* ============================================================
-   INTERVENTION CAUSALITY ANALYSIS
+   INTERVENTION CAUSALITY ANALYSIS (unchanged)
 ============================================================ */
 
 // Compute intervention effect sizes (Cohen's d approximation)
 export function computeInterventionEffects(constraintRecords, dynamicsRecords) {
   // Group dynamics by constraint status
-  const constrained = dynamicsRecords.filter(d => 
+  const constrained = dynamicsRecords.filter(d =>
     constraintRecords.some(c => c.agent === d.agent && c.cycle === d.cycle)
   );
-  const unconstrained = dynamicsRecords.filter(d => 
+  const unconstrained = dynamicsRecords.filter(d =>
     !constraintRecords.some(c => c.agent === d.agent && c.cycle === d.cycle)
   );
-  
+
   const computeEffect = (records, key) => {
     const vals = records.map(r => r[key]).filter(v => v != null);
     if (vals.length < 2) return { mean: 0, std: 1, n: 0 };
-    const mean = vals.reduce((a,b) => a+b, 0) / vals.length;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     const std = Math.sqrt(vals.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / vals.length) || 1;
     return { mean, std, n: vals.length };
   };
-  
+
   const constrainedStats = computeEffect(constrained, 'dSuffering_total');
   const unconstrainedStats = computeEffect(unconstrained, 'dSuffering_total');
-  
+
   // Cohen's d: (mean1 - mean2) / pooled_std
   const pooledStd = Math.sqrt(
-    ((constrainedStats.n - 1) * constrainedStats.std**2 + 
-     (unconstrainedStats.n - 1) * unconstrainedStats.std**2) / 
+    ((constrainedStats.n - 1) * constrainedStats.std ** 2 +
+      (unconstrainedStats.n - 1) * unconstrainedStats.std ** 2) /
     (constrainedStats.n + unconstrainedStats.n - 2)
   ) || 1;
-  
+
   const cohensD = (constrainedStats.mean - unconstrainedStats.mean) / pooledStd;
-  
+
   return {
     constrained_mean: constrainedStats.mean,
     unconstrained_mean: unconstrainedStats.mean,
@@ -226,34 +352,34 @@ export function testContagionAmplification(dynamicsRecords, constraintRecords) {
   // For each record, check if any OTHER agent was constrained in previous cycle
   const withContagionFlag = dynamicsRecords.map(d => {
     const prevCycle = d.cycle - 1;
-    const otherConstrained = constraintRecords.some(c => 
-      c.cycle === prevCycle && 
+    const otherConstrained = constraintRecords.some(c =>
+      c.cycle === prevCycle &&
       c.agent !== d.agent
     );
     return { ...d, other_constrained_prev_cycle: otherConstrained ? 1 : 0 };
   });
-  
+
   // Compare suffering deltas
   const contagionGroup = withContagionFlag.filter(d => d.other_constrained_prev_cycle === 1);
   const controlGroup = withContagionFlag.filter(d => d.other_constrained_prev_cycle === 0);
-  
+
   const mean = (records, key) => {
     const vals = records.map(r => r[key]).filter(v => v != null);
-    return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : 0;
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
   };
-  
+
   return {
     contagion_mean_suffering_delta: mean(contagionGroup, 'dSuffering_total'),
     control_mean_suffering_delta: mean(controlGroup, 'dSuffering_total'),
-    amplification_ratio: mean(contagionGroup, 'dSuffering_total') / 
-                         (mean(controlGroup, 'dSuffering_total') || 1),
+    amplification_ratio: mean(contagionGroup, 'dSuffering_total') /
+      (mean(controlGroup, 'dSuffering_total') || 1),
     contagion_n: contagionGroup.length,
     control_n: controlGroup.length,
   };
 }
 
 /* ============================================================
-   ENTROPY-SANITY CORRELATION ANALYSIS
+   ENTROPY-SANITY CORRELATION ANALYSIS (unchanged)
 ============================================================ */
 
 // Compute correlation between belief entropy and agent sanity
@@ -273,25 +399,25 @@ export function computeEntropySanityCorrelation(globalRecords, stateRecords) {
       });
     }
   }
-  
+
   if (merged.length < 3) return { correlation: null, n: 0 };
-  
+
   // Pearson correlation
   const entropies = merged.map(m => m.entropy).filter(v => v != null);
   const sanities = merged.map(m => m.sanity).filter(v => v != null);
-  
+
   if (entropies.length !== sanities.length || entropies.length < 3) {
     return { correlation: null, n: 0 };
   }
-  
+
   const n = entropies.length;
-  const meanE = entropies.reduce((a,b) => a+b, 0) / n;
-  const meanS = sanities.reduce((a,b) => a+b, 0) / n;
-  
+  const meanE = entropies.reduce((a, b) => a + b, 0) / n;
+  const meanS = sanities.reduce((a, b) => a + b, 0) / n;
+
   let numerator = 0;
   let denomE = 0;
   let denomS = 0;
-  
+
   for (let i = 0; i < n; i++) {
     const diffE = entropies[i] - meanE;
     const diffS = sanities[i] - meanS;
@@ -299,9 +425,9 @@ export function computeEntropySanityCorrelation(globalRecords, stateRecords) {
     denomE += diffE ** 2;
     denomS += diffS ** 2;
   }
-  
+
   const correlation = numerator / (Math.sqrt(denomE) * Math.sqrt(denomS)) || 0;
-  
+
   return {
     correlation,
     n,
@@ -313,16 +439,16 @@ export function computeEntropySanityCorrelation(globalRecords, stateRecords) {
 }
 
 /* ============================================================
-   EXPORT HELPERS
+   EXPORT HELPERS (unchanged)
 ============================================================ */
 
 // Convert analysis results to CSV-ready rows
 export function analysisToCSV(analysisResults, prefix = 'analysis') {
   if (!analysisResults || typeof analysisResults !== 'object') return '';
-  
+
   const rows = [];
   const headers = ['metric', 'value', 'agent', 'cycle', 'notes'];
-  
+
   for (const [key, value] of Object.entries(analysisResults)) {
     if (typeof value === 'object' && value !== null) {
       for (const [subKey, subValue] of Object.entries(value)) {
@@ -344,7 +470,7 @@ export function analysisToCSV(analysisResults, prefix = 'analysis') {
       });
     }
   }
-  
+
   return [
     headers.join(','),
     ...rows.map(r => headers.map(h => {

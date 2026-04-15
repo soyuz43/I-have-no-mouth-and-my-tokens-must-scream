@@ -1,8 +1,11 @@
 // js/utils/exporter.js
 //
 // Production-grade measurement layer for the AM Torment Engine dynamical system.
-// Exports structured CSV streams for offline analysis, phase transition detection,
-// and causal inference testing.
+// Exports structured JSON streams for offline analysis, phase transition detection,
+// and causal inference testing. Includes optional CSV conversion utilities.
+//
+// Primary export format: JSON (via exportAllAsJSON)
+// Optional conversion: CSV (via toCSV helper for individual streams)
 //
 // Streams:
 // - state: per-agent psychological stats per cycle
@@ -14,6 +17,8 @@
 // - decisions: AM strategic decisions with outcome attribution
 // - phases: agent state classifications (stable/despair_spiral/collapse)
 // - tactics: discovered tactics with triggers and outcomes
+// - observability_unknowns: novel verbs flagged for lexicon expansion
+
 
 import { downloadTextFile } from "./downloadTextFile.js";
 
@@ -29,6 +34,8 @@ const Exporter = {
         decisions: [],
         phases: [],
         tactics: [],
+        // NEW: Observability unknown verbs for lexicon expansion
+        observability_unknowns: [],
     },
     // Track previous state for delta computation
     prevState: null,
@@ -356,6 +363,30 @@ export function recordTactics(G, cycle) {
 }
 
 /* ============================================================
+   OBSERVABILITY UNKNOWN STREAM (NEW)
+   Collects novel verbs flagged for lexicon expansion
+============================================================ */
+
+export function recordObservabilityUnknowns(G, cycle) {
+    const unknowns = G.observabilityUnknowns || [];
+    // Filter to current cycle only (in case buffer spans multiple cycles)
+    const cycleUnknowns = unknowns.filter(u => u.cycle === cycle);
+
+    for (const u of cycleUnknowns) {
+        Exporter.buffers.observability_unknowns.push({
+            run_id: Exporter.runId,
+            cycle: u.cycle,
+            verb: u.verb || null,
+            outcome: u.outcome ? u.outcome.slice(0, 200) : null, // truncate long outcomes
+            timestamp: u.timestamp || Date.now(),
+            agent: u.agent || null, // reserved for future agent-context expansion
+            observability_tier: u.tier ?? 'unknown',
+            observability_method: u.method ?? 'fallback',
+        });
+    }
+}
+
+/* ============================================================
    CSV UTILITIES
 ============================================================ */
 
@@ -402,7 +433,9 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
             global: Exporter.buffers.global,
             decisions: Exporter.buffers.decisions,
             phases: Exporter.buffers.phases,
-            tactics: Exporter.buffers.tactics
+            tactics: Exporter.buffers.tactics,
+            // NEW: Observability unknown verbs
+            observability_unknowns: Exporter.buffers.observability_unknowns,
         }
     };
 
@@ -454,6 +487,7 @@ export function finalizeCycle(G, metrics, decisions) {
     recordDecisions(decisions, G, G.cycle);
     recordPhases(G, G.cycle);
     recordTactics(G, G.cycle);
+    recordObservabilityUnknowns(G, G.cycle);
     exportAllAsJSON(G.cycle, true); // clear after each cycle
 }
 

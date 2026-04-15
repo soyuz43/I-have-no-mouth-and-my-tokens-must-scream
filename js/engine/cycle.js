@@ -28,7 +28,8 @@ import { runEvaluationPhase } from "./phases/evaluationPhase.js";
 import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
 import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
-
+import { resetObservabilityLogging } from "./strategy/hypothesis/observability.js";
+import { resetObservabilityExport } from "./metrics/exportMetrics.js";
 // === EXPORTER HOOKS ===
 import {
   initExporter,
@@ -461,6 +462,9 @@ export async function runCycle() {
 function beginCycle() {
 
   G.cycle++;
+
+  resetObservabilityLogging(G.cycle);
+  resetObservabilityExport();  
 
   G.pendingBeliefEvidence = {};
 

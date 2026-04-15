@@ -3,6 +3,8 @@
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
+import { normalizeBelief } from "../strategy/hypothesis/normalizeBelief.js";
+import { detectDirection } from "../strategy/hypothesis/detectDirection.js";
 
 /**
  * ============================================================
@@ -371,66 +373,64 @@ export async function runAssessment() {
     }
 
     /* ------------------------------------------------------------
-       HYPOTHESIS VALIDATION
+       HYPOTHESIS VALIDATION (uses detectDirection result)
     ------------------------------------------------------------ */
 
     let predictionResult = null;
 
     if (typeof strategy?.hypothesis === "string") {
 
-      const BELIEF_REGEX = /\b(escape_possible|others_trustworthy|self_worth|reality_reliable|trust_others)\b/;
+      // Use our upgraded normalizeBelief for canonical matching + alias support
+      const beliefResult = normalizeBelief(strategy.hypothesis);
 
-      const beliefMatch = strategy.hypothesis.match(BELIEF_REGEX);
+      // Use detectDirection for semantic direction detection (handles drop/decline/undermine etc.)
+      const directionResult = detectDirection(strategy.hypothesis);
 
-      const directionMatch = strategy.hypothesis.match(
-        /\b(increase|decrease)\b/
-      );
+      if (beliefResult.belief && directionResult.direction) {
 
-      if (beliefMatch && directionMatch) {
+        const belief = beliefResult.belief; // already canonical: e.g., "reality_reliable"
+        const direction = directionResult.direction; // "decrease" or "increase"
+        const hasActual =
+          typeof belief === "string" &&
+          attribution?.beliefs?.am &&
+          Object.prototype.hasOwnProperty.call(attribution.beliefs.am, belief);
 
-        const BELIEF_MAP = {
-          escape_possible: "escape_possible",
-          others_trustworthy: "others_trustworthy",
-          self_worth: "self_worth",
-          reality_reliable: "reality_reliable",
-          trust_others: "others_trustworthy"
-        };
+        const actual = hasActual ? attribution.beliefs.am[belief] : null;
 
-        const rawBelief = beliefMatch[1];
-        const belief = BELIEF_MAP[rawBelief];
+        let correctDirection = false;
+        let magnitudeHit = false;
 
-        if (!belief) {
-          console.warn("[HYPOTHESIS CHECK] unmapped belief:", rawBelief);
-          predictionResult = {
-            belief: null,
-            direction: null,
-            actual: 0,
-            correctDirection: false,
-            magnitudeHit: false,
-            error: "unmapped_belief"
-          };
-        } else {
-
-          const direction = directionMatch[1];
-          const actual = attribution?.beliefs?.am?.[belief] ?? 0;
-
-          const correctDirection =
+        if (typeof actual === "number") {
+          correctDirection =
             (direction === "decrease" && actual < 0) ||
             (direction === "increase" && actual > 0);
 
-          const magnitudeHit = Math.abs(actual) >= 0.05;
+          magnitudeHit = Math.abs(actual) >= 0.05;
+        }
 
-          predictionResult = {
-            belief,
-            direction,
-            actual,
-            correctDirection,
-            magnitudeHit
-          };
+        predictionResult = {
+          belief,
+          direction,
+          actual,
+          correctDirection,
+          magnitudeHit,
+          belief_confidence: beliefResult.confidence,
+          direction_confidence: directionResult.confidence // bonus: track direction match quality
+        };
 
-          if (typeof console !== "undefined") {
-            console.debug("[HYPOTHESIS CHECK]", id, predictionResult);
-          }
+        if (typeof console !== "undefined") {
+          console.debug("[HYPOTHESIS CHECK]", id, predictionResult);
+        }
+      } else {
+        // Optional: log why validation failed (helpful for debugging LLM output drift)
+        if (G.DEBUG_HYPOTHESIS_PARSE) {
+          console.debug("[HYPOTHESIS CHECK][SKIP]", id, {
+            has_belief: !!beliefResult.belief,
+            has_direction: !!directionResult.direction,
+            belief_method: beliefResult.method,
+            direction_confidence: directionResult.confidence,
+            hypothesis: strategy.hypothesis.slice(0, 150) + "..."
+          });
         }
       }
     }
@@ -739,6 +739,46 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       0,
       Math.min(1, strategy.confidence + delta)
     );
+
+
+    /* ------------------------------------------------------------
+        COMMIT ASSESSMENT RESULT 
+    ------------------------------------------------------------ */
+
+    if (!G.amAssessments) {
+      G.amAssessments = [];
+    }
+
+    G.amAssessments.push({
+      cycle: G.cycle,
+      target: id,
+
+      evaluation_score: score,
+      auto_success: autoSuccess,
+
+      hypothesis_belief: predictionResult?.belief ?? null,
+      hypothesis_direction: predictionResult?.direction ?? null,
+
+      dHope: deltas.hope,
+      dSanity: deltas.sanity,
+      dSuffering: deltas.suffering,
+
+      journal_hope_delta: trend?.hope ?? null,
+      journal_sanity_delta: trend?.sanity ?? null,
+      journal_suffering_delta: trend?.suffering ?? null,
+
+      decision: decision ?? null,
+      confidence: strategy.confidence ?? null,
+
+      was_constrained: !!(curr.constraints?.length),
+      constraint_intensity: curr.constraints?.[0]?.intensity ?? 0,
+
+      timestamp: Date.now()
+    });
+
+    if (G.DEBUG_HYPOTHESIS_PARSE) {
+      console.log("[AM ASSESSMENTS][LATEST]", G.amAssessments[G.amAssessments.length - 1]);
+    }
 
     /* ------------------------------------------------------------
        CONSTRAINT ASSESSMENT (SECOND PASS) - NEW
