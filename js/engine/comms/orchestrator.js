@@ -176,7 +176,7 @@ export async function runCommsCycle() {
         state.firstPassCompleted.size < SIM_IDS.length
           ? initialQueue.find(id => !state.firstPassCompleted.has(id))
           : queue.shift();
-      
+
       if (fromId) {
         logDetail(`normal schedule: ${fromId} (firstPass: ${state.firstPassCompleted.size}/${SIM_IDS.length})`);
       }
@@ -189,7 +189,7 @@ export async function runCommsCycle() {
     if (idx !== -1) queue.splice(idx, 1);
 
     state.firstPassCompleted.add(fromId);
-    
+
     logAction(fromId, "turn");
 
     await step({
@@ -211,7 +211,7 @@ export async function runCommsCycle() {
   const burstModifier = 1 + groupStress * 1.4;
 
   const willBurst = state.counters.messageCount < state.messageBudget && Math.random() < SECOND_PASS_CHANCE;
-  
+
   logDetail(`burst pass: willBurst=${willBurst}, chance=${SECOND_PASS_CHANCE}, modifier=${burstModifier.toFixed(2)}`);
 
   if (willBurst) {
@@ -233,10 +233,10 @@ export async function runCommsCycle() {
         state,
         queue: burstQueue,
       });
-      
+
       burstMessages++;
     }
-    
+
     logFlow(`burst pass complete (${burstMessages} extra messages)`);
   } else {
     logDetail(`burst pass skipped`);
@@ -245,10 +245,16 @@ export async function runCommsCycle() {
   /* ------------------------------------------------------------
      COMPLETE
   ------------------------------------------------------------ */
-  logFlow(`cycle complete: ${state.counters.messageCount} messages sent`);
+  const d = state.debug || {};
+
+  logFlow(
+    `cycle complete: ${state.counters.messageCount} messages ` +
+    `(budget: ${state.messageBudget}) | ` +
+    `outreach=${d.outreach || 0}, reply=${d.reply || 0}, rumor=${d.rumor || 0}`
+  );
 
   /* ============================================================
-     🔥 PERSIST TO GLOBAL STATE (CRITICAL FIX)
+    PERSIST TO GLOBAL STATE
   ============================================================ */
 
   if (!G.comms) {

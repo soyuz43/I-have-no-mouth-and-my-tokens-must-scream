@@ -90,7 +90,26 @@ export function validateTarget(target, id, { DEBUG = false } = {}) {
       if (typeof validateHypothesisStructure === "function") {
         try {
           const result = validateHypothesisStructure(hypothesis);
-          const { isValid, components, warnings: structureWarnings } = result || {};
+          const { isValid, components: rawComponents, warnings: structureWarnings } = result || {};
+
+          // Normalize components
+          const components = {
+            format: rawComponents?.format ?? null,
+
+            beliefRef: {
+              hasReference: Boolean(rawComponents?.beliefRef?.hasReference),
+              canonical: rawComponents?.beliefRef?.matchedBelief ?? null
+            },
+
+            direction: {
+              hasDirection: Boolean(rawComponents?.direction?.hasDirection),
+              type: rawComponents?.direction?.direction ?? null
+            },
+
+            observability: {
+              tier: rawComponents?.observability?.tier ?? null
+            }
+          };
 
           if (!isValid && Array.isArray(structureWarnings)) {
             warnings.push(...structureWarnings);

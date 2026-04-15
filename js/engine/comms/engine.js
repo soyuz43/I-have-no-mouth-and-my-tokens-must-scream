@@ -106,6 +106,11 @@ export async function step({ fromId, state, queue }) {
     intent,
   } = state;
 
+  // --- DEBUG COUNTERS SAFETY INIT ---
+  if (!state.debug) {
+    state.debug = { rumor: 0, outreach: 0, reply: 0 };
+  }
+
   const {
     sentMessagesThisCycle,
     lastSenderToRecipient,
@@ -224,6 +229,7 @@ export async function step({ fromId, state, queue }) {
           }
 
           counters.messageCount++;
+          state.debug.rumor++;
           return;
         }
       }
@@ -326,6 +332,7 @@ export async function step({ fromId, state, queue }) {
     /* ================= SEND ================= */
 
     counters.messageCount++;
+    state.debug.outreach++;
     cycle.activeThisCycle.add(fromId);
 
     timelineEvent(`${fromId} → ${toId} message`);
@@ -660,7 +667,8 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
     });
 
     counters.messageCount++;
-
+    state.debug.reply++;
+    
     recordReceived(fromId, toId, replyText);
 
     if (!sentMessagesThisCycle.has(toId)) {
