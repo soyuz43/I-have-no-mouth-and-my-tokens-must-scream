@@ -51,7 +51,7 @@ export const G = {
      ============================================================ */
 
   amAssessments: [],
-
+  globalMetrics: null,
   /* ============================================================
      AM PSYCHOLOGICAL PROFILES
      ============================================================ */
@@ -94,6 +94,7 @@ export const G = {
   DEBUG_DAMPING: true,
   DEBUG_ATTRIBUTION: true,
   splitModels: false,
+  DEBUG_HYPOTHESIS_PARSE: true,
 
   models: {
     am: "claude-sonnet-4-20250514",

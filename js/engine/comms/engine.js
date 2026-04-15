@@ -610,6 +610,15 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       intentHistoryByPair[intentKey].shift();
     }
 
+    // === DEBUG: verify directional intent tracking ===
+    if (G.DEBUG_ATTRIBUTION) {
+      console.debug(
+        "[INTENT KEY]",
+        intentKey,
+        intentHistoryByPair[intentKey]
+      );
+    }
+
     if (["recruit_ally", "manipulate", "request_help"].includes(normalizedIntent)) {
       negotiationFlags[pairKey] = true;
     }
