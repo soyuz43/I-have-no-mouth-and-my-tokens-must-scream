@@ -23,6 +23,31 @@ export async function callModel(role, systemPrompt, messages, maxTokens = 1500) 
 
   return enqueueModelCall(async () => {
 
+    // ========================================================================
+    // DEBUG: Log prompts sent to model (optional, guarded by debug flag)
+    // ========================================================================
+    if (globalThis?.G?.DEBUG_PROMPTS) {
+      const userContent = messages?.[0]?.content || "";
+      const userPreview = typeof userContent === "string" 
+        ? userContent.slice(0, 300) + (userContent.length > 300 ? "..." : "")
+        : "[non-string content]";
+      
+      const systemPreview = typeof systemPrompt === "string"
+        ? systemPrompt.slice(0, 300) + (systemPrompt.length > 300 ? "..." : "")
+        : "[non-string system]";
+      
+      console.debug("[PROMPT][DEBUG]", {
+        role,
+        model,
+        backend: G.backend,
+        system_preview: systemPreview,
+        user_preview: userPreview,
+        max_tokens: maxTokens,
+        message_count: messages?.length || 0
+      });
+    }
+    // ========================================================================
+
     if (G.backend === "anthropic") {
       return callAnthropic(model, systemPrompt, messages, maxTokens);
     }

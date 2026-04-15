@@ -95,7 +95,10 @@ export const G = {
   DEBUG_ATTRIBUTION: true,
   splitModels: false,
   DEBUG_HYPOTHESIS_PARSE: true,
+  DEBUG_BELIEF_FORENSICS: true,
+  DEBUG_PROMPTS: true,
 
+  
   models: {
     am: "claude-sonnet-4-20250514",
     TED: "claude-sonnet-4-20250514",

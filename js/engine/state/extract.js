@@ -152,14 +152,14 @@ export function parseStatDeltas(text, sim) {
     sanity
   };
 }
-/* ============================================================
-   BELIEF PARSER
-   ============================================================ */
 
+/* ============================================================
+   BELIEF PARSER — WITH FORENSIC LOGGING
+   ============================================================ */
 
 export function parseBeliefUpdates(text, sim) {
   // Log the input for debugging
- // console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
+  // console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
 
   const obj = safeExtractJSON(text);
 
@@ -208,7 +208,30 @@ export function parseBeliefUpdates(text, sim) {
     return {};
   }
 
+  // Standard extraction log (existing)
   console.debug(`[parseBeliefUpdates] Extracted JSON for ${sim.id}:`, obj);
+
+  // ========================================================================
+  // FORENSIC BELIEF LOGGING (optional, guarded by debug flag)
+  // Logs the full context of belief extraction for analysis and debugging
+  // ========================================================================
+  if (globalThis?.G?.DEBUG_BELIEF_FORENSICS) {
+    console.debug("[BELIEF DELTA][FORENSIC]", {
+      sim: sim?.id,
+      cycle: globalThis?.G?.cycle,
+      // The actual belief changes extracted by the LLM
+      belief_deltas: obj.belief_deltas || {},
+      // Why the LLM thinks these changes occurred (causal reasoning)
+      reason: obj.reason || null,
+      // What evidence the LLM used to justify the extraction
+      anchors: sanitizeAnchors(obj.anchors) || [],
+      // Motivational context from the LLM's perspective
+      drives: sanitizeDrives(obj.drives, sim?.id) || {},
+      // Raw input snippet for traceability (first 200 chars)
+      input_preview: text?.slice(0, 200) + (text?.length > 200 ? "..." : "")
+    });
+  }
+  // ========================================================================
 
   // Try primary path: belief_deltas
   const rawUpdates = sanitizeBeliefDeltas(obj.belief_deltas);

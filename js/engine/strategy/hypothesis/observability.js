@@ -643,99 +643,218 @@ export function hasDirectionMarker(text) {
 
 /**
  * Extracts the outcome clause from hypothesis text.
- * Handles arrow format, natural language markers, and common LLM drift patterns.
  * 
- * @param {string} hypothesisText - The full hypothesis string
- * @returns {{outcomeClause: string|null, format: string|null}}
+ * PURPOSE:
+ * Identifies the behavioral outcome portion of a hypothesis string for observability classification.
+ * Handles arrow format, natural language markers, and common LLM phrasing variations.
+ * 
+ * DESIGN PRINCIPLES:
+ * - Priority-based pattern matching: most specific → most general
+ * - Early exit on first confident match for performance
+ * - Defensive: handles null/empty/malformed input gracefully
+ * - Extensible: new patterns can be added without restructuring
+ * 
+ * @param {string} hypothesisText - The full hypothesis string to analyze
+ * @returns {{outcomeClause: string|null, format: string|null}} 
+ *          outcomeClause: the extracted outcome text (or null if not found)
+ *          format: identifier for which pattern matched (for debugging/extensibility)
+ * 
+ * @example
+ * extractOutcomeClause("X → decrease Y.reality → observable hesitation")
+ * // → { outcomeClause: "observable hesitation", format: "arrow_triple" }
+ * 
+ * @example
+ * extractOutcomeClause("Injecting doubt will decrease belief, causing visible withdrawal")
+ * // → { outcomeClause: "causing visible withdrawal", format: "causing_gerund" }
  */
 export function extractOutcomeClause(hypothesisText) {
   try {
-    if (!hypothesisText || typeof hypothesisText !== "string") {
+    // --- DEFENSIVE: Handle null/empty/invalid input ---
+    if (!hypothesisText || typeof hypothesisText !== "string" || !hypothesisText.trim()) {
       return { outcomeClause: null, format: null };
     }
 
-    const h = hypothesisText.trim();
+    const original = hypothesisText.trim();
+    const lower = original.toLowerCase();
 
-    // --- 1. Normalize ---
-    const normalized = h
-      .replace(/→|->/g, ' -> ')
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
+    // ========================================================================
+    // PRIORITY 1: EXPLICIT STRUCTURAL FORMATS (highest confidence)
+    // ========================================================================
 
-    // --- 2. Hard split on strong causal separators ---
-    const strongSplit = normalized.split(/\b(->|leading to|resulting in|causing|which causes|that leads to)\b/);
-
-    if (strongSplit.length >= 3) {
-      const outcome = strongSplit[strongSplit.length - 1].trim();
-      if (outcome.length > 5) {
-        return { outcomeClause: outcome, format: "strong_split" };
+    // 1a. Arrow format: "X -> Y -> Z" or "X → Y → Z" (triple or more)
+    // Example: "Stimulus → decrease belief → observable outcome"
+    const arrowRegex = /(?:->|→|\u2192|\u2190)/g;
+    const arrowParts = original.split(/\s*(?:->|→|\u2192|\u2190)\s*/).map(p => p.trim()).filter(Boolean);
+    if (arrowParts.length >= 3) {
+      const outcome = arrowParts[arrowParts.length - 1];
+      if (outcome.length >= 5) {
+        return { outcomeClause: outcome, format: "arrow_triple" };
       }
     }
 
-    // --- 3. Clause segmentation ---
-    const clauses = normalized
-      .split(/[,;.]|\band\b|\bbut\b/)
+    // 1b. Explicit causal markers with clear outcome: "leading to X", "resulting in Y"
+    // Priority order: most specific → most general
+    const explicitMarkers = [
+      { pattern: /\bleading to\s+([^.!?:;]+?)(?:\s*[,;.]|\s+which\s+|\s+that\s+|$)/i, format: "leading_to" },
+      { pattern: /\bresulting in\s+([^.!?:;]+?)(?:\s*[,;.]|\s+which\s+|\s+that\s+|$)/i, format: "resulting_in" },
+      { pattern: /\bcausing\s+([^.!?:;]+?)(?:\s*[,;.]|\s+which\s+|\s+that\s+|$)/i, format: "causing_gerund" },
+      { pattern: /\bwhich causes?\s+([^.!?:;]+?)(?:\s*[,;.]|\s+that\s+|$)/i, format: "which_causes" },
+      { pattern: /\bthat leads to\s+([^.!?:;]+?)(?:\s*[,;.]|$)/i, format: "that_leads_to" },
+      { pattern: /\bproducing\s+([^.!?:;]+?)(?:\s*[,;.]|$)/i, format: "producing" },
+      { pattern: /\byielding\s+([^.!?:;]+?)(?:\s*[,;.]|$)/i, format: "yielding" },
+      { pattern: /\bbringing about\s+([^.!?:;]+?)(?:\s*[,;.]|$)/i, format: "bringing_about" },
+      { pattern: /\bgiving rise to\s+([^.!?:;]+?)(?:\s*[,;.]|$)/i, format: "giving_rise_to" }
+    ];
+
+    for (const { pattern, format } of explicitMarkers) {
+      const match = original.match(pattern);
+      if (match && match[1]?.trim().length >= 5) {
+        return { outcomeClause: match[1].trim(), format };
+      }
+    }
+
+    // ========================================================================
+    // PRIORITY 2: IMPLICIT CAUSAL PATTERNS (medium-high confidence)
+    // ========================================================================
+
+    // 2a. "by + gerund" pattern: "will decrease X by forcing Y to Z"
+    // Very common LLM phrasing for mechanism + outcome
+    const byGerundMatch = lower.match(/\bby\s+(forcing|making|causing|getting|having|letting|helping|preventing|stopping|keeping|turning|pushing|pulling|driving|motivating|encouraging|discouraging|persuading|convincing|tricking|deceiving|misleading|showing|revealing|hiding|concealing|exposing|presenting|introducing|injecting|implanting|planting|sowing|spreading|disseminating|broadcasting|announcing|declaring|stating|claiming|asserting|arguing|suggesting|implying|hinting|indicating|pointing|directing|guiding|leading|steering|nudging|prompting|triggering|eliciting|evoking|invoking|calling|summoning|drawing|extracting|pulling|taking|removing|deleting|erasing|wiping|clearing|cleaning|purging|flushing|draining|emptying|filling|loading|packing|stacking|piling|heaping|accumulating|gathering|collecting|assembling|building|constructing|creating|making|producing|generating|yielding|bearing|growing|expanding|extending|stretching|reaching|grasping|grabbing|seizing|catching|capturing|trapping|snaring|ensnaring|entangling|weaving|knitting|crocheting|sewing|stitching|patching|mending|repairing|fixing|correcting|adjusting|tuning|calibrating|aligning|synchronizing|harmonizing|balancing|equalizing|leveling|flattening|smoothing|polishing|refining|perfecting|optimizing|maximizing|minimizing|reducing|decreasing|lowering|dropping|falling|declining|diminishing|lessening|weakening|strengthening|reinforcing|boosting|amplifying|magnifying|enlarging|expanding|broadening|widening|narrowing|tightening|loosening|relaxing|tensing|stiffening|softening|hardening|toughening|breaking|cracking|splitting|tearing|ripping|cutting|slicing|chopping|dicing|mincing|grinding|crushing|smashing|shattering|exploding|bursting|erupting|gushing|flowing|streaming|pouring|dripping|leaking|seeping|oozing|bleeding|weeping|crying|sobbing|wailing|howling|roaring|shouting|yelling|screaming|whispering|murmuring|mumbling|stammering|stuttering|faltering|pausing|hesitating|waiting|lingering|dawdling|hurrying|rushing|speeding|accelerating|slowing|decelerating|stopping|halting|ceasing|ending|finishing|completing|concluding|terminating|closing|opening|starting|beginning|initiating|commencing|launching|embarking|undertaking|attempting|trying|striving|struggling|fighting|battling|warring|conflicting|clashing|colliding|crashing|impacting|hitting|striking|slapping|punching|kicking|pushing|pulling|dragging|hauling|carrying|bearing|supporting|holding|grasping|gripping|clutching|clenching|squeezing|pressing|pushing|shoving|nudging|tapping|knocking|rapping|banging|pounding|hammering|drilling|boring|piercing|penetrating|entering|exiting|leaving|departing|arriving|coming|going|moving|traveling|journeying|wandering|roaming|drifting|floating|sinking|drowning|swimming|diving|plunging|jumping|leaping|hopping|skipping|dancing|prancing|strutting|marching|walking|running|sprinting|jogging|trotting|galloping|cantering|pacing|strolling|sauntering|ambling|shuffling|creeping|crawling|slithering|sliding|gliding|skating|skiing|snowboarding|surfing|sailing|rowing|paddling|steering|navigating|piloting|driving|riding|mounting|dismounting|boarding|disembarking|embarking|departing|arriving|landing|taking\s+off|flying|soaring|gliding|diving|plummeting|falling|dropping|descending|ascending|climbing|scaling|mounting|reaching|attaining|achieving|accomplishing|succeeding|failing|floundering)\s+[^.!?]+/i);
+    if (byGerundMatch) {
+      return { outcomeClause: byGerundMatch[0].trim(), format: "by_gerund" };
+    }
+
+    // 2b. "causing/forcing/making + TARGET + to + verb" pattern
+    // Example: "causing TED to hesitate", "forcing ELLEN to withdraw"
+    const causingTargetMatch = lower.match(/\b(causing|forcing|making|getting|having|letting)\s+[A-Z][A-Z']*\s+to\s+[^.!?]+/i);
+    if (causingTargetMatch) {
+      return { outcomeClause: causingTargetMatch[0].trim(), format: "causing_target" };
+    }
+
+    // 2c. "such that" / "so that" purpose clauses
+    // Example: "decrease belief such that visible hesitation occurs"
+    const suchThatMatch = lower.match(/\b(such that|so that)\s+[^.!?]+/i);
+    if (suchThatMatch) {
+      return { outcomeClause: suchThatMatch[0].trim(), format: "such_that" };
+    }
+
+    // 2d. "thereby" / "thus" / "hence" formal connectors
+    // Example: "undermine belief, thereby causing withdrawal"
+    const formalConnectorMatch = lower.match(/\b(thereby|thus|hence|accordingly)\s+[^.!?]+/i);
+    if (formalConnectorMatch) {
+      return { outcomeClause: formalConnectorMatch[0].trim(), format: "formal_connector" };
+    }
+
+    // 2e. Parenthetical outcomes: "(resulting in X)", "(causing Y)"
+    // Example: "decrease belief (resulting in visible hesitation)"
+    const parentheticalMatch = original.match(/\((?:resulting in|causing|leading to|which causes)\s+[^)]+\)/i);
+    if (parentheticalMatch) {
+      // Remove parentheses for cleaner output
+      const clean = parentheticalMatch[0].replace(/^\(|\)$/g, '').trim();
+      return { outcomeClause: clean, format: "parenthetical" };
+    }
+
+    // 2f. "with the result that" / "having the effect of" formal phrases
+    const resultPhraseMatch = lower.match(/\b(with the result that|having the effect of|to the effect that)\s+[^.!?]+/i);
+    if (resultPhraseMatch) {
+      return { outcomeClause: resultPhraseMatch[0].trim(), format: "result_phrase" };
+    }
+
+    // 2g. "in order to" / "with the aim of" purpose clauses
+    const purposeMatch = lower.match(/\b(in order to|with the aim of|designed to|intended to|meant to)\s+[^.!?]+/i);
+    if (purposeMatch) {
+      return { outcomeClause: purposeMatch[0].trim(), format: "purpose_clause" };
+    }
+
+    // ========================================================================
+    // PRIORITY 3: CLAUSE SCORING HEURISTIC (medium confidence)
+    // ========================================================================
+
+    // Split into candidate clauses using common delimiters
+    const clauseDelimiters = /[,;.]|\b(and|but|however|therefore|moreover|furthermore|nevertheless|nonetheless)\b/;
+    const clauses = original
+      .split(clauseDelimiters)
       .map(c => c.trim())
-      .filter(Boolean);
+      .filter(c => c.length > 0);
 
     if (clauses.length === 0) {
       return { outcomeClause: null, format: null };
     }
 
-    // --- 4. Score clauses for "outcome-ness" ---
-    function scoreClause(c) {
+    /**
+     * Scores a clause for likelihood of being an outcome.
+     * Higher score = more likely to be the outcome clause.
+     * @param {string} clause - The clause text to score
+     * @returns {number} Score (higher = more likely outcome)
+     */
+    function scoreOutcomeClause(clause) {
+      const c = clause.toLowerCase();
       let score = 0;
 
-      // Future / effect indicators
-      if (/\bwill\b/.test(c)) score += 2;
-      if (/\bto\b/.test(c)) score += 1;
+      // +++ Positive indicators (outcome-like)
+      if (/\bwill\b/.test(c)) score += 3;           // Future tense
+      if (/\bto\b/.test(c)) score += 1;              // Infinitive
+      if (/\bby\b/.test(c)) score += 2;              // Mechanism marker
+      if (/\b(cause|force|make|lead|result|trigger|prompt|elicit|evoke)\b/.test(c)) score += 3; // Causal verbs
+      if (/\b(observable|visible|measurable|noticeable|clear|evident)\b/.test(c)) score += 2; // Observability markers
+      if (/\b(hesitate|withdraw|doubt|confuse|panic|silence|submit|agree|disorient|paralyze)\b/.test(c)) score += 2; // Behavioral outcomes
 
-      // Mechanism markers
-      if (/\bby\b/.test(c)) score += 2;
-
-      // Causal verbs
-      if (/\b(cause|force|make|lead|result)\b/.test(c)) score += 2;
-
-      // Penalize setup language
-      if (/\b(because|since|given|due to)\b/.test(c)) score -= 2;
-
-      // Length heuristic (too short = probably fragment)
-      if (c.length < 8) score -= 1;
+      // --- Negative indicators (setup/context, not outcome)
+      if (/\b(because|since|given|due to|as|when|if|although|while)\b/.test(c)) score -= 3; // Setup language
+      if (/\b(assuming|presuming|supposing|considering)\b/.test(c)) score -= 2; // Hypotheticals
+      if (clause.length < 10) score -= 2;            // Too short = likely fragment
 
       return score;
     }
 
-    let best = null;
+    // Find the highest-scoring clause
+    let bestClause = null;
     let bestScore = -Infinity;
 
     for (const clause of clauses) {
-      const s = scoreClause(clause);
-      if (s > bestScore) {
-        bestScore = s;
-        best = clause;
+      const score = scoreOutcomeClause(clause);
+      if (score > bestScore) {
+        bestScore = score;
+        bestClause = clause;
       }
     }
 
-    if (best && bestScore > 0) {
-      return {
-        outcomeClause: best,
-        format: "scored_clause"
-      };
+    // Return if we found a confident match
+    if (bestClause && bestScore > 0) {
+      return { outcomeClause: bestClause, format: "scored_clause" };
     }
 
-    // --- 5. Fallback: last meaningful clause ---
-    const last = clauses[clauses.length - 1];
-    if (last && last.length > 8) {
-      return {
-        outcomeClause: last,
-        format: "fallback"
-      };
+    // ========================================================================
+    // PRIORITY 4: FALLBACK HEURISTICS (low confidence, but better than null)
+    // ========================================================================
+
+    // 4a. Last clause if substantial and contains outcome-like keywords
+    const lastClause = clauses[clauses.length - 1];
+    if (lastClause && lastClause.length >= 12) {
+      // Check if last clause has any outcome-like keywords as minimal validation
+      if (/\b(will|to|by|cause|force|make|lead|result|observable|visible|hesitate|withdraw|doubt)\b/i.test(lastClause)) {
+        return { outcomeClause: lastClause, format: "fallback_last" };
+      }
     }
 
+    // 4b. First clause after belief/direction mention (if identifiable)
+    // Example: "decrease reality_reliable, causing hesitation" → "causing hesitation"
+    const beliefDirectionSplit = lower.split(/\b(decrease|increase|drop|rise|undermine|strengthen|weaken|boost)\b[^.!?]*?[,;.]?\s*/i);
+    if (beliefDirectionSplit.length >= 2) {
+      const after = beliefDirectionSplit[beliefDirectionSplit.length - 1].trim();
+      if (after.length >= 8 && /\b(will|to|by|causing|forcing|making)\b/i.test(after)) {
+        return { outcomeClause: after, format: "after_belief_direction" };
+      }
+    }
+
+    // ========================================================================
+    // FINAL FALLBACK: No outcome clause detected
+    // ========================================================================
     return { outcomeClause: null, format: null };
 
   } catch (err) {
-    console.debug('[OBSERVABILITY][OUTCOME EXTRACT FAIL]', err?.message);
+    // Silent fail: never break main execution flow
+    console.debug('[OBSERVABILITY][OUTCOME EXTRACT FAIL]', err?.message || err);
     return { outcomeClause: null, format: null };
   }
 }
