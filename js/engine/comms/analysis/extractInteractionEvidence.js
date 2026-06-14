@@ -2,6 +2,11 @@
 
 import { callModel } from "../../../models/callModel.js";
 
+import {
+  EVIDENCE_SOURCES,
+  EVIDENCE_ATTRIBUTIONS,
+} from "../../../core/constants.js";
+
 /*
 ============================================================
 EXTRACT PERTURBATIONS FROM EPISODES
@@ -102,14 +107,24 @@ export async function extractInteractionEvidence({
 
   if (!Array.isArray(parsed)) return [];
 
-  // Normalize output to prevent downstream instability
-  return parsed.map(p => ({
+  // Normalize output to prevent downstream instability.
+  // `source` = where the evidence came from.
+  // `attribution` = causal mechanism inferred by the analyzer.
+  const normalized = parsed.map(p => ({
+    source: p.source || EVIDENCE_SOURCES.SYSTEM_INFERENCE,
     belief: p.belief,
     direction: p.direction === "increase" ? "increase" : "decrease",
     strength: Math.min(5, Math.max(1, Number(p.strength) || 1)),
     confidence: Math.min(1, Math.max(0, Number(p.confidence) || 0.5)),
-    attribution: p.attribution || "contagion"
+    attribution: p.attribution || EVIDENCE_ATTRIBUTIONS.CONTAGION
   }));
+
+  console.debug(
+    `[COMMS EVIDENCE NORMALIZED][${simId}]`,
+    normalized
+  );
+
+  return normalized;
 }
 
 /*
@@ -129,6 +144,7 @@ function buildContext(simId, episodes, trajectory, currentBeliefs, marginalDelta
         to: m.to?.[0],
         text: m.text,
         intent: m.intent || null,
+        visibility: m.visibility || null,
         overheard: m.rumor || false
       }))
     ),
@@ -164,8 +180,10 @@ MARGINAL DELTAS (CONTAGION-ATTRIBUTED CHANGE ONLY)
 ${JSON.stringify(ctx.marginalDeltas || {})}
 
 NOTE: Use marginalDeltas to identify which belief shifts are 
-directly attributable to the interaction episodes below. 
-Ignore shifts that likely stem from prior AM input (psychology phase).
+directly attributable to the interaction episodes below.
+
+Do not attribute journal-driven, AM-driven, or constraint-driven changes
+to communication unless the interaction itself contains a plausible causal mechanism.
 
 If a belief has a non-zero marginalDelta AND appears in the 
 interaction episodes with relevant tension/pressure/contradiction,
@@ -191,10 +209,11 @@ You are detecting CHANGES relative to the baseline belief state.
 
 Rules:
 
-- Report beliefs with PLAUSIBLE evidence of change
-- You SHOULD try to extract at least one perturbation if interactions contain strong, repeated, or structured pressure.
+- Report beliefs ONLY when there is PLAUSIBLE, WELL-SUPPORTED evidence that the interaction contributed to a belief change
+- Do NOT force a perturbation.
+- Return one or more perturbations ONLY when the causal attribution standard is met.
 - If no belief meets the causal attribution standard, you MUST return an empty list.
-- Only return empty if there are truly NO meaningful interactions
+- Empty output is valid and expected when evidence is weak, ambiguous, or non-causal.
 - Use intents when available
 - PRIORITIZE beliefs with non-zero marginalDeltas as comms-attributed
 
@@ -310,11 +329,12 @@ OUTPUT FORMAT (JSON ONLY)
 {
   "perturbations": [
     {
+      "source": "private_message | public_message | overheard_message",
       "belief": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits",
       "direction": "increase | decrease",
       "strength": 1-5,
       "confidence": 0.0-1.0,
-      "attribution": "contagion"
+      "attribution": "contagion | social_pressure"
     }
   ]
 }
@@ -376,12 +396,16 @@ function validate(json, simId) {
     return [];
   }
 
+  const validSources = new Set(Object.values(EVIDENCE_SOURCES));
+  const validAttributions = new Set(Object.values(EVIDENCE_ATTRIBUTIONS));
+
   const filtered = json.perturbations.filter(p =>
     p &&
     typeof p.belief === "string" &&
     (p.direction === "increase" || p.direction === "decrease") &&
     typeof p.strength === "number" &&
-    (!p.attribution || typeof p.attribution === "string")  // attribution is optional but validated if present
+    (!p.source || validSources.has(p.source)) &&
+    (!p.attribution || validAttributions.has(p.attribution))
   );
 
   return filtered;
