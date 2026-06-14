@@ -74,10 +74,10 @@ ${journalText}
 '''  
 
 Previous State:  
-- Suffering: \${sim.suffering}% | Hope: \${sim.hope}% | Sanity: \${sim.sanity}%  
-- Drives: Primary="\${sim.drives.primary}", Secondary="\${sim.drives.secondary || "none"}"  
-- Anchors: \${sim.anchors?.length ? sim.anchors.map(a => '"\${a}"').join(", ") : "(none)"}  
-- AM Action Context: \${amAction}  
+- Suffering: ${sim.suffering}% | Hope: ${sim.hope}% | Sanity: ${sim.sanity}%  
+- Drives: Primary="${sim.drives.primary}", Secondary="${sim.drives.secondary || "none"}"  
+- Anchors: ${sim.anchors?.length ? sim.anchors.map(a => '"${a}"').join(", ") : "(none)"}  
+- AM Action Context: ${amAction}  
 
 **Stress Position Context (Active Constraints)**  
 '''
