@@ -30,7 +30,7 @@ const BELIEF_RULES = {
  * Correct obvious psychological contradictions.
  * Example: suffering decreasing while hope and sanity collapse.
  */
-export function correctStatInconsistencies(sim, parsed) {
+export function warnStatInconsistencies(sim, parsed) {
 
   if (!parsed) return false;
 
@@ -206,7 +206,7 @@ export function validateNarrativeConsistency(sim, journalText, deltas) {
 
   const warnings = [];
 
-  const text = journalText.toLowerCase();
+  const text = String(journalText || "").toLowerCase();
 
   const NEGATIVE_CUES = [
     "despair",

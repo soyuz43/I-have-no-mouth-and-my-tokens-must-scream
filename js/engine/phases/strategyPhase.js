@@ -131,7 +131,7 @@ async function stepPlanAM(directive) {
         trajectorySummary
       ),
       [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
-      1800
+      3200
     );
 
   } catch (e) {
@@ -219,7 +219,7 @@ async function stepExecuteAM(directive) {
       "am",
       amPrompt,
       [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
-      1200,
+      1800,
     );
     // console.log("----- RAW AM RESPONSE -----\n", amResponse);
   } catch (e) {

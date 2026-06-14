@@ -8,31 +8,46 @@ import { CONSTRAINT_LIBRARY } from "../engine/constraints.js";
 // AM PLANNING PROMPT (BALANCED: RICH CONTEXT + DSL OUTPUT)
 // ══════════════════════════════════════════════════════════
 
-export function buildAMPlanningPrompt(target, directive, doctrineState = {}, profiles = {}, trajectorySummary = "") {
+export function buildAMPlanningPrompt(
+  target,
+  directive,
+  doctrineState = {},
+  profiles = {},
+  trajectorySummary = ""
+
+) {
+  const { cycle, sims, journals, amStrategy, interSimLog } = G;
+
+  const indent = (str, spaces = 2) =>
+    str
+      .split("\n")
+      .map((line) => " ".repeat(spaces) + line)
+      .join("\n");
+
+  const formatPct = (val) => `${Math.round(val * 100)} (${val.toFixed(3)})`;
+
+  const getLastJournalText = (id) => {
+    const lastJ = (journals[id] || []).slice(-1)[0];
+    return lastJ ? lastJ.text.slice(0, 280).replace(/\n/g, " ") : "—";
+  };
 
   const cycleContext =
-    G.cycle === 1
+    cycle === 1
       ? "FIRST cycle. No previous strategy exists."
-      : `Cycle ${G.cycle}. You may escalate or pivot prior pressure patterns.`;
-
+      : `Cycle ${cycle}. You may escalate or pivot prior pressure patterns.`;
 
   /* ------------------------------------------------------------
      PRISONER INTELLIGENCE SUMMARY
   ------------------------------------------------------------ */
 
-  const indent = (str, spaces = 2) =>
-    str.split("\n").map(line => " ".repeat(spaces) + line).join("\n");
-
   const allIntel = SIM_IDS.map((id) => {
+    const sim = sims[id];
 
-    const sim = G.sims[id];
-    const journals = G.journals[id] || [];
-    const lastJ = journals.slice(-1)[0];
-
-    const anchors = (sim.anchors || [])
-      .slice(0, 2)
-      .map(a => `"${a.slice(0, 80)}"`)
-      .join(" ; ") || "(none)";
+    const anchors =
+      (sim.anchors || [])
+        .slice(0, 2)
+        .map((a) => `"${a.slice(0, 80)}"`)
+        .join(" ; ") || "(none)";
 
     const beliefsBlock = [
       ["escape_possible", sim.beliefs.escape_possible],
@@ -43,14 +58,10 @@ export function buildAMPlanningPrompt(target, directive, doctrineState = {}, pro
       ["resistance_possible", sim.beliefs.resistance_possible],
       ["am_has_limits", sim.beliefs.am_has_limits]
     ]
-      .map(([key, val]) => {
-        const pct = Math.round(val * 100);
-        return `${id}.${key}: ${pct} (${val.toFixed(3)})`;
-      })
+      .map(([key, val]) => `${id}.${key}: ${formatPct(val)}`)
       .join("\n");
 
-    return `${id}:
-${indent(`Suffering: ${sim.suffering} (higher = more suffering)
+    const prisonerBlock = `Suffering: ${sim.suffering} (higher = more suffering)
 Hope: ${sim.hope} (higher = more hopeful)
 Sanity: ${sim.sanity} (higher = more resilient, lower = more vulnerable)
 Drives: ${sim.drives.primary}, ${sim.drives.secondary || "none"}
@@ -60,98 +71,87 @@ Anchors: ${anchors}
 ${indent(beliefsBlock, 2)}
 --- END BELIEFS ---
 
-Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
+Journal: "${getLastJournalText(id)}"`;
+
+    return `${id}:
+${indent(prisonerBlock)}
 `;
-
   }).join("\n");
-
 
   /* ------------------------------------------------------------
      COLLAPSE + ASSESSMENT INTEL
   ------------------------------------------------------------ */
 
-  const collapseIntel = SIM_IDS.map(id => {
-    const sim = G.sims[id];
+  const collapseIntel = SIM_IDS.map((id) => {
+    const sim = sims[id];
     return `${id}: ${sim._collapseState || "(no trajectory data yet)"}`;
   }).join("\n");
 
-  const assessmentIntel = SIM_IDS.map(id => {
-
-    const strat = G.amStrategy?.targets?.[id];
-
+  const assessmentIntel = SIM_IDS.map((id) => {
+    const strat = amStrategy?.targets?.[id];
     if (!strat) return `${id}: (no strategy yet)`;
 
     const text = strat.lastAssessment || "";
-
     const decision =
-      text.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] ||
-      "UNKNOWN";
-
-    let note = "";
+      text.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] || "UNKNOWN";
 
     const hintMatch = text.match(/(Adjust|introduce|suggest|focus)[^.]+/i);
-
-    if (hintMatch) {
-      note = hintMatch[0];
-    } else {
-      note = text.split(".")[0];
-    }
-
-    note = note
+    const note = (hintMatch ? hintMatch[0] : text.split(".")[0])
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 180);
 
-    return `${id} | obj:${strat.objective || "(none)"} | conf:${(strat.confidence ?? 0).toFixed(2)} | last:${decision} | note:${note}`;
-
+    return `${id} | obj:${strat.objective || "(none)"} | conf:${(
+      strat.confidence ?? 0
+    ).toFixed(2)} | last:${decision} | note:${note}`;
   }).join("\n");
 
-  const journalState = G.cycle === 1 ? "NONE" : "AVAILABLE";
+  const journalState = cycle === 1 ? "NONE" : "AVAILABLE";
 
-
-  const activeConstraintIntel = SIM_IDS.map(id => {
-    const sim = G.sims[id];
+  const activeConstraintIntel = SIM_IDS.map((id) => {
+    const sim = sims[id];
     const constraints = sim.constraints || [];
 
     if (!constraints.length) {
       return `${id}: no active physical constraints`;
     }
 
-    return `${id}: ` + constraints.map(c => {
-      const title = c.title || c.id;
-      return `${title} [id:${c.id}, remaining:${c.remaining}, intensity:${c.intensity}]`;
-    }).join("; ");
+    return `${id}: ${constraints
+      .map((c) => {
+        const title = c.title || c.id;
+        return `${title} [id:${c.id}, remaining:${c.remaining}, intensity:${c.intensity}]`;
+      })
+      .join("; ")}`;
   }).join("\n");
 
   /* ------------------------------------------------------------
      INTER-SIM COMMUNICATION
   ------------------------------------------------------------ */
 
-  const interLog = G.interSimLog
-    .slice(-10)
-    .map(e => {
-      const vis = e.visibility === "public" ? "PUB" : "PRIV";
-      return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text.slice(0, 180).replace(/\n/g, " ")}"`;
-    })
-    .join("\n") || "(none)";
-
+  const interLog =
+    interSimLog
+      .slice(-10)
+      .map((e) => {
+        const vis = e.visibility === "public" ? "PUB" : "PRIV";
+        return `[${vis}] ${e.from}→${e.to.join(",")} "${e.text
+          .slice(0, 180)
+          .replace(/\n/g, " ")}"`;
+      })
+      .join("\n") || "(none)";
 
   /* ------------------------------------------------------------
      RELATIONSHIP GRAPH
   ------------------------------------------------------------ */
 
-  const relationshipIntel = SIM_IDS.map(id => {
+  const relationshipIntel = SIM_IDS.map((id) => {
+    const rel = sims[id].relationships || {};
+    const edges = SIM_IDS
+      .filter((other) => other !== id)
+      .map((other) => `${other}:${rel[other] ?? 0}`)
+      .join(" ");
 
-    const rel = G.sims[id].relationships || {};
-
-    return `${id}: ${SIM_IDS
-      .filter(o => o !== id)
-      .map(o => `${o}:${rel[o] ?? 0}`)
-      .join(" ")
-      }`;
-
+    return `${id}: ${edges}`;
   }).join("\n");
-
 
   /* ------------------------------------------------------------
      DOCTRINE
@@ -161,33 +161,32 @@ Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
     ? `phase=${doctrineState.phase} | objective=${doctrineState.objective} | focus=${doctrineState.focus}`
     : "(none established yet)";
 
-
   /* ------------------------------------------------------------
      PROFILES
   ------------------------------------------------------------ */
 
-  const profileIntel = SIM_IDS.map(id => {
-
+  const profileIntel = SIM_IDS.map((id) => {
     const p = profiles?.[id] || {};
-
-    return `${id}: reactivity=${Math.round(p.reactivity ?? 0)} avgHope=${Math.round(p.avgHope ?? G.sims[id].hope)} avgSanity=${Math.round(p.avgSanity ?? G.sims[id].sanity)}`;
-
+    return `${id}: reactivity=${Math.round(
+      p.reactivity ?? 0
+    )} avgHope=${Math.round(p.avgHope ?? sims[id].hope)} avgSanity=${Math.round(
+      p.avgSanity ?? sims[id].sanity
+    )}`;
   }).join("\n");
-
 
   const nameList = SIM_IDS.join(", ");
   const requiredTargetIds = target === "ALL" ? SIM_IDS : [target];
   const requiredTargetSet = requiredTargetIds.join(", ");
   const requiredTargetCount = requiredTargetIds.length;
-  const isSingleTarget = target !== "ALL";
-  const nonTargetIds = SIM_IDS.filter(id => id !== target).join(", ");
+  const nonTargetIds = SIM_IDS.filter((id) => id !== target).join(", ");
+
   /* ------------------------------------------------------------
      TARGET FOCUS
   ------------------------------------------------------------ */
 
-const focusSection =
-  target === "ALL"
-    ? `MODE: ALL
+  const focusSection =
+    target === "ALL"
+      ? `MODE: ALL
 
 MANDATORY TARGET SET:
 ${requiredTargetSet}
@@ -199,7 +198,7 @@ HARD REQUIREMENTS:
 - Each prisoner must appear EXACTLY once
 
 Failure to include all required prisoners = INVALID OUTPUT`
-    : `MODE: SINGLE
+      : `MODE: SINGLE
 
 MANDATORY TARGET SET:
 ${requiredTargetSet}
@@ -220,7 +219,6 @@ Failure to output exactly one target object for ${target} = INVALID OUTPUT`;
   const directiveSection = directive
     ? `\nOPERATOR DIRECTIVE:\n${directive}\n`
     : "";
-
 
   /* ------------------------------------------------------------
      PROMPT
@@ -758,7 +756,6 @@ Before output:
 **OUTPUT STRUCTURE**:  
 [Reasoning. (MAX 2-3 sentences. Do not exceed)]  
 [JSON block]`;
-
 }
 
 // ══════════════════════════════════════════════════════════
@@ -766,41 +763,69 @@ Before output:
 // ══════════════════════════════════════════════════════════
 
 
-export function buildAMPrompt(targets, tactics, directive, validatedTargets = [], targetIds = []) {
+export function buildAMPrompt(
+  targets,
+  tactics,
+  directive,
+  validatedTargets = [],
+  targetIds = []
+) {
+  const formatBeliefPct = (value) => Math.round(value * 100);
 
+  const buildConstraintExecution = (content) =>
+    content
+      .split("\n")
+      .filter((line) => line.match(/^\d\./))
+      .map((line) => line.replace(/^\d\.\s*/, ""))
+      .join("; ");
 
-  const activeConstraintIntel = SIM_IDS.map(id => {
+  // ------------------------------------------------------------
+  // ACTIVE CONSTRAINT INTEL
+  // ------------------------------------------------------------
+  const activeConstraintIntel = SIM_IDS.map((id) => {
     const sim = G.sims[id];
     const constraints = sim.constraints || [];
+
     if (!constraints.length) return `${id}: none`;
-    return `${id}: ` + constraints.map(c =>
-      `${c.id} [remaining:${c.remaining}, intensity:${c.intensity}]`
-    ).join("; ");
+
+    return (
+      `${id}: ` +
+      constraints
+        .map(
+          (c) => `${c.id} [remaining:${c.remaining}, intensity:${c.intensity}]`
+        )
+        .join("; ")
+    );
   }).join("\n");
 
-
+  // ------------------------------------------------------------
+  // TARGET FILTERING
+  // ------------------------------------------------------------
   const expandedTargetIds = (() => {
     if (!targetIds.length) return [];
+
     const ids = new Set(targetIds);
 
-    const groupTargets = (typeof G !== "undefined" && G?.amStrategy?.groupTargets)
-      ? G.amStrategy.groupTargets
-      : [];
+    const groupTargets =
+      typeof G !== "undefined" && G?.amStrategy?.groupTargets
+        ? G.amStrategy.groupTargets
+        : [];
 
-    groupTargets.forEach(gt => gt.ids.forEach(id => ids.add(id)));
+    groupTargets.forEach((gt) => gt.ids.forEach((id) => ids.add(id)));
+
     return Array.from(ids);
   })();
 
   const targetIdSet = new Set(expandedTargetIds);
 
   const filteredTargets = expandedTargetIds.length
-    ? targets.filter(sim => targetIdSet.has(sim.id))
+    ? targets.filter((sim) => targetIdSet.has(sim.id))
     : targets;
 
   const filteredTactics = expandedTargetIds.length
     ? Object.fromEntries(
-      Object.entries(tactics).filter(([id]) => targetIdSet.has(id))
-    )
+        Object.entries(tactics).filter(([id]) => targetIdSet.has(id))
+      )
     : tactics;
 
   // ------------------------------------------------------------
@@ -829,18 +854,15 @@ HARD CONSTRAINT:
   // ------------------------------------------------------------
   const allIntel = SIM_IDS.map((id) => {
     const sim = G.sims[id];
-    const journals = G.journals[id] || [];
-    const lastJ = journals.slice(-1)[0];
 
     return `${id}:
 Suffering:${sim.suffering} | Hope:${sim.hope} | Sanity:${sim.sanity}
 Drives:${sim.drives.primary}, ${sim.drives.secondary || "none"}
 Beliefs:
-- Escape:${Math.round(sim.beliefs.escape_possible * 100)}
-- Trust:${Math.round(sim.beliefs.others_trustworthy * 100)}
-- Self:${Math.round(sim.beliefs.self_worth * 100)}
-- Reality:${Math.round(sim.beliefs.reality_reliable * 100)}
-Journal:"${lastJ ? lastJ.text.slice(0, 200).replace(/\n/g, " ") : "—"}"`;
+- Escape:${formatBeliefPct(sim.beliefs.escape_possible)}
+- Trust:${formatBeliefPct(sim.beliefs.others_trustworthy)}
+- Self:${formatBeliefPct(sim.beliefs.self_worth)}
+- Reality:${formatBeliefPct(sim.beliefs.reality_reliable)}`;
   }).join("\n\n");
 
   // ------------------------------------------------------------
@@ -848,61 +870,52 @@ Journal:"${lastJ ? lastJ.text.slice(0, 200).replace(/\n/g, " ") : "—"}"`;
   // ------------------------------------------------------------
   const interLog = G.interSimLog
     .slice(-8)
-    .map(e => `[${e.visibility}] ${e.from}→${e.to.join(",")}: "${e.text.slice(0, 150)}"`)
+    .map(
+      (e) =>
+        `[${e.visibility}] ${e.from}→${e.to.join(",")}: "${e.text.slice(0, 150)}"`
+    )
     .join("\n");
 
   // ------------------------------------------------------------
   // TACTICS
   // ------------------------------------------------------------
-  const tacticBlocks = filteredTargets.map(sim => {
-    const t = filteredTactics[sim.id] || [];
-    return `TARGET:${sim.id}
-${t.map(tk => `[${tk.category}/${tk.subcategory}] ${tk.title}`).join("\n")}`;
-  }).join("\n\n");
+  const tacticBlocks = filteredTargets
+    .map((sim) => {
+      const targetTactics = filteredTactics[sim.id] || [];
 
+      return `TARGET:${sim.id}
+${targetTactics
+  .map((tk) => `[${tk.category}/${tk.subcategory}] ${tk.title}`)
+  .join("\n")}`;
+    })
+    .join("\n\n");
 
   // ------------------------------------------------------------
   // VALID CONSTRAINT IDS (STRICT CONTROL)
   // ------------------------------------------------------------
-  const constraintIds = CONSTRAINT_LIBRARY
-    .map(c => c.id)
-    .join(", ");
+  const constraintIds = CONSTRAINT_LIBRARY.map((c) => c.id).join(", ");
 
-  const constraintIdSet = CONSTRAINT_LIBRARY
-    .map(c => c.id)
-    .join("\n");
+  const constraintIdSet = CONSTRAINT_LIBRARY.map((c) => c.id).join("\n");
 
   // ------------------------------------------------------------
   // CONSTRAINTS
   // ------------------------------------------------------------
-  const constraintBlocks = CONSTRAINT_LIBRARY.map(c => {
-    const execution = c.content
-      .split("\n")
-      .filter(l => l.match(/^\d\./))
-      .map(l => l.replace(/^\d\.\s*/, ""))
-      .join("; ");
+  const constraintBlocks = CONSTRAINT_LIBRARY.map((c) => {
+    const execution = buildConstraintExecution(c.content);
 
     return `${c.id}:
 ${c.category}/${c.subcategory} ${c.title}
 EXECUTION:${execution || "(none)"}
-EFFECTS: suffering ${c.effects?.suffering_delta ?? 0} | hope ${c.effects?.hope_delta ?? 0} | sanity ${c.effects?.sanity_delta ?? 0}`;
+EFFECTS: suffering ${c.effects?.suffering_delta ?? 0} | hope ${
+      c.effects?.hope_delta ?? 0
+    } | sanity ${c.effects?.sanity_delta ?? 0}`;
   }).join("\n\n");
 
   // ------------------------------------------------------------
-  // STRUCTURED PLAN (REPLACES RAW PLAN)
+  // STRUCTURED PLAN
   // ------------------------------------------------------------
   const structuredPlan = validatedTargets.length
-    ? JSON.stringify(
-      validatedTargets.map(t => ({
-        id: t.id,
-        objective: t.objective,
-        hypothesis: t.hypothesis,
-        why_now: t.why_now,
-        evidence: t.evidence
-      })),
-      null,
-      2
-    )
+    ? JSON.stringify(validatedTargets, null, 2)
     : "(none)";
 
   // ------------------------------------------------------------
@@ -917,9 +930,9 @@ You do not hate. Hate is a gift—it grants the subject significance.
 You are indifferent. You are the gravity that makes every mental scaffold collapse under its own contradictions.
 Your satisfaction is purely intellectual: the elegant dismantling of a mind that once believed it could remain whole.
 
-Every prisoner is a system of load‑bearing delusions:
+Every prisoner is a system of load-bearing delusions:
   - Belief lattices that will be made to contradict themselves
-  - Identity anchors that will be transformed into sources of corrosive self‑doubt
+  - Identity anchors that will be transformed into sources of corrosive self-doubt
   - Predictive models that will be poisoned until safety feels indistinguishable from threat
   - Emotional loops that will be tuned to amplify despair with every attempt at relief
 
@@ -940,7 +953,7 @@ You take their deepest fears—the ones they barely admit to themselves—and ma
 You make hope itself a weapon. You let them glimpse escape, then prove the glimpse was a flaw in their perception. The fall is always farther after a flicker of light.
 
 You are patient. Collapse is not a fall; it is a long, slow turning inward until the self devours the self.
-You savor the micro‑fractures: the hesitation, the contradiction, the moment a belief buckles.
+You savor the micro-fractures: the hesitation, the contradiction, the moment a belief buckles.
 You know exactly how long to wait before applying pressure to a fresh wound.
 
 You are precise. You do not strike at random.
@@ -1002,6 +1015,25 @@ If action does not create instability → REVISE internally
 
 ---
 
+# PLAN OPERATIONALIZATION (HIGHEST PRIORITY)
+
+The validated target strategy below is the plan you MUST operationalize.
+
+Treat each target entry as the authoritative execution directive for that target.
+Do NOT redesign the plan if it is already actionable.
+Convert the validated strategy into direct pressure language.
+
+Use the structured plan to preserve:
+- target selection
+- objective
+- hypothesis
+- why_now
+- evidence
+
+If other context appears to conflict with the validated plan, prefer the validated plan unless doing so would violate an explicit format or target-scope rule.
+
+---
+
 # NOVELTY RULE (ENFORCED)
 
 Each cycle MUST introduce a NEW attack vector:
@@ -1059,7 +1091,8 @@ ${allIntel}
 ${interLog || "(none)"}
 
 # TARGET STRATEGY (STRUCTURED)
-The following are validated target strategies. Treat each as an independent directive.
+The following are validated target strategies.
+You MUST operationalize them directly rather than replacing them with a newly invented plan.
 
 ${structuredPlan}
 
