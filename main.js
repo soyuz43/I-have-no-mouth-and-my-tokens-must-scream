@@ -12,6 +12,7 @@ import {
   executeMain
 } from "./js/engine/cycle.js";
 
+import { G } from "./js/core/state.js";
 
 import {
   runCommsCycle
@@ -233,15 +234,20 @@ window.parseAndValidateStateBlock = parseAndValidateStateBlock;
 // DEBUG / CONSOLE ACCESS
 // ============================================================
 
+window.G = G;
+
 window.AM_DEBUG = {
+  G,
   executeMain,
   renderSims,
   renderRelationships,
   runCommsCycle,
   timelineEvent,
-  addLog
+  addLog,
+  pendingPsychEvidence: () => G.pendingPsychEvidence,
+  evidenceArchive: () => G.evidenceArchive,
+  debugTrace: () => G.debugTrace.slice(-10),
 };
-
 
 // ============================================================
 // DEBUG BOOT MESSAGE
