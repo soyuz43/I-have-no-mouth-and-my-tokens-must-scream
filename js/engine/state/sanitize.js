@@ -40,6 +40,24 @@ export function sanitizeBeliefDeltas(raw, { simId = "UNKNOWN", DEBUG = false } =
     if (!Object.prototype.hasOwnProperty.call(raw, key)) return;
 
     let original = raw[key];
+
+    const zeroStrings = new Set([
+      "unchanged",
+      "unobserved",
+      "unclear",
+      "none",
+      "no change",
+      "no_change"
+    ]);
+
+    if (typeof original === "string") {
+      const normalized = original.trim().toLowerCase();
+
+      if (zeroStrings.has(normalized)) {
+        original = 0;
+      }
+    }
+
     let val = Number(original);
 
     if (!Number.isFinite(val)) {
@@ -135,10 +153,10 @@ export function sanitizeDrives(raw, simId) {
 export function sanitizeAnchors(raw) {
   if (!Array.isArray(raw)) return null;
 
-const anchors = raw
-  .map(x => (x == null ? "" : String(x).trim()))
-  .filter(Boolean)
-  .slice(0, 12);
+  const anchors = raw
+    .map(x => (x == null ? "" : String(x).trim()))
+    .filter(Boolean)
+    .slice(0, 12);
 
   const deduped = [...new Set(anchors)];
 

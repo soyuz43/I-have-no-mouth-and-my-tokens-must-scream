@@ -96,7 +96,7 @@ export const G = {
   splitModels: false,
   DEBUG_HYPOTHESIS_PARSE: true,
   DEBUG_BELIEF_FORENSICS: true,
-  DEBUG_PROMPTS: true,
+  DEBUG_PROMPTS: false,
 
 
   models: {

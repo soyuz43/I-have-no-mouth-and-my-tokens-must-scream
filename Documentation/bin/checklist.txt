@@ -1,0 +1,338 @@
+Below is a professional forensic-style document designed for **human rights investigators, legal teams, journalists, researchers, and analysts reviewing intercepted communications, letters, diaries, or prison journals**. It is intentionally written to document **indicators and allegations** rather than make medical or legal conclusions without corroboration.
+
+---
+
+# Torture and Trauma Indicators Assessment Worksheet
+
+### Analysis of Prisoner Communications, Diaries, Letters, and Intercepted Messages
+
+**Case Identifier:** _________________________
+**Document Identifier:** _____________________
+**Analyst/Reviewer:** ________________________
+**Date Reviewed:** __________________________
+**Language/Translation Source:** ______________
+**Source Type:**
+☐ Personal journal
+☐ Letter
+☐ Smuggled note
+☐ Intercepted communication
+☐ Recorded conversation transcript
+☐ Digital message
+☐ Other: ____________________
+
+---
+
+# Section 1 — Source Reliability & Context
+
+### A. Nature of the Statement
+
+For each statement, identify its source:
+
+| Category                                                     | Mark |
+| ------------------------------------------------------------ | ---- |
+| First-person experience (“They did this to me”)              | ☐    |
+| Direct observation (“I saw this happen to another prisoner”) | ☐    |
+| Second-hand report (“Someone told me…”)                      | ☐    |
+| Rumor or unverified claim                                    | ☐    |
+| Ambiguous or unclear                                         | ☐    |
+
+---
+
+### B. Contextual Factors
+
+**Was the communication potentially influenced by:**
+
+☐ Censorship or monitoring
+☐ Fear of retaliation
+☐ Limited ability to communicate freely
+☐ Forced or dictated statements
+☐ Lack of medical or legal access
+☐ Translation uncertainty
+☐ Missing pages or incomplete record
+☐ Unknown
+
+Notes:
+
+---
+
+---
+
+---
+
+# Section 2 — Allegations of Physical Torture or Ill-Treatment
+
+## A. Reported Methods of Abuse
+
+Check all mentioned or reasonably described:
+
+### Physical Assault
+
+☐ Punching
+☐ Kicking
+☐ Beating with objects
+☐ Repeated blows to specific body areas
+☐ Assault while restrained
+☐ Forced painful positions
+☐ Suspension or stress positions
+☐ Electric shocks
+☐ Burning
+☐ Exposure to extreme temperatures
+☐ Asphyxiation or suffocation methods
+☐ Sexual violence or sexualized abuse
+☐ Threats of physical violence
+☐ Other:
+
+---
+
+---
+
+## B. Reported Physical Effects
+
+☐ Bruising
+☐ Cuts or lacerations
+☐ Broken bones
+☐ Missing or damaged teeth
+☐ Difficulty walking
+☐ Loss of sensation or numbness
+☐ Chronic pain
+☐ Swelling
+☐ Hearing loss
+☐ Vision changes
+☐ Difficulty breathing
+☐ Infection or untreated wounds
+☐ Loss of consciousness
+☐ Permanent disability
+☐ Other:
+
+---
+
+---
+
+# Section 3 — Psychological Trauma Indicators
+
+## Emotional and Behavioral Signs
+
+☐ Persistent fear
+☐ Panic or terror
+☐ Hopelessness
+☐ Helplessness
+☐ Shame or humiliation
+☐ Emotional numbness
+☐ Withdrawal from others
+☐ Loss of interest in life
+☐ Expressions of despair
+
+### Trauma-Related Symptoms
+
+☐ Nightmares
+☐ Sleep disturbance
+☐ Hypervigilance (“always watching/listening”)
+☐ Startle reactions
+☐ Intrusive memories
+☐ Dissociation (“I feel unreal,” “I am not myself”)
+☐ Memory gaps surrounding events
+☐ Avoidance of discussing certain events
+
+---
+
+## Immediate Safety Concerns
+
+☐ Statements indicating suicidal thoughts
+☐ Self-harm references
+☐ Threat of imminent execution or disappearance
+☐ Ongoing torture or abuse
+☐ Severe untreated medical condition
+
+Describe:
+
+---
+
+---
+
+# Section 4 — Coercion and Interrogation Indicators
+
+## Pressure Applied to Obtain Information, Confessions, or Compliance
+
+☐ Forced confession
+☐ Signing documents without understanding them
+☐ Threats against family members
+☐ Threats of continued detention
+☐ Threats of violence
+☐ Threats of sexual assault
+☐ Mock execution or death threats
+☐ Humiliation or degradation
+☐ Religious, ethnic, political, or personal insults
+☐ Forced witnessing of abuse against others
+
+Notes:
+
+---
+
+---
+
+# Section 5 — Conditions of Confinement
+
+Document allegations of harmful detention conditions.
+
+☐ Solitary confinement or prolonged isolation
+☐ Sleep deprivation
+☐ Constant lighting
+☐ Excessive noise
+☐ Food deprivation
+☐ Water deprivation
+☐ Exposure to cold or heat
+☐ Lack of hygiene or sanitation
+☐ Overcrowding
+☐ Denial of medical care
+☐ Denial of medication
+☐ Lack of contact with family or counsel
+☐ Restricted movement or exercise
+
+Duration (if known):
+
+---
+
+---
+
+# Section 6 — Timeline Reconstruction
+
+| Date/Time | Event | Alleged Perpetrator | Location | Evidence Source |
+| --------- | ----- | ------------------- | -------- | --------------- |
+|           |       |                     |          |                 |
+|           |       |                     |          |                 |
+|           |       |                     |          |                 |
+
+---
+
+# Section 7 — Corroborating Details
+
+Document information that may be independently verified.
+
+## People
+
+Names, nicknames, titles, units, guards, officials:
+
+---
+
+## Places
+
+Cell numbers, prisons, interrogation rooms, hospitals, transfer sites:
+
+---
+
+## Records or Evidence
+
+☐ Medical requests
+☐ Hospital records
+☐ Court records
+☐ Transfer records
+☐ Photographs
+☐ Video footage
+☐ Other prisoner statements
+☐ Family correspondence
+☐ Digital metadata
+☐ Other:
+
+---
+
+---
+
+# Section 8 — Analytical Confidence Assessment
+
+## Reliability of the Source
+
+☐ High (direct, detailed, internally consistent)
+☐ Moderate (some detail but gaps remain)
+☐ Low (limited detail or uncertain origin)
+☐ Cannot determine
+
+---
+
+## Severity Classification (Investigative Use Only)
+
+**Level 0 — No identifiable abuse indicator**
+☐
+
+**Level 1 — General distress or hardship**
+Examples: fear, sadness, anxiety, poor conditions without specific abuse allegations
+☐
+
+**Level 2 — Possible ill-treatment**
+Examples: threats, intimidation, deprivation, degrading treatment, denial of care
+☐
+
+**Level 3 — Specific allegations consistent with torture or severe abuse**
+Examples: described methods of assault, coercive interrogation, severe physical or psychological abuse
+☐
+
+**Level 4 — Immediate protection concern**
+Examples: ongoing abuse, severe injury, suicidal intent, disappearance risk, imminent danger
+☐
+
+---
+
+# Section 9 — Verbatim Evidence Excerpts
+
+**Exact quotation:**
+
+> ---
+
+**Document/page/time reference:**
+
+---
+
+**Analytical note (avoid conclusions):**
+
+> This statement contains a reported allegation or indicator consistent with __________________. Further corroboration should be sought through medical evidence, witness testimony, official records, forensic examination, or other independent sources.
+
+---
+
+# Chain of Custody and Preservation Notes
+
+**Original source obtained from:**
+
+---
+
+**Date/time received:**
+
+---
+
+**Digital file identifiers, hashes, or metadata:**
+
+---
+
+**Storage location and access history:**
+
+---
+
+---
+
+# Investigator’s Summary
+
+**Summary of allegations:**
+
+---
+
+---
+
+**Known corroborating evidence:**
+
+---
+
+---
+
+**Information gaps requiring follow-up:**
+
+---
+
+---
+
+---
+
+## Important Analytical Standard
+
+This worksheet is a **screening and documentation tool**, not a medical diagnosis or a legal determination that torture occurred. Findings should be expressed as **reported allegations, observed indicators, or patterns consistent with ill-treatment**, and whenever possible should be evaluated alongside medical examinations, forensic evidence, witness interviews, detention records, and other independent sources.
+
+---
+
+This format can also be adapted into a **case-file template, intelligence-analysis matrix, spreadsheet coding sheet (for hundreds of documents), or a courtroom-ready evidence dossier**.

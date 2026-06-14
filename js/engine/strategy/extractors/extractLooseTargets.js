@@ -4,29 +4,26 @@ export function extractLooseTargets(input, { DEBUG_EXTRACT = false } = {}) {
 
   if (typeof input !== "string") return null;
 
-  const SIM_IDS = ["TED","ELLEN","NIMDOK","GORRISTER","BENNY"];
-
   const targets = [];
 
-  for (const id of SIM_IDS) {
+  const targetBlockRegex =
+    /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*\*)?\s*Target\s*:\s*(TED|ELLEN|NIMDOK|GORRISTER|BENNY)\s*(?:\*\*)?\s*\n([\s\S]*?)(?=\n\s*(?:#{1,4}\s*)?(?:\*\*)?\s*Target\s*:\s*(?:TED|ELLEN|NIMDOK|GORRISTER|BENNY)\s*(?:\*\*)?\s*\n|$)/gi;
 
-    const regex = new RegExp(`\\b${id}\\b`, "gi");
-    const matches = input.match(regex);
+  for (const match of input.matchAll(targetBlockRegex)) {
+    const id = match[1].toUpperCase();
+    const block = String(match[2] || "").trim();
 
-    if (!matches) continue;
-
-    // crude field extraction (low confidence)
-    const snippetIdx = input.indexOf(matches[0]);
-    const snippet = input.slice(Math.max(0, snippetIdx - 200), snippetIdx + 200);
+    if (!block) continue;
 
     targets.push({
       id,
-      objective: snippet,
-      hypothesis: snippet,
-      evidence: snippet,
-      why_now: snippet,
-      _inferenceConfidence: 0.2,
-      _loose: true
+      objective: block,
+      hypothesis: block,
+      evidence: block,
+      why_now: block,
+      _inferenceConfidence: 0.25,
+      _loose: true,
+      _recovery: "target_block_boundary"
     });
   }
 

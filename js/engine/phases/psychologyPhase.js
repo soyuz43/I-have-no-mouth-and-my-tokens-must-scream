@@ -50,13 +50,13 @@ import {
 } from "../state/commit.js";
 
 import {
-  correctStatInconsistencies,
+  warnStatInconsistencies,
   parseAndValidateStateBlock,
   validateNarrativeConsistency,
 } from "../state/validate.js";
 
 import { tickConstraints, CONSTRAINT_MAP } from "../constraints.js";
-
+import { safeExtractJSON } from "../state/utils/safeExtract.js";
 /* ============================================================
    BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
    ============================================================ */
@@ -432,25 +432,52 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
       sim.id,
       statsPrompt,
       [{ role: "user", content: "Analyze and output JSON only." }],
-      600,
+      2400,
     );
-
+    console.group(`[RAW STATS JSON][${sim.id}]`);
+    console.log(rawStatsJson);
+    console.groupEnd();
     timelineEvent(`${sim.id} stats analysis`);
 
     let sanitizedStatsJson = rawStatsJson;
+
     if (sanitizedStatsJson && typeof sanitizedStatsJson === "string") {
-      // Replace various non‑numeric values in belief delta positions with 0
-      sanitizedStatsJson = sanitizedStatsJson.replace(
-        /:\s*(?:unchanged|"unchanged"|null|"null"|no change|"no change"|no_change|"no_change")\b/gi,
-        ': 0'
-      );
-      if (sanitizedStatsJson !== rawStatsJson) {
-        console.debug(`[STATS SANITIZER] Fixed values for ${sim.id}`);
+      const parsed = safeExtractJSON(sanitizedStatsJson);
+
+      if (parsed?.belief_deltas && typeof parsed.belief_deltas === "object") {
+        const zeroValues = new Set([
+          "unchanged",
+          "unobserved",
+          "unclear",
+          "none",
+          "no change",
+          "no_change",
+          null
+        ]);
+
+        for (const [key, value] of Object.entries(parsed.belief_deltas)) {
+          const normalized = typeof value === "string"
+            ? value.trim().toLowerCase()
+            : value;
+
+          if (zeroValues.has(normalized)) {
+            parsed.belief_deltas[key] = 0;
+          }
+        }
+
+        sanitizedStatsJson = JSON.stringify(parsed);
+
+        console.debug(
+          `[STATS SANITIZER] Normalized belief_deltas for ${sim.id}`
+        );
+      } else {
+        console.debug(
+          `[STATS SANITIZER] No parseable belief_deltas for ${sim.id}; leaving raw stats unchanged`
+        );
       }
     }
 
     const statDeltas = parseStatDeltas(sanitizedStatsJson, sim);
-
     /* =========================
    DEBUG: PARSED STAT DELTAS
 ========================= */
@@ -474,7 +501,7 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     );
 
     // Allow validator to inspect deltas directly
-    correctStatInconsistencies(sim, statDeltas);
+    warnStatInconsistencies(sim, statDeltas);
 
     // Apply stat changes with resistance + cap + floor protection
 

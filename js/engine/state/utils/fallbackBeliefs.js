@@ -61,12 +61,39 @@ export function fallbackExtractBeliefDeltas(text) {
   // --- STEP 4: extract key/value pairs robustly ---
   const result = {};
 
-  const regex = /"([a-zA-Z_]+)"\s*:\s*(-?\d+(?:\.\d+)?)/g;
+  const zeroValues = new Set([
+    "unchanged",
+    "unobserved",
+    "unclear",
+    "none",
+    "no change",
+    "no_change",
+    "null"
+  ]);
+
+  const regex = /"([a-zA-Z_]+)"\s*:\s*(?:"([^"]*)"|null|-?\d+(?:\.\d+)?)/g;
 
   let match;
   while ((match = regex.exec(block)) !== null) {
     const key = match[1];
-    const val = Number(match[2]);
+    const rawValue = match[2] ?? match[0].split(":").slice(1).join(":").trim();
+
+    if (rawValue === "null") {
+      result[key] = 0;
+      continue;
+    }
+
+    const normalized =
+      typeof rawValue === "string"
+        ? rawValue.trim().replace(/^"|"$/g, "").toLowerCase()
+        : rawValue;
+
+    if (zeroValues.has(normalized)) {
+      result[key] = 0;
+      continue;
+    }
+
+    const val = Number(normalized);
 
     if (Number.isFinite(val)) {
       result[key] = val;
