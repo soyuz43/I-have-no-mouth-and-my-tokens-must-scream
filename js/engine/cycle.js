@@ -26,10 +26,14 @@ import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
 import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
+import {
+  resetCycleEvidence,
+} from "./phases/helpers/resetCycleEvidence.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
 import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
 import { resetObservabilityLogging } from "./strategy/hypothesis/observability.js";
 import { resetObservabilityExport } from "./metrics/exportMetrics.js";
+
 // === EXPORTER HOOKS ===
 import {
   initExporter,
@@ -463,10 +467,10 @@ function beginCycle() {
 
   G.cycle++;
 
-  resetObservabilityLogging(G.cycle);
-  resetObservabilityExport();  
+  resetCycleEvidence();
 
-  G.pendingBeliefEvidence = {};
+  resetObservabilityLogging(G.cycle);
+  resetObservabilityExport();
 
   // prevCycleSnapshot is pre-psychology (start of cycle)
   G.prevCycleSnapshot = JSON.parse(JSON.stringify(G.sims));

@@ -12,6 +12,11 @@
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
+
+import {
+  recordJournalStatsEvidence,
+} from "./helpers/evidenceTrace.js";
+
 import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
 
@@ -395,10 +400,10 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     );
 
     const cleanJournal = String(rawJournal ?? "").trim();
-  
-   // DEBUG: JOURNAL RAW OUTPUT
-  
-   // console.log(`[JOURNAL RAW][${sim.id}]`, rawJournal);
+
+    // DEBUG: JOURNAL RAW OUTPUT
+
+    // console.log(`[JOURNAL RAW][${sim.id}]`, rawJournal);
 
     timelineEvent(`${sim.id} journal written`);
 
@@ -655,6 +660,17 @@ async function processSimJournalCycle(sim, tacticMap, simSeesAM) {
     const beliefUpdates = parseBeliefUpdates(sanitizedStatsJson, sim);
     const driveUpdates = parseDriveUpdate(sanitizedStatsJson, sim.id);
     const anchorUpdates = parseAnchorUpdate(sanitizedStatsJson);
+
+    recordJournalStatsEvidence({
+      sim,
+      statDeltas,
+      beliefUpdates,
+      cleanJournal,
+      cleanAM,
+      appliedTactics,
+      rawStatsJson,
+      sanitizedStatsJson
+    });
 
     // --- SNAPSHOT BEFORE ---
     const beliefsBeforeCommit = snapshotBeliefs(sim);

@@ -773,9 +773,9 @@ export function extractOutcomeClause(hypothesisText) {
     // Split into candidate clauses using common delimiters
     const clauseDelimiters = /[,;.]|\b(and|but|however|therefore|moreover|furthermore|nevertheless|nonetheless)\b/;
     const clauses = original
-      .split(clauseDelimiters)
-      .map(c => c.trim())
-      .filter(c => c.length > 0);
+      .split(/[.!?;]|\s+(?:and|but|therefore|so|then)\s+/i)
+      .map(c => String(c ?? "").trim())
+      .filter(Boolean);
 
     if (clauses.length === 0) {
       return { outcomeClause: null, format: null };
