@@ -176,31 +176,46 @@ Journal: "${lastJ ? lastJ.text.slice(0, 250).replace(/\n/g, " ") : "—"}"`)}
 
 
   const nameList = SIM_IDS.join(", ");
-
-
+  const requiredTargetIds = target === "ALL" ? SIM_IDS : [target];
+  const requiredTargetSet = requiredTargetIds.join(", ");
+  const requiredTargetCount = requiredTargetIds.length;
+  const isSingleTarget = target !== "ALL";
+  const nonTargetIds = SIM_IDS.filter(id => id !== target).join(", ");
   /* ------------------------------------------------------------
      TARGET FOCUS
   ------------------------------------------------------------ */
 
-  const focusSection =
-    target === "ALL"
-      ? `MODE: ALL
+const focusSection =
+  target === "ALL"
+    ? `MODE: ALL
 
 MANDATORY TARGET SET:
-${nameList}
+${requiredTargetSet}
 
 HARD REQUIREMENTS:
 - You MUST include EVERY prisoner listed above
 - You are NOT allowed to omit any prisoner
-- You MUST produce exactly ${SIM_IDS.length} targets (one per prisoner)
+- You MUST produce exactly ${requiredTargetCount} targets
 - Each prisoner must appear EXACTLY once
 
-Failure to include all prisoners = INVALID OUTPUT`
-      : `MODE: SINGLE
+Failure to include all required prisoners = INVALID OUTPUT`
+    : `MODE: SINGLE
+
+MANDATORY TARGET SET:
+${requiredTargetSet}
+
 PRIMARY TARGET: ${target}
-You MUST focus pressure on ${target}.
-Other prisoners may ONLY be used to influence ${target}.
-Do NOT treat other prisoners as primary targets.`;
+
+HARD REQUIREMENTS:
+- You MUST produce exactly ${requiredTargetCount} target
+- The ONLY valid target id is ${target}
+- You MUST focus all pressure on ${target}
+- Other prisoners may ONLY appear as context, evidence, leverage, or relational material for ${target}
+- Do NOT create strategy objects for these non-target prisoners: ${nonTargetIds}
+- Do NOT treat non-target prisoners as recipients of pressure
+- Do NOT balance attention across the group
+
+Failure to output exactly one target object for ${target} = INVALID OUTPUT`;
 
   const directiveSection = directive
     ? `\nOPERATOR DIRECTIVE:\n${directive}\n`
@@ -509,12 +524,11 @@ ${nameList}
 
 ## HARD LIMITS
 
-- MAX ${SIM_IDS.length} targets
-- MIN 1 target  
+- MAX ${requiredTargetCount} targets
+- MIN ${requiredTargetCount} targets
 
-IF MODE = ALL:
-- You MUST output EXACTLY ${SIM_IDS.length} targets
-- The required targets are defined in the REQUIRED TARGET SET below
+You MUST output EXACTLY ${requiredTargetCount} target object(s).
+The required target set is defined below.
 
 If any target is missing → OUTPUT IS INVALID
 
@@ -523,10 +537,10 @@ If JSON is invalid → STOP
 ---
 ## REQUIRED TARGET SET
 
-${nameList}
+${requiredTargetSet}
 
 You MUST:
-- include ALL of the above targets
+- include ALL of the above required targets
 - include EACH exactly once
 - include NO additional targets
 
@@ -714,7 +728,7 @@ If multiple targets receive similar objectives:
 TARGET COVERAGE CHECK (MANDATORY):
 
 Expected targets:
-${nameList}
+${requiredTargetSet}
 
 Before output, verify:
 - Every name above appears exactly once in "targets"
@@ -1081,12 +1095,17 @@ ${activeConstraintIntel}
 ${directive || "Autonomous fracture optimization"}
 
 ---
-Not all targets are equally important.
+Target priority is defined by the authorized target set.
 
-You MUST:
-- Identify the highest-priority target
-- Apply maximum destabilization pressure to that target
-- Apply lighter, supporting pressure to others
+If MODE = SUBSET:
+- Apply maximum destabilization pressure only to AUTHORIZED TARGETS.
+- Do NOT create supporting actions for non-authorized prisoners.
+- Non-authorized prisoners may be mentioned only as leverage/context inside an authorized target's action.
+
+If MODE = ALL:
+- Identify the highest-priority target.
+- Apply maximum destabilization pressure to that target.
+- Apply lighter, supporting pressure to others.
 
 Do NOT blindly reapply the same tactic or constraint without justification.
 

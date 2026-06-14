@@ -98,7 +98,7 @@ export const G = {
   DEBUG_BELIEF_FORENSICS: true,
   DEBUG_PROMPTS: true,
 
-  
+
   models: {
     am: "claude-sonnet-4-20250514",
     TED: "claude-sonnet-4-20250514",
@@ -195,10 +195,44 @@ export const G = {
 
   /* ============================================================
    DERIVED (PER-CYCLE) BELIEF EVIDENCE
-   ============================================================ */
+  ============================================================ */
 
   pendingBeliefEvidence: Object.create(null),
 
+  /* ============================================================
+   DERIVED (PER-CYCLE) PSYCHOLOGICAL / FORENSIC EVIDENCE
+  ============================================================ */
+
+  pendingPsychEvidence: Object.create(null),
+
+  pendingEvidence: {
+    journal: Object.create(null),
+    comms: Object.create(null),
+    constraints: Object.create(null),
+    am: Object.create(null),
+    system: Object.create(null),
+  },
+
+  evidenceArchive: {
+    TED: [],
+    ELLEN: [],
+    NIMDOK: [],
+    GORRISTER: [],
+    BENNY: []
+  },
+
+  evidenceArchiveMaxPerSim: 5000,
+
+  evidenceStats: {
+    total: 0,
+    bySource: Object.create(null),
+    byAttribution: Object.create(null),
+    byBelief: Object.create(null),
+    byCycle: Object.create(null),
+  },
+
+  debugTrace: [],
+  debugTraceMax: 5000,
 
   /* ============================================================
      UI STATE
