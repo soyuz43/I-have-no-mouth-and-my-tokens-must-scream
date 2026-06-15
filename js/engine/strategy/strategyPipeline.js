@@ -34,7 +34,7 @@ const LOG_ERROR_DETAILS = true;      // Log all errors
 // Helper logging functions
 function logPipelineStage(stage, status, meta = {}) {
   if (LOG_PIPELINE_ONLY) {
-    const details = Object.keys(meta).length ? ` (${Object.entries(meta).map(([k,v]) => `${k}:${v}`).join(', ')})` : '';
+    const details = Object.keys(meta).length ? ` (${Object.entries(meta).map(([k, v]) => `${k}:${v}`).join(', ')})` : '';
     console.log(`[PIPELINE] ${stage} → ${status}${details}`);
   }
 }
@@ -114,7 +114,7 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
     ------------------------------------------------------------ */
 
     logPipelineStage("sanitize", "start");
-    
+
     const cleaned = sanitizeStrategyInput(rawText, { DEBUG });
     logSanitize({ inputLength: rawText?.length || 0, outputLength: cleaned?.length || 0 });
 
@@ -132,7 +132,11 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
 
     logPipelineStage("extract", "start");
 
-    let extracted = extractStrategy(cleaned, { DEBUG });
+
+    let extracted = extractStrategy(cleaned, {
+      DEBUG,
+      DEBUG_EXTRACT: true
+    });
 
     if (!extracted || !extracted.targets) {
 
@@ -324,8 +328,8 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
       };
     }
 
-    logEnforce({ 
-      kept: enforced.targets.length, 
+    logEnforce({
+      kept: enforced.targets.length,
       dropped: enforced.meta?.droppedDetails?.length || 0,
       ids: enforced.targets.map(t => t.id)
     });

@@ -1,22 +1,38 @@
 // filepath: js/engine/strategy/extractors/classifyJsonError.js
 
 export function classifyJsonError(str) {
+  if (typeof str !== "string") {
+    return "invalid_input";
+  }
 
-  // missing comma between properties
+  // Known strategy fields using JavaScript-style single-quoted
+  // values instead of valid JSON double-quoted values.
+  //
+  // Example:
+  //   "hypothesis": 'This is not valid JSON'
+  if (
+    /"(?:id|objective|hypothesis|evidence|why_now)"\s*:\s*'/i.test(str)
+  ) {
+    return "single_quoted_value";
+  }
+
+  // Missing comma between properties.
   if (/":\s*"[^"]*"\s*\n\s*"/.test(str)) {
     return "missing_comma";
   }
 
-  // object merge
+  // Adjacent objects without a separating comma.
   if (/}\s*{/.test(str)) {
     return "structural_merge";
   }
 
-  // foreign structured token (e.g. GroupLayout)
+  // Foreign structured token, such as:
+  // GroupLayout: [...]
   if (/^[A-Za-z_]+\s*:\s*\[[^\]]*\]/m.test(str)) {
     return "foreign_structure";
   }
-  // truncation (unbalanced braces)
+
+  // Truncation indicated by unbalanced object braces.
   const openBraces = (str.match(/{/g) || []).length;
   const closeBraces = (str.match(/}/g) || []).length;
 
@@ -24,9 +40,11 @@ export function classifyJsonError(str) {
     return "truncated";
   }
 
+  // Trailing comma after a final object.
   if (/},\s*$/.test(str)) {
     return "trailing_comma";
   }
 
   return "unknown";
 }
+
