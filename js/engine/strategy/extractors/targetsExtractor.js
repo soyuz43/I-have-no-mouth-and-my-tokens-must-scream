@@ -2,7 +2,9 @@
 
 import {
   stripJsonComments,
+  fixSingleQuotedSchemaValues,
   fixMissingCommas,
+  fixBrokenStrings,
   fixStrayQuoteAfterComma,
   splitRepeatedObjectBlocks,
   repairObjectBoundaries
@@ -10,61 +12,17 @@ import {
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
 
-/* ============================================================
-   STRING REPAIR (SHARED LOGIC — KEEP IN SYNC WITH extractJSON)
-============================================================ */
-
-function fixBrokenStrings(input) {
-  let out = "";
-  let inString = false;
-  let escape = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-
-    if (escape) {
-      out += ch;
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      out += ch;
-      escape = true;
-      continue;
-    }
-
-    if (ch === '"') {
-      const next = input[i + 1];
-
-      if (inString) {
-        if (next && ![",", "}", "]", ":"].includes(next)) {
-          out += '\\"';
-          continue;
-        }
-      }
-
-      inString = !inString;
-      out += ch;
-      continue;
-    }
-
-    out += ch;
-  }
-
-  return out;
-}
 
 /* ============================================================
    TARGETS ARRAY EXTRACTOR (SCHEMA-AWARE)
 ============================================================ */
 
 export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
-
   if (typeof input !== "string") {
     if (DEBUG_EXTRACT) {
       console.warn("[EXTRACT][TARGETS] invalid input type");
     }
+
     return null;
   }
 
@@ -72,19 +30,65 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
     console.debug("[EXTRACT][TARGETS] scanning for targets array");
   }
 
+  /*
+   * Repair known single-quoted schema values before scanning.
+   * The scanner can then rely on normal JSON double-quote rules
+   * without guessing whether an apostrophe is possessive.
+   */
+  const source = fixSingleQuotedSchemaValues(input);
+  const targetsIndex = source.indexOf('"targets"');
+
+  if (targetsIndex === -1) {
+    if (DEBUG_EXTRACT) {
+      console.warn("[EXTRACT][TARGETS] targets key not found");
+    }
+
+    return null;
+  }
+
+  let cursor = targetsIndex + '"targets"'.length;
+
+  while (cursor < source.length && /\s/.test(source[cursor])) {
+    cursor++;
+  }
+
+  if (source[cursor] !== ":") {
+    if (DEBUG_EXTRACT) {
+      console.warn("[EXTRACT][TARGETS] targets key missing colon");
+    }
+
+    return null;
+  }
+
+  cursor++;
+
+  while (cursor < source.length && /\s/.test(source[cursor])) {
+    cursor++;
+  }
+
+  if (source[cursor] !== "[") {
+    if (DEBUG_EXTRACT) {
+      console.warn("[EXTRACT][TARGETS] targets value is not an array");
+    }
+
+    return null;
+  }
+
+  const start = cursor;
+
+  let depth = 0;
   let inString = false;
   let escape = false;
 
-  for (let i = 0; i < input.length; i++) {
-
-    const ch = input[i];
+  for (; cursor < source.length; cursor++) {
+    const ch = source[cursor];
 
     if (escape) {
       escape = false;
       continue;
     }
 
-    if (ch === "\\") {
+    if (inString && ch === "\\") {
       escape = true;
       continue;
     }
@@ -94,117 +98,77 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
       continue;
     }
 
-    if (inString) continue;
+    if (inString) {
+      continue;
+    }
 
-    // detect "targets"
-    if (input.slice(i, i + 9) === '"targets"') {
+    if (ch === "[") {
+      depth++;
+    } else if (ch === "]") {
+      depth--;
+    }
 
-      let j = i + 9;
+    if (depth !== 0) {
+      continue;
+    }
 
-      // skip whitespace
-      while (/\s/.test(input[j])) j++;
+    const arrayStr = source.slice(start, cursor + 1);
 
-      if (input[j] !== ":") continue;
-      j++;
+    if (DEBUG_EXTRACT) {
+      console.debug("[EXTRACT][TARGETS] candidate found");
+      console.debug(arrayStr.slice(0, 200));
+    }
 
-      while (/\s/.test(input[j])) j++;
+    let repaired = arrayStr;
 
-      if (input[j] !== "[") continue;
+    repaired = stripJsonComments(repaired);
+    repaired = fixSingleQuotedSchemaValues(repaired);
+    repaired = fixMissingCommas(repaired);
 
-      const start = j;
-      let depth = 0;
+    repaired = splitRepeatedObjectBlocks(repaired);
+    repaired = repairObjectBoundaries(repaired);
 
-      let localInString = false;
-      let localEscape = false;
+    repaired = repaired.replace(/},\s*,\s*{/g, "},{");
+    repaired = repaired.trim().replace(/,\s*$/, "");
 
-      for (; j < input.length; j++) {
+    repaired = fixStrayQuoteAfterComma(repaired);
+    repaired = fixBrokenStrings(repaired);
 
-        const c = input[j];
+    try {
+      const parsedArray = JSON.parse(repaired);
 
-        if (localEscape) {
-          localEscape = false;
-          continue;
-        }
-
-        if (c === "\\") {
-          localEscape = true;
-          continue;
-        }
-
-        if (c === '"') {
-          localInString = !localInString;
-          continue;
-        }
-
-        if (localInString) continue;
-
-        if (c === "[") depth++;
-        if (c === "]") depth--;
-
-        if (depth === 0) {
-
-          let arrayStr = input.slice(start, j + 1);
-
-          if (DEBUG_EXTRACT) {
-            console.debug("[EXTRACT][TARGETS] candidate found");
-            console.debug(arrayStr.slice(0, 200));
-          }
-
-          /* --------------------------
-             REPAIR PIPELINE (ALIGNED)
-          -------------------------- */
-
-          let repaired = arrayStr;
-
-          // 1. strip comments
-          repaired = stripJsonComments(repaired);
-
-          // 2. fix commas between fields
-          repaired = fixMissingCommas(repaired);
-
-          // 3. unified structural repair (single entry point)
-          repaired = splitRepeatedObjectBlocks(repaired);
-          repaired = repairObjectBoundaries(repaired);
-
-          // 4. normalize malformed separators
-          repaired = repaired.replace(/},\s*,\s*{/g, "},{");
-
-          // 5. strip trailing commas
-          repaired = repaired.trim().replace(/,\s*$/, "");
-
-          // 6. fix stray separator quote, then final string repair
-          repaired = fixStrayQuoteAfterComma(repaired);
-          repaired = fixBrokenStrings(repaired);
-
-          try {
-            const parsedArray = JSON.parse(repaired);
-
-            if (!Array.isArray(parsedArray)) continue;
-
-            if (DEBUG_EXTRACT) {
-              console.warn("[EXTRACT][TARGETS] SUCCESS");
-            }
-
-            const normalizedArray = parsedArray.map(t => normalizeTargetKeys(t));
-
-            return { targets: normalizedArray };
-
-          } catch (err) {
-
-            if (DEBUG_EXTRACT) {
-              console.debug("[EXTRACT][TARGETS] parse fail:", err.message);
-              console.debug("[EXTRACT][TARGETS] repaired preview:", repaired.slice(0, 200));
-            }
-          }
-
-          break;
-        }
+      if (!Array.isArray(parsedArray)) {
+        return null;
       }
+
+      if (DEBUG_EXTRACT) {
+        console.warn("[EXTRACT][TARGETS] SUCCESS");
+      }
+
+      return {
+        targets: parsedArray.map(target =>
+          normalizeTargetKeys(target)
+        )
+      };
+    } catch (err) {
+      if (DEBUG_EXTRACT) {
+        console.debug(
+          "[EXTRACT][TARGETS] parse fail:",
+          err.message
+        );
+
+        console.debug(
+          "[EXTRACT][TARGETS] repaired preview:",
+          repaired.slice(0, 200)
+        );
+      }
+
+      return null;
     }
   }
 
   if (DEBUG_EXTRACT) {
-    console.warn("[EXTRACT][TARGETS] no valid array found");
+    console.warn("[EXTRACT][TARGETS] unterminated targets array");
   }
 
   return null;

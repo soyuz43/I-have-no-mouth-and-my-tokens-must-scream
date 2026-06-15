@@ -87,16 +87,40 @@ export const G = {
   amContextDocs: [],
 
   backend: "anthropic",
-  /* ============================================================
-     DEBUG FLAGS
-     ============================================================ */
+
+
+ /* ============================================================
+    DIAGNOSTIC / MODEL CONFIGURATION FLAGS
+    ============================================================ */
+
+  // Logs constraint parsing, application, clamping,
+  // and before/after state changes during constraint ticks.
   DEBUG_CONSTRAINTS: true,
+
+  // Logs how raw belief deltas are reduced by resistance
+  // before the final belief update is committed.
   DEBUG_DAMPING: true,
+
+  // Logs psychology attribution snapshots and directional
+  // communication-intent history.
   DEBUG_ATTRIBUTION: true,
+
+  // false: one selected model is assigned to AM and every sim.
+  // true: AM and each sim can use independently selected models.
   splitModels: false,
+
+  // Logs hypothesis parsing, belief/direction recognition,
+  // skipped validations, and assessment diagnostics.
   DEBUG_HYPOTHESIS_PARSE: true,
+
+  // Logs detailed belief-delta provenance, including the
+  // extracted reason, evidence, sim, and cycle context.
   DEBUG_BELIEF_FORENSICS: true,
-  DEBUG_PROMPTS: false,
+
+  // Logs truncated previews of system and user prompts
+  // sent through the shared model-calling layer.
+  DEBUG_PROMPTS: true,
+
 
 
   models: {

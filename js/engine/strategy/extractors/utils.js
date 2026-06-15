@@ -4,6 +4,143 @@ export function stripJsonComments(str) {
   return str.replace(/\/\/.*$/gm, "");
 }
 
+
+/**
+ * Repairs single-quoted values for known strategy fields.
+ *
+ * Example:
+ *   "hypothesis": 'The group's hope will collapse'
+ *
+ * Becomes:
+ *   "hypothesis": "The group's hope will collapse"
+ *
+ * Apostrophes inside the value are preserved. A single quote is
+ * treated as the closing delimiter only when followed by a comma,
+ * closing brace, or closing bracket.
+ */
+export function fixSingleQuotedSchemaValues(input) {
+  if (typeof input !== "string") return input;
+
+  const fieldPattern =
+    /^"(id|objective|hypothesis|evidence|why_now)"(\s*:\s*)'/i;
+
+  const nextSchemaKeyPattern =
+    /^"(?:id|objective|hypothesis|evidence|why_now)"\s*:/i;
+
+  let out = "";
+  let inDoubleString = false;
+  let escape = false;
+  let i = 0;
+
+  while (i < input.length) {
+    const ch = input[i];
+
+    if (escape) {
+      out += ch;
+      escape = false;
+      i++;
+      continue;
+    }
+
+    if (ch === "\\") {
+      out += ch;
+      escape = true;
+      i++;
+      continue;
+    }
+
+    if (!inDoubleString && ch === '"') {
+      const match = input.slice(i).match(fieldPattern);
+
+      if (match) {
+        const openingLength = match[0].length;
+        const valueStart = i + openingLength;
+
+        let valueOut = "";
+        let valueEscape = false;
+        let closingIndex = -1;
+
+        for (let j = valueStart; j < input.length; j++) {
+          const valueChar = input[j];
+
+          if (valueEscape) {
+            if (valueChar === "'") {
+              valueOut += "'";
+            } else {
+              valueOut += `\\${valueChar}`;
+            }
+
+            valueEscape = false;
+            continue;
+          }
+
+          if (valueChar === "\\") {
+            valueEscape = true;
+            continue;
+          }
+
+          if (valueChar === '"') {
+            valueOut += '\\"';
+            continue;
+          }
+
+          if (valueChar === "'") {
+            let nextIndex = j + 1;
+
+            while (
+              nextIndex < input.length &&
+              /\s/.test(input[nextIndex])
+            ) {
+              nextIndex++;
+            }
+
+            const nextChar = input[nextIndex];
+
+            const followedByDelimiter =
+              nextChar === "," ||
+              nextChar === "}" ||
+              nextChar === "]";
+
+            const followedByNextKey =
+              nextChar === '"' &&
+              nextSchemaKeyPattern.test(
+                input.slice(nextIndex)
+              );
+
+            if (
+              followedByDelimiter ||
+              followedByNextKey
+            ) {
+              closingIndex = j;
+              break;
+            }
+          }
+
+          valueOut += valueChar;
+        }
+
+        if (closingIndex !== -1) {
+          const fieldPrefix =
+            match[0].slice(0, -1);
+
+          out += `${fieldPrefix}"${valueOut}"`;
+          i = closingIndex + 1;
+          continue;
+        }
+      }
+    }
+
+    if (ch === '"') {
+      inDoubleString = !inDoubleString;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
 /**
  * Only insert comma when:
  * - previous line ends with a value
@@ -313,9 +450,28 @@ export function splitDuplicateIdObjects(str) {
 }
 
 /**
- * Repair broken string boundaries
+
+ * Repairs unescaped double quotes inside JSON string values.
+
+ *
+
+ * A quote is treated as a legitimate closing quote when the next
+
+ * non-whitespace character is a JSON delimiter:
+
+ *   ,  }  ]  :
+
+ *
+
+ * This preserves valid closing quotes followed by spaces or
+
+ * newlines in pretty-printed JSON.
+
  */
+
 export function fixBrokenStrings(input) {
+
+  if (typeof input !== "string") return input;
 
   let out = "";
   let inString = false;
@@ -336,28 +492,47 @@ export function fixBrokenStrings(input) {
       escape = true;
       continue;
     }
-
     if (ch === '"') {
-      const next = input[i + 1];
 
-      if (inString) {
-        if (next && ![",", "}", "]", ":"].includes(next)) {
-          out += '\\"';
-          continue;
-        }
+      if (!inString) {
+        inString = true;
+        out += ch;
+        continue;
       }
 
-      inString = !inString;
-      out += ch;
+       // Look beyond formatting whitespace before deciding whether this quote closes the JSON string.
+      let nextIndex = i + 1;
+
+      while (
+        nextIndex < input.length &&
+        /\s/.test(input[nextIndex])
+      ) {
+        nextIndex++;
+      }
+      const nextSignificant =
+
+        input[nextIndex];
+
+      const closesString =
+        nextIndex >= input.length ||
+        [",", "}", "]", ":"].includes(
+          nextSignificant
+        );
+
+      if (closesString) {
+        inString = false;
+        out += ch;
+      } else {
+
+  // * Quote appears inside a string without escaping.         
+        out += '\\"';
+      }
       continue;
     }
-
     out += ch;
   }
-
   return out;
 }
-
 // Repair boundary commas + duplicate id collapse (single entry point)
 
 export function repairObjectBoundaries(str) {

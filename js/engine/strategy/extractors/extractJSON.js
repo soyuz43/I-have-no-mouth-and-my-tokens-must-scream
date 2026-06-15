@@ -2,12 +2,15 @@
 
 import {
   stripJsonComments,
+  fixSingleQuotedSchemaValues,
   fixMissingCommas,
   fixBrokenStrings,
   fixStrayQuoteAfterComma,
+  fixObjectMerges,
   repairObjectBoundaries,
   splitRepeatedObjectBlocks
 } from "./utils.js";
+
 
 import { classifyJsonError } from "./classifyJsonError.js";
 import { normalizeJsonShape } from "./normalizeJsonShape.js";
@@ -53,8 +56,14 @@ function extractTargetsArray(source) {
       const candidate = source.slice(startBracket, i + 1);
 
       try {
-        return JSON.parse(fixBrokenStrings(candidate));
-      } catch {
+
+        const repaired =
+          fixBrokenStrings(
+            fixSingleQuotedSchemaValues(candidate)
+          );
+
+        return JSON.parse(repaired);
+      } catch (err) {
         return null;
       }
     }
@@ -88,6 +97,12 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
   }
 
   repaired = stripJsonComments(repaired);
+
+  /*
+   * Convert JavaScript-style single-quoted values on known
+   * strategy fields into valid JSON strings.
+   */
+  repaired = fixSingleQuotedSchemaValues(repaired);
   repaired = fixMissingCommas(repaired);
 
   repaired = splitRepeatedObjectBlocks(repaired);
