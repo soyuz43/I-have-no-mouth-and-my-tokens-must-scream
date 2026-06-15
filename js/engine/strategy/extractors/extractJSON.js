@@ -4,6 +4,7 @@ import {
   stripJsonComments,
   fixMissingCommas,
   fixBrokenStrings,
+  fixStrayQuoteAfterComma,
   repairObjectBoundaries,
   splitRepeatedObjectBlocks
 } from "./utils.js";
@@ -96,6 +97,7 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     repaired = fixObjectMerges(repaired);
   }
 
+  repaired = fixStrayQuoteAfterComma(repaired);
   repaired = fixBrokenStrings(repaired);
 
   if (errorType === "truncated") {
@@ -118,6 +120,7 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     }
   );
 
+  repaired = fixStrayQuoteAfterComma(repaired);
   repaired = fixBrokenStrings(repaired);
 
   return repaired;

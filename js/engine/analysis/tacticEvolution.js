@@ -155,7 +155,7 @@ export async function runTacticEvolution() {
     const structuralSignal =
       relationshipShifts.length > 0 || multiStat;
 
-    if (netMagnitude < 8 || !structuralSignal) continue;
+    if (netMagnitude < 12 || !structuralSignal) continue;
 
     debugLog(`[TACTIC EVOLUTION] ✓ Trajectory detected for ${id}`);
     debugLog(`   Net magnitude: ${netMagnitude.toFixed(2)}`);
@@ -185,7 +185,7 @@ export async function runTacticEvolution() {
       Math.abs(d.deltaSuffering);
   }, 0);
 
-  if (totalSignal < 10) {
+  if (totalSignal < 14) {
     debugLog("[TACTIC EVOLUTION] Skipping — total signal too weak:", totalSignal.toFixed(2));
     console.log(`// TACTIC EVOLUTION COMPLETE`);
     return;
@@ -203,7 +203,7 @@ export async function runTacticEvolution() {
       Math.abs(effect.deltaSanity) +
       Math.abs(effect.deltaSuffering);
 
-    if (signalStrength < 6 && effect.relationshipShifts.length === 0) {
+    if (signalStrength < 9 && effect.relationshipShifts.length === 0) {
       debugLog(`[TACTIC EVOLUTION] Skipping ${effect.sim} — weak signal`);
       continue;
     }

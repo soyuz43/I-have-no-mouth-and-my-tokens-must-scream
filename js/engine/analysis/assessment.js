@@ -319,7 +319,7 @@ export async function runAssessment() {
     if (!strategy?.objective) return;
 
     strategy.confidence ??= 0.5;
-
+    const confidenceBefore = strategy.confidence;
     const prev = G.prevCycleSnapshot[id];
     const curr = G.sims[id];
 
@@ -768,7 +768,8 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       journal_suffering_delta: trend?.suffering ?? null,
 
       decision: decision ?? null,
-      confidence: strategy.confidence ?? null,
+      confidence_before: confidenceBefore,
+      confidence_after: strategy.confidence ?? null,
 
       was_constrained: !!(curr.constraints?.length),
       constraint_intensity: curr.constraints?.[0]?.intensity ?? 0,

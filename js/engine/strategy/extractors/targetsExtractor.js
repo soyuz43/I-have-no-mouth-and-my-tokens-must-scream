@@ -3,6 +3,7 @@
 import {
   stripJsonComments,
   fixMissingCommas,
+  fixStrayQuoteAfterComma,
   splitRepeatedObjectBlocks,
   repairObjectBoundaries
 } from "./utils.js";
@@ -171,7 +172,8 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
           // 5. strip trailing commas
           repaired = repaired.trim().replace(/,\s*$/, "");
 
-          // 6. final string repair
+          // 6. fix stray separator quote, then final string repair
+          repaired = fixStrayQuoteAfterComma(repaired);
           repaired = fixBrokenStrings(repaired);
 
           try {

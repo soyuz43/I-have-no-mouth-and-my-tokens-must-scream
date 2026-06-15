@@ -130,6 +130,23 @@ export function fixMissingCommas(input) {
   return out;
 }
 
+/**
+ * Fix LLM typo:
+ *   "field": "value.","
+ *   "next": "value"
+ *
+ * Into:
+ *   "field": "value.",
+ *   "next": "value"
+ */
+export function fixStrayQuoteAfterComma(str) {
+  if (typeof str !== "string") return str;
+
+  return str.replace(
+    /,\s*"\s*(?=\n\s*"[A-Za-z_][A-Za-z0-9_]*"\s*:)/g,
+    ","
+  );
+}
 
 /**
  * Fix }{ → },{
