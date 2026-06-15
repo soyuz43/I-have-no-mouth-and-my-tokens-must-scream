@@ -4,6 +4,7 @@ import {
   fixMissingCommas,
   fixObjectMerges,
   fixBrokenStrings,
+  fixStrayQuoteAfterComma,
   repairObjectBoundaries,
   splitRepeatedObjectBlocks,
   splitMultiIdCascade
@@ -112,7 +113,8 @@ export function repairTargetsExtractor(input, { DEBUG_EXTRACT = false } = {}) {
           // structural normalization
           repaired = fixObjectMerges(repaired);
 
-          // final string repair
+          // fix stray separator quote, then final string repair
+          repaired = fixStrayQuoteAfterComma(repaired);
           repaired = fixBrokenStrings(repaired);
 
           if (DEBUG_EXTRACT) {

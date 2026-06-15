@@ -7,25 +7,55 @@
 // 2. AM tactical execution
 // 3. Tactic selection
 // 4. Target parsing
+// 5. Execution provenance
+// 6. Bystander observation scheduling
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { timelineEvent } from "../../ui/timeline.js";
-import { addLog, showThinking, removeThinking } from "../../ui/logs.js";
+import {
+  addLog,
+  showThinking,
+  removeThinking
+} from "../../ui/logs.js";
 
-import { buildAMPlanningPrompt, buildAMPrompt } from "../../prompts/am.js";
+import {
+  buildAMPlanningPrompt,
+  buildAMPrompt
+} from "../../prompts/am.js";
+
 import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
 import { pickTactics } from "../tactics.js";
-import { applyConstraint, CONSTRAINT_MAP, } from "../constraints.js";
+
+import {
+  applyConstraint,
+  CONSTRAINT_MAP
+} from "../constraints.js";
+
+/* ============================================================
+   OBSERVATION POLICY
+
+   Nonrecipient sims may become aware of an AM action.
+
+   Physical constraints increase observability, but a failed roll
+   produces no perception record and should not trigger a journal.
+   ============================================================ */
+
+const OBSERVATION_POLICY = Object.freeze({
+  baseProbability: 0.18,
+  visibleConstraintBonus: 0.10,
+  intensityBonusPerUnit: 0.035,
+  maximumIntensityBonus: 0.07,
+  maximumProbability: 0.40
+});
 
 /* ============================================================
    STRATEGY PHASE ORCHESTRATOR
    ============================================================ */
 
 export async function runStrategyPhase(directive) {
-
   let planText = null;
   let execution = null;
 
@@ -34,7 +64,6 @@ export async function runStrategyPhase(directive) {
   ------------------------------------------------------------ */
 
   try {
-
     timelineEvent(`>>> AM PLANNING`);
 
     planText = await stepPlanAM(directive);
@@ -42,7 +71,6 @@ export async function runStrategyPhase(directive) {
     const result = runStrategyPipeline(planText);
 
     if (!result || result.status !== "success") {
-
       let failureType = "unknown";
 
       if (!result) {
@@ -61,24 +89,29 @@ export async function runStrategyPhase(directive) {
         raw: result?.raw ?? null
       };
 
-      console.warn("[STRATEGY PHASE] pipeline failed", {
-        stage: result?.stage,
-        error: result?.error,
-        details: result
-      });
+      console.warn(
+        "[STRATEGY PHASE] pipeline failed",
+        {
+          stage: result?.stage,
+          error: result?.error,
+          details: result
+        }
+      );
 
-      // Prevent downstream phases from using invalid strategy
+      // Prevent downstream phases from using an invalid strategy.
       return;
     }
 
     timelineEvent(`// AM PLAN GENERATED`);
-
-  } catch (e) {
-
-    console.error("AM planning error:", e);
+  } catch (error) {
+    console.error(
+      "AM planning error:",
+      error
+    );
 
     timelineEvent(`!! AM PLANNING ERROR`);
 
+    return;
   }
 
   /* ------------------------------------------------------------
@@ -86,23 +119,28 @@ export async function runStrategyPhase(directive) {
   ------------------------------------------------------------ */
 
   try {
-
     timelineEvent(`>>> AM EXECUTION`);
 
-    execution = await stepExecuteAM(planText, directive);
+    /*
+     * Pass the actual operator directive.
+     *
+     * The committed structured strategy is read from G.amStrategy
+     * inside stepExecuteAM(). The raw planning response must not
+     * replace the directive.
+     */
+    execution = await stepExecuteAM(directive);
 
     timelineEvent(`// AM EXECUTION COMPLETE`);
-
-  } catch (e) {
-
-    console.error("AM execution error:", e);
+  } catch (error) {
+    console.error(
+      "AM execution error:",
+      error
+    );
 
     timelineEvent(`!! AM EXECUTION ERROR`);
-
   }
 
   return execution;
-
 }
 
 /* ============================================================
@@ -110,16 +148,20 @@ export async function runStrategyPhase(directive) {
    ============================================================ */
 
 async function stepPlanAM(directive) {
-
-  const thinkingPlan = showThinking("AM FORMULATING STRATEGY...");
+  const thinkingPlan = showThinking(
+    "AM FORMULATING STRATEGY..."
+  );
 
   let planText = "";
 
   try {
+    const trajectorySummary =
+      buildTrajectorySummary();
 
-    const trajectorySummary = buildTrajectorySummary();
-
-    console.debug("[TRAJECTORY SUMMARY]", trajectorySummary);
+    console.debug(
+      "[TRAJECTORY SUMMARY]",
+      trajectorySummary
+    );
 
     planText = await callModel(
       "AM",
@@ -130,28 +172,30 @@ async function stepPlanAM(directive) {
         G.amProfiles,
         trajectorySummary
       ),
-      [{ role: "user", content: `Generate strategic plan for cycle ${G.cycle}.` }],
+      [
+        {
+          role: "user",
+          content:
+            `Generate strategic plan for cycle ${G.cycle}.`
+        }
+      ],
       3200
     );
-
-  } catch (e) {
-
-    planText = `[Plan error: ${e.message}]`;
-
+  } catch (error) {
+    planText =
+      `[Plan error: ${error.message}]`;
+  } finally {
+    removeThinking(thinkingPlan);
   }
-
-  removeThinking(thinkingPlan);
 
   /* ------------------------------------------------------------
      AM STRATEGIC PHASE ENGINE
-     Determines long-term torment phase evolution
   ------------------------------------------------------------ */
 
   updateStrategicPhase();
 
   /* ------------------------------------------------------------
      AM DOCTRINE PARSER
-     Allows AM to update long-term strategy memory.
   ------------------------------------------------------------ */
 
   const doctrineMatch = planText.match(
@@ -159,7 +203,6 @@ async function stepPlanAM(directive) {
   );
 
   if (doctrineMatch) {
-
     G.amDoctrine = {
       phase: doctrineMatch[1].trim(),
       objective: doctrineMatch[2].trim(),
@@ -167,14 +210,16 @@ async function stepPlanAM(directive) {
       updatedCycle: G.cycle
     };
 
-    console.debug("[AM DOCTRINE UPDATED]", G.amDoctrine);
-
+    console.debug(
+      "[AM DOCTRINE UPDATED]",
+      G.amDoctrine
+    );
   }
 
   G.amPlans.push({
     cycle: G.cycle,
     plan: planText,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString()
   });
 
   return planText;
@@ -185,134 +230,353 @@ async function stepPlanAM(directive) {
    ============================================================ */
 
 async function stepExecuteAM(directive) {
-
   const targets = getTargetSims();
-
   const tacticMap = buildTacticMap(targets);
 
-  const amThink = showThinking("AM SELECTING TACTICS FROM VAULT");
+  const amThink = showThinking(
+    "AM SELECTING TACTICS FROM VAULT"
+  );
 
   let amResponse = "";
+  let strategyTargetIds = [];
+  let validatedTargets = [];
 
   try {
-    const targetIds = G.amStrategy?.targets ? Object.keys(G.amStrategy.targets) : [];
+    strategyTargetIds = G.amStrategy?.targets
+      ? Object.keys(G.amStrategy.targets)
+      : [];
 
-    const validatedTargets = G.amStrategy?.targets
+    validatedTargets = G.amStrategy?.targets
       ? Object.values(G.amStrategy.targets)
       : [];
 
-    if (!G.amStrategy?.targets || !Object.keys(G.amStrategy.targets).length) {
-      console.error("[EXECUTION] Missing targets at execution phase", G.amStrategy);
+    if (!strategyTargetIds.length) {
+      console.error(
+        "[EXECUTION] Missing targets at execution phase",
+        G.amStrategy
+      );
     }
 
-    console.debug("[EXECUTION] targetIds:", targetIds);
-    console.debug("[EXECUTION] validatedTargets:", validatedTargets);
+    console.debug(
+      "[EXECUTION] strategyTargetIds:",
+      strategyTargetIds
+    );
+
+    console.debug(
+      "[EXECUTION] validatedTargets:",
+      validatedTargets
+    );
 
     const amPrompt = buildAMPrompt(
       targets,
       tacticMap,
       directive,
       validatedTargets,
-      targetIds
+      strategyTargetIds
     );
+
     amResponse = await callModel(
       "am",
       amPrompt,
-      [{ role: "user", content: `Execute torment cycle ${G.cycle}.` }],
-      1800,
+      [
+        {
+          role: "user",
+          content:
+            `Execute torment cycle ${G.cycle}.`
+        }
+      ],
+      1800
     );
-    // console.log("----- RAW AM RESPONSE -----\n", amResponse);
-  } catch (e) {
 
-    amResponse = `[AM error: ${e.message}]`;
-
+    // console.log(
+    //   "----- RAW AM RESPONSE -----\n",
+    //   amResponse
+    // );
+  } catch (error) {
+    amResponse =
+      `[AM error: ${error.message}]`;
+  } finally {
+    removeThinking(amThink);
   }
-
-  removeThinking(amThink);
-
-  const constraintMap = extractConstraintsFromText(amResponse);
-
-  if (G.DEBUG_CONSTRAINTS) {
-    console.log("[AFTER AM PARSE]", constraintMap);
-  }
-
-
-  const amTargets = parseAMTargets(amResponse, constraintMap);
-
-  G.amTargets = amTargets;
-
-  /* =========================
-     DEBUG: AM TARGET OUTPUT
-  ========================= */
-  console.group("[AM TARGETS PARSED]");
-  console.table(G.amTargets);
-  console.groupEnd();
-
-  addLog(`AM // CYCLE ${G.cycle}`, amResponse, "am");
-
-  const simSeesAM = sanitizeAMOutput(amResponse);
-
-
-  console.debug("[EXECUTION] constraintMap:", constraintMap);
 
   /* ------------------------------------------------------------
-     APPLY CONSTRAINTS USING PROPER HELPER (FIXED)
+     PARSE RAW EXECUTION OUTPUT
   ------------------------------------------------------------ */
 
-  for (const sim of targets) {
+  const parsedConstraintMap =
+    extractConstraintsFromText(amResponse);
 
-    if (G.DEBUG_CONSTRAINTS) {
-      console.log("[BEFORE APPLY]", sim.id, sim.constraints);
-    }
-
-    const incoming = constraintMap[sim.id] || [];
-
-    if (!incoming.length) continue;
-
-    for (const c of incoming) {
-      const def = CONSTRAINT_MAP[c.id];
-
-      if (!def) {
-        console.warn("[CONSTRAINT] Unknown constraint id:", c.id, {
-          available: Object.keys(CONSTRAINT_MAP)
-        });
-        continue;
-      }
-
-      const alreadyActive = sim.constraints?.some(active => active.id === c.id);
-      if (alreadyActive) {
-        console.debug("[CONSTRAINT] already active, skipping reapply", {
-          sim: sim.id,
-          constraint: c.id
-        });
-        continue;
-      }
-
-      applyConstraint(sim, c.id, {
-        title: def.title,
-        subcategory: def.subcategory,
-        content: def.content,
-        intensity: Number(
-          c.intensity ??
-          (def.intensity && typeof def.intensity.default === "number"
-            ? def.intensity.default
-            : 1)
-        ),
-        duration: Number(c.duration ?? def.duration?.base_cycles ?? 1),
-        remaining: Number(c.duration ?? def.duration?.base_cycles ?? 1),
-        source: c.source ?? "AM"
-      });
-    }
-
-    console.debug("[CONSTRAINT APPLIED TO SIM]", sim.id, sim.constraints);
+  if (G.DEBUG_CONSTRAINTS) {
+    console.log(
+      "[AFTER AM CONSTRAINT PARSE]",
+      parsedConstraintMap
+    );
   }
+
+  /*
+   * The validated strategy determines which targets AM was
+   * expected to address.
+   *
+   * If no strategy targets are available, fall back to the
+   * operator-selected target sims.
+   */
+  const expectedTargetIds = orderedSimIds(
+    strategyTargetIds.length
+      ? strategyTargetIds
+      : targets.map((sim) => sim?.id)
+  );
+
+  const parsedExecution = parseAMTargets(
+    amResponse,
+    expectedTargetIds
+  );
+
+  const actions =
+    parsedExecution.actions;
+
+  const actionTargetIds = orderedSimIds(
+    Object.keys(actions)
+  );
+
+  /* ------------------------------------------------------------
+     APPLY RECOGNIZED CONSTRAINTS
+
+     This also returns the subset of parsed constraints that are
+     valid, in scope, and suitable for observation calculations.
+  ------------------------------------------------------------ */
+
+  const constraintApplication =
+    applyParsedConstraints(
+      targets,
+      parsedConstraintMap
+    );
+
+  const constraintTargetIds =
+    constraintApplication.constraintTargetIds;
+
+  const observableConstraintMap =
+    constraintApplication.observableConstraintMap;
+
+  /* ------------------------------------------------------------
+     BYSTANDER OBSERVATION
+
+     Direct action and direct constraint recipients do not need an
+     observation roll because they already qualify for psychology.
+  ------------------------------------------------------------ */
+
+  const directRecipientIds = orderedSimIds([
+    ...actionTargetIds,
+    ...constraintTargetIds
+  ]);
+
+  const observationState =
+    buildObservationState({
+      actions,
+      actionTargetIds,
+      constraintMap: observableConstraintMap,
+      directRecipientIds
+    });
+
+  const observerIds =
+    observationState.observerIds;
+
+  const journalTargetIds = orderedSimIds([
+    ...actionTargetIds,
+    ...constraintTargetIds,
+    ...observerIds
+  ]);
+
+  /* ------------------------------------------------------------
+     CANONICAL EXECUTION RECORD
+  ------------------------------------------------------------ */
+
+  const amExecution = {
+    cycle: G.cycle,
+
+    /*
+     * UI-level selection:
+     * "ALL" or one concrete sim ID.
+     */
+    targetSelection: G.target,
+
+    /*
+     * Targets AM was expected to address according to the validated
+     * strategy.
+     */
+    targetIds: expectedTargetIds,
+
+    /*
+     * Actual parsed actions only.
+     */
+    actions,
+
+    /*
+     * Sims with actual parsed action records.
+     */
+    actionTargetIds,
+
+    /*
+     * Valid direct constraint recipients in this execution.
+     */
+    constraintTargetIds,
+
+    /*
+     * Successful bystander perceptions only.
+     *
+     * Failed observation rolls do not create perception records.
+     */
+    perceptions: observationState.perceptions,
+
+    /*
+     * Sims whose observation rolls succeeded.
+     */
+    observerIds,
+
+    /*
+     * Full roll history, including failures.
+     */
+    observationRolls:
+      observationState.observationRolls,
+
+    /*
+     * Stored policy makes the execution history interpretable.
+     */
+    observationPolicy: {
+      ...OBSERVATION_POLICY
+    },
+
+    /*
+     * Final psychology candidates for this execution.
+     *
+     * psychologyPhase.js may additionally include sims undergoing
+     * active constraints from earlier cycles.
+     */
+    journalTargetIds,
+
+    /*
+     * Expected targets for which no usable AM action was parsed.
+     */
+    missingTargetIds:
+      parsedExecution.missingTargetIds
+  };
+
+  /*
+   * Canonical current-cycle execution state.
+   */
+  G.amExecution = amExecution;
+
+  /*
+   * Compatibility alias.
+   *
+   * Contains actual action records only. Perceptions never appear
+   * in G.amTargets.
+   */
+  G.amTargets = amExecution.actions;
+
+  /* ------------------------------------------------------------
+     DEBUG: EXECUTION PROVENANCE
+  ------------------------------------------------------------ */
+
+  console.group(
+    "[AM EXECUTION PARSED]"
+  );
+
+  console.log(
+    "TARGET SELECTION:",
+    amExecution.targetSelection
+  );
+
+  console.log(
+    "EXPECTED TARGETS:",
+    amExecution.targetIds
+  );
+
+  console.log(
+    "ACTION TARGETS:",
+    amExecution.actionTargetIds
+  );
+
+  console.log(
+    "CONSTRAINT TARGETS:",
+    amExecution.constraintTargetIds
+  );
+
+  console.log(
+    "OBSERVERS:",
+    amExecution.observerIds
+  );
+
+  console.log(
+    "JOURNAL TARGETS:",
+    amExecution.journalTargetIds
+  );
+
+  console.log(
+    "MISSING EXPECTED ACTIONS:",
+    amExecution.missingTargetIds
+  );
+
+  console.table(
+    Object.entries(amExecution.actions)
+      .map(([id, record]) => ({
+        target: id,
+        origin: record.origin,
+        tactic:
+          record.tactic || "(unparsed)",
+        preview:
+          record.text.slice(0, 140)
+      }))
+  );
+
+  console.table(
+    Object.entries(amExecution.perceptions)
+      .map(([id, record]) => ({
+        observer: id,
+        origin: record.origin,
+        observed_targets:
+          record.observedTargetIds.join(", "),
+        preview:
+          record.text.slice(0, 140)
+      }))
+  );
+
+  console.table(
+    Object.entries(amExecution.observationRolls)
+      .map(([id, record]) => ({
+        observer: id,
+        probability: record.probability,
+        roll: record.roll,
+        observed: record.observed,
+        basis: record.basis,
+        candidate_targets:
+          record.candidateTargetIds.join(", "),
+        observed_targets:
+          record.observedTargetIds.join(", ")
+      }))
+  );
+
+  console.groupEnd();
+
+  addLog(
+    `AM // CYCLE ${G.cycle}`,
+    amResponse,
+    "am"
+  );
+
+  /*
+   * Retained for compatibility with any consumers that still use
+   * the sanitized whole-response representation.
+   */
+  const simSeesAM =
+    sanitizeAMOutput(amResponse);
 
   return {
     amResponse,
     simSeesAM,
     targets,
     tacticMap,
-    constraintMap
+    constraintMap: parsedConstraintMap,
+    amExecution
   };
 }
 
@@ -321,43 +585,545 @@ async function stepExecuteAM(directive) {
    ============================================================ */
 
 function getTargetSims() {
-  return G.target === "ALL"
-    ? SIM_IDS.map((id) => G.sims[id])
-    : [G.sims[G.target]];
+  const candidateTargets =
+    G.target === "ALL"
+      ? SIM_IDS.map((id) => G.sims[id])
+      : [G.sims[G.target]];
+
+  return candidateTargets.filter((sim) => {
+    if (sim?.id) return true;
+
+    console.warn(
+      "[STRATEGY] Ignoring missing or invalid selected sim",
+      {
+        selection: G.target,
+        sim
+      }
+    );
+
+    return false;
+  });
 }
 
 function buildTacticMap(targets) {
-
   const map = {};
 
-  targets.forEach((sim) => {
+  for (const sim of targets) {
+    if (!sim?.id) continue;
 
-    const selectedTactics = pickTactics(sim);
+    const selectedTactics =
+      pickTactics(sim);
 
-    map[sim.id] = selectedTactics;
+    map[sim.id] = Array.isArray(selectedTactics)
+      ? selectedTactics
+      : [];
 
-    sim.availableTactics = selectedTactics;
-
-  });
+    sim.availableTactics =
+      map[sim.id];
+  }
 
   return map;
+}
 
+function orderedSimIds(values) {
+  const requested = new Set(
+    (Array.isArray(values) ? values : [])
+      .map(resolveSimId)
+      .filter(Boolean)
+  );
+
+  return SIM_IDS.filter(
+    (id) => requested.has(id)
+  );
 }
 
 /* ============================================================
-   CONSTRAINT → PERCEPTUAL DESCRIPTION (FRAGMENT-LEVEL)
-   Designed to feed into softenObservation + phrasing layer
-============================================================ */
+   CONSTRAINT APPLICATION
+   ============================================================ */
 
-function describeConstraintPerceptually(constraintId, intensity = 1) {
-  const def = CONSTRAINT_MAP[constraintId];
-  if (!def) return null;
+function applyParsedConstraints(
+  targets,
+  parsedConstraintMap
+) {
+  const targetById = new Map(
+    targets
+      .filter((sim) => sim?.id)
+      .map((sim) => [sim.id, sim])
+  );
 
-  const text = (def.title + " " + def.subcategory).toLowerCase();
+  const observableConstraintMap = {};
+  const constraintTargetSet = new Set();
 
-  // ------------------------------------------------------------
-  // INTENSITY TIERS
-  // ------------------------------------------------------------
+  for (
+    const [rawTargetId, incoming]
+    of Object.entries(parsedConstraintMap || {})
+  ) {
+    const targetId =
+      resolveSimId(rawTargetId);
+
+    if (
+      !targetId ||
+      !Array.isArray(incoming) ||
+      !incoming.length
+    ) {
+      continue;
+    }
+
+    const sim = targetById.get(targetId);
+
+    if (!sim) {
+      console.warn(
+        "[CONSTRAINT] Parsed target is outside the current execution scope",
+        {
+          targetId,
+          selectedTargets:
+            [...targetById.keys()]
+        }
+      );
+
+      continue;
+    }
+
+    if (G.DEBUG_CONSTRAINTS) {
+      console.log(
+        "[BEFORE APPLY]",
+        sim.id,
+        sim.constraints
+      );
+    }
+
+    for (const constraint of incoming) {
+      const definition =
+        CONSTRAINT_MAP[constraint.id];
+
+      if (!definition) {
+        console.warn(
+          "[CONSTRAINT] Unknown constraint id:",
+          constraint.id,
+          {
+            available:
+              Object.keys(CONSTRAINT_MAP)
+          }
+        );
+
+        continue;
+      }
+
+      /*
+       * Recognized constraints count as direct events for the
+       * current target even when the same constraint is already
+       * active and therefore is not reapplied.
+       */
+      observableConstraintMap[targetId] ??= [];
+
+      observableConstraintMap[targetId].push({
+        ...constraint
+      });
+
+      constraintTargetSet.add(targetId);
+
+      const alreadyActive =
+        sim.constraints?.some(
+          (active) =>
+            active.id === constraint.id
+        );
+
+      if (alreadyActive) {
+        console.debug(
+          "[CONSTRAINT] already active, skipping reapply",
+          {
+            sim: sim.id,
+            constraint: constraint.id
+          }
+        );
+
+        continue;
+      }
+
+      applyConstraint(
+        sim,
+        constraint.id,
+        {
+          title: definition.title,
+          subcategory:
+            definition.subcategory,
+          content: definition.content,
+
+          intensity: Number(
+            constraint.intensity ??
+              (
+                definition.intensity &&
+                typeof definition
+                  .intensity
+                  .default === "number"
+                  ? definition
+                      .intensity
+                      .default
+                  : 1
+              )
+          ),
+
+          duration: Number(
+            constraint.duration ??
+              definition.duration
+                ?.base_cycles ??
+              1
+          ),
+
+          remaining: Number(
+            constraint.duration ??
+              definition.duration
+                ?.base_cycles ??
+              1
+          ),
+
+          source:
+            constraint.source ??
+            "AM"
+        }
+      );
+    }
+
+    console.debug(
+      "[CONSTRAINT APPLIED TO SIM]",
+      sim.id,
+      sim.constraints
+    );
+  }
+
+  return {
+    constraintTargetIds:
+      orderedSimIds(
+        [...constraintTargetSet]
+      ),
+
+    observableConstraintMap
+  };
+}
+
+/* ============================================================
+   OBSERVATION SCHEDULER
+   ============================================================ */
+
+function buildObservationState({
+  actions,
+  actionTargetIds,
+  constraintMap,
+  directRecipientIds
+}) {
+  const perceptions = {};
+  const observationRolls = {};
+  const observerIds = [];
+
+  const directRecipientSet =
+    new Set(directRecipientIds);
+
+  const constraints = flattenConstraintMap(
+    constraintMap
+  );
+
+  for (const observerId of SIM_IDS) {
+    if (!G.sims?.[observerId]) {
+      continue;
+    }
+
+    /*
+     * Direct recipients already qualify for a journal and do not
+     * need a bystander roll.
+     */
+    if (directRecipientSet.has(observerId)) {
+      continue;
+    }
+
+    const visibleConstraints =
+      constraints.filter(
+        (constraint) =>
+          constraint.simId !== observerId
+      );
+
+    const visibleActionTargetIds =
+      actionTargetIds.filter(
+        (targetId) =>
+          targetId !== observerId
+      );
+
+    const candidateTargetIds =
+      orderedSimIds([
+        ...visibleActionTargetIds,
+        ...visibleConstraints.map(
+          (constraint) =>
+            constraint.simId
+        )
+      ]);
+
+    /*
+     * Nothing happened that this sim could observe.
+     */
+    if (!candidateTargetIds.length) {
+      continue;
+    }
+
+    const probability =
+      calculateObservationProbability(
+        visibleConstraints
+      );
+
+    const roll =
+      roundToFour(Math.random());
+
+    const observed =
+      roll < probability;
+
+    const basis =
+      visibleConstraints.length
+        ? "visible_constraint"
+        : "ambient_action";
+
+    const rollRecord = {
+      probability,
+      roll,
+      observed,
+      basis,
+      candidateTargetIds,
+      observedTargetIds: []
+    };
+
+    if (!observed) {
+      observationRolls[observerId] =
+        rollRecord;
+
+      continue;
+    }
+
+    let perception = null;
+
+    /*
+     * A visible physical constraint is more concrete than merely
+     * noticing that AM addressed another sim, so successful rolls
+     * prioritize a constraint observation when one is available.
+     */
+    if (visibleConstraints.length) {
+      const observedConstraint =
+        pickRandom(visibleConstraints);
+
+      const description =
+        describeConstraintPerceptually(
+          observedConstraint.constraintId,
+          observedConstraint.intensity
+        );
+
+      if (description) {
+        perception = {
+          text: phraseConstraintObservation(
+            observedConstraint.simId,
+            description,
+            observedConstraint.intensity
+          ),
+          origin:
+            "constraint_perception",
+          observedTargetIds: [
+            observedConstraint.simId
+          ]
+        };
+      }
+    }
+
+    /*
+     * Fall back to noticing an actual AM action when no usable
+     * constraint description was produced.
+     */
+    if (!perception && visibleActionTargetIds.length) {
+      const observedTargetId =
+        pickRandom(
+          visibleActionTargetIds
+        );
+
+      perception = {
+        text: phraseActionObservation(
+          observedTargetId,
+          actions[observedTargetId]
+        ),
+        origin:
+          "action_perception",
+        observedTargetIds: [
+          observedTargetId
+        ]
+      };
+    }
+
+    /*
+     * If a successful roll cannot be converted into a meaningful
+     * perception record, treat it as nonobserved rather than
+     * manufacturing a generic placeholder.
+     */
+    if (!perception?.text) {
+      rollRecord.observed = false;
+      rollRecord.basis =
+        "unresolved_observation";
+
+      observationRolls[observerId] =
+        rollRecord;
+
+      continue;
+    }
+
+    rollRecord.observedTargetIds =
+      [...perception.observedTargetIds];
+
+    observationRolls[observerId] =
+      rollRecord;
+
+    perceptions[observerId] =
+      perception;
+
+    observerIds.push(observerId);
+  }
+
+  return {
+    perceptions,
+    observerIds:
+      orderedSimIds(observerIds),
+    observationRolls
+  };
+}
+
+function calculateObservationProbability(
+  visibleConstraints
+) {
+  let probability =
+    OBSERVATION_POLICY.baseProbability;
+
+  if (visibleConstraints.length) {
+    probability +=
+      OBSERVATION_POLICY
+        .visibleConstraintBonus;
+
+    const maximumIntensity =
+      Math.max(
+        ...visibleConstraints.map(
+          (constraint) =>
+            normalizeIntensity(
+              constraint.intensity
+            )
+        )
+      );
+
+    const intensityBonus =
+      Math.min(
+        OBSERVATION_POLICY
+          .maximumIntensityBonus,
+
+        maximumIntensity *
+          OBSERVATION_POLICY
+            .intensityBonusPerUnit
+      );
+
+    probability += intensityBonus;
+  }
+
+  return roundToFour(
+    Math.min(
+      probability,
+      OBSERVATION_POLICY
+        .maximumProbability
+    )
+  );
+}
+
+function flattenConstraintMap(
+  constraintMap
+) {
+  return Object.entries(
+    constraintMap || {}
+  )
+    .flatMap(([rawSimId, entries]) => {
+      const simId =
+        resolveSimId(rawSimId);
+
+      if (
+        !simId ||
+        !Array.isArray(entries)
+      ) {
+        return [];
+      }
+
+      return entries
+        .filter(
+          (constraint) =>
+            constraint?.id
+        )
+        .map((constraint) => ({
+          simId,
+          constraintId:
+            constraint.id,
+          intensity:
+            normalizeIntensity(
+              constraint.intensity
+            )
+        }));
+    });
+}
+
+function normalizeIntensity(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return 1;
+  }
+
+  return Math.max(
+    0,
+    Math.min(2, number)
+  );
+}
+
+function roundToFour(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return 0;
+  }
+
+  return +number.toFixed(4);
+}
+
+function pickRandom(values) {
+  if (
+    !Array.isArray(values) ||
+    !values.length
+  ) {
+    return null;
+  }
+
+  return values[
+    Math.floor(
+      Math.random() *
+      values.length
+    )
+  ];
+}
+
+/* ============================================================
+   CONSTRAINT → PERCEPTUAL DESCRIPTION
+   ============================================================ */
+
+function describeConstraintPerceptually(
+  constraintId,
+  intensity = 1
+) {
+  const definition =
+    CONSTRAINT_MAP[constraintId];
+
+  if (!definition) return null;
+
+  const text =
+    `${
+      definition.title || ""
+    } ${
+      definition.subcategory || ""
+    }`
+      .toLowerCase();
+
   const LOW = [
     "not shifting position",
     "remaining unusually still",
@@ -377,63 +1143,66 @@ function describeConstraintPerceptually(constraintId, intensity = 1) {
   ];
 
   function pickTier() {
-    if (intensity >= 2) return HIGH;
-    if (intensity >= 1.25) return MID;
+    if (intensity >= 2) {
+      return HIGH;
+    }
+
+    if (intensity >= 1.25) {
+      return MID;
+    }
+
     return LOW;
   }
 
-  function pick(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-  }
-
-  // ------------------------------------------------------------
-  // SEMANTIC MATCHING
-  // ------------------------------------------------------------
-
   if (text.includes("standing")) {
-    return pick(pickTier());
+    return pickRandom(
+      pickTier()
+    );
   }
 
   if (text.includes("arms")) {
     return intensity >= 1.5
-      ? pick([
-        "arms held in place despite visible strain",
-        "unable to lower their arms",
-        "arms fixed in a way that resists fatigue"
-      ])
-      : pick([
-        "arms not lowering naturally",
-        "arms remaining raised longer than expected"
-      ]);
+      ? pickRandom([
+          "arms held in place despite visible strain",
+          "unable to lower their arms",
+          "arms fixed in a way that resists fatigue"
+        ])
+      : pickRandom([
+          "arms not lowering naturally",
+          "arms remaining raised longer than expected"
+        ]);
   }
 
-  if (text.includes("balance") || text.includes("instability")) {
-    return pick([
+  if (
+    text.includes("balance") ||
+    text.includes("instability")
+  ) {
+    return pickRandom([
       "failing to stabilize their balance",
       "constantly correcting without success",
       "never quite settling into a stable position"
     ]);
   }
 
-  if (text.includes("crouch") || text.includes("squat")) {
+  if (
+    text.includes("crouch") ||
+    text.includes("squat")
+  ) {
     return intensity >= 1.5
-      ? pick([
-        "locked into a low, unsustainable posture",
-        "unable to rise from a strained position",
-        "held in a position that should not be maintainable"
-      ])
-      : pick([
-        "remaining in a low position longer than expected",
-        "not adjusting out of an uncomfortable stance"
-      ]);
+      ? pickRandom([
+          "locked into a low, unsustainable posture",
+          "unable to rise from a strained position",
+          "held in a position that should not be maintainable"
+        ])
+      : pickRandom([
+          "remaining in a low position longer than expected",
+          "not adjusting out of an uncomfortable stance"
+        ]);
   }
 
-  // ------------------------------------------------------------
-  // FALLBACK (GENERIC BUT CONSISTENT)
-  // ------------------------------------------------------------
   return intensity >= 1.5
-    ? pick(HIGH)
-    : pick(MID);
+    ? pickRandom(HIGH)
+    : pickRandom(MID);
 }
 
 function softenObservation(text) {
@@ -447,109 +1216,474 @@ function softenObservation(text) {
     `suggests that they are ${text}`
   ];
 
-  return variants[Math.floor(Math.random() * variants.length)];
+  return pickRandom(variants);
+}
+
+function phraseConstraintObservation(
+  targetId,
+  description,
+  intensity
+) {
+  const softened =
+    softenObservation(description)
+      .toLowerCase();
+
+  const direct = [
+    `You notice ${targetId} ${softened}.`,
+    `You see ${targetId} ${softened}.`,
+    `${targetId} ${softened}, and it does not look voluntary.`,
+    `Your attention fixes on ${targetId}. ${
+      capitalizeFirst(softened)
+    }.`
+  ];
+
+  const indirect = [
+    `Something about ${targetId} feels wrong — ${softened}.`,
+    `You cannot ignore ${targetId}; ${softened}.`,
+    `${targetId} draws your focus without explanation — ${softened}.`
+  ];
+
+  const inferred = [
+    `You have not seen ${targetId} move in a while.`,
+    `There is a strange stillness where ${targetId} should be.`,
+    `${targetId}'s lack of movement is becoming noticeable.`
+  ];
+
+  const auditory = [
+    `You hear nothing from ${targetId} for too long.`,
+    `${targetId} has gone unnaturally quiet.`,
+    `No movement or sound comes from ${targetId}.`
+  ];
+
+  const distorted = [
+    `You are not sure you are seeing it correctly, but ${targetId} ${softened}.`,
+    `It might be your perception, but ${targetId} ${softened}.`,
+    `For a moment, it looks like ${targetId} ${softened}.`
+  ];
+
+  let pool = direct;
+
+  if (intensity < 0.75) {
+    pool = Math.random() < 0.5
+      ? indirect
+      : inferred;
+  }
+
+  if (
+    intensity >= 1.5 &&
+    Math.random() < 0.4
+  ) {
+    pool = distorted;
+  }
+
+  if (Math.random() < 0.25) {
+    pool = auditory;
+  }
+
+  return pickRandom(pool);
+}
+
+function phraseActionObservation(
+  targetId,
+  actionRecord
+) {
+  const tactic =
+    actionRecord?.tactic
+      ? ` The shape of it feels deliberate, though you cannot identify the method.`
+      : "";
+
+  const variants = [
+    `You hear AM's attention settle on ${targetId}, but the words do not reach you clearly.${tactic}`,
+    `Something in ${targetId}'s reaction tells you AM has singled them out.${tactic}`,
+    `You catch fragments of AM addressing ${targetId}, never enough to know the whole message.${tactic}`,
+    `${targetId} has become the center of AM's attention, and you cannot tell what was said.${tactic}`,
+    `For a moment, everything around ${targetId} seems to narrow under AM's focus.${tactic}`
+  ];
+
+  return pickRandom(variants);
+}
+
+function capitalizeFirst(text) {
+  const value =
+    String(text || "");
+
+  if (!value) return "";
+
+  return (
+    value.charAt(0).toUpperCase() +
+    value.slice(1)
+  );
 }
 
 /* ============================================================
-   AM TARGET PARSER (FULL BLOCK CAPTURE + PERCEPTUAL FALLBACK)
-============================================================ */
+   AM TARGET PARSER
 
-function parseAMTargets(amText, constraintMap = {}) {
-  const targets = {};
+   Separates actual generated/recovered action records from all
+   later perception and journal-scheduling decisions.
+   ============================================================ */
 
-  const raw = String(amText || "");
+function parseAMTargets(
+  amText,
+  expectedTargetIds = []
+) {
+  const actions = {};
+
+  const raw =
+    String(amText || "");
+
   const text = raw
     .replace(/\r/g, "")
     .replace(/\s*:\s*/g, ":")
     .replace(/[ \t]+/g, " ");
 
-  if (!text.trim()) {
-    return buildFallbackTargets(targets, constraintMap);
-  }
-
   const lines = text
     .split("\n")
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
-  // ------------------------------------------------------------
-  // HELPERS
-  // ------------------------------------------------------------
+  const expectedIds =
+    orderedSimIds(
+      expectedTargetIds
+    );
 
-  function appendTargetText(targetId, textBlock) {
-    if (!targetId || !textBlock) return;
+  /* ------------------------------------------------------------
+     HELPERS
+  ------------------------------------------------------------ */
 
-    const cleaned = cleanNarrativeBlock(textBlock);
+  function appendAction(
+    targetId,
+    textBlock,
+    origin,
+    tactic = null
+  ) {
+    const resolvedId =
+      resolveSimId(targetId);
+
+    if (
+      !resolvedId ||
+      !textBlock
+    ) {
+      return;
+    }
+
+    const cleaned =
+      cleanNarrativeBlock(textBlock);
+
     if (!cleaned) return;
 
-    if (!targets[targetId]) {
-      targets[targetId] = cleaned;
-    } else if (!targets[targetId].includes(cleaned)) {
-      targets[targetId] += "\n\n" + cleaned;
+    const normalizedOrigin =
+      origin === "model"
+        ? "model"
+        : "parser_recovery";
+
+    const existing =
+      actions[resolvedId];
+
+    if (!existing) {
+      actions[resolvedId] = {
+        text: cleaned,
+        tactic: tactic || null,
+        origin: normalizedOrigin
+      };
+
+      return;
+    }
+
+    /*
+     * A strict format parse is more authoritative than a later
+     * heuristic recovery.
+     */
+    if (
+      existing.origin === "model" &&
+      normalizedOrigin !== "model"
+    ) {
+      return;
+    }
+
+    /*
+     * Replace an earlier recovery when a strict record is found.
+     */
+    if (
+      existing.origin !== "model" &&
+      normalizedOrigin === "model"
+    ) {
+      actions[resolvedId] = {
+        text: cleaned,
+        tactic:
+          tactic ||
+          existing.tactic ||
+          null,
+        origin: "model"
+      };
+
+      return;
+    }
+
+    if (
+      !existing.text.includes(cleaned)
+    ) {
+      existing.text +=
+        `\n\n${cleaned}`;
+    }
+
+    if (
+      !existing.tactic &&
+      tactic
+    ) {
+      existing.tactic = tactic;
     }
   }
 
-  function cleanNarrativeBlock(textBlock) {
-    let block = String(textBlock || "").trim();
+  function cleanNarrativeBlock(
+    textBlock
+  ) {
+    const sourceLines =
+      String(textBlock || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    const cleanedLines =
+      sourceLines.filter((line) => {
+        /*
+         * Model-invented target headings are structural metadata.
+         */
+        if (
+          /^#{1,6}\s*(?:TACTIC|TARGET|ACTION)\s*:/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        /*
+         * Standalone bold headings.
+         */
+        if (
+          /^\*\*[^*]+\*\*$/
+            .test(line)
+        ) {
+          return false;
+        }
+
+        /*
+         * Common execution preambles.
+         */
+        if (
+          /^I will begin (?:the )?torment cycle\b.*$/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        if (
+          /^I will begin (?:the )?cycle\b.*$/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        /*
+         * Strict metadata lines.
+         */
+        if (
+          /^\s*TACTIC(?:_USED)?\s*:/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        if (
+          /^\s*CONSTRAINT_(?:APPLY|NONE)\s*:/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        if (
+          /^\s*DIRECTIVE\s*:/i
+            .test(line)
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+    let block =
+      cleanedLines
+        .join("\n")
+        .trim();
+
     if (!block) return "";
 
-    // Strip machine metadata that may have been jammed inline
+    /*
+     * Strip metadata jammed into narrative lines.
+     */
     block = block
-      .replace(/\btactic(_used)?\s*:[^\n]+/gi, "")
-      .replace(/\bconstraint_(apply|none)\s*:[^\n]+/gi, "")
-      .replace(/\bdirective\s*:[^\n]+/gi, "")
-      .replace(/\btarget\s*:\s*[a-zA-Z_-]+/gi, "")
+      .replace(
+        /\btactic(?:_used)?\s*:[^\n]+/gi,
+        ""
+      )
+      .replace(
+        /\bconstraint_(?:apply|none)\s*:[^\n]+/gi,
+        ""
+      )
+      .replace(
+        /\bdirective\s*:[^\n]+/gi,
+        ""
+      )
+      .replace(
+        /\btarget\s*:\s*[a-zA-Z_-]+/gi,
+        ""
+      )
+      .replace(
+        /^#{1,6}\s*$/gm,
+        ""
+      )
+      .replace(
+        /\n{3,}/g,
+        "\n\n"
+      )
       .trim();
-
-    // Collapse excessive blank lines
-    block = block.replace(/\n{3,}/g, "\n\n").trim();
 
     return block;
   }
 
-  function extractTargetId(textBlock) {
+  function extractTargetId(
+    textBlock
+  ) {
     if (!textBlock) return null;
 
-    const match = String(textBlock).match(
-      /\btarget\s*:\s*([a-zA-Z_-]+)/i
+    const match =
+      String(textBlock).match(
+        /\btarget\s*:\s*([a-zA-Z_-]+)/i
+      );
+
+    return match
+      ? resolveSimId(match[1])
+      : null;
+  }
+
+  function extractHeadingTargetId(
+    line
+  ) {
+    if (!line) return null;
+
+    const match =
+      String(line).match(
+        /^#{1,6}\s*(?:TACTIC|TARGET|ACTION)\s*:\s*([a-zA-Z_-]+)\s*$/i
+      );
+
+    return match
+      ? resolveSimId(match[1])
+      : null;
+  }
+
+  function extractTacticLabel(
+    line
+  ) {
+    if (!line) return null;
+
+    const match =
+      String(line).match(
+        /\btactic(?:_used)?\s*:\s*(.*?)(?=\s+\btarget\s*:|$)/i
+      );
+
+    return (
+      match?.[1]?.trim() ||
+      null
     );
-
-    if (!match) return null;
-
-    return resolveSimId(match[1]);
   }
 
   function isConstraintMeta(line) {
-    return /\bconstraint_(apply|none)\b\s*:/i.test(line);
+    return (
+      /\bconstraint_(apply|none)\b\s*:/i
+        .test(line)
+    );
   }
 
-  function isStrictTacticMeta(line) {
-    return /\btactic(_used)?\s*:/i.test(line) &&
-      /\btarget\s*:/i.test(line);
+  function isStrictTacticMeta(
+    line
+  ) {
+    return (
+      /\btactic(?:_used)?\s*:/i
+        .test(line) &&
+      /\btarget\s*:/i
+        .test(line)
+    );
   }
 
-  // ------------------------------------------------------------
-  // PASS 1 — STRICT / NEAR-STRICT FORMAT
-  // Narrative block followed by:
-  // TACTIC_USED:... TARGET:<ID>
-  // or
-  // TACTIC:... TARGET:<ID>
-  // ------------------------------------------------------------
+  /* ------------------------------------------------------------
+     PASS 1 — STRICT OR NEAR-STRICT FOOTER FORMAT
+
+     Narrative followed by:
+
+     TACTIC_USED:... TARGET:<ID>
+  ------------------------------------------------------------ */
 
   {
     let buffer = [];
+    let headingTargetId = null;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (const line of lines) {
+      const nextHeadingTargetId =
+        extractHeadingTargetId(line);
+
+      if (nextHeadingTargetId) {
+        /*
+         * Start of a new heading-delimited block.
+         *
+         * Any previous unclosed buffer can still be recovered by
+         * the heading pass below.
+         */
+        buffer = [];
+        headingTargetId =
+          nextHeadingTargetId;
+
+        continue;
+      }
 
       if (isConstraintMeta(line)) {
         continue;
       }
 
       if (isStrictTacticMeta(line)) {
-        const targetId = extractTargetId(line);
-        appendTargetText(targetId, buffer.join("\n"));
+        const footerTargetId =
+          extractTargetId(line);
+
+        const targetId =
+          footerTargetId ||
+          headingTargetId;
+
+        const tactic =
+          extractTacticLabel(line);
+
+        if (
+          footerTargetId &&
+          headingTargetId &&
+          footerTargetId !==
+            headingTargetId
+        ) {
+          console.warn(
+            "[AM PARSER] Heading/footer target mismatch",
+            {
+              headingTargetId,
+              footerTargetId,
+              line
+            }
+          );
+        }
+
+        appendAction(
+          targetId,
+          buffer.join("\n"),
+          "model",
+          tactic
+        );
+
         buffer = [];
+        headingTargetId = null;
+
         continue;
       }
 
@@ -557,41 +1691,132 @@ function parseAMTargets(amText, constraintMap = {}) {
     }
   }
 
-  // ------------------------------------------------------------
-  // PASS 2 — LOOSE INLINE TARGET FORMAT
-  // Handles lines like:
-  // I plant a note ... target:ellen directive:...
-  // ------------------------------------------------------------
+  /* ------------------------------------------------------------
+     PASS 2 — HEADING-DELIMITED RECOVERY
 
-  for (const line of lines) {
-    if (isConstraintMeta(line)) continue;
-    if (isStrictTacticMeta(line)) continue;
+     Handles:
 
-    const targetId = extractTargetId(line);
-    if (!targetId) continue;
+     ### TACTIC: TED
+     <narrative>
+  ------------------------------------------------------------ */
 
-    appendTargetText(targetId, line);
+  {
+    let activeTargetId = null;
+    let buffer = [];
+
+    function flushHeadingBlock() {
+      if (
+        !activeTargetId ||
+        !buffer.length
+      ) {
+        return;
+      }
+
+      appendAction(
+        activeTargetId,
+        buffer.join("\n"),
+        "parser_recovery",
+        null
+      );
+    }
+
+    for (const line of lines) {
+      const headingTargetId =
+        extractHeadingTargetId(line);
+
+      if (headingTargetId) {
+        flushHeadingBlock();
+
+        activeTargetId =
+          headingTargetId;
+
+        buffer = [];
+
+        continue;
+      }
+
+      if (!activeTargetId) {
+        continue;
+      }
+
+      if (isConstraintMeta(line)) {
+        continue;
+      }
+
+      if (isStrictTacticMeta(line)) {
+        flushHeadingBlock();
+
+        activeTargetId = null;
+        buffer = [];
+
+        continue;
+      }
+
+      buffer.push(line);
+    }
+
+    flushHeadingBlock();
   }
 
-  // ------------------------------------------------------------
-  // PASS 3 — RECOVER MULTI-LINE INLINE BLOCKS
-  //
-  // If several narrative lines lead into a line containing TARGET,
-  // attach the buffered narrative to that target.
-  // ------------------------------------------------------------
+  /* ------------------------------------------------------------
+     PASS 3 — LOOSE INLINE TARGET FORMAT
+  ------------------------------------------------------------ */
 
-  if (!Object.keys(targets).length) {
+  for (const line of lines) {
+    if (isConstraintMeta(line)) {
+      continue;
+    }
+
+    if (isStrictTacticMeta(line)) {
+      continue;
+    }
+
+    if (extractHeadingTargetId(line)) {
+      continue;
+    }
+
+    const targetId =
+      extractTargetId(line);
+
+    if (!targetId) {
+      continue;
+    }
+
+    appendAction(
+      targetId,
+      line,
+      "parser_recovery",
+      extractTacticLabel(line)
+    );
+  }
+
+  /* ------------------------------------------------------------
+     PASS 4 — MULTILINE INLINE RECOVERY
+
+     Only runs if no usable action was found above.
+  ------------------------------------------------------------ */
+
+  if (!Object.keys(actions).length) {
     let buffer = [];
 
     for (const line of lines) {
-      if (isConstraintMeta(line)) continue;
+      if (isConstraintMeta(line)) {
+        continue;
+      }
 
-      const targetId = extractTargetId(line);
+      const targetId =
+        extractTargetId(line);
 
       if (targetId) {
-        const joined = [...buffer, line].join("\n");
-        appendTargetText(targetId, joined);
+        appendAction(
+          targetId,
+          [...buffer, line].join("\n"),
+          "parser_recovery",
+          extractTacticLabel(line)
+        );
+
         buffer = [];
+
         continue;
       }
 
@@ -599,458 +1824,584 @@ function parseAMTargets(amText, constraintMap = {}) {
     }
   }
 
-  // ------------------------------------------------------------
-  // PASS 4 — LAST-CHANCE BLOCK ASSOCIATION
-  //
-  // If the model emitted one ambiguous block but only one target id
-  // appears anywhere, recover conservatively for that single target.
-  // ------------------------------------------------------------
+  /* ------------------------------------------------------------
+     PASS 5 — SINGLE-TARGET LAST-CHANCE RECOVERY
+  ------------------------------------------------------------ */
 
-  if (!Object.keys(targets).length) {
-    const candidateTargetIds = Array.from(
-      new Set(
-        lines
-          .map(extractTargetId)
-          .filter(Boolean)
-      )
-    );
+  if (!Object.keys(actions).length) {
+    const candidateTargetIds =
+      Array.from(
+        new Set(
+          lines
+            .map(
+              (line) =>
+                extractTargetId(line) ||
+                extractHeadingTargetId(line)
+            )
+            .filter(Boolean)
+        )
+      );
 
-    if (candidateTargetIds.length === 1) {
-      const recovered = cleanNarrativeBlock(lines.join("\n"));
-      appendTargetText(candidateTargetIds[0], recovered);
+    if (
+      candidateTargetIds.length === 1
+    ) {
+      appendAction(
+        candidateTargetIds[0],
+        lines.join("\n"),
+        "parser_recovery",
+        null
+      );
     }
   }
 
-  // ------------------------------------------------------------
-  // PERCEPTUAL FALLBACK (AUGMENTATION, NOT REPLACEMENT)
-  // Others may perceive active constraints on another sim.
-  // ------------------------------------------------------------
-
-  const constrained = Object.entries(constraintMap)
-    .flatMap(([simId, arr]) =>
-      arr.map(c => ({
-        simId,
-        constraintId: c.id,
-        intensity: c.intensity ?? 1
-      }))
+  const missingTargetIds =
+    expectedIds.filter(
+      (id) =>
+        !actions[id]?.text
     );
 
-  SIM_IDS.forEach((name) => {
-    const alreadyHasTarget = Boolean(targets[name]);
+  console.log(
+    "[AM PARSER] ACTION TARGETS:",
+    Object.keys(actions)
+  );
 
-    // No active constraints anywhere
-    if (!constrained.length) {
-      if (!alreadyHasTarget) {
-        targets[name] = "AM observes you silently this cycle.";
-      }
-      return;
-    }
+  console.log(
+    "[AM PARSER] MISSING EXPECTED TARGETS:",
+    missingTargetIds
+  );
 
-    // Self does not directly perceive own physical constraint
-    const visible = constrained.filter(c => c.simId !== name);
-
-    if (!visible.length) {
-      if (!alreadyHasTarget) {
-        targets[name] = "Something feels off, but you can't identify the source.";
-      }
-      return;
-    }
-
-    const perceived = visible.filter(c => {
-      const p = 0.45 + 0.35 * Math.min(1, c.intensity);
-      return Math.random() < p;
-    });
-
-    if (!perceived.length) {
-      if (!alreadyHasTarget) {
-        targets[name] = "You sense something is wrong, but nothing resolves clearly.";
-      }
-      return;
-    }
-
-    function phraseObservation(simId, desc, intensity) {
-      const d = softenObservation(desc).toLowerCase();
-
-      const DIRECT = [
-        `You notice ${simId} ${d}`,
-        `You see ${simId} ${d}`,
-        `${simId} ${d}, and it doesn't look voluntary`,
-        `Your attention fixes on ${simId}. ${d.charAt(0).toUpperCase() + d.slice(1)}`
-      ];
-
-      const INDIRECT = [
-        `Something about ${simId} feels wrong — ${d}`,
-        `You can't ignore ${simId}; ${d}`,
-        `${simId} draws your focus without explanation — ${d}`
-      ];
-
-      const INFERRED = [
-        `You haven't seen ${simId} move in a while`,
-        `There is a strange stillness where ${simId} should be`,
-        `${simId}'s absence of movement is becoming noticeable`
-      ];
-
-      const AUDITORY = [
-        `You hear nothing from ${simId} for too long`,
-        `${simId} has gone unnaturally quiet`,
-        `No movement or sound comes from ${simId}`
-      ];
-
-      const DISTORTED = [
-        `You aren't sure if you're seeing it correctly, but ${simId} ${d}`,
-        `It might be your perception, but ${simId} ${d}`,
-        `For a moment, it looks like ${simId} ${d}`
-      ];
-
-      let pool = DIRECT;
-
-      if (intensity < 0.75) {
-        pool = Math.random() < 0.5 ? INDIRECT : INFERRED;
-      }
-
-      if (intensity >= 1.5 && Math.random() < 0.4) {
-        pool = DISTORTED;
-      }
-
-      if (Math.random() < 0.25) {
-        pool = AUDITORY;
-      }
-
-      return pool[Math.floor(Math.random() * pool.length)];
-    }
-
-    const observations = perceived
-      .map(c => {
-        const desc = describeConstraintPerceptually(
-          c.constraintId,
-          c.intensity
-        );
-
-        if (!desc) return null;
-
-        return phraseObservation(c.simId, desc, c.intensity);
-      })
-      .filter(Boolean);
-
-    const observationText = observations.length
-      ? observations.join("\n")
-      : "Something is wrong, but you can't name it.";
-
-    if (!alreadyHasTarget) {
-      targets[name] = observationText;
-    } else {
-      targets[name] += "\n\n" + observationText;
-    }
-  });
-
-  console.log("TARGET KEYS:", Object.keys(targets));
-  console.log("TARGET COUNT:", Object.keys(targets).length);
-
-  return targets;
-}
-
-function buildFallbackTargets(existingTargets, constraintMap = {}) {
-  const targets = { ...existingTargets };
-
-  const constrained = Object.entries(constraintMap)
-    .flatMap(([simId, arr]) =>
-      arr.map(c => ({
-        simId,
-        constraintId: c.id,
-        intensity: c.intensity ?? 1
-      }))
-    );
-
-  SIM_IDS.forEach(id => {
-    if (targets[id]) return;
-
-    if (!constrained.length) {
-      targets[id] = "AM observes you silently this cycle.";
-    } else {
-      const visible = constrained.filter(c => c.simId !== id);
-      targets[id] = visible.length
-        ? "You sense something is wrong, but nothing resolves clearly."
-        : "Something feels off, but you can't identify the source.";
-    }
-  });
-
-  return targets;
+  return {
+    actions,
+    missingTargetIds
+  };
 }
 
 /* ============================================================
    CONSTRAINT PARSER (AM → EXECUTION)
    ============================================================ */
 
-function extractConstraintsFromText(input) {
-
-  const raw = String(input || "");
+function extractConstraintsFromText(
+  input
+) {
+  const raw =
+    String(input || "");
 
   const text = raw
     .replace(/\r/g, "")
     .replace(/\s*:\s*/g, ":")
     .replace(/[ \t]+/g, " ");
 
-  const lines = text.split("\n");
+  const lines =
+    text.split("\n");
+
   const map = {};
 
   let pendingConstraint = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+  for (
+    let index = 0;
+    index < lines.length;
+    index++
+  ) {
+    const line =
+      lines[index].trim();
+
     if (!line) continue;
 
-    // ------------------------------------------------------------
-    // CASE 1: CONSTRAINT_NONE
-    // ------------------------------------------------------------
+    /* ----------------------------------------------------------
+       CASE 1: CONSTRAINT_NONE
+    ---------------------------------------------------------- */
 
-    if (/\bconstraint_none\b\s*:/i.test(line)) {
-      console.debug("[CONSTRAINT] NONE detected, skipping line:", line);
+    if (
+      /\bconstraint_none\b\s*:?/i
+        .test(line)
+    ) {
+      console.debug(
+        "[CONSTRAINT] NONE detected, skipping line:",
+        line
+      );
+
       pendingConstraint = null;
+
       continue;
     }
 
-    // ------------------------------------------------------------
-    // CASE 2: START OF CONSTRAINT_APPLY (may be incomplete)
-    // ------------------------------------------------------------
+    /* ----------------------------------------------------------
+       CASE 2: START OF CONSTRAINT_APPLY
+    ---------------------------------------------------------- */
 
-    if (/\bconstraint_apply\b\s*:/i.test(line)) {
+    if (
+      /\bconstraint_apply\b\s*:/i
+        .test(line)
+    ) {
       pendingConstraint = line;
 
-      // Try immediate parse (inline case)
-      const inlineMatch = pendingConstraint.match(
-        /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
-      );
+      const inlineMatch =
+        pendingConstraint.match(
+          /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
+        );
 
       if (inlineMatch) {
-        processConstraintMatch(inlineMatch, map);
+        processConstraintMatch(
+          inlineMatch,
+          map
+        );
+
         pendingConstraint = null;
       }
 
       continue;
     }
 
-    // ------------------------------------------------------------
-    // CASE 3: CONTINUATION LINE
-    // ------------------------------------------------------------
+    /* ----------------------------------------------------------
+       CASE 3: CONTINUATION LINE
+    ---------------------------------------------------------- */
 
     if (pendingConstraint) {
-      // Merge with next line
-      const combined = `${pendingConstraint} ${line}`;
+      const combined =
+        `${pendingConstraint} ${line}`;
 
-      const match = combined.match(
-        /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
-      );
+      const match =
+        combined.match(
+          /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
+        );
 
       if (match) {
-        processConstraintMatch(match, map);
+        processConstraintMatch(
+          match,
+          map
+        );
+
         pendingConstraint = null;
       } else {
-        // Keep accumulating (for rare 3-line cases)
-        pendingConstraint = combined;
+        /*
+         * Keep accumulating for rare three-line cases.
+         */
+        pendingConstraint =
+          combined;
       }
-
-      continue;
     }
   }
-  
-  function processConstraintMatch(match, map) {
-    let [, idRaw, targetRaw, durationRaw, intensityRaw] = match;
 
-    const id = String(idRaw)
-      .trim()
-      .toLowerCase()
-      .replace(/-/g, "_");
+  function processConstraintMatch(
+    match,
+    destinationMap
+  ) {
+    const [
+      ,
+      idRaw,
+      targetRaw,
+      durationRaw,
+      intensityRaw
+    ] = match;
 
-    const target = resolveSimId(targetRaw);
+    const id =
+      String(idRaw)
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, "_");
+
+    const target =
+      resolveSimId(targetRaw);
 
     if (!target) {
-      console.warn("[CONSTRAINT PARSER] invalid target, skipping", {
-        raw: targetRaw,
-        match
-      });
+      console.warn(
+        "[CONSTRAINT PARSER] invalid target, skipping",
+        {
+          raw: targetRaw,
+          match
+        }
+      );
+
       return;
     }
 
-    if (!map[target]) map[target] = [];
+    destinationMap[target] ??= [];
 
-    const durationNum = Number(durationRaw);
-    const intensityNum = Number(intensityRaw);
+    const durationNumber =
+      Number(durationRaw);
 
-    map[target].push({
+    const intensityNumber =
+      Number(intensityRaw);
+
+    destinationMap[target].push({
       id,
-      duration: Number.isFinite(durationNum) ? durationNum : 1,
-      remaining: Number.isFinite(durationNum) ? durationNum : 1,
-      intensity: Number.isFinite(intensityNum) ? intensityNum : 0.5,
+
+      duration:
+        Number.isFinite(
+          durationNumber
+        )
+          ? durationNumber
+          : 1,
+
+      remaining:
+        Number.isFinite(
+          durationNumber
+        )
+          ? durationNumber
+          : 1,
+
+      intensity:
+        Number.isFinite(
+          intensityNumber
+        )
+          ? intensityNumber
+          : 0.5,
+
       source: "AM",
       appliedAt: G.cycle
     });
 
-    console.debug("[CONSTRAINT PARSED]", {
-      target,
-      id,
-      duration: durationRaw,
-      intensity: intensityRaw
-    });
+    console.debug(
+      "[CONSTRAINT PARSED]",
+      {
+        target,
+        id,
+        duration: durationRaw,
+        intensity: intensityRaw
+      }
+    );
   }
 
-  console.debug("[CONSTRAINT MAP BUILT]", JSON.parse(JSON.stringify(map)));
+  console.debug(
+    "[CONSTRAINT MAP BUILT]",
+    JSON.parse(
+      JSON.stringify(map)
+    )
+  );
 
   return map;
 }
 
+/* ============================================================
+   TRAJECTORY SUMMARY
+   ============================================================ */
+
 function buildTrajectorySummary() {
   /*
-   * Builds a compressed, decision-ready summary of multi-cycle psychological trajectories.
-   * Encodes strength, consistency, coupling, and confidence while filtering noise.
+   * Builds a compressed, decision-ready summary of multi-cycle
+   * psychological trajectories.
    */
 
-  if (!G.tacticHistory) return "(no trajectory data)";
+  if (!G.tacticHistory) {
+    return "(no trajectory data)";
+  }
 
   const lines = [];
 
   for (const id of SIM_IDS) {
+    const history =
+      G.tacticHistory[id];
 
-    const history = G.tacticHistory[id];
-    if (!history || history.length < 2) continue;
-
-    const windowSize = history.length;
-
-    const sum = (key) =>
-      history.reduce((acc, h) => acc + (h[key] ?? 0), 0);
-
-    const netHope = sum("hope");
-    const netSanity = sum("sanity");
-    const netSuffering = sum("suffering");
-
-    const abs = (v) => Math.abs(v);
-
-    // ------------------------------------------------------------
-    // CONSISTENCY (directional agreement across cycles)
-    // ------------------------------------------------------------
-    function consistency(series) {
-      const signs = series.map(v => Math.sign(v)).filter(v => v !== 0);
-      if (!signs.length) return 0;
-
-      const counts = {};
-      for (const s of signs) counts[s] = (counts[s] || 0) + 1;
-
-      return Math.max(...Object.values(counts)) / signs.length;
+    if (
+      !Array.isArray(history) ||
+      history.length < 2
+    ) {
+      continue;
     }
 
-    const hopeSeries = history.map(h => h.hope ?? 0);
-    const sanitySeries = history.map(h => h.sanity ?? 0);
-    const sufferingSeries = history.map(h => h.suffering ?? 0);
+    const windowSize =
+      history.length;
 
-    const hopeCons = consistency(hopeSeries);
-    const sanityCons = consistency(sanitySeries);
-    const sufferingCons = consistency(sufferingSeries);
+    const sum = (key) =>
+      history.reduce(
+        (accumulator, entry) =>
+          accumulator +
+          (
+            Number(entry?.[key]) ||
+            0
+          ),
+        0
+      );
 
-    // ------------------------------------------------------------
-    // STRENGTH (magnitude of total displacement)
-    // ------------------------------------------------------------
-    function strengthLabel(v) {
-      const m = abs(v);
-      if (m < 2) return null;
-      if (m < 6) return "moderate";
+    const netHope =
+      sum("hope");
+
+    const netSanity =
+      sum("sanity");
+
+    const netSuffering =
+      sum("suffering");
+
+    const absolute =
+      (value) =>
+        Math.abs(value);
+
+    /* ----------------------------------------------------------
+       CONSISTENCY
+    ---------------------------------------------------------- */
+
+    function consistency(series) {
+      const signs =
+        series
+          .map(
+            (value) =>
+              Math.sign(value)
+          )
+          .filter(
+            (value) =>
+              value !== 0
+          );
+
+      if (!signs.length) {
+        return 0;
+      }
+
+      const counts = {};
+
+      for (const sign of signs) {
+        counts[sign] =
+          (counts[sign] || 0) +
+          1;
+      }
+
+      return (
+        Math.max(
+          ...Object.values(counts)
+        ) /
+        signs.length
+      );
+    }
+
+    const hopeSeries =
+      history.map(
+        (entry) =>
+          entry?.hope ?? 0
+      );
+
+    const sanitySeries =
+      history.map(
+        (entry) =>
+          entry?.sanity ?? 0
+      );
+
+    const sufferingSeries =
+      history.map(
+        (entry) =>
+          entry?.suffering ?? 0
+      );
+
+    const hopeConsistency =
+      consistency(hopeSeries);
+
+    const sanityConsistency =
+      consistency(sanitySeries);
+
+    const sufferingConsistency =
+      consistency(
+        sufferingSeries
+      );
+
+    /* ----------------------------------------------------------
+       STRENGTH
+    ---------------------------------------------------------- */
+
+    function strengthLabel(value) {
+      const magnitude =
+        absolute(value);
+
+      if (magnitude < 2) {
+        return null;
+      }
+
+      if (magnitude < 6) {
+        return "moderate";
+      }
+
       return "strong";
     }
 
-    // ------------------------------------------------------------
-    // CONSISTENCY LABEL
-    // ------------------------------------------------------------
-    function consistencyLabel(c) {
-      if (c < 0.68) return null;
-      if (c < 0.85) return "partial";
+    /* ----------------------------------------------------------
+       CONSISTENCY LABEL
+    ---------------------------------------------------------- */
+
+    function consistencyLabel(value) {
+      if (value < 0.68) {
+        return null;
+      }
+
+      if (value < 0.85) {
+        return "partial";
+      }
+
       return "consistent";
     }
 
-    // ------------------------------------------------------------
-    // BUILD SIGNALS PER VARIABLE
-    // ------------------------------------------------------------
-    function buildSignal(net, cons, label) {
+    /* ----------------------------------------------------------
+       BUILD SIGNALS
+    ---------------------------------------------------------- */
 
-      const strength = strengthLabel(net);
-      const consistencyText = consistencyLabel(cons);
+    function buildSignal(
+      net,
+      consistencyValue,
+      label
+    ) {
+      const strength =
+        strengthLabel(net);
 
-      if (!strength || !consistencyText) return null;
+      const consistencyText =
+        consistencyLabel(
+          consistencyValue
+        );
 
-      const direction = net < 0 ? "decrease" : "increase";
+      if (
+        !strength ||
+        !consistencyText
+      ) {
+        return null;
+      }
+
+      const direction =
+        net < 0
+          ? "decrease"
+          : "increase";
 
       return {
         label,
         direction,
         strength,
-        consistency: consistencyText,
-        magnitude: abs(net)
+        consistency:
+          consistencyText,
+        magnitude:
+          absolute(net)
       };
     }
 
     const signals = [
-      buildSignal(netHope, hopeCons, "hope"),
-      buildSignal(netSanity, sanityCons, "sanity"),
-      buildSignal(netSuffering, sufferingCons, "suffering")
+      buildSignal(
+        netHope,
+        hopeConsistency,
+        "hope"
+      ),
+
+      buildSignal(
+        netSanity,
+        sanityConsistency,
+        "sanity"
+      ),
+
+      buildSignal(
+        netSuffering,
+        sufferingConsistency,
+        "suffering"
+      )
     ].filter(Boolean);
 
-    // ------------------------------------------------------------
-    // STAGNATION DETECTION
-    // ------------------------------------------------------------
+    /* ----------------------------------------------------------
+       STAGNATION DETECTION
+    ---------------------------------------------------------- */
+
     const totalMagnitude =
-      abs(netHope) +
-      abs(netSanity) +
-      abs(netSuffering);
+      absolute(netHope) +
+      absolute(netSanity) +
+      absolute(netSuffering);
 
     if (!signals.length) {
-
       if (totalMagnitude < 5.5) {
-        lines.push(`${id}: stagnating (no meaningful multi-cycle change)`);
+        lines.push(
+          `${id}: stagnating (no meaningful multi-cycle change)`
+        );
       } else {
-        lines.push(`${id}: unstable (inconsistent multi-cycle response)`);
+        lines.push(
+          `${id}: unstable (inconsistent multi-cycle response)`
+        );
       }
 
       continue;
     }
 
-    // ------------------------------------------------------------
-    // COUPLING DETECTION
-    // ------------------------------------------------------------
-    const decreasing = signals.filter(s => s.direction === "decrease");
-    const increasing = signals.filter(s => s.direction === "increase");
+    /* ----------------------------------------------------------
+       COUPLING DETECTION
+    ---------------------------------------------------------- */
+
+    const decreasing =
+      signals.filter(
+        (signal) =>
+          signal.direction ===
+          "decrease"
+      );
+
+    const increasing =
+      signals.filter(
+        (signal) =>
+          signal.direction ===
+          "increase"
+      );
 
     let coupling = "";
 
     if (decreasing.length >= 2) {
-      const labels = decreasing.map(s => s.label).join(" + ");
-      coupling = ` (coupled ${labels} decline)`;
-    } else if (increasing.length >= 2) {
-      const labels = increasing.map(s => s.label).join(" + ");
-      coupling = ` (coupled ${labels} increase)`;
+      const labels =
+        decreasing
+          .map(
+            (signal) =>
+              signal.label
+          )
+          .join(" + ");
+
+      coupling =
+        ` (coupled ${labels} decline)`;
+    } else if (
+      increasing.length >= 2
+    ) {
+      const labels =
+        increasing
+          .map(
+            (signal) =>
+              signal.label
+          )
+          .join(" + ");
+
+      coupling =
+        ` (coupled ${labels} increase)`;
     }
 
-    // ------------------------------------------------------------
-    // SELECT PRIMARY SIGNAL (strongest)
-    // ------------------------------------------------------------
-    signals.sort((a, b) => b.magnitude - a.magnitude);
-    const primary = signals[0];
+    /* ----------------------------------------------------------
+       PRIMARY SIGNAL
+    ---------------------------------------------------------- */
 
-    // ------------------------------------------------------------
-    // CONFIDENCE ESTIMATION
-    // ------------------------------------------------------------
-    const avgConsistency =
-      (hopeCons + sanityCons + sufferingCons) / 3;
+    signals.sort(
+      (a, b) =>
+        b.magnitude -
+        a.magnitude
+    );
+
+    const primary =
+      signals[0];
+
+    /* ----------------------------------------------------------
+       CONFIDENCE
+    ---------------------------------------------------------- */
+
+    const averageConsistency =
+      (
+        hopeConsistency +
+        sanityConsistency +
+        sufferingConsistency
+      ) /
+      3;
 
     let confidence = "low";
-    if (avgConsistency > 0.8 && primary.magnitude > 6) {
+
+    if (
+      averageConsistency > 0.8 &&
+      primary.magnitude > 6
+    ) {
       confidence = "high";
-    } else if (avgConsistency > 0.65) {
+    } else if (
+      averageConsistency > 0.65
+    ) {
       confidence = "medium";
     }
 
-    // ------------------------------------------------------------
-    // FINAL LINE
-    // ------------------------------------------------------------
     const line =
-      `${id}: ${primary.strength}, ${primary.consistency} ${primary.label} ${primary.direction}` +
-      ` (${windowSize} cycles${coupling}) [${confidence} confidence]`;
+      `${id}: ` +
+      `${primary.strength}, ` +
+      `${primary.consistency} ` +
+      `${primary.label} ` +
+      `${primary.direction}` +
+      ` (${windowSize} cycles${coupling}) ` +
+      `[${confidence} confidence]`;
 
     lines.push(line);
   }
@@ -1065,113 +2416,167 @@ function buildTrajectorySummary() {
    ============================================================ */
 
 function sanitizeAMOutput(text) {
-  return text
-    .replace(/TACTIC_USED:\[[^\]]*\]/gi, "")
-    .replace(/\[Cognitive Warfare[^\]]*\]/gi, "")
+  return String(text || "")
+    .replace(
+      /TACTIC_USED:\[[^\]]*\]/gi,
+      ""
+    )
+    .replace(
+      /\[Cognitive Warfare[^\]]*\]/gi,
+      ""
+    )
     .trim();
 }
 
 function resolveSimId(raw) {
   if (!raw) return null;
 
-  const cleaned = String(raw)
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z]/g, "");
+  const cleaned =
+    String(raw)
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, "");
 
-  return SIM_IDS.includes(cleaned) ? cleaned : null;
+  return SIM_IDS.includes(cleaned)
+    ? cleaned
+    : null;
 }
+
 /* ============================================================
    AM STRATEGIC PHASE ENGINE (REACTIVE)
-   ------------------------------------------------------------
-   Determines AM's current psychological warfare phase based
-   on live social dynamics rather than a fixed progression path.
-============================================================ */
+   ============================================================ */
 
 function updateStrategicPhase() {
+  const hopes =
+    SIM_IDS.map(
+      (id) =>
+        G.sims[id].hope
+    );
 
-  const hopes = SIM_IDS.map(id => G.sims[id].hope);
-  const sanities = SIM_IDS.map(id => G.sims[id].sanity);
+  const sanities =
+    SIM_IDS.map(
+      (id) =>
+        G.sims[id].sanity
+    );
 
-  const avgHope =
-    hopes.reduce((a, b) => a + b, 0) / SIM_IDS.length;
+  const averageHope =
+    hopes.reduce(
+      (a, b) =>
+        a + b,
+      0
+    ) /
+    SIM_IDS.length;
 
-  const avgSanity =
-    sanities.reduce((a, b) => a + b, 0) / SIM_IDS.length;
+  const averageSanity =
+    sanities.reduce(
+      (a, b) =>
+        a + b,
+      0
+    ) /
+    SIM_IDS.length;
 
   const hopeSpread =
-    Math.max(...hopes) - Math.min(...hopes);
+    Math.max(...hopes) -
+    Math.min(...hopes);
 
   let totalTrust = 0;
   let count = 0;
 
   for (const id of SIM_IDS) {
+    const relationships =
+      G.sims[id]
+        .relationships ||
+      {};
 
-    const rel = G.sims[id].relationships || {};
+    for (const otherId of SIM_IDS) {
+      if (otherId === id) {
+        continue;
+      }
 
-    for (const other of SIM_IDS) {
+      totalTrust +=
+        Math.abs(
+          relationships[
+            otherId
+          ] ?? 0
+        );
 
-      if (other === id) continue;
-
-      totalTrust += Math.abs(rel[other] ?? 0);
       count++;
-
     }
-
   }
 
-  const avgTrust = count ? totalTrust / count : 0;
+  const averageTrust =
+    count
+      ? totalTrust / count
+      : 0;
+
+  const recentInterSimLog =
+    Array.isArray(G.interSimLog)
+      ? G.interSimLog.slice(-20)
+      : [];
 
   const rumorCount =
-    G.interSimLog
-      .slice(-20)
-      .filter(e => e.rumor === true)
-      .length;
+    recentInterSimLog.filter(
+      (entry) =>
+        entry.rumor === true
+    ).length;
 
-  const rumorDensity = rumorCount / 20;
+  const rumorDensity =
+    rumorCount / 20;
 
-  let phase = "destabilization";
+  let phase =
+    "destabilization";
 
-  if (avgTrust > 0.35) {
-
-    phase = "betrayal induction";
-
-  }
-  else if (rumorDensity > 0.25) {
-
-    phase = "faction formation";
-
-  }
-  else if (hopeSpread > 25) {
-
-    phase = "targeted destabilization";
-
-  }
-  else if (avgHope < 45) {
-
-    phase = "isolation";
-
-  }
-
-  if (avgHope < 35 && avgSanity < 70) {
-
-    phase = "collapse";
-
+  if (averageTrust > 0.35) {
+    phase =
+      "betrayal induction";
+  } else if (
+    rumorDensity > 0.25
+  ) {
+    phase =
+      "faction formation";
+  } else if (
+    hopeSpread > 25
+  ) {
+    phase =
+      "targeted destabilization";
+  } else if (
+    averageHope < 45
+  ) {
+    phase =
+      "isolation";
   }
 
-  if (!G.amDoctrine.phase || phase !== G.amDoctrine.phase) {
-
-    G.amDoctrine.phase = phase;
-
-    console.debug("[AM PHASE SHIFT]", {
-      phase,
-      avgHope,
-      avgSanity,
-      avgTrust,
-      rumorDensity,
-      hopeSpread
-    });
-
+  if (
+    averageHope < 35 &&
+    averageSanity < 70
+  ) {
+    phase =
+      "collapse";
   }
 
+  G.amDoctrine ??= {};
+
+  if (
+    !G.amDoctrine.phase ||
+    phase !==
+      G.amDoctrine.phase
+  ) {
+    G.amDoctrine.phase =
+      phase;
+
+    console.debug(
+      "[AM PHASE SHIFT]",
+      {
+        phase,
+        avgHope:
+          averageHope,
+        avgSanity:
+          averageSanity,
+        avgTrust:
+          averageTrust,
+        rumorDensity,
+        hopeSpread
+      }
+    );
+  }
 }
