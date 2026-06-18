@@ -42,7 +42,7 @@ export function updateVaultDisplay() {
   const treeLines = Object.entries(G.vault?.categories || {})
     .slice(0, 4)
     .map(([c, s]) =>
-      `▸ ${c}/ (${Object.values(s).reduce((a,b)=>a+b.length,0)})`
+      `▸ ${c}/ (${Object.values(s).reduce((a, b) => a + b.length, 0)})`
     );
 
   treeLines.push(
@@ -126,33 +126,57 @@ function collectModelConfig() {
   const split = G.splitModels;
 
   if (!split) {
-
-    // single model mode
-    const modelAll = document.getElementById("model-all")?.value?.trim();
+    // Single-model mode: assign the selected model to
+    // AM, forensic analysis, and every prisoner.
+    const modelAll =
+      document
+        .getElementById("model-all")
+        ?.value
+        ?.trim();
 
     if (modelAll) {
-
-      Object.keys(G.models).forEach(k => {
-        G.models[k] = modelAll;
+      Object.keys(G.models).forEach((role) => {
+        G.models[role] = modelAll;
       });
+    }
+  } else {
+    // Split-model mode.
+    const am =
+      document
+        .getElementById("model-am")
+        ?.value
+        ?.trim();
 
+    const forensicStats =
+      document
+        .getElementById(
+          "model-FORENSIC_STATS"
+        )
+        ?.value
+        ?.trim();
+
+    if (am) {
+      G.models.am = am;
     }
 
-  } else {
+    if (forensicStats) {
+      G.models.FORENSIC_STATS =
+        forensicStats;
+    }
 
-    // split model mode
-    const am = document.getElementById("model-am")?.value?.trim();
-    if (am) G.models.am = am;
+    SIM_IDS.forEach((id) => {
+      const element =
+        document.getElementById(
+          `model-${id}`
+        );
 
-    SIM_IDS.forEach(id => {
+      const model =
+        element?.value?.trim();
 
-      const el = document.getElementById(`model-${id}`);
-      if (el && el.value) {
-        G.models[id] = el.value.trim();
+      if (model) {
+        G.models[id] = model;
       }
-
     });
-
   }
 
 }

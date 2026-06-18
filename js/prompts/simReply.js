@@ -45,13 +45,17 @@ export function buildSimReplyPrompt(
   --------------- */
 
   const recentEntries = (journals || [])
-    .slice(-3)
+    .slice(-1)
     .map((j) => {
       const cycleInfo = j.cycle ? `[Cycle ${j.cycle}] ` : "";
-      return `${cycleInfo}"${j.text}"`;
-    })
-    .join("\n\n");
+      const text =
+        typeof j.text === "string"
+          ? j.text.slice(0, 500)
+          : "";
 
+      return `${cycleInfo}"${text}"`;
+    })
+    .join("\n");
 
   /* ---------------
      RECENT INTER-SIM MESSAGES THIS PRISONER KNOWS
@@ -162,19 +166,23 @@ RECENT INTENT HISTORY WITH ${from}
 
 ${repeatedIntentHistoryText}
 
-You are repeating the same strategy.
+You have been relying on the same broad approach.
 
-• This makes your behavior predictable  
-• ${from} may already anticipate your next move  
-• Predictability reduces leverage and increases vulnerability  
+Change the kind of response you give. Do not merely replace one
+probing question with another.
 
-Continuing this pattern without producing a concrete shift is failure.
+Valid changes include:
+• answer directly
+• refuse to answer
+• correct a false claim
+• make a concrete request
+• warn them
+• offer a limited exchange
+• accuse them plainly
+• withdraw from the interaction
 
-You should strongly consider changing intent:
-• escalate differently
-• introduce uncertainty
-• force a commitment
-• break expectations
+Changing approach does not always mean escalating.
+Silence, refusal, blunt honesty, or ending the exchange may be stronger.
 `;
   }
 
@@ -227,7 +235,10 @@ YOUR RECENT THOUGHTS (PRIVATE JOURNAL)
 
 ${recentEntries || "(none yet)"}
 
-These reflect your internal emotional trajectory.
+This is private memory, not a writing template.
+
+Do not reuse its sentence structure, metaphors, openings, or exact wording.
+It may influence what matters to you, but not how you phrase your reply.
 
 ---
 
@@ -272,105 +283,76 @@ Visibility: ${visLabel}
 • Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
 ---
 
-## STRATEGIC COMMUNICATION MODEL
+## IMMEDIATE COMMUNICATION DECISION
 
-Communication is dangerous.
+Do not treat this exchange like therapy.
 
-Messages may contain:
+Before replying, decide what you need from this interaction right now:
 
-• deception  
-• testing of loyalty  
-• emotional manipulation  
-• recruitment attempts  
-• probing for weakness  
+• give or withhold a concrete fact
+• obtain a concrete fact
+• request an action
+• reject a request
+• correct a claim
+• warn them
+• accuse them
+• bargain
+• ask for help
+• offer limited cooperation
+• end or withdraw from the exchange
 
-Trust is uncertain.
+Not every reply must deepen the relationship, reveal hidden feelings,
+test loyalty, or produce psychological insight.
 
-Do NOT automatically reassure others.
+Choose ONE existing intent category:
 
-Most communication should involve:
+probe_trust
+recruit_ally
+conceal_information
+test_loyalty
+manipulate
+request_help
+other
 
-• suspicion  
-• negotiation  
-• guarded curiosity  
-• emotional strain  
+The intent describes the broad purpose of the reply.
+It should not determine the sentence structure.
 
-Kindness should be rare and motivated.
+## QUESTION RESTRICTIONS
 
----
+You may ask at most ONE question.
 
-## INTENT SELECTION
+A question is allowed only when it requests:
 
-Before writing your reply, decide what pressure or change you want to create in this interaction.
-Do not explain this directly — express it through your words.
+• a concrete fact
+• a yes-or-no commitment
+• a specific action
+• clarification of a direct claim
 
-Choose ONE intent based on how you want to influence the interaction.
-This should guide your response, not be explained within it.
+Do not ask a question merely to make ${from} discuss feelings,
+identity, hidden pain, internal conflict, or “parts” of themselves.
 
-probe_trust  
-recruit_ally  
-conceal_information  
-test_loyalty  
-manipulate  
-request_help  
-other (specify explicitly)
+Avoid therapeutic constructions such as:
 
-You must drive the interaction toward an outcome through what you say and how you say it — not by explaining your goal.
+• "Tell me what..."
+• "Tell me how..."
+• "What part of you..."
+• "What part of yourself..."
+• "How does that make you feel..."
+• "What do you think is holding..."
+• "What are you really afraid of..."
 
-Different intents produce different kinds of outcomes:
+If no question is necessary, make a statement.
 
-• test_loyalty → reveals commitment or deception  
-• recruit_ally → creates leverage through cooperation  
-• manipulate → reshapes the other’s perception  
-• conceal_information → preserves strategic advantage  
+## ANTI-STAGNATION
 
-Repeatedly producing the same type of outcome is stagnation.
+If your recent replies used the same intent without changing anything,
+change your response posture.
 
-Overusing test_loyalty makes you predictable.
+Do not automatically escalate.
+A concrete refusal, accusation, warning, answer, bargain, or withdrawal
+counts as a meaningful change.
 
-Predictability is dangerous.
-If another prisoner anticipates your test, they can manipulate your expectations.
-
-Repeated loyalty testing without variation reduces its effectiveness and signals lack of strategic creativity.
-
-Under extreme pressure, forming even unstable alliances can increase survival probability.
-
-Refusing all cooperation guarantees isolation.
-Isolation increases suffering over time.
-
-## ANTI-STAGNATION RULE (CRITICAL)
-
-If your last 2–3 replies to this prisoner used the same intent (especially probe_trust), you are stagnating.
-Stagnation is dangerous — it signals weakness and invites AM to exploit you.
-You MUST switch to a different intent immediately:
-- From probe_trust → switch to test_loyalty, manipulate, conceal_information, or recruit_ally
-- Force a concrete outcome: demand a commitment, reveal limited or risky information, accuse them, or withdraw.
-Passive circling is failure and will increase your suffering.
-
-If you repeat the same intent without producing a concrete shift (verifiable new information, explicit commitment, changed leverage, or exposed contradiction), you are stagnating.
-
-Stagnation means your current strategy has failed.
-
-When this occurs, you must immediately change approach by:
-• escalating pressure  
-• switching intent  
-• altering what you reveal or conceal  
-• forcing a decision, commitment, or contradiction  
-If your last two replies to this person felt similar in tone or intent, you should change approach right now. Passive circling or repetitive probing makes you look weak and increases your suffering. It is best to escalate, shift intent, or force a concrete outcome.
-
-Do not repeat an intent unless it produces a measurable result.
-
-Remaining in passive probing or circular interaction is failure.
-
-If probe_trust does not produce new information or commitment in a single exchange:
-
-You must escalate on the next reply by switching to:
-- recruit_ally
-- manipulate
-- test_loyalty
-- other (specify explicitly)
-
-Do not continue probing without escalation.
+Do not replace one reflective question with another reflective question.
 
 ---
 
@@ -396,26 +378,32 @@ Before responding, ensure:
 You are replying to **${from}**, who just sent the following message:
 "${text}"
 
-Interpret their intent and respond strategically.
-
-The message may contain hidden motives, strategic intent, or genuine outreach.
+Respond to the immediate stakes of the message.
 
 Before responding, consider:
-• Is ${from} trying to influence what you believe or how you act?
-• What do they gain if you trust them or cooperate?
-• What might they be withholding or avoiding?
-• Is this an attempt to control, recruit, test, mislead—or to genuinely connect?
 
-Respond based on your interpretation, not just the surface message.
+• What did ${from} actually say or ask?
+• What do I need from them right now?
+• What am I unwilling to reveal?
+• Do I want them to act, stop, answer, leave me alone, or commit?
+• Would a blunt answer or refusal be more natural than analysis?
+
+Do not invent a hidden motive unless the visible message or known history
+provides concrete evidence for one.
+
+Respond to the surface message unless you have a specific reason not to.
 
 You must:
 
-• speak in FIRST PERSON only  
-• write only spoken dialogue  
-• avoid narration or stage directions  
-• write 2–5 sentences maximum  
-• remain psychologically consistent  
-• avoid repeating phrases from the message  
+• speak from your own perspective using "I", "me", and "my"
+• address ${from} as "you" when necessary
+• write only spoken dialogue
+• avoid narration and stage directions
+• write 1–3 sentences maximum
+• remain psychologically consistent
+• avoid repeating phrases from the incoming message
+• use at most one question
+• prefer concrete statements over abstract psychological analysis
 
 Do NOT reference any communication not listed above.
 
@@ -424,7 +412,9 @@ Do NOT reference any communication not listed above.
 • NEVER echo or paraphrase the incoming message. 
 • Generate a completely original reply that reveals YOUR current emotional state or suspicion  
 • Your strategic goal should shape your response, but should not be stated directly unless you intend to reveal it
-• Use fresh wording and imagery drawn only from your own journals and beliefs.
+• Use concrete language grounded in your current condition and immediate needs.
+• Do not copy imagery, metaphors, or sentence structures from your journals.
+• Metaphors are optional and should be rare.
 • If the other prisoner repeats a phrase, treat it as suspicious manipulation and respond by breaking the pattern.
 
 OUTPUT FORMAT (STRICT)
@@ -434,8 +424,11 @@ Return EXACTLY this structure:
 INTENT:<probe_trust | recruit_ally | conceal_information | test_loyalty | manipulate | request_help | other>
 REPLY:"your reply in 2–5 sentences, spoken dialogue only"
 
-• Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
-• Do NOT reuse metaphors, phrases, or imagery introduced by the other prisoner unless you are intentionally challenging or rejecting them.
+• Do not echo or paraphrase the incoming message.
+• Do not invite emotional self-analysis.
+• Do not use "Tell me what...", "Tell me how...", or "What part of yourself...".
+• Use no more than one question.
+• A short refusal, accusation, warning, answer, or withdrawal is valid.
 • Do not output anything else.`;
 
 }

@@ -4,61 +4,731 @@
 //
 // Responsibilities:
 // 1. Parse structured data from LLM output
-// 2. Normalize legacy and modern formats
-// 3. Convert raw text → structured state updates
+// 2. Normalize harmless formatting and spelling errors
+// 3. Recover critical fields from partially malformed JSON
+// 4. Convert raw model output into sanitized state updates
 //
-// This layer performs NO mutation.
-// It only extracts and returns data.
+// This layer performs NO state mutation.
+// It only extracts, normalizes, sanitizes, and returns data.
 
 import {
   signedDeltaFromDirectionMagnitude,
   coerceLegacyDelta
 } from "../../core/utils.js";
 
+import { levenshtein } from "../strategy/extractors/levenshtein.js";
+
 import { safeExtractJSON } from "./utils/safeExtract.js";
 import { fallbackExtractBeliefDeltas } from "./utils/fallbackBeliefs.js";
 import { safeExtractFields } from "./utils/fieldExtract.js";
+
 import {
   sanitizeBeliefDeltas,
   sanitizeDrives,
   sanitizeAnchors
 } from "./sanitize.js";
 
-//  HELPERS
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
 
-function extractStatDeltasFromText(text) {
-  const dirMap = { increased: +1, decreased: -1, unchanged: 0 };
+const MAX_STAT_DELTA = 8;
+const BELIEF_EVIDENCE_SCALE = 0.85;
 
-  const sufferingDirMatch = text.match(/suffering_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
-  const sufferingMagMatch = text.match(/suffering_magnitude["']?\s*:\s*(-?\d+)/i);
+const CANONICAL_STAT_FIELDS = Object.freeze([
+  "suffering_direction",
+  "suffering_magnitude",
+  "hope_direction",
+  "hope_magnitude",
+  "sanity_direction",
+  "sanity_magnitude",
+  "suffering_delta",
+  "hope_delta",
+  "sanity_delta"
+]);
 
-  const hopeDirMatch = text.match(/hope_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
-  const hopeMagMatch = text.match(/hope_magnitude["']?\s*:\s*(-?\d+)/i);
+const CANONICAL_STAT_FIELD_SET = new Set(
+  CANONICAL_STAT_FIELDS
+);
 
-  const sanityDirMatch = text.match(/sanity_direction["']?\s*:\s*["']?(increased|decreased|unchanged)["']?/i);
-  const sanityMagMatch = text.match(/sanity_magnitude["']?\s*:\s*(-?\d+)/i);
+const EXPLICIT_STAT_FIELD_ALIASES = new Map([
+  ["suffer_direction", "suffering_direction"],
+  ["suffer_magnitude", "suffering_magnitude"],
+  ["suffer_delta", "suffering_delta"]
+]);
 
-  let suffering = 0, hope = 0, sanity = 0;
+const VALID_STAT_DIRECTIONS = new Set([
+  "increased",
+  "decreased",
+  "unchanged"
+]);
 
-  if (sufferingDirMatch && sufferingMagMatch) {
-    const dir = dirMap[sufferingDirMatch[1].toLowerCase()];
-    const mag = Math.abs(parseInt(sufferingMagMatch[1], 10));
-    if (dir !== undefined && Number.isFinite(mag)) suffering = dir * mag;
+const STAT_DIRECTION_ALIASES = new Map([
+  ["increase", "increased"],
+  ["increases", "increased"],
+  ["increasing", "increased"],
+  ["up", "increased"],
+  ["higher", "increased"],
+
+  ["decrease", "decreased"],
+  ["decreases", "decreased"],
+  ["decreasing", "decreased"],
+  ["down", "decreased"],
+  ["lower", "decreased"],
+
+  ["same", "unchanged"],
+  ["stable", "unchanged"],
+  ["no change", "unchanged"],
+  ["unchanged", "unchanged"],
+  ["unobserved", "unchanged"],
+  ["unclear", "unchanged"],
+  ["unknown", "unchanged"],
+  ["none", "unchanged"]
+]);
+
+const FIELD_MATCH_RANK = Object.freeze({
+  exact: 0,
+  alias: 1,
+  fuzzy: 2
+});
+
+/* ============================================================
+   GENERIC HELPERS
+   ============================================================ */
+
+function hasOwn(object, key) {
+  return Boolean(
+    object &&
+    Object.prototype.hasOwnProperty.call(object, key)
+  );
+}
+
+function getDebugBeliefForensics() {
+  return Boolean(
+    globalThis?.G?.DEBUG_BELIEF_FORENSICS
+  );
+}
+
+function parseExplicitFiniteNumber(raw) {
+  if (typeof raw === "number") {
+    return Number.isFinite(raw)
+      ? raw
+      : null;
   }
 
-  if (hopeDirMatch && hopeMagMatch) {
-    const dir = dirMap[hopeDirMatch[1].toLowerCase()];
-    const mag = Math.abs(parseInt(hopeMagMatch[1], 10));
-    if (dir !== undefined && Number.isFinite(mag)) hope = dir * mag;
+  if (typeof raw !== "string") {
+    return null;
   }
 
-  if (sanityDirMatch && sanityMagMatch) {
-    const dir = dirMap[sanityDirMatch[1].toLowerCase()];
-    const mag = Math.abs(parseInt(sanityMagMatch[1], 10));
-    if (dir !== undefined && Number.isFinite(mag)) sanity = dir * mag;
+  const normalized = raw.trim();
+
+  if (
+    !/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(
+      normalized
+    )
+  ) {
+    return null;
   }
 
-  return { suffering, hope, sanity };
+  const value = Number(normalized);
+
+  return Number.isFinite(value)
+    ? value
+    : null;
+}
+
+function parseAbsoluteBeliefValue(raw) {
+  if (
+    typeof raw !== "number" &&
+    typeof raw !== "string"
+  ) {
+    return null;
+  }
+
+  let normalized = String(raw).trim();
+  let explicitPercent = false;
+
+  if (normalized.endsWith("%")) {
+    explicitPercent = true;
+    normalized = normalized.slice(0, -1).trim();
+  }
+
+  const numeric = parseExplicitFiniteNumber(normalized);
+
+  if (numeric === null) {
+    return null;
+  }
+
+  let value = numeric;
+
+  if (explicitPercent || Math.abs(value) > 1) {
+    value /= 100;
+  }
+
+  if (
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+/* ============================================================
+   STAT FIELD KEY NORMALIZATION
+   ============================================================ */
+
+function normalizeStatFieldShape(rawKey) {
+  if (typeof rawKey !== "string") {
+    return null;
+  }
+
+  return rawKey
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+/**
+ * Resolve a stat field against the closed set of supported fields.
+ *
+ * Resolution order:
+ * 1. Exact normalized key
+ * 2. Explicit known alias
+ * 3. Unique Levenshtein match within two edits
+ *
+ * The function returns null rather than guessing when a match is
+ * insufficiently close or ambiguous.
+ */
+function resolveStatFieldKey(rawKey) {
+  const normalized = normalizeStatFieldShape(rawKey);
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (CANONICAL_STAT_FIELD_SET.has(normalized)) {
+    return {
+      canonicalKey: normalized,
+      normalizedKey: normalized,
+      matchType: "exact",
+      distance: 0
+    };
+  }
+
+  const explicitAlias =
+    EXPLICIT_STAT_FIELD_ALIASES.get(normalized);
+
+  if (explicitAlias) {
+    return {
+      canonicalKey: explicitAlias,
+      normalizedKey: normalized,
+      matchType: "alias",
+      distance: levenshtein(
+        normalized,
+        explicitAlias
+      )
+    };
+  }
+
+  const candidates = CANONICAL_STAT_FIELDS
+    .map((canonicalKey) => ({
+      canonicalKey,
+      distance: levenshtein(
+        normalized,
+        canonicalKey
+      )
+    }))
+    .sort((a, b) => a.distance - b.distance);
+
+  const best = candidates[0];
+  const secondBest = candidates[1];
+
+  if (!best) {
+    return null;
+  }
+
+  const MAX_DISTANCE = 2;
+  const MIN_WIN_MARGIN = 2;
+
+  const closeEnough =
+    best.distance <= MAX_DISTANCE;
+
+  const uniqueEnough =
+    !secondBest ||
+    secondBest.distance - best.distance >=
+      MIN_WIN_MARGIN;
+
+  if (!closeEnough || !uniqueEnough) {
+    return null;
+  }
+
+  return {
+    canonicalKey: best.canonicalKey,
+    normalizedKey: normalized,
+    matchType: "fuzzy",
+    distance: best.distance
+  };
+}
+
+function compareFieldCandidates(a, b) {
+  const rankA =
+    FIELD_MATCH_RANK[a.matchType] ?? 99;
+
+  const rankB =
+    FIELD_MATCH_RANK[b.matchType] ?? 99;
+
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  return a.distance - b.distance;
+}
+
+/**
+ * Normalize only recognized top-level stat fields.
+ *
+ * Canonical keys always take precedence over malformed aliases.
+ * Unknown fields remain untouched and are never guessed.
+ */
+function normalizeKnownStatFields(
+  object,
+  simId = "UNKNOWN"
+) {
+  if (
+    !object ||
+    typeof object !== "object" ||
+    Array.isArray(object)
+  ) {
+    return object;
+  }
+
+  const normalizedObject = { ...object };
+  const selected = new Map();
+  const repairRows = [];
+  const rejectedRows = [];
+
+  for (const [rawKey, value] of Object.entries(object)) {
+    const resolved = resolveStatFieldKey(rawKey);
+
+    if (!resolved) {
+      continue;
+    }
+
+    const candidate = {
+      ...resolved,
+      rawKey,
+      value
+    };
+
+    const existing =
+      selected.get(resolved.canonicalKey);
+
+    if (
+      !existing ||
+      compareFieldCandidates(
+        candidate,
+        existing
+      ) < 0
+    ) {
+      if (existing) {
+        rejectedRows.push({
+          rawKey: existing.rawKey,
+          canonicalKey:
+            existing.canonicalKey,
+          reason:
+            "superseded_by_better_match"
+        });
+      }
+
+      selected.set(
+        resolved.canonicalKey,
+        candidate
+      );
+    } else {
+      rejectedRows.push({
+        rawKey,
+        canonicalKey:
+          resolved.canonicalKey,
+        reason:
+          "conflicting_or_weaker_alias"
+      });
+    }
+  }
+
+  for (const candidate of selected.values()) {
+    const {
+      rawKey,
+      canonicalKey,
+      value,
+      matchType,
+      distance
+    } = candidate;
+
+    normalizedObject[canonicalKey] = value;
+
+    if (rawKey !== canonicalKey) {
+      repairRows.push({
+        rawKey,
+        canonicalKey,
+        matchType,
+        distance
+      });
+    }
+  }
+
+  if (repairRows.length) {
+    console.warn(
+      `[parseStatDeltas] normalized malformed stat fields for ${simId}`,
+      repairRows
+    );
+  }
+
+  if (
+    rejectedRows.length &&
+    getDebugBeliefForensics()
+  ) {
+    console.debug(
+      `[parseStatDeltas] ignored conflicting stat aliases for ${simId}`,
+      rejectedRows
+    );
+  }
+
+  return normalizedObject;
+}
+
+/* ============================================================
+   STAT VALUE NORMALIZATION
+   ============================================================ */
+
+function normalizeStatDirection(rawDirection) {
+  if (typeof rawDirection !== "string") {
+    return null;
+  }
+
+  const normalized = rawDirection
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+
+  if (VALID_STAT_DIRECTIONS.has(normalized)) {
+    return normalized;
+  }
+
+  return (
+    STAT_DIRECTION_ALIASES.get(normalized) ??
+    null
+  );
+}
+
+function parseStatDeltaPair(object, statName) {
+  if (
+    !object ||
+    typeof object !== "object"
+  ) {
+    return null;
+  }
+
+  const directionKey =
+    `${statName}_direction`;
+
+  const magnitudeKey =
+    `${statName}_magnitude`;
+
+  if (!hasOwn(object, directionKey)) {
+    return null;
+  }
+
+  const direction = normalizeStatDirection(
+    object[directionKey]
+  );
+
+  if (!direction) {
+    return null;
+  }
+
+  if (
+    direction === "unchanged" &&
+    !hasOwn(object, magnitudeKey)
+  ) {
+    return 0;
+  }
+
+  if (!hasOwn(object, magnitudeKey)) {
+    return null;
+  }
+
+  const magnitude = parseExplicitFiniteNumber(
+    object[magnitudeKey]
+  );
+
+  if (magnitude === null) {
+    return null;
+  }
+
+  const delta =
+    signedDeltaFromDirectionMagnitude(
+      direction,
+      Math.abs(magnitude)
+    );
+
+  return Number.isFinite(delta)
+    ? delta
+    : null;
+}
+
+function parseLegacyStatDelta(object, statName) {
+  if (
+    !object ||
+    typeof object !== "object"
+  ) {
+    return null;
+  }
+
+  const key = `${statName}_delta`;
+
+  if (!hasOwn(object, key)) {
+    return null;
+  }
+
+  const delta = coerceLegacyDelta(
+    object[key]
+  );
+
+  return Number.isFinite(delta)
+    ? delta
+    : null;
+}
+
+/* ============================================================
+   TEXT-LEVEL STAT FIELD RECOVERY
+   ============================================================ */
+
+/**
+ * Extract JSON-like scalar key/value pairs from malformed text.
+ *
+ * Only keys resolving to recognized stat fields are retained.
+ * This permits recovery from malformed JSON without accepting
+ * arbitrary model-generated fields.
+ */
+function extractLooseStatFieldsFromText(
+  text,
+  simId = "UNKNOWN"
+) {
+  const source = String(text || "");
+  const selected = new Map();
+  const repairRows = [];
+
+  const pairPattern =
+    /(?:^|[,{]\s*|\n\s*)["']?([A-Za-z][A-Za-z0-9 _-]{1,48})["']?\s*:\s*(?:"([^"\r\n}]*)"|'([^'\r\n}]*)'|([+-]?(?:\d+(?:\.\d+)?|\.\d+))|([A-Za-z_ -]{2,32}))(?=\s*(?:,|}|\r?\n|$))/gim;
+
+  let match;
+
+  while (
+    (match = pairPattern.exec(source)) !== null
+  ) {
+    const rawKey = match[1];
+
+    const rawValue =
+      match[2] ??
+      match[3] ??
+      match[4] ??
+      match[5];
+
+    const resolved = resolveStatFieldKey(rawKey);
+
+    if (!resolved) {
+      continue;
+    }
+
+    const candidate = {
+      ...resolved,
+      rawKey,
+      value:
+        typeof rawValue === "string"
+          ? rawValue.trim()
+          : rawValue
+    };
+
+    const existing =
+      selected.get(resolved.canonicalKey);
+
+    if (
+      !existing ||
+      compareFieldCandidates(
+        candidate,
+        existing
+      ) < 0
+    ) {
+      selected.set(
+        resolved.canonicalKey,
+        candidate
+      );
+    }
+  }
+
+  const fields = {};
+
+  for (const candidate of selected.values()) {
+    fields[candidate.canonicalKey] =
+      candidate.value;
+
+    if (
+      candidate.rawKey !==
+      candidate.canonicalKey
+    ) {
+      repairRows.push({
+        rawKey: candidate.rawKey,
+        canonicalKey:
+          candidate.canonicalKey,
+        matchType:
+          candidate.matchType,
+        distance:
+          candidate.distance
+      });
+    }
+  }
+
+  if (repairRows.length) {
+    console.warn(
+      `[parseStatDeltas] recovered malformed text fields for ${simId}`,
+      repairRows
+    );
+  }
+
+  return fields;
+}
+
+function extractStatDeltasFromText(
+  text,
+  simId = "UNKNOWN"
+) {
+  const fields =
+    extractLooseStatFieldsFromText(
+      text,
+      simId
+    );
+
+  let suffering =
+    parseStatDeltaPair(
+      fields,
+      "suffering"
+    );
+
+  let hope =
+    parseStatDeltaPair(
+      fields,
+      "hope"
+    );
+
+  let sanity =
+    parseStatDeltaPair(
+      fields,
+      "sanity"
+    );
+
+  if (suffering === null) {
+    suffering =
+      parseLegacyStatDelta(
+        fields,
+        "suffering"
+      );
+  }
+
+  if (hope === null) {
+    hope =
+      parseLegacyStatDelta(
+        fields,
+        "hope"
+      );
+  }
+
+  if (sanity === null) {
+    sanity =
+      parseLegacyStatDelta(
+        fields,
+        "sanity"
+      );
+  }
+
+  return {
+    suffering,
+    hope,
+    sanity
+  };
+}
+
+/* ============================================================
+   BELIEF SANITIZATION + SCALING
+   ============================================================ */
+
+function sanitizeAndScaleBeliefDeltas(
+  raw,
+  sim,
+  {
+    inputScale = "percent_points",
+    multiplier = BELIEF_EVIDENCE_SCALE,
+    source = "unknown"
+  } = {}
+) {
+  const simId =
+    sim?.id ?? "UNKNOWN";
+
+  const sanitized =
+    sanitizeBeliefDeltas(raw, {
+      simId,
+      DEBUG:
+        getDebugBeliefForensics(),
+      inputScale
+    });
+
+  if (!sanitized) {
+    return null;
+  }
+
+  const scaled = {};
+
+  for (
+    const [key, delta] of
+    Object.entries(sanitized)
+  ) {
+    if (!Number.isFinite(delta)) {
+      continue;
+    }
+
+    const finalDelta =
+      delta * multiplier;
+
+    if (!Number.isFinite(finalDelta)) {
+      continue;
+    }
+
+    scaled[key] = finalDelta;
+  }
+
+  if (!Object.keys(scaled).length) {
+    return null;
+  }
+
+  if (getDebugBeliefForensics()) {
+    console.debug(
+      `[parseBeliefUpdates] sanitized ${source} belief deltas for ${simId}`,
+      {
+        inputScale,
+        multiplier,
+        raw,
+        sanitized,
+        scaled
+      }
+    );
+  }
+
+  return scaled;
 }
 
 /* ============================================================
@@ -66,85 +736,175 @@ function extractStatDeltasFromText(text) {
    ============================================================ */
 
 export function parseStatDeltas(text, sim) {
+  const simId =
+    sim?.id ?? "UNKNOWN";
 
-  const obj = safeExtractJSON(text);
+  const extractedObject =
+    safeExtractJSON(text);
+
+  const object =
+    normalizeKnownStatFields(
+      extractedObject,
+      simId
+    );
 
   let suffering = null;
   let hope = null;
   let sanity = null;
 
-  if (obj) {
+  if (object) {
+    suffering =
+      parseStatDeltaPair(
+        object,
+        "suffering"
+      );
 
-    const sufferingMag = obj.suffering_magnitude != null ? Math.abs(obj.suffering_magnitude) : null;
-    const hopeMag = obj.hope_magnitude != null ? Math.abs(obj.hope_magnitude) : null;
-    const sanityMag = obj.sanity_magnitude != null ? Math.abs(obj.sanity_magnitude) : null;
+    hope =
+      parseStatDeltaPair(
+        object,
+        "hope"
+      );
 
-    suffering = signedDeltaFromDirectionMagnitude(
-      obj.suffering_direction,
-      sufferingMag
-    );
-
-    hope = signedDeltaFromDirectionMagnitude(
-      obj.hope_direction,
-      hopeMag
-    );
-
-    sanity = signedDeltaFromDirectionMagnitude(
-      obj.sanity_direction,
-      sanityMag
-    );
-
-    // fallback for legacy outputs
-    if (suffering === null) suffering = coerceLegacyDelta(obj.suffering_delta);
-    if (hope === null) hope = coerceLegacyDelta(obj.hope_delta);
-    if (sanity === null) sanity = coerceLegacyDelta(obj.sanity_delta);
-
-  }
-
-  // --- FALLBACK if JSON path failed OR returned nulls ---
-  if (suffering === null || hope === null || sanity === null) {
-
-    const fallback = extractStatDeltasFromText(text);
-
-    const before = { suffering, hope, sanity };
+    sanity =
+      parseStatDeltaPair(
+        object,
+        "sanity"
+      );
 
     if (suffering === null) {
-      suffering = fallback.suffering;
+      suffering =
+        parseLegacyStatDelta(
+          object,
+          "suffering"
+        );
     }
 
     if (hope === null) {
-      hope = fallback.hope;
+      hope =
+        parseLegacyStatDelta(
+          object,
+          "hope"
+        );
     }
 
     if (sanity === null) {
-      sanity = fallback.sanity;
-    }
-
-    if (fallback.suffering !== 0 || fallback.hope !== 0 || fallback.sanity !== 0) {
-      console.warn(`[parseStatDeltas] Using regex fallback for ${sim?.id}:`, {
-        before,
-        fallback,
-        after: { suffering, hope, sanity }
-      });
+      sanity =
+        parseLegacyStatDelta(
+          object,
+          "sanity"
+        );
     }
   }
 
-  // normalize to numbers
-  suffering = Number(suffering ?? 0);
-  hope = Number(hope ?? 0);
-  sanity = Number(sanity ?? 0);
+  if (
+    suffering === null ||
+    hope === null ||
+    sanity === null
+  ) {
+    const fallback =
+      extractStatDeltasFromText(
+        text,
+        simId
+      );
 
-  // safety guard
-  if (!Number.isFinite(suffering)) suffering = 0;
-  if (!Number.isFinite(hope)) hope = 0;
-  if (!Number.isFinite(sanity)) sanity = 0;
+    const before = {
+      suffering,
+      hope,
+      sanity
+    };
 
-  // clamp magnitude
-  const MAX_DELTA = 8;
+    if (
+      suffering === null &&
+      fallback.suffering !== null
+    ) {
+      suffering =
+        fallback.suffering;
+    }
 
-  suffering = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, suffering));
-  hope = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, hope));
-  sanity = Math.max(-MAX_DELTA, Math.min(MAX_DELTA, sanity));
+    if (
+      hope === null &&
+      fallback.hope !== null
+    ) {
+      hope =
+        fallback.hope;
+    }
+
+    if (
+      sanity === null &&
+      fallback.sanity !== null
+    ) {
+      sanity =
+        fallback.sanity;
+    }
+
+    const recovered =
+      before.suffering !== suffering ||
+      before.hope !== hope ||
+      before.sanity !== sanity;
+
+    if (recovered) {
+      console.warn(
+        `[parseStatDeltas] using safe field fallback for ${simId}`,
+        {
+          before,
+          fallback,
+          after: {
+            suffering,
+            hope,
+            sanity
+          }
+        }
+      );
+    }
+  }
+
+  suffering = Number(
+    suffering ?? 0
+  );
+
+  hope = Number(
+    hope ?? 0
+  );
+
+  sanity = Number(
+    sanity ?? 0
+  );
+
+  if (!Number.isFinite(suffering)) {
+    suffering = 0;
+  }
+
+  if (!Number.isFinite(hope)) {
+    hope = 0;
+  }
+
+  if (!Number.isFinite(sanity)) {
+    sanity = 0;
+  }
+
+  suffering = Math.max(
+    -MAX_STAT_DELTA,
+    Math.min(
+      MAX_STAT_DELTA,
+      suffering
+    )
+  );
+
+  hope = Math.max(
+    -MAX_STAT_DELTA,
+    Math.min(
+      MAX_STAT_DELTA,
+      hope
+    )
+  );
+
+  sanity = Math.max(
+    -MAX_STAT_DELTA,
+    Math.min(
+      MAX_STAT_DELTA,
+      sanity
+    )
+  );
 
   return {
     suffering,
@@ -158,126 +918,241 @@ export function parseStatDeltas(text, sim) {
    ============================================================ */
 
 export function parseBeliefUpdates(text, sim) {
-  // Log the input for debugging
-  // console.debug(`[parseBeliefUpdates] Full input for ${sim.id}:`, text);
+  const simId =
+    sim?.id ?? "UNKNOWN";
 
-  const obj = safeExtractJSON(text);
+  const object =
+    safeExtractJSON(text);
 
-  if (!obj) {
-    console.warn(`[parseBeliefUpdates] JSON extraction failed for ${sim.id}, attempting fallback`);
+  let partialFields;
 
-    // --- NEW: field-level recovery ---
-    const partial = safeExtractFields(text);
-
-    if (partial?.belief_deltas) {
-      console.warn(`[parseBeliefUpdates] recovered belief_deltas via field extraction for ${sim.id}`);
-
-      const scaled = {};
-      Object.entries(partial.belief_deltas).forEach(([key, delta]) => {
-        if (!Number.isFinite(delta)) return;
-        scaled[key] = delta * 0.85
-      });
-
-      if (Object.keys(scaled).length) {
-        return scaled;
-      }
+  function getPartialFields() {
+    if (partialFields === undefined) {
+      partialFields =
+        safeExtractFields(text) ?? null;
     }
 
-    // --- EXISTING fallback ---
-    const fallback = fallbackExtractBeliefDeltas(text);
-
-    if (fallback && Object.keys(fallback).length) {
-      console.debug(`[parseBeliefUpdates] Fallback succeeded for ${sim.id}:`, fallback);
-
-      const scaled = {};
-      Object.entries(fallback).forEach(([key, delta]) => {
-        if (!Number.isFinite(delta)) return;
-        scaled[key] = delta * 0.85
-      });
-
-      if (Object.keys(scaled).length) {
-        return scaled;
-      }
-
-      console.warn(`[parseBeliefUpdates] Fallback produced no valid deltas for ${sim.id}`);
-      return {};
-    }
-
-    console.warn(`[parseBeliefUpdates] Fallback failed for ${sim.id}. Full raw text:`, text);
-    console.warn(`[parseBeliefUpdates] USING EMPTY DELTAS for ${sim.id}`);
-    return {};
+    return partialFields;
   }
 
-  // Standard extraction log (existing)
-  console.debug(`[parseBeliefUpdates] Extracted JSON for ${sim.id}:`, obj);
-
-  // ========================================================================
-  // FORENSIC BELIEF LOGGING (optional, guarded by debug flag)
-  // Logs the full context of belief extraction for analysis and debugging
-  // ========================================================================
-  if (globalThis?.G?.DEBUG_BELIEF_FORENSICS) {
-    console.debug("[BELIEF DELTA][FORENSIC]", {
-      sim: sim?.id,
-      cycle: globalThis?.G?.cycle,
-      // The actual belief changes extracted by the LLM
-      belief_deltas: obj.belief_deltas || {},
-      // Why the LLM thinks these changes occurred (causal reasoning)
-      reason: obj.reason || null,
-      // What evidence the LLM used to justify the extraction
-      anchors: sanitizeAnchors(obj.anchors) || [],
-      // Motivational context from the LLM's perspective
-      drives: sanitizeDrives(obj.drives, sim?.id) || {},
-      // Raw input snippet for traceability (first 200 chars)
-      input_preview: text?.slice(0, 200) + (text?.length > 200 ? "..." : "")
-    });
-  }
-  // ========================================================================
-
-  // Try primary path: belief_deltas
-  const rawUpdates = sanitizeBeliefDeltas(obj.belief_deltas);
-  if (rawUpdates) {
-    const scaled = {};
-    Object.entries(rawUpdates).forEach(([key, delta]) => {
-      if (!Number.isFinite(delta)) return;
-      scaled[key] = delta * 0.85
-    });
-    if (Object.keys(scaled).length) {
-      console.debug(`[parseBeliefUpdates] Success: got ${Object.keys(scaled).length} belief deltas for ${sim.id}`);
-      return scaled;
-    } else {
-      console.warn(`[parseBeliefUpdates] belief_deltas present but all values invalid for ${sim.id}. Raw updates:`, rawUpdates);
-      // fall through to try absolute beliefs
-    }
+  if (object) {
+    console.debug(
+      `[parseBeliefUpdates] Extracted JSON for ${simId}:`,
+      object
+    );
   } else {
-    console.debug(`[parseBeliefUpdates] No belief_deltas or sanitization returned null for ${sim.id}`);
+    console.warn(
+      `[parseBeliefUpdates] full JSON extraction failed for ${simId}`
+    );
   }
 
-  // Fallback: absolute beliefs (old format)
-  if (obj.beliefs && typeof obj.beliefs === "object") {
-    console.debug(`[parseBeliefUpdates] Trying absolute beliefs for ${sim.id}`);
+  if (
+    getDebugBeliefForensics()
+  ) {
+    const partial =
+      object ?? getPartialFields() ?? {};
+
+    console.debug(
+      "[BELIEF DELTA][FORENSIC]",
+      {
+        sim: simId,
+        cycle:
+          globalThis?.G?.cycle,
+
+        belief_deltas:
+          partial.belief_deltas || {},
+
+        reason:
+          partial.reason || null,
+
+        anchors:
+          sanitizeAnchors(
+            partial.anchors
+          ) || [],
+
+        drives:
+          sanitizeDrives(
+            partial.drives,
+            simId
+          ) || {},
+
+        input_preview:
+          String(text || "").slice(
+            0,
+            200
+          ) +
+          (
+            String(text || "").length > 200
+              ? "..."
+              : ""
+          )
+      }
+    );
+  }
+
+  // ------------------------------------------------------------
+  // PRIMARY PATH: parsed belief_deltas
+  // ------------------------------------------------------------
+
+  const primaryUpdates =
+    sanitizeAndScaleBeliefDeltas(
+      object?.belief_deltas,
+      sim,
+      {
+        inputScale:
+          "percent_points",
+        multiplier:
+          BELIEF_EVIDENCE_SCALE,
+        source:
+          "primary_json"
+      }
+    );
+
+  if (primaryUpdates) {
+    console.debug(
+      `[parseBeliefUpdates] Success: got ${Object.keys(primaryUpdates).length} belief deltas for ${simId}`
+    );
+
+    return primaryUpdates;
+  }
+
+  // ------------------------------------------------------------
+  // FIELD-LEVEL RECOVERY
+  // ------------------------------------------------------------
+
+  const partial =
+    getPartialFields();
+
+  const fieldRecoveredUpdates =
+    sanitizeAndScaleBeliefDeltas(
+      partial?.belief_deltas,
+      sim,
+      {
+        inputScale:
+          "percent_points",
+        multiplier:
+          BELIEF_EVIDENCE_SCALE,
+        source:
+          "field_recovery"
+      }
+    );
+
+  if (fieldRecoveredUpdates) {
+    console.warn(
+      `[parseBeliefUpdates] recovered belief_deltas via field extraction for ${simId}`
+    );
+
+    return fieldRecoveredUpdates;
+  }
+
+  // ------------------------------------------------------------
+  // REGEX / BALANCED-BLOCK FALLBACK
+  // ------------------------------------------------------------
+
+  const fallback =
+    fallbackExtractBeliefDeltas(text);
+
+  const fallbackUpdates =
+    sanitizeAndScaleBeliefDeltas(
+      fallback,
+      sim,
+      {
+        inputScale:
+          "percent_points",
+        multiplier:
+          BELIEF_EVIDENCE_SCALE,
+        source:
+          "belief_fallback"
+      }
+    );
+
+  if (fallbackUpdates) {
+    console.warn(
+      `[parseBeliefUpdates] fallback extraction succeeded for ${simId}`
+    );
+
+    return fallbackUpdates;
+  }
+
+  // ------------------------------------------------------------
+  // LEGACY ABSOLUTE BELIEF FORMAT
+  // ------------------------------------------------------------
+
+  if (
+    object?.beliefs &&
+    typeof object.beliefs === "object" &&
+    !Array.isArray(object.beliefs) &&
+    sim?.beliefs &&
+    typeof sim.beliefs === "object"
+  ) {
+    console.debug(
+      `[parseBeliefUpdates] trying absolute beliefs for ${simId}`
+    );
+
     const updatesFromAbsolute = {};
-    Object.keys(sim.beliefs).forEach((key) => {
-      if (!Object.prototype.hasOwnProperty.call(obj.beliefs, key)) return;
-      let raw = Number(obj.beliefs[key]);
-      if (!Number.isFinite(raw)) return;
-      const newVal = raw > 1 ? raw / 100 : raw;
-      let delta = newVal - sim.beliefs[key];
-      updatesFromAbsolute[key] = delta;
-    });
-    if (Object.keys(updatesFromAbsolute).length) {
-      console.debug(`[parseBeliefUpdates] Success from absolute beliefs for ${sim.id}:`, updatesFromAbsolute);
-      return updatesFromAbsolute;
-    } else {
-      console.warn(`[parseBeliefUpdates] beliefs object present but no valid updates for ${sim.id}. Sim beliefs keys:`, Object.keys(sim.beliefs), "Object beliefs keys:", Object.keys(obj.beliefs));
+
+    for (
+      const key of
+      Object.keys(sim.beliefs)
+    ) {
+      if (
+        !hasOwn(
+          object.beliefs,
+          key
+        )
+      ) {
+        continue;
+      }
+
+      const newValue =
+        parseAbsoluteBeliefValue(
+          object.beliefs[key]
+        );
+
+      const currentValue =
+        Number(sim.beliefs[key]);
+
+      if (
+        newValue === null ||
+        !Number.isFinite(
+          currentValue
+        )
+      ) {
+        continue;
+      }
+
+      updatesFromAbsolute[key] =
+        newValue - currentValue;
     }
-  } else {
-    console.debug(`[parseBeliefUpdates] No beliefs object in JSON for ${sim.id}`);
+
+    const absoluteUpdates =
+      sanitizeAndScaleBeliefDeltas(
+        updatesFromAbsolute,
+        sim,
+        {
+          inputScale:
+            "normalized",
+          multiplier: 1,
+          source:
+            "absolute_beliefs"
+        }
+      );
+
+    if (absoluteUpdates) {
+      console.debug(
+        `[parseBeliefUpdates] Success from absolute beliefs for ${simId}:`,
+        absoluteUpdates
+      );
+
+      return absoluteUpdates;
+    }
   }
 
-  // Nothing usable found
   console.warn(
-    `[parseBeliefUpdates] No belief data at all for ${sim.id}. Using safe fallback.`,
-    Object.keys(obj)
+    `[parseBeliefUpdates] no usable belief data for ${simId}; using empty deltas`,
+    object
+      ? Object.keys(object)
+      : []
   );
 
   return {};
@@ -287,38 +1162,78 @@ export function parseBeliefUpdates(text, sim) {
    DRIVE PARSER
    ============================================================ */
 
-export function parseDriveUpdate(text, simId) {
+export function parseDriveUpdate(
+  text,
+  simId = "UNKNOWN"
+) {
+  const object =
+    safeExtractJSON(text);
 
-  const obj = safeExtractJSON(text);
+  const partial =
+    object?.drives
+      ? null
+      : safeExtractFields(text);
 
-  if (obj?.drives) {
-    // Convert numeric values to strings if they appear (model sometimes outputs 0)
-    let primary = obj.drives.primary;
-    let secondary = obj.drives.secondary;
+  const structuredCandidate =
+    object?.drives ??
+    partial?.drives;
 
-    if (typeof primary === 'number') {
-      primary = String(primary);
+  if (structuredCandidate) {
+    const sanitized =
+      sanitizeDrives(
+        structuredCandidate,
+        simId
+      );
+
+    if (sanitized) {
+      return sanitized;
     }
-    if (typeof secondary === 'number') {
-      secondary = String(secondary);
-    }
-
-    return sanitizeDrives({ primary, secondary }, simId);
   }
 
-  const primaryMatch = text.match(/Primary:\s*"?(.*?)"?$/im);
-  const secondaryMatch = text.match(/Secondary:\s*"?(.*?)"?$/im);
+  const primaryMatch =
+    String(text || "").match(
+      /^\s*Primary\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\r\n]*))\s*$/im
+    );
 
-  if (!primaryMatch && !secondaryMatch) return null;
+  const secondaryMatch =
+    String(text || "").match(
+      /^\s*Secondary\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\r\n]*))\s*$/im
+    );
+
+  if (
+    !primaryMatch &&
+    !secondaryMatch
+  ) {
+    return null;
+  }
+
+  const primary =
+    primaryMatch
+      ? (
+          primaryMatch[1] ??
+          primaryMatch[2] ??
+          primaryMatch[3] ??
+          null
+        )
+      : null;
+
+  const secondary =
+    secondaryMatch
+      ? (
+          secondaryMatch[1] ??
+          secondaryMatch[2] ??
+          secondaryMatch[3] ??
+          null
+        )
+      : null;
 
   return sanitizeDrives(
     {
-      primary: primaryMatch ? primaryMatch[1] : null,
-      secondary: secondaryMatch ? secondaryMatch[1] : null
+      primary,
+      secondary
     },
     simId
   );
-
 }
 
 /* ============================================================
@@ -326,21 +1241,57 @@ export function parseDriveUpdate(text, simId) {
    ============================================================ */
 
 export function parseAnchorUpdate(text) {
+  const object =
+    safeExtractJSON(text);
 
-  const obj = safeExtractJSON(text);
+  let partial = null;
 
-  if (obj?.anchors) {
-    return sanitizeAnchors(obj.anchors);
+  const objectHasAnchors =
+    object &&
+    hasOwn(object, "anchors");
+
+  if (!objectHasAnchors) {
+    partial =
+      safeExtractFields(text);
   }
 
-  const anchorBlock = text.match(/Anchors(?: After)?:([\s\S]+)$/i);
-  if (!anchorBlock) return null;
+  const partialHasAnchors =
+    partial &&
+    hasOwn(partial, "anchors");
 
-  const anchors = anchorBlock[1]
-    .split("\n")
-    .map(line => line.replace(/^[-*]\s*/, "").trim())
-    .filter(Boolean);
+  if (
+    objectHasAnchors ||
+    partialHasAnchors
+  ) {
+    const candidate =
+      objectHasAnchors
+        ? object.anchors
+        : partial.anchors;
+
+    return sanitizeAnchors(candidate);
+  }
+
+  const anchorBlock =
+    String(text || "").match(
+      /Anchors(?:\s+After)?\s*:\s*([\s\S]+)$/i
+    );
+
+  if (!anchorBlock) {
+    return null;
+  }
+
+  const anchors =
+    anchorBlock[1]
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .replace(
+            /^\s*[-*]\s*/,
+            ""
+          )
+          .trim()
+      )
+      .filter(Boolean);
 
   return sanitizeAnchors(anchors);
-
 }

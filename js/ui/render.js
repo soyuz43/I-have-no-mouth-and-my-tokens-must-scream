@@ -74,10 +74,60 @@ export function buildCard(sim) {
   return d;
 }
 
-export function updateSimDisplay(sim, deltas = null) {
+export function updateSimDisplay(
+  sim,
+  deltas = null,
+  options = {}
+) {
+  const preserveStatFlash =
+    options.preserveStatFlash === true;
+
   const set = (id, v) => {
     const e = document.getElementById(id);
     if (e) e.textContent = v;
+  };
+
+  const clearStatFlash = (el) => {
+    if (!el) return;
+
+    if (el._deltaTimer) {
+      clearTimeout(el._deltaTimer);
+      el._deltaTimer = null;
+    }
+
+    delete el.dataset.deltaText;
+
+    el.classList.remove(
+      "flash-good",
+      "flash-bad"
+    );
+  };
+
+  const setStat = (id, value) => {
+    const el =
+      document.getElementById(id);
+
+    if (!el) return;
+
+    const baseText =
+      String(value);
+
+    if (!preserveStatFlash) {
+      clearStatFlash(el);
+    }
+
+    el.dataset.baseText =
+      baseText;
+
+    const deltaText =
+      preserveStatFlash
+        ? el.dataset.deltaText || ""
+        : "";
+
+    el.textContent =
+      deltaText
+        ? `${baseText} ${deltaText}`
+        : baseText;
   };
 
   const setW = (id, v) => {
@@ -85,9 +135,20 @@ export function updateSimDisplay(sim, deltas = null) {
     if (e) e.style.width = v + "%";
   };
 
-  set(`sv-suf-${sim.id}`, Math.round(sim.suffering) + "%");
-  set(`sv-hop-${sim.id}`, Math.round(sim.hope) + "%");
-  set(`sv-san-${sim.id}`, Math.round(sim.sanity) + "%");
+  setStat(
+    `sv-suf-${sim.id}`,
+    Math.round(sim.suffering) + "%"
+  );
+
+  setStat(
+    `sv-hop-${sim.id}`,
+    Math.round(sim.hope) + "%"
+  );
+
+  setStat(
+    `sv-san-${sim.id}`,
+    Math.round(sim.sanity) + "%"
+  );
 
   setW(`sv-sfb-${sim.id}`, sim.suffering);
   setW(`sv-hpb-${sim.id}`, sim.hope);
@@ -113,25 +174,86 @@ export function updateSimDisplay(sim, deltas = null) {
   }
 
   if (deltas) {
-    const flash = (valId, delta, worseIsPositive) => {
-      const el = document.getElementById(valId);
+    const flash = (
+      valId,
+      delta,
+      worseIsPositive
+    ) => {
+      const el =
+        document.getElementById(valId);
+
       if (!el) return;
 
-      const rounded = Math.round(delta);
-      if (rounded === 0) return; 
+      const rounded =
+        Math.round(delta);
 
-      const worse = worseIsPositive ? rounded > 0 : rounded < 0;
-      const cls = worse ? "flash-bad" : "flash-good";
-      const sign = rounded > 0 ? "+" : "";
-      const orig = el.textContent;
+      if (rounded === 0) return;
 
-      el.textContent = `${orig.replace(/[()+-\d]+$/, "")} (${sign}${rounded})`;
+      const worse =
+        worseIsPositive
+          ? rounded > 0
+          : rounded < 0;
+
+      const cls =
+        worse
+          ? "flash-bad"
+          : "flash-good";
+
+      const sign =
+        rounded > 0
+          ? "+"
+          : "";
+
+      const deltaText =
+        `(${sign}${rounded})`;
+
+      const baseText =
+        el.dataset.baseText ||
+        el.textContent.replace(
+          /\s*\([+-]?\d+\)\s*$/,
+          ""
+        );
+
+      if (el._deltaTimer) {
+        clearTimeout(
+          el._deltaTimer
+        );
+      }
+
+      el.dataset.baseText =
+        baseText;
+
+      el.dataset.deltaText =
+        deltaText;
+
+      el.textContent =
+        `${baseText} ${deltaText}`;
+
+      el.classList.remove(
+        "flash-good",
+        "flash-bad"
+      );
+
       el.classList.add(cls);
 
-      setTimeout(() => {
-        el.textContent = orig;
-        el.classList.remove(cls);
-      }, 100000);
+      el._deltaTimer =
+        setTimeout(() => {
+          el.textContent =
+            el.dataset.baseText ||
+            el.textContent.replace(
+              /\s*\([+-]?\d+\)\s*$/,
+              ""
+            );
+
+          delete el.dataset.deltaText;
+
+          el.classList.remove(
+            "flash-good",
+            "flash-bad"
+          );
+
+          el._deltaTimer = null;
+        }, 100000);
     };
 
     if (deltas.suffering !== 0) flash(`sv-suf-${sim.id}`, deltas.suffering, true);
