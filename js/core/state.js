@@ -123,14 +123,19 @@ export const G = {
 
 
 
-  models: {
-    am: "claude-sonnet-4-20250514",
-    TED: "claude-sonnet-4-20250514",
-    ELLEN: "claude-sonnet-4-20250514",
-    NIMDOK: "claude-sonnet-4-20250514",
-    GORRISTER: "claude-sonnet-4-20250514",
-    BENNY: "claude-sonnet-4-20250514",
-  },
+models: {
+  am: "claude-sonnet-4-20250514",
+
+  // Dedicated non-character role that analyzes journal output and
+  // produces structured psychological state and belief deltas.
+  FORENSIC_STATS: "claude-sonnet-4-20250514",
+
+  TED: "claude-sonnet-4-20250514",
+  ELLEN: "claude-sonnet-4-20250514",
+  NIMDOK: "claude-sonnet-4-20250514",
+  GORRISTER: "claude-sonnet-4-20250514",
+  BENNY: "claude-sonnet-4-20250514",
+},
 
   ollamaModels: [],
 

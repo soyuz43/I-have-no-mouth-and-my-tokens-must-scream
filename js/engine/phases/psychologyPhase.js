@@ -131,10 +131,10 @@ function normalizeActionRecord(rawRecord) {
 
     return text
       ? {
-          text,
-          tactic: null,
-          origin: "model",
-        }
+        text,
+        tactic: null,
+        origin: "model",
+      }
       : null;
   }
 
@@ -157,13 +157,13 @@ function normalizeActionRecord(rawRecord) {
 
     tactic:
       typeof rawRecord.tactic === "string" &&
-      rawRecord.tactic.trim()
+        rawRecord.tactic.trim()
         ? rawRecord.tactic.trim()
         : null,
 
     origin:
       typeof rawRecord.origin === "string" &&
-      rawRecord.origin.trim()
+        rawRecord.origin.trim()
         ? rawRecord.origin.trim()
         : "model",
   };
@@ -175,10 +175,10 @@ function normalizePerceptionRecord(rawRecord) {
 
     return text
       ? {
-          text,
-          origin: "parser_fallback",
-          observedTargetIds: [],
-        }
+        text,
+        origin: "parser_fallback",
+        observedTargetIds: [],
+      }
       : null;
   }
 
@@ -201,7 +201,7 @@ function normalizePerceptionRecord(rawRecord) {
 
     origin:
       typeof rawRecord.origin === "string" &&
-      rawRecord.origin.trim()
+        rawRecord.origin.trim()
         ? rawRecord.origin.trim()
         : "action_perception",
 
@@ -265,18 +265,18 @@ function buildExecutionContext(execution) {
 
   const sourceActions =
     source.actions &&
-    typeof source.actions === "object"
+      typeof source.actions === "object"
       ? source.actions
       : (
-          G.amTargets &&
+        G.amTargets &&
           typeof G.amTargets === "object"
-            ? G.amTargets
-            : {}
-        );
+          ? G.amTargets
+          : {}
+      );
 
   const sourcePerceptions =
     source.perceptions &&
-    typeof source.perceptions === "object"
+      typeof source.perceptions === "object"
       ? source.perceptions
       : {};
 
@@ -317,13 +317,13 @@ function buildExecutionContext(execution) {
   const fallbackExecutionTargetIds =
     Array.isArray(execution?.targets)
       ? execution.targets
-          .map((sim) => sim?.id)
-          .filter(Boolean)
+        .map((sim) => sim?.id)
+        .filter(Boolean)
       : [];
 
   const targetIds = normalizeSimIdList(
     Array.isArray(source.targetIds) &&
-    source.targetIds.length
+      source.targetIds.length
       ? source.targetIds
       : fallbackExecutionTargetIds
   );
@@ -333,7 +333,7 @@ function buildExecutionContext(execution) {
       Array.isArray(
         source.actionTargetIds
       ) &&
-      source.actionTargetIds.length
+        source.actionTargetIds.length
         ? source.actionTargetIds
         : Object.keys(actions)
     );
@@ -348,7 +348,7 @@ function buildExecutionContext(execution) {
       Array.isArray(
         source.constraintTargetIds
       ) &&
-      source.constraintTargetIds.length
+        source.constraintTargetIds.length
         ? source.constraintTargetIds
         : parsedConstraintTargetIds
     );
@@ -356,7 +356,7 @@ function buildExecutionContext(execution) {
   const observerIds =
     normalizeSimIdList(
       Array.isArray(source.observerIds) &&
-      source.observerIds.length
+        source.observerIds.length
         ? source.observerIds
         : Object.keys(perceptions)
     );
@@ -372,7 +372,7 @@ function buildExecutionContext(execution) {
       Array.isArray(
         source.journalTargetIds
       ) &&
-      source.journalTargetIds.length
+        source.journalTargetIds.length
         ? source.journalTargetIds
         : derivedJournalTargetIds
     );
@@ -384,9 +384,9 @@ function buildExecutionContext(execution) {
       )
         ? source.missingTargetIds
         : targetIds.filter(
-            (id) =>
-              !actions[id]?.text
-          )
+          (id) =>
+            !actions[id]?.text
+        )
     );
 
   return {
@@ -408,11 +408,11 @@ function buildExecutionContext(execution) {
 
     observationPolicy:
       source.observationPolicy &&
-      typeof source.observationPolicy ===
+        typeof source.observationPolicy ===
         "object"
         ? {
-            ...source.observationPolicy,
-          }
+          ...source.observationPolicy,
+        }
         : null,
 
     journalTargetIds,
@@ -509,10 +509,9 @@ function buildDirectConstraintContext(
           Number.isFinite(remaining)
         ) {
           details.push(
-            `${remaining} cycle${
-              remaining === 1
-                ? ""
-                : "s"
+            `${remaining} cycle${remaining === 1
+              ? ""
+              : "s"
             } remaining`
           );
         }
@@ -569,7 +568,7 @@ function resolveAMContextForSim(
   const perception =
     normalizePerceptionRecord(
       amExecution?.perceptions?.[
-        sim.id
+      sim.id
       ]
     );
 
@@ -830,7 +829,7 @@ export async function runPsychologyPhase(
 
   const tacticMap =
     execution.tacticMap &&
-    typeof execution.tacticMap ===
+      typeof execution.tacticMap ===
       "object"
       ? execution.tacticMap
       : {};
@@ -1025,7 +1024,7 @@ async function stepSimJournals(
           tacticMap,
           amExecution,
           phaseStatsBefore?.[
-            sim.id
+          sim.id
           ]
         )
       )
@@ -1036,7 +1035,7 @@ async function stepSimJournals(
 
     if (
       !cycleBeliefSummary[
-        result.simId
+      result.simId
       ]
     ) {
       cycleBeliefSummary[
@@ -1125,12 +1124,12 @@ async function processSimJournalCycle(
   const plannedTacticLabel =
     appliedTactics.length
       ? appliedTactics
-          .map(
-            (tactic) =>
-              tactic.title
-          )
-          .filter(Boolean)
-          .join(" → ")
+        .map(
+          (tactic) =>
+            tactic.title
+        )
+        .filter(Boolean)
+        .join(" → ")
       : "";
 
   const tacticLabel =
@@ -1157,9 +1156,9 @@ async function processSimJournalCycle(
       sim.tacticHistory.find(
         (entry) =>
           entry.cycle ===
-            G.cycle &&
+          G.cycle &&
           entry.path ===
-            tactic.path
+          tactic.path
       );
 
     if (!historyEntry) {
@@ -1247,18 +1246,18 @@ async function processSimJournalCycle(
       "ACTION:",
       amContext.action
         ? {
-            origin:
-              amContext.action
-                .origin,
+          origin:
+            amContext.action
+              .origin,
 
-            tactic:
-              amContext.action
-                .tactic,
+          tactic:
+            amContext.action
+              .tactic,
 
-            text:
-              amContext.action
-                .text,
-          }
+          text:
+            amContext.action
+              .text,
+        }
         : null
     );
 
@@ -1266,18 +1265,18 @@ async function processSimJournalCycle(
       "DIRECT CONSTRAINT:",
       amContext.constraint?.text
         ? {
-            origin:
-              amContext.constraint
-                .origin,
+          origin:
+            amContext.constraint
+              .origin,
 
-            constraintIds:
-              amContext.constraint
-                .constraintIds,
+          constraintIds:
+            amContext.constraint
+              .constraintIds,
 
-            text:
-              amContext.constraint
-                .text,
-          }
+          text:
+            amContext.constraint
+              .text,
+        }
         : null
     );
 
@@ -1285,18 +1284,18 @@ async function processSimJournalCycle(
       "BYSTANDER PERCEPTION:",
       amContext.perception
         ? {
-            origin:
-              amContext.perception
-                .origin,
+          origin:
+            amContext.perception
+              .origin,
 
-            observedTargetIds:
-              amContext.perception
-                .observedTargetIds,
+          observedTargetIds:
+            amContext.perception
+              .observedTargetIds,
 
-            text:
-              amContext.perception
-                .text,
-          }
+          text:
+            amContext.perception
+              .text,
+        }
         : null
     );
 
@@ -1351,7 +1350,7 @@ async function processSimJournalCycle(
 
     const rawStatsJson =
       await callModel(
-        sim.id,
+        "FORENSIC_STATS",
         statsPrompt,
         [
           {
@@ -1360,18 +1359,13 @@ async function processSimJournalCycle(
               "Analyze and output JSON only.",
           },
         ],
-        2400
+        2400,
+        {
+          purpose: "STATS",
+          subject: sim.id
+        }
       );
 
-    console.group(
-      `[RAW STATS JSON][${sim.id}]`
-    );
-
-    console.log(
-      rawStatsJson
-    );
-
-    console.groupEnd();
 
     timelineEvent(
       `${sim.id} stats analysis`
@@ -1446,7 +1440,7 @@ async function processSimJournalCycle(
        centralized pass and are therefore excluded from tactic
        effectiveness attribution here.
     ------------------------------------------------------------ */
-
+    
     applyJournalStatDeltas(
       sim,
       statDeltas
@@ -1553,8 +1547,8 @@ async function processSimJournalCycle(
     const observationRoll =
       amExecution
         .observationRolls?.[
-          sim.id
-        ] ||
+      sim.id
+      ] ||
       null;
 
     appendJournalEntry(
@@ -1644,6 +1638,31 @@ async function processSimJournalCycle(
       },
       beliefsBeforeCommit
     );
+    const journalDisplayDelta =
+      calculateStatDelta(
+        journalStatsBefore,
+        sim
+      );
+
+    updateSimDisplay(
+      sim,
+      {
+        suffering:
+          +journalDisplayDelta
+            .suffering
+            .toFixed(2),
+
+        hope:
+          +journalDisplayDelta
+            .hope
+            .toFixed(2),
+
+        sanity:
+          +journalDisplayDelta
+            .sanity
+            .toFixed(2),
+      }
+    );
 
     timelineEvent(
       `${sim.id} journal committed`
@@ -1669,7 +1688,7 @@ async function processSimJournalCycle(
       ] =
         (
           validatedBeliefShifts[
-            key
+          key
           ] ??
           0
         ) +
@@ -1688,8 +1707,8 @@ async function processSimJournalCycle(
         G.journals?.[sim.id]
       )
         ? G.journals[
-            sim.id
-          ].length
+          sim.id
+        ].length
         : 0;
 
     addLog(
@@ -1805,7 +1824,7 @@ function sanitizeStatsJSON(
   if (
     !sanitizedStatsJson ||
     typeof sanitizedStatsJson !==
-      "string"
+    "string"
   ) {
     return sanitizedStatsJson;
   }
@@ -1818,7 +1837,7 @@ function sanitizeStatsJSON(
   if (
     !parsed?.belief_deltas ||
     typeof parsed.belief_deltas !==
-      "object"
+    "object"
   ) {
     console.debug(
       `[STATS SANITIZER] No parseable belief_deltas for ` +
@@ -1847,8 +1866,8 @@ function sanitizeStatsJSON(
     const normalized =
       typeof value === "string"
         ? value
-            .trim()
-            .toLowerCase()
+          .trim()
+          .toLowerCase()
         : value;
 
     if (
@@ -2059,7 +2078,7 @@ function applyPsychologicalPressureField(
 
     const relationship =
       other.relationships?.[
-        sim.id
+      sim.id
       ] ??
       0;
 
@@ -2229,7 +2248,7 @@ function tickAllActiveConstraints() {
 
       if (
         !CONSTRAINT_MAP[
-          constraint.id
+        constraint.id
         ]
       ) {
         console.warn(
@@ -2307,11 +2326,11 @@ function tickAllActiveConstraints() {
           sim.constraints
         )
           ? sim.constraints
-              .map(
-                (constraint) =>
-                  constraint?.id
-              )
-              .filter(Boolean)
+            .map(
+              (constraint) =>
+                constraint?.id
+            )
+            .filter(Boolean)
           : [],
     };
 
@@ -2510,13 +2529,13 @@ function refreshSimDisplays({
 }) {
   const journalTargetSet =
     new Set(
-      journalTargetIds
+      journalTargetIds || []
     );
 
   const constrainedSet =
     new Set(
       Object.keys(
-        constraintTickResults
+        constraintTickResults || {}
       )
     );
 
@@ -2531,25 +2550,48 @@ function refreshSimDisplays({
       continue;
     }
 
+    const isJournalTarget =
+      journalTargetSet.has(id);
+
+    const isConstrained =
+      constrainedSet.has(id);
+
+    if (
+      !isJournalTarget &&
+      !isConstrained
+    ) {
+      continue;
+    }
+
+    /*
+     * This prisoner already received its visible delta
+     * immediately after its journal commit.
+     *
+     * Synchronize final values and bar widths without
+     * deleting or restarting the active delta timer.
+     */
+    if (isJournalTarget) {
+      updateSimDisplay(
+        sim,
+        null,
+        {
+          preserveStatFlash: true,
+        }
+      );
+
+      continue;
+    }
+
+    /*
+     * A constraint-only prisoner did not receive an
+     * individual journal refresh, so show its total
+     * phase delta here.
+     */
     const delta =
       calculateStatDelta(
         before,
         sim
       );
-
-    const changed =
-      delta.suffering !== 0 ||
-      delta.hope !== 0 ||
-      delta.sanity !== 0 ||
-      delta.physical_stress !== 0;
-
-    if (
-      !changed &&
-      !journalTargetSet.has(id) &&
-      !constrainedSet.has(id)
-    ) {
-      continue;
-    }
 
     updateSimDisplay(
       sim,
@@ -2585,7 +2627,7 @@ function logBeliefSummary(
   ) {
     const diffs =
       cycleBeliefSummary[
-        simId
+      simId
       ] ||
       [];
 
@@ -2619,7 +2661,7 @@ function logBeliefSummary(
   ) {
     const diffs =
       cycleBeliefSummary[
-        simId
+      simId
       ];
 
     if (!diffs.length) {

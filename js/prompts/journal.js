@@ -375,11 +375,6 @@ Omitting it makes the entry incorrect.
 ---
 ` : ""}
 
-AM’s pressure this cycle is:
-
-${amAction || "No direct action."}
-
-
 ---
 
 # CRITICAL RULES

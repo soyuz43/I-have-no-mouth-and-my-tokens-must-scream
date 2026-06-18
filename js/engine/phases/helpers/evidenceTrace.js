@@ -88,9 +88,22 @@ export function recordJournalStatsEvidence({
 
         provenance: {
             prompt: "buildSimJournalStatsPrompt",
-            model: G.models?.[sim.id] || null,
-            rawStatsLength: String(rawStatsJson ?? "").length,
-            sanitizedChanged: sanitizedStatsJson !== rawStatsJson,
+
+            role: "FORENSIC_STATS",
+
+            subject: sim.id,
+
+            model:
+                G.models?.FORENSIC_STATS ??
+                G.models?.am ??
+                null,
+
+            rawStatsLength:
+                String(rawStatsJson ?? "").length,
+
+            sanitizedChanged:
+                sanitizedStatsJson !== rawStatsJson,
+
             createdAt: Date.now()
         }
     };

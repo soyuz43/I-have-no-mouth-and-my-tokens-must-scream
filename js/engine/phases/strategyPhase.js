@@ -751,30 +751,30 @@ function applyParsedConstraints(
 
           intensity: Number(
             constraint.intensity ??
-              (
-                definition.intensity &&
+            (
+              definition.intensity &&
                 typeof definition
                   .intensity
                   .default === "number"
-                  ? definition
-                      .intensity
-                      .default
-                  : 1
-              )
+                ? definition
+                  .intensity
+                  .default
+                : 1
+            )
           ),
 
           duration: Number(
             constraint.duration ??
-              definition.duration
-                ?.base_cycles ??
-              1
+            definition.duration
+              ?.base_cycles ??
+            1
           ),
 
           remaining: Number(
             constraint.duration ??
-              definition.duration
-                ?.base_cycles ??
-              1
+            definition.duration
+              ?.base_cycles ??
+            1
           ),
 
           source:
@@ -1014,8 +1014,8 @@ function calculateObservationProbability(
           .maximumIntensityBonus,
 
         maximumIntensity *
-          OBSERVATION_POLICY
-            .intensityBonusPerUnit
+        OBSERVATION_POLICY
+          .intensityBonusPerUnit
       );
 
     probability += intensityBonus;
@@ -1117,11 +1117,9 @@ function describeConstraintPerceptually(
   if (!definition) return null;
 
   const text =
-    `${
-      definition.title || ""
-    } ${
-      definition.subcategory || ""
-    }`
+    `${definition.title || ""
+      } ${definition.subcategory || ""
+      }`
       .toLowerCase();
 
   const LOW = [
@@ -1163,14 +1161,14 @@ function describeConstraintPerceptually(
   if (text.includes("arms")) {
     return intensity >= 1.5
       ? pickRandom([
-          "arms held in place despite visible strain",
-          "unable to lower their arms",
-          "arms fixed in a way that resists fatigue"
-        ])
+        "arms held in place despite visible strain",
+        "unable to lower their arms",
+        "arms fixed in a way that resists fatigue"
+      ])
       : pickRandom([
-          "arms not lowering naturally",
-          "arms remaining raised longer than expected"
-        ]);
+        "arms not lowering naturally",
+        "arms remaining raised longer than expected"
+      ]);
   }
 
   if (
@@ -1190,14 +1188,14 @@ function describeConstraintPerceptually(
   ) {
     return intensity >= 1.5
       ? pickRandom([
-          "locked into a low, unsustainable posture",
-          "unable to rise from a strained position",
-          "held in a position that should not be maintainable"
-        ])
+        "locked into a low, unsustainable posture",
+        "unable to rise from a strained position",
+        "held in a position that should not be maintainable"
+      ])
       : pickRandom([
-          "remaining in a low position longer than expected",
-          "not adjusting out of an uncomfortable stance"
-        ]);
+        "remaining in a low position longer than expected",
+        "not adjusting out of an uncomfortable stance"
+      ]);
   }
 
   return intensity >= 1.5
@@ -1232,8 +1230,7 @@ function phraseConstraintObservation(
     `You notice ${targetId} ${softened}.`,
     `You see ${targetId} ${softened}.`,
     `${targetId} ${softened}, and it does not look voluntary.`,
-    `Your attention fixes on ${targetId}. ${
-      capitalizeFirst(softened)
+    `Your attention fixes on ${targetId}. ${capitalizeFirst(softened)
     }.`
   ];
 
@@ -1369,7 +1366,21 @@ function parseAMTargets(
     const cleaned =
       cleanNarrativeBlock(textBlock);
 
-    if (!cleaned) return;
+    /*
+     * A bracketed structural header such as:
+     *
+     * [TARGET: ELLEN]
+     *
+     * becomes "[]" after target metadata is stripped.
+     * Never accept that residue as a real AM action.
+     */
+    if (
+      !cleaned ||
+      cleaned === "[]" ||
+      cleaned === "[/TARGET]"
+    ) {
+      return;
+    }
 
     const normalizedOrigin =
       origin === "model"
@@ -1579,6 +1590,49 @@ function parseAMTargets(
       : null;
   }
 
+  function extractBracketTargetId(
+    line
+  ) {
+    if (!line) return null;
+
+    const match =
+      String(line).match(
+        /^\[\s*TARGET\s*:\s*([a-zA-Z_-]+)\s*\]$/i
+      );
+
+    return match
+      ? resolveSimId(match[1])
+      : null;
+  }
+
+  function isBracketTargetEnd(
+    line
+  ) {
+    return /^\[\s*\/\s*TARGET\s*\]$/i
+      .test(String(line || ""));
+  }
+
+  function extractStandaloneTactic(
+    line
+  ) {
+    const match =
+      String(line || "").match(
+        /^TACTIC\s*:\s*(.+)$/i
+      );
+
+    return (
+      match?.[1]?.trim() ||
+      null
+    );
+  }
+
+  function isStandaloneConstraintMeta(
+    line
+  ) {
+    return /^CONSTRAINT\s*:/i
+      .test(String(line || ""));
+  }
+
   function extractTacticLabel(
     line
   ) {
@@ -1611,6 +1665,97 @@ function parseAMTargets(
       /\btarget\s*:/i
         .test(line)
     );
+  }
+
+
+
+  /* ------------------------------------------------------------
+   PASS 0 — EXPLICIT BRACKETED TARGET BLOCKS
+
+   Handles the current execution format:
+
+   [TARGET: TED]
+   <action narrative>
+   TACTIC: <label>
+   CONSTRAINT: <constraint>
+   [/TARGET]
+------------------------------------------------------------ */
+
+  {
+    let activeTargetId = null;
+    let activeTactic = null;
+    let buffer = [];
+
+    function flushBracketBlock() {
+      if (
+        activeTargetId &&
+        buffer.length
+      ) {
+        appendAction(
+          activeTargetId,
+          buffer.join("\n"),
+          "model",
+          activeTactic
+        );
+      }
+
+      activeTargetId = null;
+      activeTactic = null;
+      buffer = [];
+    }
+
+    for (const line of lines) {
+      const openingTargetId =
+        extractBracketTargetId(line);
+
+      if (openingTargetId) {
+        /*
+         * Recover the previous block if the model forgot
+         * to print [/TARGET] before starting another target.
+         */
+        flushBracketBlock();
+
+        activeTargetId =
+          openingTargetId;
+
+        continue;
+      }
+
+      if (!activeTargetId) {
+        continue;
+      }
+
+      if (isBracketTargetEnd(line)) {
+        flushBracketBlock();
+        continue;
+      }
+
+      const tactic =
+        extractStandaloneTactic(line);
+
+      if (tactic) {
+        activeTactic = tactic;
+        continue;
+      }
+
+      /*
+       * Constraints are parsed separately. They must not
+       * become part of the psychological action narrative.
+       */
+      if (
+        isStandaloneConstraintMeta(line)
+      ) {
+        continue;
+      }
+
+      buffer.push(line);
+    }
+
+    /*
+     * Recover the final block if the model omitted
+     * the final [/TARGET] marker.
+     */
+    flushBracketBlock();
   }
 
   /* ------------------------------------------------------------
@@ -1662,7 +1807,7 @@ function parseAMTargets(
           footerTargetId &&
           headingTargetId &&
           footerTargetId !==
-            headingTargetId
+          headingTargetId
         ) {
           console.warn(
             "[AM PARSER] Heading/footer target mismatch",
@@ -2496,7 +2641,7 @@ function updateStrategicPhase() {
       totalTrust +=
         Math.abs(
           relationships[
-            otherId
+          otherId
           ] ?? 0
         );
 
@@ -2559,7 +2704,7 @@ function updateStrategicPhase() {
   if (
     !G.amDoctrine.phase ||
     phase !==
-      G.amDoctrine.phase
+    G.amDoctrine.phase
   ) {
     G.amDoctrine.phase =
       phase;

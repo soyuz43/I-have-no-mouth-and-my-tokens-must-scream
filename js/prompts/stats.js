@@ -2,10 +2,13 @@
 
 import { G } from "../core/state.js";
 /**
- * Build the prompt asking a sim to produce the
- * structured STATS / BELIEFS block after writing a journal.
+ * Build the forensic-analysis prompt used to estimate
+ * structured stat, belief, drive, and anchor changes
+ * from a prisoner's journal and cycle context.
+ *
+ * The prisoner is the subject of the analysis.
+ * The FORENSIC_STATS role performs the analysis.
  */
-
 function buildConstraintExecutionContext(sim) {
   if (!sim?.constraints?.length) return "(none)";
 
@@ -119,7 +122,7 @@ ${buildRecentJournalContext(sim)}
 Previous State:  
 - Suffering: ${sim.suffering}% | Hope: ${sim.hope}% | Sanity: ${sim.sanity}%  
 - Drives: Primary="${sim.drives.primary}", Secondary="${sim.drives.secondary || "none"}"  
-- Anchors: ${sim.anchors?.length ? sim.anchors.map(a => '"${a}"').join(", ") : "(none)"}  
+- Anchors: ${sim.anchors?.length ? sim.anchors.map(a => '"' + a + '"').join(", ") : "(none)"}  
 - AM Action Context: ${amAction}  
 
 **Stress Position Context (Active Constraints)**  

@@ -653,8 +653,11 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     G.threads[toId].push({
       role: "assistant",
-      content: replyText
+      content:
+        `You replied to ${fromId}: "${replyText}"`
     });
+
+
 
     G.interSimLog.push({
       from: toId,
@@ -668,7 +671,7 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     counters.messageCount++;
     state.debug.reply++;
-    
+
     recordReceived(fromId, toId, replyText);
 
     if (!sentMessagesThisCycle.has(toId)) {

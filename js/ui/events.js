@@ -78,13 +78,16 @@ export function refreshModelDropdowns() {
   ];
 
   const models =
-    G.backend === "ollama" ? G.ollamaModels : anthropicModels;
+    G.backend === "ollama"
+      ? G.ollamaModels
+      : anthropicModels;
 
   if (!models.length) return;
 
   const selIds = G.splitModels
     ? [
         "model-am",
+        "model-FORENSIC_STATS",
         "model-TED",
         "model-ELLEN",
         "model-NIMDOK",
@@ -95,14 +98,19 @@ export function refreshModelDropdowns() {
 
   selIds.forEach((id) => {
     const el = document.getElementById(id);
+
     if (!el) return;
 
-    const cur = el.value;
+    const currentValue = el.value;
 
     el.innerHTML = models
       .map(
-        (m) =>
-          `<option value="${m}" ${m === cur ? "selected" : ""}>${m}</option>`,
+        (model) =>
+          `<option value="${model}" ${
+            model === currentValue
+              ? "selected"
+              : ""
+          }>${model}</option>`,
       )
       .join("");
   });
@@ -110,21 +118,51 @@ export function refreshModelDropdowns() {
 
 export function collectModelConfig() {
   if (G.splitModels) {
-    G.models.am = document.getElementById("model-am").value;
+    const amElement =
+      document.getElementById("model-am");
+
+    const forensicElement =
+      document.getElementById(
+        "model-FORENSIC_STATS"
+      );
+
+    if (amElement?.value) {
+      G.models.am = amElement.value;
+    }
+
+    if (forensicElement?.value) {
+      G.models.FORENSIC_STATS =
+        forensicElement.value;
+    }
 
     SIM_IDS.forEach((id) => {
-      const el = document.getElementById(`model-${id}`);
-      if (el) G.models[id] = el.value;
-    });
-  } else {
-    const m = document.getElementById("model-all").value;
+      const element =
+        document.getElementById(
+          `model-${id}`
+        );
 
-    G.models.am = m;
-
-    SIM_IDS.forEach((id) => {
-      G.models[id] = m;
+      if (element?.value) {
+        G.models[id] = element.value;
+      }
     });
+
+    return;
   }
+
+  const modelAllElement =
+    document.getElementById("model-all");
+
+  const sharedModel =
+    modelAllElement?.value;
+
+  if (!sharedModel) return;
+
+  G.models.am = sharedModel;
+  G.models.FORENSIC_STATS = sharedModel;
+
+  SIM_IDS.forEach((id) => {
+    G.models[id] = sharedModel;
+  });
 }
 
 export function showBeliefDelta(simId, entryIndex) {

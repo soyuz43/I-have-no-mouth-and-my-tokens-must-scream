@@ -136,9 +136,7 @@
               id="split-toggle"
               onclick="toggleSplit()"
             ></div>
-            <span class="toggle-label"
-              >USE DIFFERENT MODELS FOR AM AND EACH SIM</span
-            >
+            <span class="toggle-label">USE DIFFERENT MODELS FOR EACH ROLE</span>
           </div>
 
           <!-- Single model mode -->
@@ -165,6 +163,21 @@
                   >AM
                 </div>
                 <select class="si-sel" id="model-am">
+                  <option value="claude-sonnet-4-20250514">
+                    claude-sonnet-4-20250514
+                  </option>
+                </select>
+              </div>
+              <div class="model-row">
+                <div class="model-row-label">
+                  <span
+                    class="sim-dot"
+                    style="background: #8f8fff; box-shadow: 0 0 4px #8f8fff"
+                  ></span>
+                  FORENSIC STAT EXTRACTOR
+                </div>
+
+                <select class="si-sel" id="model-FORENSIC_STATS">
                   <option value="claude-sonnet-4-20250514">
                     claude-sonnet-4-20250514
                   </option>
@@ -465,80 +478,83 @@
         </div>
       </div>
     </div>
-<!-- AM ASSESSMENT MODAL -->
-<div
-  id="assessment-modal"
-  class="modal"
-  style="
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 650;
-    background: rgba(3, 3, 3, 0.95);
-    align-items: center;
-    justify-content: center;
-  "
->
-  <div
-    class="jm-box"
-    style="width: 700px; max-height: 85vh; border-color: var(--amber)"
-  >
-    <div class="jm-header">
-      <div>
-        <div class="jm-title" style="color: var(--amber)">
-          // AM STRATEGY ASSESSMENTS
+    <!-- AM ASSESSMENT MODAL -->
+    <div
+      id="assessment-modal"
+      class="modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 650;
+        background: rgba(3, 3, 3, 0.95);
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        class="jm-box"
+        style="width: 700px; max-height: 85vh; border-color: var(--amber)"
+      >
+        <div class="jm-header">
+          <div>
+            <div class="jm-title" style="color: var(--amber)">
+              // AM STRATEGY ASSESSMENTS
+            </div>
+            <div class="jm-meta" id="assessment-meta">
+              Cycle 0 · 0 assessments
+            </div>
+          </div>
+
+          <div class="jm-actions">
+            <button class="jm-btn close-btn" onclick="closeAssessmentModal()">
+              ✕ CLOSE
+            </button>
+          </div>
         </div>
-        <div class="jm-meta" id="assessment-meta">
-          Cycle 0 · 0 assessments
+
+        <div class="jm-body" id="assessment-body">
+          <div class="jm-empty">No assessments generated yet.</div>
         </div>
       </div>
+    </div>
 
-      <div class="jm-actions">
-        <button class="jm-btn close-btn" onclick="closeAssessmentModal()">
-          ✕ CLOSE
-        </button>
+    <!-- PARSER METRICS MODAL -->
+    <div
+      id="parser-metrics-modal"
+      class="modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 650;
+        background: rgba(3, 3, 3, 0.95);
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        class="jm-box"
+        style="width: 700px; max-height: 85vh; border-color: #004a5a"
+      >
+        <div class="jm-header">
+          <div id="parser-metrics-meta"></div>
+
+          <div class="jm-actions">
+            <button
+              class="jm-btn close-btn"
+              onclick="closeParserMetricsModal()"
+            >
+              ✕ CLOSE
+            </button>
+          </div>
+        </div>
+
+        <div class="jm-body" id="parser-metrics-body">
+          <div class="jm-empty">No parser data yet.</div>
+        </div>
       </div>
     </div>
-
-    <div class="jm-body" id="assessment-body">
-      <div class="jm-empty">No assessments generated yet.</div>
-    </div>
-  </div>
-</div>
-
-<!-- PARSER METRICS MODAL -->
-<div
-  id="parser-metrics-modal"
-  class="modal"
-  style="
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 650;
-    background: rgba(3, 3, 3, 0.95);
-    align-items: center;
-    justify-content: center;
-  "
->
-  <div
-    class="jm-box"
-    style="width: 700px; max-height: 85vh; border-color: #004a5a"
-  >
-    <div class="jm-header">
-      <div id="parser-metrics-meta"></div>
-
-      <div class="jm-actions">
-        <button class="jm-btn close-btn" onclick="closeParserMetricsModal()">
-          ✕ CLOSE
-        </button>
-      </div>
-    </div>
-
-    <div class="jm-body" id="parser-metrics-body">
-      <div class="jm-empty">No parser data yet.</div>
-    </div>
-  </div>
-</div>
 
     <!-- ══════════════════════════════════════════════
      MAIN APP
