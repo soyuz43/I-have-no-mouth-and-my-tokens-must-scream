@@ -185,13 +185,13 @@ export async function runTacticEvolution() {
       Math.abs(d.deltaSuffering);
   }, 0);
 
-  if (totalSignal < 14) {
+  if (totalSignal < 8) {
     debugLog("[TACTIC EVOLUTION] Skipping — total signal too weak:", totalSignal.toFixed(2));
     console.log(`// TACTIC EVOLUTION COMPLETE`);
     return;
   }
 
-  const sample = discoveries.slice(0, 2);
+  const sample = discoveries.slice(0, 3);
 
   /* ------------------------------------------------------------
      MODEL EVALUATION
@@ -203,7 +203,7 @@ export async function runTacticEvolution() {
       Math.abs(effect.deltaSanity) +
       Math.abs(effect.deltaSuffering);
 
-    if (signalStrength < 9 && effect.relationshipShifts.length === 0) {
+    if (signalStrength < 6 && effect.relationshipShifts.length === 0) {
       debugLog(`[TACTIC EVOLUTION] Skipping ${effect.sim} — weak signal`);
       continue;
     }

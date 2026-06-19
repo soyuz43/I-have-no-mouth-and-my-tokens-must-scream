@@ -13,6 +13,9 @@ const LOG_ORCHESTRATOR_FLOW = true;        // High-level: start, budget, phases,
 const LOG_ORCHESTRATOR_DETAILS = false;    // Queue state, reply targets, burst decisions
 const LOG_ORCHESTRATOR_ACTION_ONLY = true; // Show each sim turn without message content
 const LOG_ORCHESTRATOR_PERSIST = true;     // Show persistence summary after cycle
+
+const LOG_ORCHESTRATOR_GROUP_CYCLE = true; // Collapse the whole comms cycle
+const LOG_ORCHESTRATOR_GROUP_TURNS = true; // Collapse each sim turn inside the cycle
 // ============================================
 
 function logFlow(message, data = null) {
@@ -28,9 +31,24 @@ function logDetail(message, data = null) {
   }
 }
 
-function logAction(simId, turnType) {
-  if (LOG_ORCHESTRATOR_ACTION_ONLY) {
-    console.log(`[COMMS TURN] ${simId} → ${turnType}`);
+function beginTurnLog(simId, turnType) {
+  if (!LOG_ORCHESTRATOR_ACTION_ONLY) return;
+
+  const label = `[COMMS TURN] ${simId} → ${turnType}`;
+
+  if (LOG_ORCHESTRATOR_GROUP_TURNS) {
+    console.groupCollapsed(label);
+  } else {
+    console.log(label);
+  }
+}
+
+function endTurnLog() {
+  if (
+    LOG_ORCHESTRATOR_ACTION_ONLY &&
+    LOG_ORCHESTRATOR_GROUP_TURNS
+  ) {
+    console.groupEnd();
   }
 }
 
@@ -74,6 +92,12 @@ function shuffle(list) {
 
 export async function runCommsCycle() {
   const MAX_MESSAGES = 24;
+
+  if (LOG_ORCHESTRATOR_GROUP_CYCLE) {
+    console.groupCollapsed(
+      `[COMMS FLOW][Cycle ${G.cycle ?? "?"}] inter-sim communication`
+    );
+  }
 
   logFlow("starting inter-sim communication cycle");
 
@@ -190,13 +214,17 @@ export async function runCommsCycle() {
 
     state.firstPassCompleted.add(fromId);
 
-    logAction(fromId, "turn");
+    beginTurnLog(fromId, "turn");
 
-    await step({
-      fromId,
-      state,
-      queue,
-    });
+    try {
+      await step({
+        fromId,
+        state,
+        queue,
+      });
+    } finally {
+      endTurnLog();
+    }
   }
 
   logFlow(`main loop complete (messages: ${state.counters.messageCount}/${state.messageBudget})`);
@@ -226,13 +254,18 @@ export async function runCommsCycle() {
       if (Math.random() > burstProb) continue;
 
       logDetail(`burst turn: ${fromId} (prob=${burstProb.toFixed(3)})`);
-      logAction(fromId, "burst");
 
-      await step({
-        fromId,
-        state,
-        queue: burstQueue,
-      });
+      beginTurnLog(fromId, "burst");
+
+      try {
+        await step({
+          fromId,
+          state,
+          queue: burstQueue,
+        });
+      } finally {
+        endTurnLog();
+      }
 
       burstMessages++;
     }
@@ -304,6 +337,10 @@ export async function runCommsCycle() {
   /* ============================================================ */
 
   timelineEvent("inter-sim phase complete");
+
+  if (LOG_ORCHESTRATOR_GROUP_CYCLE) {
+    console.groupEnd();
+  }
 
   return state;
 }

@@ -27,6 +27,7 @@ const Exporter = {
         executions: [],
         observations: [],
         journal_events: [],
+        belief_evidence: [],
         assessments: [],
         observability_unknowns: [],
     },
@@ -246,7 +247,7 @@ export function recordConstraints(G, cycle) {
                 stat_multiplier:
                     finiteOrDefault(
                         constraint.totalMult ??
-                            constraint.intensity,
+                        constraint.intensity,
                         1
                     ),
 
@@ -380,14 +381,14 @@ export function recordMessages(G, cycle) {
             overheard_by:
                 joinList(
                     message.overheardBy ||
-                        message.observers ||
-                        []
+                    message.observers ||
+                    []
                 ),
 
             is_rumor:
                 Boolean(
                     message.isRumor ??
-                        message.rumor
+                    message.rumor
                 ),
 
             rumor_payload:
@@ -464,20 +465,20 @@ export function recordGlobal(
 
     const sims =
         G.sims &&
-        typeof G.sims === "object"
+            typeof G.sims === "object"
             ? Object.values(
-                  G.sims
-              ).filter(Boolean)
+                G.sims
+            ).filter(Boolean)
             : [];
 
     const trustValues = G.relationships
         ? Object.values(
-              G.relationships
-          ).flatMap((row) =>
-              Object.values(
-                  row || {}
-              )
-          )
+            G.relationships
+        ).flatMap((row) =>
+            Object.values(
+                row || {}
+            )
+        )
         : [];
 
     const numericTrustValues = trustValues
@@ -486,10 +487,10 @@ export function recordGlobal(
 
     const averageTrust = numericTrustValues.length
         ? numericTrustValues.reduce(
-              (sum, value) =>
-                  sum + value,
-              0
-          ) / numericTrustValues.length
+            (sum, value) =>
+                sum + value,
+            0
+        ) / numericTrustValues.length
         : 0;
 
     const execution =
@@ -538,7 +539,7 @@ export function recordGlobal(
                     entry?.cycle === cycle &&
                     Boolean(
                         entry.isRumor ??
-                            entry.rumor
+                        entry.rumor
                     )
             ).length,
 
@@ -573,43 +574,43 @@ export function recordGlobal(
         expected_target_count:
             execution
                 ? asArray(
-                      execution.targetIds
-                  ).length
+                    execution.targetIds
+                ).length
                 : null,
 
         action_target_count:
             execution
                 ? asArray(
-                      execution.actionTargetIds
-                  ).length
+                    execution.actionTargetIds
+                ).length
                 : null,
 
         missing_action_count:
             execution
                 ? asArray(
-                      execution.missingTargetIds
-                  ).length
+                    execution.missingTargetIds
+                ).length
                 : null,
 
         direct_constraint_target_count:
             execution
                 ? asArray(
-                      execution.constraintTargetIds
-                  ).length
+                    execution.constraintTargetIds
+                ).length
                 : null,
 
         observer_count:
             execution
                 ? asArray(
-                      execution.observerIds
-                  ).length
+                    execution.observerIds
+                ).length
                 : null,
 
         journal_target_count:
             execution
                 ? asArray(
-                      execution.journalTargetIds
-                  ).length
+                    execution.journalTargetIds
+                ).length
                 : null,
     });
 }
@@ -652,8 +653,8 @@ export function recordDecisions(
 
         const action = agent
             ? normalizeActionForExport(
-                  execution?.actions?.[agent]
-              )
+                execution?.actions?.[agent]
+            )
             : null;
 
         Exporter.buffers.decisions.push({
@@ -685,25 +686,25 @@ export function recordDecisions(
             dSanity:
                 sim && previous
                     ? finiteDifference(
-                          sim.sanity,
-                          previous.sanity
-                      )
+                        sim.sanity,
+                        previous.sanity
+                    )
                     : null,
 
             dHope:
                 sim && previous
                     ? finiteDifference(
-                          sim.hope,
-                          previous.hope
-                      )
+                        sim.hope,
+                        previous.hope
+                    )
                     : null,
 
             dSuffering:
                 sim && previous
                     ? finiteDifference(
-                          sim.suffering,
-                          previous.suffering
-                      )
+                        sim.suffering,
+                        previous.suffering
+                    )
                     : null,
 
             journal_sanity_delta:
@@ -732,8 +733,8 @@ export function recordDecisions(
             action_generated:
                 execution
                     ? Boolean(
-                          action?.text
-                      )
+                        action?.text
+                    )
                     : null,
 
             action_origin:
@@ -743,15 +744,15 @@ export function recordDecisions(
             missing_from_execution:
                 execution && agent
                     ? asArray(
-                          execution.missingTargetIds
-                      ).includes(agent)
+                        execution.missingTargetIds
+                    ).includes(agent)
                     : null,
 
             journal_scheduled:
                 execution && agent
                     ? asArray(
-                          execution.journalTargetIds
-                      ).includes(agent)
+                        execution.journalTargetIds
+                    ).includes(agent)
                     : null,
         });
     }
@@ -922,9 +923,9 @@ export function recordTactics(G, cycle) {
                 execution_summary:
                     typeof tactic.execution === "string"
                         ? tactic.execution.slice(
-                              0,
-                              200
-                          )
+                            0,
+                            200
+                        )
                         : null,
 
                 expected_outcome:
@@ -1018,11 +1019,11 @@ export function recordStrategies(G, cycle) {
             typeof rawStrategy === "object"
                 ? rawStrategy
                 : {
-                      objective:
-                          String(
-                              rawStrategy
-                          ),
-                  };
+                    objective:
+                        String(
+                            rawStrategy
+                        ),
+                };
 
         const action =
             normalizeActionForExport(
@@ -1088,8 +1089,8 @@ export function recordStrategies(G, cycle) {
             action_generated:
                 execution
                     ? Boolean(
-                          action?.text
-                      )
+                        action?.text
+                    )
                     : null,
 
             action_origin:
@@ -1107,22 +1108,22 @@ export function recordStrategies(G, cycle) {
             missing_from_execution:
                 execution
                     ? asArray(
-                          execution.missingTargetIds
-                      ).includes(agentId)
+                        execution.missingTargetIds
+                    ).includes(agentId)
                     : null,
 
             direct_constraint_target:
                 execution
                     ? asArray(
-                          execution.constraintTargetIds
-                      ).includes(agentId)
+                        execution.constraintTargetIds
+                    ).includes(agentId)
                     : null,
 
             successful_observer:
                 execution
                     ? asArray(
-                          execution.observerIds
-                      ).includes(agentId)
+                        execution.observerIds
+                    ).includes(agentId)
                     : null,
 
             perception_origin:
@@ -1132,8 +1133,8 @@ export function recordStrategies(G, cycle) {
             journal_scheduled:
                 execution
                     ? asArray(
-                          execution.journalTargetIds
-                      ).includes(agentId)
+                        execution.journalTargetIds
+                    ).includes(agentId)
                     : null,
         });
     }
@@ -1351,7 +1352,7 @@ export function recordObservations(G, cycle) {
 
     const rolls =
         execution.observationRolls &&
-        typeof execution.observationRolls === "object"
+            typeof execution.observationRolls === "object"
             ? execution.observationRolls
             : {};
 
@@ -1401,7 +1402,7 @@ export function recordObservations(G, cycle) {
             observed_targets:
                 joinList(
                     rawRoll.observedTargetIds ||
-                        perception?.observedTargetIds
+                    perception?.observedTargetIds
                 ),
 
             perception_origin:
@@ -1447,7 +1448,7 @@ export function recordObservations(G, cycle) {
 export function recordJournalEvents(G, cycle) {
     const journals =
         G.journals &&
-        typeof G.journals === "object"
+            typeof G.journals === "object"
             ? G.journals
             : {};
 
@@ -1481,7 +1482,7 @@ export function recordJournalEvents(G, cycle) {
 
                 const deltas =
                     entry.deltas &&
-                    typeof entry.deltas === "object"
+                        typeof entry.deltas === "object"
                         ? entry.deltas
                         : {};
 
@@ -1528,7 +1529,7 @@ export function recordJournalEvents(G, cycle) {
                     action_present:
                         Boolean(
                             entry.amActionPresent ??
-                                action?.text
+                            action?.text
                         ),
 
                     action_origin:
@@ -1543,7 +1544,7 @@ export function recordJournalEvents(G, cycle) {
                     perception_present:
                         Boolean(
                             entry.amPerceptionPresent ??
-                                perception?.text
+                            perception?.text
                         ),
 
                     perception_origin:
@@ -1568,7 +1569,7 @@ export function recordJournalEvents(G, cycle) {
                     observed_target_ids:
                         joinList(
                             entry.observedTargetIds ||
-                                perception?.observedTargetIds
+                            perception?.observedTargetIds
                         ),
 
                     observation_probability:
@@ -1586,8 +1587,8 @@ export function recordJournalEvents(G, cycle) {
                         (
                             execution
                                 ? asArray(
-                                      execution.targetIds
-                                  ).includes(agentId)
+                                    execution.targetIds
+                                ).includes(agentId)
                                 : null
                         ),
 
@@ -1596,8 +1597,8 @@ export function recordJournalEvents(G, cycle) {
                         (
                             execution
                                 ? asArray(
-                                      execution.missingTargetIds
-                                  ).includes(agentId)
+                                    execution.missingTargetIds
+                                ).includes(agentId)
                                 : null
                         ),
 
@@ -1622,6 +1623,51 @@ export function recordJournalEvents(G, cycle) {
 }
 
 /* ============================================================
+   BELIEF EVIDENCE STREAM
+   Why belief deltas moved
+============================================================ */
+
+export function recordBeliefEvidence(G, cycle) {
+    for (const [agentId, sim] of Object.entries(G.sims || {})) {
+        if (!sim) continue;
+
+        const evidence = Array.isArray(sim.beliefEvidence)
+            ? sim.beliefEvidence
+            : [];
+
+        const cycleEvidence = evidence.filter(
+            (entry) => entry?.cycle === cycle
+        );
+
+        for (const entry of cycleEvidence) {
+            Exporter.buffers.belief_evidence.push({
+                run_id: Exporter.runId,
+                cycle,
+                agent: agentId,
+
+                parse_method:
+                    entry.parseMethod ?? null,
+
+                belief_deltas:
+                    entry.beliefDeltas ?? {},
+
+                reason:
+                    entry.reason ?? null,
+
+                forensic_observations:
+                    entry.forensicObservations ?? [],
+
+                raw_preview:
+                    entry.rawPreview ?? null,
+
+                timestamp:
+                    entry.timestamp ?? Date.now(),
+            });
+        }
+    }
+}
+
+/* ============================================================
    ASSESSMENTS STREAM
    Strategy outcome evaluation
 ============================================================ */
@@ -1632,9 +1678,9 @@ export function recordAssessments(G, cycle) {
             G.amAssessments
         )
             ? G.amAssessments.filter(
-                  (assessment) =>
-                      assessment?.cycle === cycle
-              )
+                (assessment) =>
+                    assessment?.cycle === cycle
+            )
             : [];
 
     const execution =
@@ -1653,8 +1699,8 @@ export function recordAssessments(G, cycle) {
 
         const action = agent
             ? normalizeActionForExport(
-                  execution?.actions?.[agent]
-              )
+                execution?.actions?.[agent]
+            )
             : null;
 
         Exporter.buffers.assessments.push({
@@ -1720,7 +1766,7 @@ export function recordAssessments(G, cycle) {
             confidence_after:
                 finiteOrNull(
                     assessment.confidence_after ??
-                        assessment.confidence
+                    assessment.confidence
                 ),
 
             was_constrained:
@@ -1737,8 +1783,8 @@ export function recordAssessments(G, cycle) {
             action_generated:
                 execution
                     ? Boolean(
-                          action?.text
-                      )
+                        action?.text
+                    )
                     : null,
 
             action_origin:
@@ -1748,15 +1794,15 @@ export function recordAssessments(G, cycle) {
             missing_from_execution:
                 execution && agent
                     ? asArray(
-                          execution.missingTargetIds
-                      ).includes(agent)
+                        execution.missingTargetIds
+                    ).includes(agent)
                     : null,
 
             journal_scheduled:
                 execution && agent
                     ? asArray(
-                          execution.journalTargetIds
-                      ).includes(agent)
+                        execution.journalTargetIds
+                    ).includes(agent)
                     : null,
 
             timestamp:
@@ -1803,9 +1849,9 @@ export function recordObservabilityUnknowns(
             outcome:
                 typeof unknown.outcome === "string"
                     ? unknown.outcome.slice(
-                          0,
-                          200
-                      )
+                        0,
+                        200
+                    )
                     : null,
 
             timestamp:
@@ -1977,6 +2023,9 @@ export function exportAllAsJSON(
 
             journal_events:
                 Exporter.buffers.journal_events,
+
+            belief_evidence:
+                Exporter.buffers.belief_evidence,
 
             assessments:
                 Exporter.buffers.assessments,
@@ -2155,6 +2204,11 @@ export function finalizeCycle(
         cycle
     );
 
+    recordBeliefEvidence(
+        G,
+        cycle
+    );
+
     recordAssessments(
         G,
         cycle
@@ -2303,10 +2357,10 @@ function normalizeActionForExport(
 
         return text
             ? {
-                  text,
-                  tactic: null,
-                  origin: "model",
-              }
+                text,
+                tactic: null,
+                origin: "model",
+            }
             : null;
     }
 
@@ -2332,13 +2386,13 @@ function normalizeActionForExport(
         tactic:
             typeof rawAction.tactic === "string"
                 ? rawAction.tactic.trim() ||
-                  null
+                null
                 : null,
 
         origin:
             typeof rawAction.origin === "string"
                 ? rawAction.origin.trim() ||
-                  "model"
+                "model"
                 : "model",
     };
 }
@@ -2354,12 +2408,12 @@ function normalizePerceptionForExport(
 
         return text
             ? {
-                  text,
-                  origin:
-                      "parser_fallback",
-                  observedTargetIds:
-                      [],
-              }
+                text,
+                origin:
+                    "parser_fallback",
+                observedTargetIds:
+                    [],
+            }
             : null;
     }
 
@@ -2385,7 +2439,7 @@ function normalizePerceptionForExport(
         origin:
             typeof rawPerception.origin === "string"
                 ? rawPerception.origin.trim() ||
-                  null
+                null
                 : null,
 
         observedTargetIds:
