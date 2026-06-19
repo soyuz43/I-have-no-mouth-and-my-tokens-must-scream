@@ -13,6 +13,7 @@
 import {
   clipBeliefDelta
 } from "../../core/utils.js";
+import { G } from "../../core/state.js";
 
 /* ============================================================
    CONSTANTS
@@ -122,13 +123,22 @@ function parseNumericValue(raw) {
 
   if (typeof raw !== "string") return null;
 
-  const normalized = raw.trim().toLowerCase();
+  let normalized = raw.trim().toLowerCase();
 
   if (ZERO_VALUE_STRINGS.has(normalized)) {
-    return {
-      value: 0,
-      explicitPercent: false
-    };
+    return { value: 0, explicitPercent: false };
+  }
+
+  // ----------------------------------------------------------------
+  // Optional: convert European-style decimal comma (e.g., "5,3" → 5.3)
+  // Enable by setting G.SANITIZE_ALLOW_DECIMAL_COMMA = true
+  // ----------------------------------------------------------------
+  if (
+    (G && G.SANITIZE_ALLOW_DECIMAL_COMMA) &&
+    /^-?\d+,\d+$/.test(normalized) &&      // only digits, one comma, no more
+    !/,\d{3}(?:[^\d]|$)/.test(normalized)  // NOT a thousands separator (e.g., "1,234")
+  ) {
+    normalized = normalized.replace(",", ".");
   }
 
   const numericMatch = normalized.match(

@@ -32,8 +32,8 @@ import { buildSimJournalStatsPrompt } from "../../prompts/stats.js";
 import { callModel } from "../../models/callModel.js";
 
 import {
-  parseStatDeltas,
-  parseBeliefUpdates,
+  parseStatDeltasWithStats,
+  parseBeliefUpdatesWithStats,
   parseDriveUpdate,
   parseAnchorUpdate,
 } from "../state/extract.js";
@@ -56,6 +56,7 @@ import {
 } from "../constraints.js";
 
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
+import { logBeliefDistance } from "../state/utils/beliefDistance.js";
 
 /* ============================================================
    BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
@@ -887,46 +888,40 @@ export async function runPsychologyPhase(
   const phaseStatsBefore =
     snapshotAllStats();
 
-  console.group(
-    `[PSYCHOLOGY SCHEDULE][Cycle ${G.cycle}]`
-  );
-
-  console.log(
-    "EXPECTED TARGETS:",
-    amExecution.targetIds
-  );
-
-  console.log(
-    "ACTION TARGETS:",
-    amExecution.actionTargetIds
-  );
-
-  console.log(
-    "CURRENT CONSTRAINT TARGETS:",
-    amExecution.constraintTargetIds
-  );
-
-  console.log(
-    "ACTIVE CONSTRAINT TARGETS:",
-    activeConstraintTargetIds
-  );
-
-  console.log(
-    "SUCCESSFUL OBSERVERS:",
-    amExecution.observerIds
-  );
-
-  console.log(
-    "FINAL JOURNAL TARGETS:",
-    journalTargetIds
-  );
-
-  console.log(
-    "MISSING EXPECTED ACTIONS:",
-    amExecution.missingTargetIds
-  );
-
-  console.groupEnd();
+  if (G.DEBUG_PSYCHOLOGY_LOGS) {
+    console.group(
+      `[PSYCHOLOGY SCHEDULE][Cycle ${G.cycle}]`
+    );
+    console.log(
+      "EXPECTED TARGETS:",
+      amExecution.targetIds
+    );
+    console.log(
+      "ACTION TARGETS:",
+      amExecution.actionTargetIds
+    );
+    console.log(
+      "CURRENT CONSTRAINT TARGETS:",
+      amExecution.constraintTargetIds
+    );
+    console.log(
+      "ACTIVE CONSTRAINT TARGETS:",
+      activeConstraintTargetIds
+    );
+    console.log(
+      "SUCCESSFUL OBSERVERS:",
+      amExecution.observerIds
+    );
+    console.log(
+      "FINAL JOURNAL TARGETS:",
+      journalTargetIds
+    );
+    console.log(
+      "MISSING EXPECTED ACTIONS:",
+      amExecution.missingTargetIds
+    );
+    console.groupEnd();
+  }
 
   /* ------------------------------------------------------------
      SIM JOURNAL PHASE
@@ -1003,6 +998,22 @@ export async function runPsychologyPhase(
   logBeliefSummary(
     cycleBeliefSummary
   );
+
+  // ------------------------------------------------------------
+  // OPTIONAL: Print extraction stats for the current cycle
+  // ------------------------------------------------------------
+  if (
+    G.DEBUG_PSYCHOLOGY_LOGS &&
+    G.extractionStats?.cycles[G.cycle]
+  ) {
+    console.group(
+      `[EXTRACTION STATS][Cycle ${G.cycle}]`
+    );
+    console.table(
+      G.extractionStats.cycles[G.cycle]
+    );
+    console.groupEnd();
+  }
 }
 
 /* ============================================================
@@ -1378,7 +1389,7 @@ async function processSimJournalCycle(
       );
 
     const parsedStatDeltas =
-      parseStatDeltas(
+      parseStatDeltasWithStats(
         sanitizedStatsJson,
         sim
       );
@@ -1440,7 +1451,7 @@ async function processSimJournalCycle(
        centralized pass and are therefore excluded from tactic
        effectiveness attribution here.
     ------------------------------------------------------------ */
-    
+
     applyJournalStatDeltas(
       sim,
       statDeltas
@@ -1467,7 +1478,7 @@ async function processSimJournalCycle(
     );
 
     const beliefUpdates =
-      parseBeliefUpdates(
+      parseBeliefUpdatesWithStats(
         sanitizedStatsJson,
         sim
       );
@@ -1524,6 +1535,15 @@ async function processSimJournalCycle(
 
     const beliefsAfterCommit =
       sim.beliefs;
+
+    if (G.DEBUG_PSYCHOLOGY_LOGS) {
+      logBeliefDistance(
+        sim.id,
+        beliefsBeforeCommit,
+        beliefsAfterCommit,
+        sanitizedStatsJson
+      );
+    }
 
     const diff =
       diffBeliefs(

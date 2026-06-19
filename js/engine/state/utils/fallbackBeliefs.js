@@ -71,7 +71,7 @@ export function fallbackExtractBeliefDeltas(text) {
     "null"
   ]);
 
-  const regex = /"([a-zA-Z_]+)"\s*:\s*(?:"([^"]*)"|null|-?\d+(?:\.\d+)?)/g;
+  const regex = /"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:\s*(?:"([^"]*)"|null|-?\d+(?:\.\d+)?)/g;
 
   let match;
   while ((match = regex.exec(block)) !== null) {

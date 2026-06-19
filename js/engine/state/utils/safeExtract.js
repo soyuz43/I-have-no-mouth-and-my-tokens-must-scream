@@ -1,11 +1,70 @@
 // js/engine/state/utils/safeExtract.js
 
 import { repairJSON } from "../../../core/utils.js";
+import { G } from "../../../core/state.js";
+
+/* ============================================================
+   LOGGING CONFIGURATION
+   ============================================================ */
 
 /**
- * Extract first valid JSON object block from text
- * Uses brace matching (robust against prefix noise)
+ * Read current log level from the simulation global state.
+ *
+ *  0 – silent
+ *  1 – normal (warnings only) — default
+ *  2 – verbose (warnings + debug)
+ *
+ * Allows an external override via `globalThis.__SAFE_EXTRACT_LOG_LEVEL__`
+ * for temporary debugging without touching G.
  */
+function getLogLevel() {
+  // Primary source: the simulation config (G.SAFE_EXTRACT_LOG_LEVEL)
+  if (G && G.SAFE_EXTRACT_LOG_LEVEL != null) {
+    return G.SAFE_EXTRACT_LOG_LEVEL;
+  }
+  // Fallback for quick external override
+  if (globalThis.__SAFE_EXTRACT_LOG_LEVEL__ != null) {
+    return globalThis.__SAFE_EXTRACT_LOG_LEVEL__;
+  }
+  return 1; // default
+}
+
+/**
+ * Centralised logger for this module.
+ *
+ * @param {number} level – 1 (warn) or 2 (debug/info)
+ * @param {string} tag – short identifier (e.g., "TRUNCATE", "CORRUPTED")
+ * @param {string} message – human‑readable description
+ * @param {object} [data] – optional structured data
+ */
+function log(level, tag, message, data = undefined) {
+  const currentLevel = getLogLevel();
+  if (currentLevel < level) return;
+
+  const prefix = `[safeExtractJSON][${tag}]`;
+  const fullMessage = `${prefix} ${message}`;
+
+  if (level === 2) {
+    // debug / verbose
+    if (data !== undefined) {
+      console.debug(fullMessage, data);
+    } else {
+      console.debug(fullMessage);
+    }
+  } else {
+    // warning level
+    if (data !== undefined) {
+      console.warn(fullMessage, data);
+    } else {
+      console.warn(fullMessage);
+    }
+  }
+}
+
+/* ============================================================
+   INTERNAL HELPERS
+   ============================================================ */
+
 function extractJSONObject(text) {
   if (typeof text !== "string") return null;
 
@@ -13,198 +72,171 @@ function extractJSONObject(text) {
   if (firstBrace === -1) return null;
 
   let depth = 0;
-
   for (let i = firstBrace; i < text.length; i++) {
-    const char = text[i];
-
-    if (char === "{") depth++;
-    if (char === "}") depth--;
-
-    if (depth === 0) {
-      return text.slice(firstBrace, i + 1);
-    }
+    if (text[i] === "{") depth++;
+    if (text[i] === "}") depth--;
+    if (depth === 0) return text.slice(firstBrace, i + 1);
   }
-
-  // Unbalanced → likely truncated
-  return null;
+  return null; // unbalanced
 }
 
 function truncateAfterLastBrace(text) {
   const last = text.lastIndexOf("}");
-  if (last === -1) return text;
-  return text.slice(0, last + 1);
+  return last === -1 ? text : text.slice(0, last + 1);
 }
 
-/**
- * Remove markdown fences like ```json ... ```
- */
 function stripMarkdown(text) {
   return text.replace(/```[\s\S]*?```/g, (block) => {
     return block.replace(/```json|```/g, "");
   });
 }
 
-/**
- * Remove // comments (invalid JSON)
- */
 function stripComments(text) {
   return text
-    // remove // comments
-    .replace(/\/\/.*(?=[\n\r])/g, "")
-    // remove /* */ comments
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    // remove trailing commas before closing
-    .replace(/,\s*(\]|\})/g, "$1");
+    .replace(/\/\/.*(?=[\n\r])/g, "")   // single line
+    .replace(/\/\*[\s\S]*?\*\//g, "")   // multi line
+    .replace(/,\s*(\]|\})/g, "$1");    // trailing comma
 }
-/**
- * Remove invalid / non-standard unicode characters
- */
+
 function stripWeirdUnicode(text) {
   return text.replace(/[\u0000-\u001F\u007F\u2028\u2029]/g, "");
 }
 
-/**
- * Fix missing commas between adjacent strings in arrays
- * Example:
- *   "a"
- *   "b"
- * → "a", "b"
- */
+function replaceSmartQuotes(text) {
+  return text
+    .replace(/[\u201C\u201D]/g, '"')   // “ ” → "
+    .replace(/[\u2018\u2019]/g, "'");  // ‘ ’ → '
+}
+
 function fixArrayCommas(text) {
-  // Iteratively fix missing commas between string elements inside arrays
-  let prev;
-  let current = text;
-
+  let prev, current = text;
   const pattern = /"\s*\n\s*"/g;
-
   do {
     prev = current;
     current = current.replace(pattern, '",\n"');
   } while (current !== prev);
-
   return current;
 }
 
-/**
- * Fix missing commas between object fields
- */
 function fixMissingCommas(text) {
-  return text.replace(
+  // original: "key": "value"\n "key" → "key": "value",\n "key"
+  let result = text.replace(
     /(":\s*(?:-?\d+(?:\.\d+)?|true|false|null|"[^"]*"))\s*\n(?=\s*")/g,
     (match) => {
       if (match.trim().endsWith(",")) return match;
       return match.replace(/\s*\n/, ",\n");
     }
   );
+  // enhanced: "key": 3\n    "key2": → "key": 3,\n    "key2":
+  result = result.replace(
+    /(":\s*-?\d+(?:\.\d+)?)\s*\n(\s*"[A-Za-z_][A-Za-z0-9_]*"\s*:)/g,
+    "$1,\n$2"
+  );
+  return result;
 }
 
-/**
- * Strip leading non-JSON text before first {
- */
 function stripPrefix(text) {
   const idx = text.indexOf("{");
   return idx === -1 ? text : text.slice(idx);
 }
 
-/**
- * Detect obvious truncation (unbalanced braces)
- */
 function isLikelyTruncated(text) {
   const open = (text.match(/{/g) || []).length;
   const close = (text.match(/}/g) || []).length;
   return close < open;
 }
 
-/**
- * Attempt safe JSON extraction with layered repair
- */
+/* ============================================================
+   MAIN EXTRACTION FUNCTION
+   ============================================================ */
+
 export function safeExtractJSON(text) {
   if (typeof text !== "string") return null;
 
   // --- Phase 1: Normalize raw text ---
   let cleaned = text;
-
   cleaned = stripMarkdown(cleaned);
+  cleaned = replaceSmartQuotes(cleaned);   // ← now actually called
   cleaned = stripPrefix(cleaned);
   cleaned = stripComments(cleaned);
   cleaned = stripWeirdUnicode(cleaned);
-
-  // --- NEW: Fix array comma issues caused by comment stripping ---
   cleaned = fixArrayCommas(cleaned);
 
-  // Extract first, then repair
+  // --- Phase 2: Extract first JSON object ---
   let extracted = extractJSONObject(cleaned);
-
   if (!extracted) {
     extracted = cleaned;
+    log(2, "EXTRACT", "No JSON object found via brace matching, using full cleaned text");
   }
 
-  // --- LOGGING: detect truncation ---
+  // --- Truncation handling ---
   const beforeTruncate = extracted;
-
   extracted = truncateAfterLastBrace(extracted);
-
   if (beforeTruncate.length !== extracted.length) {
-    console.warn("[safeExtractJSON] truncated trailing garbage", {
+    log(1, "TRUNCATE", "Removed trailing characters after last closing brace", {
       removedChars: beforeTruncate.length - extracted.length
     });
   }
 
-  // --- Apply comma fixes ---
+  // --- Apply missing comma fixes ---
   extracted = fixMissingCommas(extracted);
 
-
-  // --- DEBUG: detect mid-array corruption ---
+  // --- Detect mid-array corruption ---
   if (
     extracted.includes("\n") &&
     extracted.includes('"]') &&
     /"\s*\n\s*[A-Za-z]/.test(extracted)
   ) {
-    console.warn("[safeExtractJSON] likely mid-array corruption");
+    log(1, "CORRUPTION", "Mid-array corruption detected (unclosed string / missing comma)");
   }
 
-  // --- NEW: reject obviously corrupted JSON early ---
+  // --- Quick corruption check ---
   const looksCorrupted =
     extracted &&
     !extracted.trim().endsWith("}") &&
     /[A-Za-z0-9_]+\s*:\s*[^"{\[\d\-]/.test(extracted);
 
   if (looksCorrupted) {
-    console.warn("[safeExtractJSON] corrupted candidate — attempting repair but not short-circuiting");
+    log(1, "CORRUPTED", "Malformed JSON object structure, attempting repair");
     try {
       const repaired = repairJSON(extracted);
       const parsed = JSON.parse(repaired);
       if (parsed && typeof parsed === "object") {
+        log(2, "REPAIR", "Corrupted JSON repaired successfully");
         return parsed;
       }
     } catch (err) {
-      console.warn("[safeExtractJSON] forced repair failed");
+      log(1, "REPAIR", "Repair failed on corrupted candidate");
     }
   }
 
-  // --- Phase 3: Truncation awareness ---
+  // --- Truncation awareness ---
   const truncated = isLikelyTruncated(extracted);
 
   // --- Phase 4: Direct parse attempt ---
   try {
-    return JSON.parse(extracted);
+    const result = JSON.parse(extracted);
+    log(2, "PARSE", "Direct JSON.parse succeeded");
+    return result;
   } catch (err) {
-    console.debug("[safeExtractJSON] direct parse failed");
+    log(2, "PARSE", "Direct parse failed");
   }
 
   // --- Phase 5: Repair + parse ---
   try {
     const repaired = repairJSON(extracted);
-    return JSON.parse(repaired);
+    const result = JSON.parse(repaired);
+    log(2, "REPAIR", "JSON parsed after repair");
+    return result;
   } catch (err) {
-    console.warn("[safeExtractJSON] repair parse failed");
+    log(1, "REPAIR", "Repair parse failed");
   }
 
   // --- Phase 6: Final failure ---
   if (truncated) {
-    console.warn("[safeExtractJSON] unrecoverable truncated JSON");
+    log(1, "FAIL", "Unrecoverable truncated JSON");
   } else {
-    console.warn("[safeExtractJSON] parse failed (non-truncated)");
+    log(1, "FAIL", "Parse failed (non-truncated)");
   }
 
   return null;
