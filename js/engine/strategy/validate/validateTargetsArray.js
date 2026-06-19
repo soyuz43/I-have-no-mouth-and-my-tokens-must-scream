@@ -2,6 +2,7 @@
 
 import { SIM_IDS } from "../../../core/constants.js";
 import { validateTarget } from "./validateTarget.js";
+import { G } from "../../../core/state.js";
 
 /* ============================================================
    TARGET ARRAY VALIDATION
@@ -18,7 +19,12 @@ import { validateTarget } from "./validateTarget.js";
    - Returns filtered targets
 ============================================================ */
 
-export function validateTargetsArray(targets, { DEBUG = false } = {}) {
+export function validateTargetsArray(
+  targets,
+  {
+    DEBUG = G.DEBUG_STRATEGY_VALIDATION,
+  } = {}
+) {
 
   if (DEBUG) {
     console.debug("[VALIDATE][ARRAY] start");
@@ -54,7 +60,11 @@ export function validateTargetsArray(targets, { DEBUG = false } = {}) {
     const id = target?.id;
 
     if (DEBUG) {
-      console.debug(`[VALIDATE][ARRAY] target[${index}]`, target);
+      console.groupCollapsed(
+        `[VALIDATE][ARRAY] target[${index}] ${id ?? "(missing id)"}`
+      );
+      console.debug(target);
+      console.groupEnd();
     }
 
     if (!id || typeof id !== "string") {
@@ -73,7 +83,7 @@ export function validateTargetsArray(targets, { DEBUG = false } = {}) {
       return;
     }
 
-    const result = validateTarget(target, id, { DEBUG: true });
+    const result = validateTarget(target, id, { DEBUG });
 
     if (!result.valid) {
       console.warn(

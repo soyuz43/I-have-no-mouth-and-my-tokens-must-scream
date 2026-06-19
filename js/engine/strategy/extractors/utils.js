@@ -1,9 +1,140 @@
 // js/engine/strategy/extractors/utils.js
 
-export function stripJsonComments(str) {
-  return str.replace(/\/\/.*$/gm, "");
-}
+/**
+ * Remove JavaScript-style comments only when they occur outside
+ * JSON strings.
+ *
+ * Supports:
+ * - // line comments
+ * - block comments
+ *
+ * Preserves newlines so logged parse locations remain useful.
+ */
+export function stripJsonComments(input) {
+  if (typeof input !== "string") {
+    return input;
+  }
 
+  let out = "";
+
+  let inString = false;
+  let escape = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (
+    let i = 0;
+    i < input.length;
+    i++
+  ) {
+    const ch = input[i];
+    const next =
+      input[i + 1];
+
+    /* -----------------------------
+       LINE COMMENT
+    ----------------------------- */
+
+    if (inLineComment) {
+      if (
+        ch === "\n" ||
+        ch === "\r"
+      ) {
+        inLineComment = false;
+        out += ch;
+      }
+
+      continue;
+    }
+
+    /* -----------------------------
+       BLOCK COMMENT
+    ----------------------------- */
+
+    if (inBlockComment) {
+      if (
+        ch === "*" &&
+        next === "/"
+      ) {
+        inBlockComment = false;
+        i++;
+        continue;
+      }
+
+      /*
+       * Preserve line positions for useful JSON.parse errors.
+       */
+      if (
+        ch === "\n" ||
+        ch === "\r"
+      ) {
+        out += ch;
+      }
+
+      continue;
+    }
+
+    /* -----------------------------
+       STRING CONTENT
+    ----------------------------- */
+
+    if (inString) {
+      out += ch;
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    /* -----------------------------
+       COMMENT START
+    ----------------------------- */
+
+    if (
+      ch === "/" &&
+      next === "/"
+    ) {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+
+    if (
+      ch === "/" &&
+      next === "*"
+    ) {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+
+    /* -----------------------------
+       STRING START
+    ----------------------------- */
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
 
 /**
  * Repairs single-quoted values for known strategy fields.
@@ -142,120 +273,120 @@ export function fixSingleQuotedSchemaValues(input) {
 }
 
 /**
- * Only insert comma when:
- * - previous line ends with a value
- * - AND next line starts with a key
- * - AND there is NO comma already
+ * Insert a missing comma before a JSON property key.
+ *
+ * Repairs:
+ *
+ *   "objective": "value"
+ *   "hypothesis": "value"
+ *
+ * Into:
+ *
+ *   "objective": "value",
+ *   "hypothesis": "value"
+ *
+ * The repair is structure-aware:
+ * - only activates before something shaped like a JSON key
+ * - ignores quotes while inside strings
+ * - preserves whitespace and formatting
+ * - supports string, numeric, boolean, null, object, and array values
  */
 export function fixMissingCommas(input) {
-
-  /* ------------------------------------------------------------
-     PASS 1: MULTILINE FIX (SAFE REGEX)
-  ------------------------------------------------------------ */
-
-  let str = input.replace(
-    /(":\s*"[^"]*")(\s*\n\s*)(")/g,
-    (match, val, whitespace, nextQuote) => {
-      if (val.trim().endsWith(",")) return match;
-      return `${val},${whitespace}${nextQuote}`;
-    }
-  );
-
-  /* ------------------------------------------------------------
-   PASS 1.5: ARRAY ELEMENT COMMA FIX (CRITICAL)
-  ------------------------------------------------------------ */
-
-  str = str.replace(
-    /(")(\s*\n\s*)(")/g,
-    (match, endQuote, whitespace, startQuote, offset, full) => {
-
-      const before = full.slice(0, offset);
-      const quoteCount = (before.match(/"/g) || []).length;
-      if (quoteCount % 2 !== 0) return match;
-
-      const trimmed = before.trimEnd();
-      const lastChar = trimmed.slice(-1);
-
-      if (!['"', '}', ']'].includes(lastChar)) {
-        return match;
-      }
-
-      return `${endQuote},${whitespace}${startQuote}`;
-    }
-  );
-
-  /* ------------------------------------------------------------
-     PASS 2: STATEFUL STRUCTURE-AWARE FIX
-  ------------------------------------------------------------ */
+  if (typeof input !== "string") {
+    return input;
+  }
 
   let out = "";
+
   let inString = false;
   let escape = false;
+
   let lastNonWhitespace = null;
 
-  for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
+  for (
+    let i = 0;
+    i < input.length;
+    i++
+  ) {
+    const ch = input[i];
 
-    if (escape) {
+    /* -----------------------------
+       CURRENTLY INSIDE A STRING
+    ----------------------------- */
+
+    if (inString) {
       out += ch;
-      escape = false;
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = false;
+        lastNonWhitespace = '"';
+      }
+
       continue;
     }
 
-    if (ch === "\\") {
-      out += ch;
-      escape = true;
-      continue;
-    }
+    /* -----------------------------
+       POSSIBLE PROPERTY KEY
+    ----------------------------- */
 
     if (ch === '"') {
+      const remaining =
+        input.slice(i);
 
-      let j = i + 1;
-      let isEscaped = false;
-      let foundEnd = false;
+      const keyMatch =
+        remaining.match(
+          /^"([A-Za-z_][A-Za-z0-9_-]*)"\s*:/
+        );
 
-      while (j < str.length) {
-        const c = str[j];
+      const beginsProperty =
+        Boolean(keyMatch);
 
-        if (isEscaped) {
-          isEscaped = false;
-        } else if (c === "\\") {
-          isEscaped = true;
-        } else if (c === '"') {
-          foundEnd = true;
-          break;
-        }
-
-        j++;
-      }
-
-      let isKey = false;
-
-      if (foundEnd) {
-        let k = j + 1;
-        while (k < str.length && /\s/.test(str[k])) k++;
-        if (str[k] === ":" && /^[A-Za-z0-9_\-]+$/.test(str.slice(i + 1, j))) {
-          isKey = true;
-        }
-      }
+      const previousTokenAllowsKey =
+        lastNonWhitespace === null ||
+        [
+          "{",
+          "[",
+          ",",
+          ":",
+        ].includes(
+          lastNonWhitespace
+        );
 
       if (
-        isKey &&
-        !inString &&
-        lastNonWhitespace &&
-        ![",", "{", "["].includes(lastNonWhitespace)
+        beginsProperty &&
+        !previousTokenAllowsKey
       ) {
-        out = out.trimEnd();
+        /*
+         * Put the comma before existing indentation/newlines,
+         * not after them.
+         */
+        out = out.replace(
+          /\s*$/,
+          (whitespace) =>
+            `,${whitespace}`
+        );
 
-        if (!out.endsWith(",")) {
-          out += ",";
-        }
+        lastNonWhitespace = ",";
       }
 
-      inString = !inString;
       out += ch;
+      inString = true;
       continue;
     }
+
+    /* -----------------------------
+       NORMAL STRUCTURAL CHARACTER
+    ----------------------------- */
 
     out += ch;
 
@@ -500,7 +631,7 @@ export function fixBrokenStrings(input) {
         continue;
       }
 
-       // Look beyond formatting whitespace before deciding whether this quote closes the JSON string.
+      // Look beyond formatting whitespace before deciding whether this quote closes the JSON string.
       let nextIndex = i + 1;
 
       while (
@@ -524,7 +655,7 @@ export function fixBrokenStrings(input) {
         out += ch;
       } else {
 
-  // * Quote appears inside a string without escaping.         
+        // * Quote appears inside a string without escaping.         
         out += '\\"';
       }
       continue;
@@ -573,25 +704,45 @@ export function splitRepeatedObjectBlocks(str) {
 }
 
 
-export function splitMultiIdCascade(str) {
+const VALID_STRATEGY_TARGET_IDS = new Set([
+  "TED",
+  "ELLEN",
+  "NIMDOK",
+  "GORRISTER",
+  "BENNY",
+]);
 
+/**
+ * Split malformed target cascades where multiple target objects
+ * were accidentally fused into one object.
+ *
+ * Example:
+ *   [{ "id": "TED", ... "id": "ELLEN", ... }]
+ *
+ * Becomes:
+ *   [{ "id": "TED", ... }, { "id": "ELLEN", ... }]
+ *
+ * Guardrails:
+ * - only acts inside an array
+ * - only acts inside an object that already has an id
+ * - only splits on a second valid prisoner id
+ * - never scans inside strings
+ */
+export function splitMultiIdCascade(str) {
   if (typeof str !== "string") return str;
 
   let out = "";
   let inString = false;
   let escape = false;
 
-  let objectDepth = 0;
   let arrayDepth = 0;
+  let objectDepth = 0;
 
-  let currentId = null;
-  let idCount = 0;
+  const objectIdStack = [];
 
   for (let i = 0; i < str.length; i++) {
-
     const ch = str[i];
 
-    // ---------------- ESCAPE ----------------
     if (escape) {
       out += ch;
       escape = false;
@@ -604,29 +755,61 @@ export function splitMultiIdCascade(str) {
       continue;
     }
 
-    // ---------------- STRING ----------------
     if (ch === '"') {
+      if (!inString) {
+        const idMatch =
+          str.slice(i).match(/^"id"\s*:\s*"([A-Za-z]+)"/);
+
+        const insideTargetObject =
+          arrayDepth >= 1 &&
+          objectDepth >= 1 &&
+          objectIdStack.length > 0;
+
+        if (idMatch && insideTargetObject) {
+          const nextId =
+            idMatch[1].toUpperCase();
+
+          const current =
+            objectIdStack[objectIdStack.length - 1];
+
+          const alreadyHasId =
+            Boolean(current?.id);
+
+          const validNextId =
+            VALID_STRATEGY_TARGET_IDS.has(nextId);
+
+          if (
+            alreadyHasId &&
+            validNextId &&
+            nextId !== current.id
+          ) {
+            /*
+             * Remove dangling comma/whitespace left after the previous
+             * field, close the current object, open the next one, and
+             * let the normal loop write the second "id" key.
+             */
+            out = out.replace(/,\s*$/, "");
+            out = out.replace(/\s*$/, "");
+
+            out += "},{";
+
+            current.id = nextId;
+            current.splitCount =
+              (current.splitCount || 0) + 1;
+
+            // Do not continue; allow this "id" token to be copied.
+          } else if (!alreadyHasId && validNextId) {
+            current.id = nextId;
+          }
+        }
+      }
+
       inString = !inString;
       out += ch;
       continue;
     }
 
     if (inString) {
-      out += ch;
-      continue;
-    }
-
-    // ---------------- STRUCTURE ----------------
-    if (ch === "{") {
-      objectDepth++;
-      currentId = null;
-      idCount = 0;
-      out += ch;
-      continue;
-    }
-
-    if (ch === "}") {
-      objectDepth--;
       out += ch;
       continue;
     }
@@ -638,69 +821,26 @@ export function splitMultiIdCascade(str) {
     }
 
     if (ch === "]") {
-      arrayDepth--;
+      arrayDepth = Math.max(0, arrayDepth - 1);
       out += ch;
       continue;
     }
 
-    // ---------------- DETECT ID ----------------
-    const isId =
-      str.slice(i, i + 4) === '"id"' &&
-      (str[i + 4] === ":" || /\s/.test(str[i + 4]));
+    if (ch === "{") {
+      objectDepth++;
+      objectIdStack.push({
+        id: null,
+        splitCount: 0,
+      });
+      out += ch;
+      continue;
+    }
 
-    if (isId && objectDepth >= 2 && arrayDepth >= 1) {
-
-      // extract ID value safely
-      const match = str.slice(i).match(/"id"\s*:\s*"([^"]+)"/);
-
-      const nextId = match ? match[1] : null;
-
-      idCount++;
-
-      // first id in object
-      if (idCount === 1) {
-        currentId = nextId;
-      }
-
-      // repeated id handling
-      if (idCount > 1) {
-
-        let j = out.length - 1;
-        while (j >= 0 && /\s/.test(out[j])) j--;
-
-        const prev = out[j];
-
-        // CASE 1: SAME ID → IGNORE DUPLICATE
-        if (nextId && nextId === currentId) {
-          // Skip ONLY the duplicate "id" key, not the entire content
-          // Advance pointer past this id token safely
-          const idMatch = str.slice(i).match(/"id"\s*:\s*"[^"]+"/);
-          if (idMatch) {
-            i += idMatch[0].length - 1;
-            continue;
-          }
-        }
-
-        // CASE 2: DIFFERENT ID → SPLIT OBJECT
-        if (prev !== "{") {
-
-          if (prev !== "}") {
-            out += "}";
-          }
-
-          if (out.endsWith(",")) {
-            out = out.slice(0, -1);
-          }
-
-          out += ",{";
-
-          // reset tracking for new object
-          currentId = nextId;
-          idCount = 1;
-
-          continue;
-        }
-      }
+    if (ch === "}") {
+      objectDepth = Math.max(0, objectDepth - 1);
+      objectIdStack.pop();
+      out += ch;
+      continue;
     }
 
     out += ch;
