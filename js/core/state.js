@@ -89,9 +89,9 @@ export const G = {
   backend: "anthropic",
 
 
- /* ============================================================
-    DIAGNOSTIC / MODEL CONFIGURATION FLAGS
-    ============================================================ */
+  /* ============================================================
+     DIAGNOSTIC / MODEL CONFIGURATION FLAGS
+     ============================================================ */
 
   // Logs constraint parsing, application, clamping,
   // and before/after state changes during constraint ticks.
@@ -121,21 +121,36 @@ export const G = {
   // sent through the shared model-calling layer.
   DEBUG_PROMPTS: true,
 
+  // Logs psychology‑phase schedule, journal details, and extraction stats.
+  DEBUG_PSYCHOLOGY_LOGS: true,
+
+  // Controls verbosity of safeExtractJSON logging:
+  // 0 = silent, 1 = warnings only, 2 = verbose debug
+  SAFE_EXTRACT_LOG_LEVEL: 2,
+
+  // Extration options
+  SANITIZE_ALLOW_DECIMAL_COMMA: false,   // set to true to handle "5,3" as 5.3
+
+  // Per-cycle extraction telemetry populated by parser wrappers.
+  extractionStats: {
+    cycles: {},
+  },
 
 
-models: {
-  am: "claude-sonnet-4-20250514",
+  models: {
+    am: "claude-sonnet-4-20250514",
 
-  // Dedicated non-character role that analyzes journal output and
-  // produces structured psychological state and belief deltas.
-  FORENSIC_STATS: "claude-sonnet-4-20250514",
 
-  TED: "claude-sonnet-4-20250514",
-  ELLEN: "claude-sonnet-4-20250514",
-  NIMDOK: "claude-sonnet-4-20250514",
-  GORRISTER: "claude-sonnet-4-20250514",
-  BENNY: "claude-sonnet-4-20250514",
-},
+    // Dedicated non-character role that analyzes journal output and
+    // produces structured psychological state and belief deltas.
+    FORENSIC_STATS: "claude-sonnet-4-20250514",
+
+    TED: "claude-sonnet-4-20250514",
+    ELLEN: "claude-sonnet-4-20250514",
+    NIMDOK: "claude-sonnet-4-20250514",
+    GORRISTER: "claude-sonnet-4-20250514",
+    BENNY: "claude-sonnet-4-20250514",
+  },
 
   ollamaModels: [],
 

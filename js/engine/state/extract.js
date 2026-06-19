@@ -21,7 +21,7 @@ import { levenshtein } from "../strategy/extractors/levenshtein.js";
 import { safeExtractJSON } from "./utils/safeExtract.js";
 import { fallbackExtractBeliefDeltas } from "./utils/fallbackBeliefs.js";
 import { safeExtractFields } from "./utils/fieldExtract.js";
-
+import { G } from "../../core/state.js";
 import {
   sanitizeBeliefDeltas,
   sanitizeDrives,
@@ -34,6 +34,12 @@ import {
 
 const MAX_STAT_DELTA = 8;
 const BELIEF_EVIDENCE_SCALE = 0.85;
+
+// ------------------------------------------------------------------
+// Module‑level variable to communicate the parse method used inside
+// parseBeliefUpdates.  Set by parseBeliefUpdates; read by the wrapper.
+// ------------------------------------------------------------------
+let _lastBeliefParseMethod = "none";
 
 const CANONICAL_STAT_FIELDS = Object.freeze([
   "suffering_direction",
@@ -261,7 +267,7 @@ function resolveStatFieldKey(rawKey) {
   const uniqueEnough =
     !secondBest ||
     secondBest.distance - best.distance >=
-      MIN_WIN_MARGIN;
+    MIN_WIN_MARGIN;
 
   if (!closeEnough || !uniqueEnough) {
     return null;
@@ -751,6 +757,7 @@ export function parseStatDeltas(text, sim) {
   let suffering = null;
   let hope = null;
   let sanity = null;
+  let usedFallback = false;   // <-- NEW: track if text-level fallback was used
 
   if (object) {
     suffering =
@@ -817,24 +824,24 @@ export function parseStatDeltas(text, sim) {
       suffering === null &&
       fallback.suffering !== null
     ) {
-      suffering =
-        fallback.suffering;
+      suffering = fallback.suffering;
+      usedFallback = true;
     }
 
     if (
       hope === null &&
       fallback.hope !== null
     ) {
-      hope =
-        fallback.hope;
+      hope = fallback.hope;
+      usedFallback = true;
     }
 
     if (
       sanity === null &&
       fallback.sanity !== null
     ) {
-      sanity =
-        fallback.sanity;
+      sanity = fallback.sanity;
+      usedFallback = true;
     }
 
     const recovered =
@@ -861,55 +868,40 @@ export function parseStatDeltas(text, sim) {
   suffering = Number(
     suffering ?? 0
   );
-
   hope = Number(
     hope ?? 0
   );
-
   sanity = Number(
     sanity ?? 0
   );
 
-  if (!Number.isFinite(suffering)) {
-    suffering = 0;
-  }
-
-  if (!Number.isFinite(hope)) {
-    hope = 0;
-  }
-
-  if (!Number.isFinite(sanity)) {
-    sanity = 0;
-  }
+  if (!Number.isFinite(suffering)) suffering = 0;
+  if (!Number.isFinite(hope)) hope = 0;
+  if (!Number.isFinite(sanity)) sanity = 0;
 
   suffering = Math.max(
     -MAX_STAT_DELTA,
-    Math.min(
-      MAX_STAT_DELTA,
-      suffering
-    )
+    Math.min(MAX_STAT_DELTA, suffering)
   );
-
   hope = Math.max(
     -MAX_STAT_DELTA,
-    Math.min(
-      MAX_STAT_DELTA,
-      hope
-    )
+    Math.min(MAX_STAT_DELTA, hope)
   );
-
   sanity = Math.max(
     -MAX_STAT_DELTA,
-    Math.min(
-      MAX_STAT_DELTA,
-      sanity
-    )
+    Math.min(MAX_STAT_DELTA, sanity)
   );
+
+  // Determine parse method for observability
+  const method = object
+    ? (usedFallback ? "field_fallback" : "direct")
+    : "none";
 
   return {
     suffering,
     hope,
-    sanity
+    sanity,
+    _parseMethod: method   // <-- NEW: internal flag consumed by the wrapper
   };
 }
 
@@ -931,7 +923,6 @@ export function parseBeliefUpdates(text, sim) {
       partialFields =
         safeExtractFields(text) ?? null;
     }
-
     return partialFields;
   }
 
@@ -946,9 +937,7 @@ export function parseBeliefUpdates(text, sim) {
     );
   }
 
-  if (
-    getDebugBeliefForensics()
-  ) {
+  if (getDebugBeliefForensics()) {
     const partial =
       object ?? getPartialFields() ?? {};
 
@@ -956,36 +945,14 @@ export function parseBeliefUpdates(text, sim) {
       "[BELIEF DELTA][FORENSIC]",
       {
         sim: simId,
-        cycle:
-          globalThis?.G?.cycle,
-
-        belief_deltas:
-          partial.belief_deltas || {},
-
-        reason:
-          partial.reason || null,
-
-        anchors:
-          sanitizeAnchors(
-            partial.anchors
-          ) || [],
-
-        drives:
-          sanitizeDrives(
-            partial.drives,
-            simId
-          ) || {},
-
+        cycle: globalThis?.G?.cycle,
+        belief_deltas: partial.belief_deltas || {},
+        reason: partial.reason || null,
+        anchors: sanitizeAnchors(partial.anchors) || [],
+        drives: sanitizeDrives(partial.drives, simId) || {},
         input_preview:
-          String(text || "").slice(
-            0,
-            200
-          ) +
-          (
-            String(text || "").length > 200
-              ? "..."
-              : ""
-          )
+          String(text || "").slice(0, 200) +
+          (String(text || "").length > 200 ? "..." : "")
       }
     );
   }
@@ -993,18 +960,14 @@ export function parseBeliefUpdates(text, sim) {
   // ------------------------------------------------------------
   // PRIMARY PATH: parsed belief_deltas
   // ------------------------------------------------------------
-
   const primaryUpdates =
     sanitizeAndScaleBeliefDeltas(
       object?.belief_deltas,
       sim,
       {
-        inputScale:
-          "percent_points",
-        multiplier:
-          BELIEF_EVIDENCE_SCALE,
-        source:
-          "primary_json"
+        inputScale: "percent_points",
+        multiplier: BELIEF_EVIDENCE_SCALE,
+        source: "primary_json"
       }
     );
 
@@ -1012,28 +975,23 @@ export function parseBeliefUpdates(text, sim) {
     console.debug(
       `[parseBeliefUpdates] Success: got ${Object.keys(primaryUpdates).length} belief deltas for ${simId}`
     );
-
+    _lastBeliefParseMethod = "primary_json";   // <-- NEW
     return primaryUpdates;
   }
 
   // ------------------------------------------------------------
   // FIELD-LEVEL RECOVERY
   // ------------------------------------------------------------
-
-  const partial =
-    getPartialFields();
+  const partial = getPartialFields();
 
   const fieldRecoveredUpdates =
     sanitizeAndScaleBeliefDeltas(
       partial?.belief_deltas,
       sim,
       {
-        inputScale:
-          "percent_points",
-        multiplier:
-          BELIEF_EVIDENCE_SCALE,
-        source:
-          "field_recovery"
+        inputScale: "percent_points",
+        multiplier: BELIEF_EVIDENCE_SCALE,
+        source: "field_recovery"
       }
     );
 
@@ -1041,14 +999,13 @@ export function parseBeliefUpdates(text, sim) {
     console.warn(
       `[parseBeliefUpdates] recovered belief_deltas via field extraction for ${simId}`
     );
-
+    _lastBeliefParseMethod = "field_recovery";   // <-- NEW
     return fieldRecoveredUpdates;
   }
 
   // ------------------------------------------------------------
   // REGEX / BALANCED-BLOCK FALLBACK
   // ------------------------------------------------------------
-
   const fallback =
     fallbackExtractBeliefDeltas(text);
 
@@ -1057,12 +1014,9 @@ export function parseBeliefUpdates(text, sim) {
       fallback,
       sim,
       {
-        inputScale:
-          "percent_points",
-        multiplier:
-          BELIEF_EVIDENCE_SCALE,
-        source:
-          "belief_fallback"
+        inputScale: "percent_points",
+        multiplier: BELIEF_EVIDENCE_SCALE,
+        source: "belief_fallback"
       }
     );
 
@@ -1070,14 +1024,13 @@ export function parseBeliefUpdates(text, sim) {
     console.warn(
       `[parseBeliefUpdates] fallback extraction succeeded for ${simId}`
     );
-
+    _lastBeliefParseMethod = "belief_fallback";   // <-- NEW
     return fallbackUpdates;
   }
 
   // ------------------------------------------------------------
   // LEGACY ABSOLUTE BELIEF FORMAT
   // ------------------------------------------------------------
-
   if (
     object?.beliefs &&
     typeof object.beliefs === "object" &&
@@ -1091,38 +1044,15 @@ export function parseBeliefUpdates(text, sim) {
 
     const updatesFromAbsolute = {};
 
-    for (
-      const key of
-      Object.keys(sim.beliefs)
-    ) {
-      if (
-        !hasOwn(
-          object.beliefs,
-          key
-        )
-      ) {
-        continue;
-      }
+    for (const key of Object.keys(sim.beliefs)) {
+      if (!hasOwn(object.beliefs, key)) continue;
 
-      const newValue =
-        parseAbsoluteBeliefValue(
-          object.beliefs[key]
-        );
+      const newValue = parseAbsoluteBeliefValue(object.beliefs[key]);
+      const currentValue = Number(sim.beliefs[key]);
 
-      const currentValue =
-        Number(sim.beliefs[key]);
+      if (newValue === null || !Number.isFinite(currentValue)) continue;
 
-      if (
-        newValue === null ||
-        !Number.isFinite(
-          currentValue
-        )
-      ) {
-        continue;
-      }
-
-      updatesFromAbsolute[key] =
-        newValue - currentValue;
+      updatesFromAbsolute[key] = newValue - currentValue;
     }
 
     const absoluteUpdates =
@@ -1130,11 +1060,9 @@ export function parseBeliefUpdates(text, sim) {
         updatesFromAbsolute,
         sim,
         {
-          inputScale:
-            "normalized",
+          inputScale: "normalized",
           multiplier: 1,
-          source:
-            "absolute_beliefs"
+          source: "absolute_beliefs"
         }
       );
 
@@ -1143,18 +1071,17 @@ export function parseBeliefUpdates(text, sim) {
         `[parseBeliefUpdates] Success from absolute beliefs for ${simId}:`,
         absoluteUpdates
       );
-
+      _lastBeliefParseMethod = "absolute_beliefs";   // <-- NEW
       return absoluteUpdates;
     }
   }
 
   console.warn(
     `[parseBeliefUpdates] no usable belief data for ${simId}; using empty deltas`,
-    object
-      ? Object.keys(object)
-      : []
+    object ? Object.keys(object) : []
   );
 
+  _lastBeliefParseMethod = "none";   // <-- NEW
   return {};
 }
 
@@ -1210,21 +1137,21 @@ export function parseDriveUpdate(
   const primary =
     primaryMatch
       ? (
-          primaryMatch[1] ??
-          primaryMatch[2] ??
-          primaryMatch[3] ??
-          null
-        )
+        primaryMatch[1] ??
+        primaryMatch[2] ??
+        primaryMatch[3] ??
+        null
+      )
       : null;
 
   const secondary =
     secondaryMatch
       ? (
-          secondaryMatch[1] ??
-          secondaryMatch[2] ??
-          secondaryMatch[3] ??
-          null
-        )
+        secondaryMatch[1] ??
+        secondaryMatch[2] ??
+        secondaryMatch[3] ??
+        null
+      )
       : null;
 
   return sanitizeDrives(
@@ -1294,4 +1221,81 @@ export function parseAnchorUpdate(text) {
       .filter(Boolean);
 
   return sanitizeAnchors(anchors);
+}
+
+/* ============================================================
+   EXTRACTION STATS ACCUMULATOR
+   ============================================================ */
+
+/**
+ * Record a single extraction outcome for later analysis.
+ *
+ * @param {string} simId
+ * @param {string} fieldType - e.g. "stats", "belief_deltas", "drives", "anchors"
+ * @param {object} details
+ * @param {string} details.parseMethod - "direct", "repair", "field_recovery", "fallback", "absolute", "none"
+ * @param {number} details.durationMs  - wall‑clock time of the full extraction attempt
+ * @param {number} details.keysRecovered - number of usable keys extracted
+ * @param {number} details.cycle       - cycle number (default G.cycle)
+ */
+export function recordExtractionOutcome(simId, fieldType, details = {}) {
+  if (!G || !G.extractionStats) return;
+
+  const cycle = details.cycle ?? (G.cycle ?? 0);
+
+  if (!G.extractionStats.cycles[cycle]) {
+    G.extractionStats.cycles[cycle] = [];
+  }
+
+  G.extractionStats.cycles[cycle].push({
+    simId,
+    fieldType,
+    parseMethod: details.parseMethod ?? "unknown",
+    durationMs: details.durationMs ?? 0,
+    keysRecovered: details.keysRecovered ?? 0,
+    timestamp: Date.now()
+  });
+}
+
+/* ============================================================
+   STATS‑RECORDING WRAPPERS
+   ============================================================ */
+
+/**
+ * Parse stat deltas and record extraction outcome.
+ */
+export function parseStatDeltasWithStats(text, sim) {
+  const start = performance.now();
+  const result = parseStatDeltas(text, sim);
+  const duration = performance.now() - start;
+
+  const keysRecovered =
+    ["suffering", "hope", "sanity"].filter(
+      (key) => result._parseMethod !== "none"
+    ).length;
+
+  recordExtractionOutcome(sim.id, "stats", {
+    parseMethod: result._parseMethod ?? "direct",
+    durationMs: Math.round(duration),
+    keysRecovered
+  });
+  return result;
+}
+
+/**
+ * Parse belief updates and record extraction outcome.
+ * Uses the module‑level variable _lastBeliefParseMethod set by parseBeliefUpdates.
+ */
+export function parseBeliefUpdatesWithStats(text, sim) {
+  const start = performance.now();
+  const updates = parseBeliefUpdates(text, sim);
+  const duration = performance.now() - start;
+
+  recordExtractionOutcome(sim.id, "belief_deltas", {
+    parseMethod: _lastBeliefParseMethod,
+    durationMs: Math.round(duration),
+    keysRecovered: Object.keys(updates).length
+  });
+
+  return updates;
 }
