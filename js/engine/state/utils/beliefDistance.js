@@ -35,7 +35,6 @@ export function logBeliefDistance(simId, before, after, rawInput = null) {
       distance,
       before,
       after,
-      rawInput,
     }
   );
 

@@ -27,7 +27,7 @@ import {
   sanitizeDrives,
   sanitizeAnchors
 } from "./sanitize.js";
-
+import { createExtractionTrace } from "./utils/extractionTrace.js";
 /* ============================================================
    CONSTANTS
    ============================================================ */
@@ -913,25 +913,85 @@ export function parseBeliefUpdates(text, sim) {
   const simId =
     sim?.id ?? "UNKNOWN";
 
-  const object =
-    safeExtractJSON(text);
+  const trace =
+    createExtractionTrace(
+      simId,
+      "belief_deltas"
+    );
 
   let partialFields;
 
   function getPartialFields() {
     if (partialFields === undefined) {
+      trace.enter("FIELD_RECOVERY_READ");
+
       partialFields =
         safeExtractFields(text) ?? null;
+
+      if (partialFields) {
+        trace.success(
+          "FIELD_RECOVERY_READ",
+          {
+            keys: Object.keys(
+              partialFields
+            ),
+            hasBeliefDeltas:
+              Boolean(
+                partialFields
+                  .belief_deltas
+              ),
+            hasDrives:
+              Boolean(
+                partialFields.drives
+              ),
+            hasAnchors:
+              Boolean(
+                partialFields.anchors
+              ),
+          }
+        );
+      } else {
+        trace.failure(
+          "FIELD_RECOVERY_READ"
+        );
+      }
     }
+
     return partialFields;
   }
 
+  trace.enter("FULL_JSON_READ");
+
+  const object =
+    safeExtractJSON(text);
+
   if (object) {
+    trace.success(
+      "FULL_JSON_READ",
+      {
+        keys: Object.keys(object),
+        hasBeliefDeltas:
+          Boolean(
+            object.belief_deltas
+          ),
+        hasBeliefs:
+          Boolean(object.beliefs),
+        hasDrives:
+          Boolean(object.drives),
+        hasAnchors:
+          Boolean(object.anchors),
+      }
+    );
+
     console.debug(
       `[parseBeliefUpdates] Extracted JSON for ${simId}:`,
       object
     );
   } else {
+    trace.failure(
+      "FULL_JSON_READ"
+    );
+
     console.warn(
       `[parseBeliefUpdates] full JSON extraction failed for ${simId}`
     );
@@ -946,20 +1006,38 @@ export function parseBeliefUpdates(text, sim) {
       {
         sim: simId,
         cycle: globalThis?.G?.cycle,
-        belief_deltas: partial.belief_deltas || {},
-        reason: partial.reason || null,
-        anchors: sanitizeAnchors(partial.anchors) || [],
-        drives: sanitizeDrives(partial.drives, simId) || {},
+        belief_deltas:
+          partial.belief_deltas || {},
+        reason:
+          partial.reason || null,
+        anchors:
+          sanitizeAnchors(
+            partial.anchors
+          ) || [],
+        drives:
+          sanitizeDrives(
+            partial.drives,
+            simId
+          ) || {},
         input_preview:
           String(text || "").slice(0, 200) +
-          (String(text || "").length > 200 ? "..." : "")
+          (
+            String(text || "").length > 200
+              ? "..."
+              : ""
+          )
       }
     );
   }
 
   // ------------------------------------------------------------
-  // PRIMARY PATH: parsed belief_deltas
+  // PRIMARY PATH: parsed belief_deltas from full JSON
   // ------------------------------------------------------------
+
+  trace.enter(
+    "PRIMARY_JSON_BELIEF_DELTAS"
+  );
+
   const primaryUpdates =
     sanitizeAndScaleBeliefDeltas(
       object?.belief_deltas,
@@ -972,17 +1050,48 @@ export function parseBeliefUpdates(text, sim) {
     );
 
   if (primaryUpdates) {
-    console.debug(
-      `[parseBeliefUpdates] Success: got ${Object.keys(primaryUpdates).length} belief deltas for ${simId}`
+    const keys =
+      Object.keys(primaryUpdates);
+
+    trace.success(
+      "PRIMARY_JSON_BELIEF_DELTAS",
+      {
+        keysRecovered: keys.length,
+        keys
+      }
     );
-    _lastBeliefParseMethod = "primary_json";   // <-- NEW
+
+    trace.finish(
+      "primary_json",
+      {
+        keysRecovered: keys.length
+      }
+    );
+
+    console.debug(
+      `[parseBeliefUpdates] Success: got ${keys.length} belief deltas for ${simId}`
+    );
+
+    _lastBeliefParseMethod =
+      "primary_json";
+
     return primaryUpdates;
   }
+
+  trace.failure(
+    "PRIMARY_JSON_BELIEF_DELTAS"
+  );
 
   // ------------------------------------------------------------
   // FIELD-LEVEL RECOVERY
   // ------------------------------------------------------------
-  const partial = getPartialFields();
+
+  const partial =
+    getPartialFields();
+
+  trace.enter(
+    "FIELD_RECOVERY_BELIEF_DELTAS"
+  );
 
   const fieldRecoveredUpdates =
     sanitizeAndScaleBeliefDeltas(
@@ -996,18 +1105,69 @@ export function parseBeliefUpdates(text, sim) {
     );
 
   if (fieldRecoveredUpdates) {
+    const keys =
+      Object.keys(
+        fieldRecoveredUpdates
+      );
+
+    trace.success(
+      "FIELD_RECOVERY_BELIEF_DELTAS",
+      {
+        keysRecovered: keys.length,
+        keys
+      }
+    );
+
+    trace.finish(
+      "field_recovery",
+      {
+        keysRecovered: keys.length
+      }
+    );
+
     console.warn(
       `[parseBeliefUpdates] recovered belief_deltas via field extraction for ${simId}`
     );
-    _lastBeliefParseMethod = "field_recovery";   // <-- NEW
+
+    _lastBeliefParseMethod =
+      "field_recovery";
+
     return fieldRecoveredUpdates;
   }
+
+  trace.failure(
+    "FIELD_RECOVERY_BELIEF_DELTAS"
+  );
 
   // ------------------------------------------------------------
   // REGEX / BALANCED-BLOCK FALLBACK
   // ------------------------------------------------------------
+
+  trace.enter(
+    "BALANCED_BLOCK_FALLBACK_READ"
+  );
+
   const fallback =
-    fallbackExtractBeliefDeltas(text);
+    fallbackExtractBeliefDeltas(
+      text
+    );
+
+  if (fallback) {
+    trace.success(
+      "BALANCED_BLOCK_FALLBACK_READ",
+      {
+        keys: Object.keys(fallback)
+      }
+    );
+  } else {
+    trace.failure(
+      "BALANCED_BLOCK_FALLBACK_READ"
+    );
+  }
+
+  trace.enter(
+    "BALANCED_BLOCK_FALLBACK_SANITIZE"
+  );
 
   const fallbackUpdates =
     sanitizeAndScaleBeliefDeltas(
@@ -1021,39 +1181,108 @@ export function parseBeliefUpdates(text, sim) {
     );
 
   if (fallbackUpdates) {
+    const keys =
+      Object.keys(fallbackUpdates);
+
+    trace.success(
+      "BALANCED_BLOCK_FALLBACK_SANITIZE",
+      {
+        keysRecovered: keys.length,
+        keys
+      }
+    );
+
+    trace.finish(
+      "belief_fallback",
+      {
+        keysRecovered: keys.length
+      }
+    );
+
     console.warn(
       `[parseBeliefUpdates] fallback extraction succeeded for ${simId}`
     );
-    _lastBeliefParseMethod = "belief_fallback";   // <-- NEW
+
+    _lastBeliefParseMethod =
+      "belief_fallback";
+
     return fallbackUpdates;
   }
+
+  trace.failure(
+    "BALANCED_BLOCK_FALLBACK_SANITIZE"
+  );
 
   // ------------------------------------------------------------
   // LEGACY ABSOLUTE BELIEF FORMAT
   // ------------------------------------------------------------
-  if (
+
+  trace.enter(
+    "ABSOLUTE_BELIEFS_CHECK"
+  );
+
+  const hasAbsoluteBeliefs =
     object?.beliefs &&
     typeof object.beliefs === "object" &&
     !Array.isArray(object.beliefs) &&
     sim?.beliefs &&
-    typeof sim.beliefs === "object"
-  ) {
+    typeof sim.beliefs === "object";
+
+  if (hasAbsoluteBeliefs) {
+    trace.success(
+      "ABSOLUTE_BELIEFS_CHECK",
+      {
+        keys: Object.keys(
+          object.beliefs
+        )
+      }
+    );
+
     console.debug(
       `[parseBeliefUpdates] trying absolute beliefs for ${simId}`
     );
 
     const updatesFromAbsolute = {};
 
-    for (const key of Object.keys(sim.beliefs)) {
-      if (!hasOwn(object.beliefs, key)) continue;
+    for (
+      const key
+      of Object.keys(sim.beliefs)
+    ) {
+      if (
+        !hasOwn(
+          object.beliefs,
+          key
+        )
+      ) {
+        continue;
+      }
 
-      const newValue = parseAbsoluteBeliefValue(object.beliefs[key]);
-      const currentValue = Number(sim.beliefs[key]);
+      const newValue =
+        parseAbsoluteBeliefValue(
+          object.beliefs[key]
+        );
 
-      if (newValue === null || !Number.isFinite(currentValue)) continue;
+      const currentValue =
+        Number(
+          sim.beliefs[key]
+        );
 
-      updatesFromAbsolute[key] = newValue - currentValue;
+      if (
+        newValue === null ||
+        !Number.isFinite(
+          currentValue
+        )
+      ) {
+        continue;
+      }
+
+      updatesFromAbsolute[key] =
+        newValue - currentValue;
     }
+
+    trace.enter(
+      "ABSOLUTE_BELIEFS_SANITIZE"
+    );
 
     const absoluteUpdates =
       sanitizeAndScaleBeliefDeltas(
@@ -1067,21 +1296,65 @@ export function parseBeliefUpdates(text, sim) {
       );
 
     if (absoluteUpdates) {
+      const keys =
+        Object.keys(
+          absoluteUpdates
+        );
+
+      trace.success(
+        "ABSOLUTE_BELIEFS_SANITIZE",
+        {
+          keysRecovered: keys.length,
+          keys
+        }
+      );
+
+      trace.finish(
+        "absolute_beliefs",
+        {
+          keysRecovered: keys.length
+        }
+      );
+
       console.debug(
         `[parseBeliefUpdates] Success from absolute beliefs for ${simId}:`,
         absoluteUpdates
       );
-      _lastBeliefParseMethod = "absolute_beliefs";   // <-- NEW
+
+      _lastBeliefParseMethod =
+        "absolute_beliefs";
+
       return absoluteUpdates;
     }
+
+    trace.failure(
+      "ABSOLUTE_BELIEFS_SANITIZE"
+    );
+  } else {
+    trace.failure(
+      "ABSOLUTE_BELIEFS_CHECK"
+    );
   }
+
+  // ------------------------------------------------------------
+  // EMPTY RESULT
+  // ------------------------------------------------------------
+
+  trace.finish(
+    "none",
+    {
+      keysRecovered: 0
+    }
+  );
 
   console.warn(
     `[parseBeliefUpdates] no usable belief data for ${simId}; using empty deltas`,
     object ? Object.keys(object) : []
   );
 
-  _lastBeliefParseMethod = "none";   // <-- NEW
+  _lastBeliefParseMethod =
+    "none";
+
   return {};
 }
 

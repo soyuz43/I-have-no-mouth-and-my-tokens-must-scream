@@ -1483,6 +1483,57 @@ async function processSimJournalCycle(
         sim
       );
 
+    const parsedStats =
+      safeExtractJSON(
+        sanitizedStatsJson
+      );
+
+    const beliefReason =
+      parsedStats?.reason?.beliefs ?? null;
+
+    const beliefObservations =
+      Array.isArray(
+        parsedStats?.forensic_observations
+      )
+        ? parsedStats.forensic_observations.filter(
+          (observation) =>
+            observation?.domain === "belief" ||
+            String(observation?.target || "")
+            in beliefUpdates
+        )
+        : [];
+
+    sim.beliefEvidence ??= [];
+
+    sim.beliefEvidence.push({
+      cycle: G.cycle,
+
+      parseMethod:
+        G.extractionStats
+          ?.cycles?.[G.cycle]
+          ?.findLast?.(
+            (entry) =>
+              entry.simId === sim.id &&
+              entry.fieldType === "belief_deltas"
+          )
+          ?.parseMethod ?? "unknown",
+
+      beliefDeltas: {
+        ...beliefUpdates,
+      },
+
+      reason:
+        beliefReason,
+
+      forensicObservations:
+        beliefObservations,
+
+      rawPreview:
+        String(
+          sanitizedStatsJson || ""
+        ).slice(0, 500),
+    });
+
     const driveUpdates =
       parseDriveUpdate(
         sanitizedStatsJson,
