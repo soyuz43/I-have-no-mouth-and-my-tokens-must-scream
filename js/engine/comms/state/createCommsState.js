@@ -49,6 +49,8 @@ export function createCommsState() {
       activeThisCycle: new Set(),
     },
 
+    intentTimeline: [],
+    
     /* ---------------- FLAT ACCESS (ENGINE USES THESE) ---------------- */
 
     sentMessagesThisCycle,

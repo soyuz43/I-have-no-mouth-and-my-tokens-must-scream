@@ -8,14 +8,15 @@ import {
   fixStrayQuoteAfterComma,
   fixObjectMerges,
   repairObjectBoundaries,
-  splitRepeatedObjectBlocks
+  splitRepeatedObjectBlocks,
+  splitMultiIdCascade
 } from "./utils.js";
 
 
 import { classifyJsonError } from "./classifyJsonError.js";
 import { normalizeJsonShape } from "./normalizeJsonShape.js";
 import { normalizeTargetKeys } from "./normalizeKeys.js";
-
+import { normalizeUnicode } from './normalizeUnicode.js';
 
 /* ============================================================
    SCHEMA-AWARE TARGETS EXTRACTION
@@ -77,10 +78,14 @@ function extractTargetsArray(source) {
 ============================================================ */
 
 function attemptRepairs(candidate, DEBUG_EXTRACT) {
-  let repaired = candidate;
+  let repaired =
+    normalizeUnicode(candidate);
 
-  // Strip trailing commas 
-  repaired = repaired.trim().replace(/,\s*$/, "");
+  // Strip a trailing comma after the complete candidate.
+  repaired =
+    repaired
+      .trim()
+      .replace(/,\s*$/, "");
 
   let errorType = "unknown";
 
@@ -104,6 +109,18 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
    */
   repaired = fixSingleQuotedSchemaValues(repaired);
   repaired = fixMissingCommas(repaired);
+
+  const beforeMultiIdCascade = repaired;
+  repaired = splitMultiIdCascade(repaired);
+
+  if (
+    DEBUG_EXTRACT &&
+    repaired !== beforeMultiIdCascade
+  ) {
+    console.warn(
+      "[REPAIR] split duplicate target id cascade"
+    );
+  }
 
   repaired = splitRepeatedObjectBlocks(repaired);
   repaired = repairObjectBoundaries(repaired);
@@ -170,10 +187,12 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
     .replace(/^\s*(PRIVATE|PUBLIC)[^\n]*\n?/gm, "")
     .replace(/^\s*NOTICE[^\n]*\n?/gm, "");
 
+  cleanedInput = normalizeUnicode(cleanedInput);
   cleanedInput = normalizeJsonShape(cleanedInput);
+
   /* ------------------------------------------------------------
-   FAST PATH: FULL OBJECT FIRST 
------------------------------------------------------------- */
+     FAST PATH: FULL OBJECT FIRST 
+  ------------------------------------------------------------ */
 
   try {
     const start = cleanedInput.indexOf("{");
@@ -318,7 +337,24 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
     if (cleanedInput[i] === "[") starts.push({ index: i, type: "[" });
   }
 
-  starts.sort((a, b) => (a.type === "[" ? -1 : 1));
+  starts.sort(
+    (a, b) => {
+      const rankA =
+        a.type === "["
+          ? 0
+          : 1;
+
+      const rankB =
+        b.type === "["
+          ? 0
+          : 1;
+
+      return (
+        rankA - rankB ||
+        a.index - b.index
+      );
+    }
+  );
 
   /* ------------------------------------------------------------
      STEP 2: ROOT-AWARE SCAN
@@ -413,7 +449,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         }
 
         if (DEBUG_EXTRACT) {
-          console.debug("[EXTRACT] candidate:", candidate);
+          console.debug("[EXTRACT] candidate:", String(candidate).slice(0, 50));
         }
 
         /* ------------------------------------------------------------
@@ -580,67 +616,121 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   return null;
 }
 
-function hasDuplicateKeys(str) {
-  let inString = false;
-  let escape = false;
-  let depth = 0;
+function hasDuplicateKeys(input) {
+  if (typeof input !== "string") {
+    return false;
+  }
 
-  const stack = [];
+  const objectKeyStack = [];
 
-  for (let i = 0; i < str.length; i++) {
-    const ch = str[i];
-
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (ch === "\\") {
-      escape = true;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) continue;
+  for (
+    let i = 0;
+    i < input.length;
+    i++
+  ) {
+    const ch = input[i];
 
     if (ch === "{") {
-      stack.push(new Set());
-      depth++;
+      objectKeyStack.push(
+        new Set()
+      );
       continue;
     }
 
     if (ch === "}") {
-      stack.pop();
-      depth--;
+      objectKeyStack.pop();
       continue;
     }
 
-    // detect keys ONLY at current object level
-    if (ch === '"' && stack.length > 0) {
-      let j = i + 1;
-      while (j < str.length && str[j] !== '"') j++;
+    if (
+      ch !== '"' ||
+      objectKeyStack.length === 0
+    ) {
+      continue;
+    }
 
-      const key = str.slice(i + 1, j);
+    /*
+     * Read the complete quoted token while respecting escapes.
+     */
+    let end = i + 1;
+    let escape = false;
 
-      let k = j + 1;
-      while (k < str.length && /\s/.test(str[k])) k++;
+    for (
+      ;
+      end < input.length;
+      end++
+    ) {
+      const current =
+        input[end];
 
-      if (str[k] === ":") {
-        const current = stack[stack.length - 1];
-
-        if (current.has(key)) {
-          return true;
-        }
-
-        current.add(key);
+      if (escape) {
+        escape = false;
+        continue;
       }
 
-      i = j;
+      if (current === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (current === '"') {
+        break;
+      }
     }
+
+    if (end >= input.length) {
+      return false;
+    }
+
+    /*
+     * A quoted token is a property key only when the next
+     * significant character is a colon.
+     */
+    let cursor =
+      end + 1;
+
+    while (
+      cursor < input.length &&
+      /\s/.test(input[cursor])
+    ) {
+      cursor++;
+    }
+
+    if (input[cursor] !== ":") {
+      i = end;
+      continue;
+    }
+
+    const rawToken =
+      input.slice(
+        i,
+        end + 1
+      );
+
+    let key;
+
+    try {
+      key =
+        JSON.parse(rawToken);
+    } catch {
+      key =
+        rawToken.slice(1, -1);
+    }
+
+    const currentObjectKeys =
+      objectKeyStack[
+      objectKeyStack.length - 1
+      ];
+
+    if (
+      currentObjectKeys.has(key)
+    ) {
+      return true;
+    }
+
+    currentObjectKeys.add(key);
+
+    i = end;
   }
 
   return false;

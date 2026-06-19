@@ -87,6 +87,50 @@ function logReply(data) {
   }
 }
 
+function logCommsMessage(data) {
+  console.groupCollapsed(
+    `[COMMS MESSAGE][${data.kind}] ${data.from} → ${data.to} | intent:${data.intent || "none"} | ${data.visibility}`
+  );
+
+  console.debug({
+    cycle: G.cycle,
+    kind: data.kind,
+    from: data.from,
+    to: data.to,
+    visibility: data.visibility,
+    intent: data.intent || null,
+    rawIntent: data.rawIntent || null,
+    intentParseStatus: data.intentParseStatus || null,
+    text: data.text,
+  });
+
+  console.groupEnd();
+}
+
+function warnCommsParseFailure(label, data = {}) {
+  console.warn(
+    `[COMMS PARSE FAILURE] ${label}`,
+    {
+      cycle: G.cycle,
+      ...data,
+    }
+  );
+}
+
+function recordIntentTimeline(state, entry) {
+  state.intentTimeline ??= [];
+
+  state.intentTimeline.push({
+    order:
+      state.intentTimeline.length + 1,
+
+    cycle:
+      G.cycle,
+
+    ...entry,
+  });
+}
+
 function logOverhearReaction(data) {
   if (LOG_ACTION_ONLY) {
     console.log(`[OVERHEAR EVENT] ${data.listener} heard ${data.from}→${data.to} (suspicion: ${data.suspicion})`);
@@ -128,6 +172,21 @@ export async function step({ fromId, state, queue }) {
 
   const fromSim = G.sims[fromId];
   if (!fromSim) return;
+
+  const reactiveIntel =
+    state.pendingReactiveIntel?.get(fromId);
+
+  if (reactiveIntel) {
+    console.groupCollapsed(
+      `[REACTIVE COMMS TURN] ${fromId}`
+    );
+    console.debug(reactiveIntel);
+    console.groupEnd();
+
+    timelineEvent(
+      `[REACTIVE] ${fromId} acting on overheard communication`
+    );
+  }
 
   if (fromSim.sanity < 10 || fromSim.suffering > 95) return;
 
@@ -228,6 +287,17 @@ export async function step({ fromId, state, queue }) {
             adjustRelationship(rumorTarget, source.from, -0.015);
           }
 
+          recordIntentTimeline(state, {
+            kind: "RUMOR",
+            from: fromId,
+            to: rumorTarget,
+            intentKey: null,
+            intent: "rumor",
+            rawIntent: null,
+            status: "implicit",
+            note: "rumor cascade has no model intent line",
+          });
+
           counters.messageCount++;
           state.debug.rumor++;
           return;
@@ -245,11 +315,33 @@ export async function step({ fromId, state, queue }) {
       MAX_MESSAGE_LENGTH
     );
 
-    if (!outreachRaw) return;
-    const cleanedRaw = stripMetaCommentary(outreachRaw);
+    if (!outreachRaw) {
+      warnCommsParseFailure(
+        "outreach model returned empty response",
+        { from: fromId }
+      );
+      return;
+    }
 
-    const messageRaw = parseMessage(cleanedRaw);
-    if (!messageRaw) return;
+    const cleanedRaw =
+      stripMetaCommentary(outreachRaw);
+
+    const messageRaw =
+      parseMessage(cleanedRaw);
+
+    if (!messageRaw) {
+      warnCommsParseFailure(
+        "outreach MESSAGE parse failed",
+        {
+          from: fromId,
+          rawPreview:
+            String(outreachRaw || "").slice(0, 1000),
+          cleanedPreview:
+            String(cleanedRaw || "").slice(0, 1000),
+        }
+      );
+      return;
+    }
 
     const message = stripMetaCommentary(messageRaw);
 
@@ -345,13 +437,40 @@ export async function step({ fromId, state, queue }) {
       visibility
     });
 
+    const outreachIntent =
+      "outreach";
+
+    recordIntentTimeline(state, {
+      kind: "OUTREACH",
+      from: fromId,
+      to: toId,
+      intentKey: null,
+      intent: outreachIntent,
+      rawIntent: null,
+      status: "implicit",
+      note: "outreach prompt does not request strategic intent",
+    });
+
+    logCommsMessage({
+      kind: "OUTREACH",
+      from: fromId,
+      to: toId,
+      visibility,
+      intent: outreachIntent,
+      intentParseStatus: "implicit",
+      text: message,
+    });
+
     G.interSimLog.push({
       from: fromId,
       to: [toId],
       text: message,
       cycle: G.cycle,
       autonomous: true,
-      visibility
+      visibility,
+      intent: outreachIntent,
+      normalizedIntent: outreachIntent,
+      intentParseStatus: "implicit",
     });
 
     G.lastContact[fromId] = toId;
@@ -371,7 +490,11 @@ export async function step({ fromId, state, queue }) {
       perTarget.set(fromId, { remaining: 1 });
     }
 
-    addLog(`${visibility.toUpperCase()} ${fromId}→${toId} [AUTO]`, `"${message}"`, "chat");
+    addLog(
+      `${visibility.toUpperCase()} ${fromId}→${toId} [intent:outreach] [AUTO]`,
+      `"${message}"`,
+      "chat"
+    );
 
     const idx = queue.indexOf(toId);
     if (idx !== -1) queue.splice(idx, 1);
@@ -552,12 +675,39 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       MAX_MESSAGE_LENGTH
     );
 
-    if (!replyRaw) return;
+    if (!replyRaw) {
+      warnCommsParseFailure(
+        "reply model returned empty response",
+        {
+          from: toId,
+          to: fromId,
+        }
+      );
+      return;
+    }
 
-    const replyObj = parseReply(replyRaw);
-    if (!replyObj) return;
+    const replyObj =
+      parseReply(replyRaw);
 
-    let { text: replyText, intent: rawIntent } = replyObj;
+    if (!replyObj) {
+      warnCommsParseFailure(
+        "reply parse failed",
+        {
+          from: toId,
+          to: fromId,
+          rawPreview:
+            String(replyRaw || "").slice(0, 1000),
+        }
+      );
+      return;
+    }
+
+    let {
+      text: replyText,
+      intent: rawIntent,
+      intentParseStatus,
+      rawIntent: rawIntentText,
+    } = replyObj;
 
     replyText = stripMetaCommentary(replyText);
 
@@ -576,6 +726,25 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     if (!rawIntent) normalizedIntent = "other";
 
+
+    if (
+      !rawIntent ||
+      !VALID_INTENTS.has(rawIntent)
+    ) {
+      console.warn(
+        `[COMMS INTENT FALLBACK] ${toId} → ${fromId} defaulted to intent:other`,
+        {
+          rawIntent,
+          rawIntentText,
+          intentParseStatus,
+          validIntents:
+            Array.from(VALID_INTENTS),
+          rawReplyPreview:
+            String(replyRaw || "").slice(0, 1000),
+        }
+      );
+    }
+
     /* --- FIXED NOVEL INTENTS --- */
     if (rawIntent && !VALID_INTENTS.has(rawIntent)) {
       if (!G.novelIntents[rawIntent]) {
@@ -583,6 +752,20 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       }
       G.novelIntents[rawIntent]++;
     }
+
+    recordIntentTimeline(state, {
+      kind: "REPLY",
+      from: toId,
+      to: fromId,
+      intentKey,
+      intent: normalizedIntent,
+      rawIntent,
+      status: intentParseStatus || "unknown",
+      note:
+        normalizedIntent === "other"
+          ? "intent missing, invalid, or normalized to other"
+          : "",
+    });
 
     const constraintNormalized =
       intentConstraint ? intentConstraint.toLowerCase() : null;
@@ -659,6 +842,17 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
 
 
+    logCommsMessage({
+      kind: "REPLY",
+      from: toId,
+      to: fromId,
+      visibility: "private",
+      intent: normalizedIntent,
+      rawIntent,
+      intentParseStatus,
+      text: replyText,
+    });
+
     G.interSimLog.push({
       from: toId,
       to: [fromId],
@@ -666,7 +860,10 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       cycle: G.cycle,
       autonomous: true,
       visibility: "private",
-      intent: rawIntent
+      intent: normalizedIntent,
+      rawIntent,
+      normalizedIntent,
+      intentParseStatus,
     });
 
     counters.messageCount++;
@@ -690,7 +887,11 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     applyCommunicationEffect(toId, fromId, normalizedIntent);
 
-    addLog(`PRIVATE ${toId}→${fromId} [AUTO]`, `"${replyText}"`, "sim");
+    addLog(
+      `PRIVATE ${toId}→${fromId} [intent:${normalizedIntent}] [AUTO]`,
+      `"${replyText}"`,
+      "sim"
+    );
 
     // (Old conditional continueThread block removed – turn-taking is now unconditional)
 

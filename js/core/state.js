@@ -124,6 +124,9 @@ export const G = {
   // Logs psychology‑phase schedule, journal details, and extraction stats.
   DEBUG_PSYCHOLOGY_LOGS: true,
 
+  // Logs strategy target-array validation and per-target validation details.
+  DEBUG_STRATEGY_VALIDATION: true,
+
   // Controls verbosity of safeExtractJSON logging:
   // 0 = silent, 1 = warnings only, 2 = verbose debug
   SAFE_EXTRACT_LOG_LEVEL: 2,

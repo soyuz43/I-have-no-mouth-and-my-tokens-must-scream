@@ -58,6 +58,77 @@ import {
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
 import { logBeliefDistance } from "../state/utils/beliefDistance.js";
 
+
+
+// Constants & Logging helpers
+const LOG_PSYCHOLOGY_GROUP_PHASE = true;
+const LOG_PSYCHOLOGY_GROUP_SIMS = true;
+
+
+function beginPsychologyPhaseLog() {
+  if (!LOG_PSYCHOLOGY_GROUP_PHASE) return;
+
+  console.groupCollapsed(
+    `[PSYCHOLOGY][Cycle ${G.cycle ?? "?"}] journal phase`
+  );
+}
+
+function endPsychologyPhaseLog() {
+  if (LOG_PSYCHOLOGY_GROUP_PHASE) {
+    console.groupEnd();
+  }
+}
+
+function beginSimPsychologyLog(simId) {
+  if (!LOG_PSYCHOLOGY_GROUP_SIMS) return;
+
+  console.groupCollapsed(
+    `[PSYCHOLOGY SIM] ${simId}`
+  );
+}
+
+function endSimPsychologyLog() {
+  if (LOG_PSYCHOLOGY_GROUP_SIMS) {
+    console.groupEnd();
+  }
+}
+
+function logStatsModelJson({
+  simId,
+  rawStatsJson,
+  sanitizedStatsJson = null,
+}) {
+  if (!G.DEBUG_PSYCHOLOGY_LOGS) return;
+
+  const hasRaw =
+    typeof rawStatsJson === "string" &&
+    rawStatsJson.trim().length > 0;
+
+  console.groupCollapsed(
+    `[STATS MODEL JSON][${simId}] CLICK TO VIEW RETURNED JSON`
+  );
+
+  if (hasRaw) {
+    console.debug("RAW MODEL RETURN:");
+    console.debug(rawStatsJson);
+  } else {
+    console.error(
+      `[STATS MODEL JSON][${simId}] MISSING OR EMPTY RAW STATS RESPONSE`,
+      {
+        rawStatsJson,
+        type: typeof rawStatsJson,
+      }
+    );
+  }
+
+  if (sanitizedStatsJson !== null) {
+    console.debug("SANITIZED JSON USED BY PARSERS:");
+    console.debug(sanitizedStatsJson);
+  }
+
+  console.groupEnd();
+}
+
 /* ============================================================
    BELIEF DIFF UTILITIES (DEBUG / OBSERVABILITY)
    ============================================================ */
@@ -825,194 +896,199 @@ export async function runPsychologyPhase(
   execution
 ) {
   if (!execution) return;
-
-  const cycleBeliefSummary = {};
-
-  const tacticMap =
-    execution.tacticMap &&
-      typeof execution.tacticMap ===
-      "object"
-      ? execution.tacticMap
-      : {};
-
-  const amExecution =
-    buildExecutionContext(
-      execution
-    );
-
-  const {
-    journalTargetIds,
-    activeConstraintTargetIds,
-  } = buildJournalTargetIds(
-    amExecution
-  );
-
-  /*
-   * strategyPhase records the initial current-cycle candidates.
-   * Psychology resolves the final list after including ongoing
-   * constraints and excluding records with no actual stimulus.
-   * Persist that resolved history before any journals run.
-   */
-
-  amExecution.activeConstraintTargetIds =
-    [
-      ...activeConstraintTargetIds,
-    ];
-
-  amExecution.journalTargetIds =
-    [
-      ...journalTargetIds,
-    ];
-
-  amExecution.nonJournalExpectedTargetIds =
-    amExecution.targetIds.filter(
-      (id) =>
-        !journalTargetIds.includes(id)
-    );
-
-  G.amExecution = amExecution;
-  execution.amExecution =
-    amExecution;
-
-  const journalTargets =
-    journalTargetIds
-      .map(
-        (id) =>
-          G.sims?.[id]
-      )
-      .filter(
-        (sim) =>
-          sim?.id
-      );
-
-  const phaseStatsBefore =
-    snapshotAllStats();
-
-  if (G.DEBUG_PSYCHOLOGY_LOGS) {
-    console.group(
-      `[PSYCHOLOGY SCHEDULE][Cycle ${G.cycle}]`
-    );
-    console.log(
-      "EXPECTED TARGETS:",
-      amExecution.targetIds
-    );
-    console.log(
-      "ACTION TARGETS:",
-      amExecution.actionTargetIds
-    );
-    console.log(
-      "CURRENT CONSTRAINT TARGETS:",
-      amExecution.constraintTargetIds
-    );
-    console.log(
-      "ACTIVE CONSTRAINT TARGETS:",
-      activeConstraintTargetIds
-    );
-    console.log(
-      "SUCCESSFUL OBSERVERS:",
-      amExecution.observerIds
-    );
-    console.log(
-      "FINAL JOURNAL TARGETS:",
-      journalTargetIds
-    );
-    console.log(
-      "MISSING EXPECTED ACTIONS:",
-      amExecution.missingTargetIds
-    );
-    console.groupEnd();
-  }
-
-  /* ------------------------------------------------------------
-     SIM JOURNAL PHASE
-  ------------------------------------------------------------ */
-
   try {
-    timelineEvent(
-      `>>> SIM JOURNALS`
+    beginPsychologyPhaseLog();
+
+    const cycleBeliefSummary = {};
+
+    const tacticMap =
+      execution.tacticMap &&
+        typeof execution.tacticMap ===
+        "object"
+        ? execution.tacticMap
+        : {};
+
+    const amExecution =
+      buildExecutionContext(
+        execution
+      );
+
+    const {
+      journalTargetIds,
+      activeConstraintTargetIds,
+    } = buildJournalTargetIds(
+      amExecution
     );
 
-    if (journalTargets.length) {
-      await stepSimJournals(
-        journalTargets,
-        tacticMap,
-        amExecution,
-        phaseStatsBefore,
-        cycleBeliefSummary
+    /*
+     * strategyPhase records the initial current-cycle candidates.
+     * Psychology resolves the final list after including ongoing
+     * constraints and excluding records with no actual stimulus.
+     * Persist that resolved history before any journals run.
+     */
+
+    amExecution.activeConstraintTargetIds =
+      [
+        ...activeConstraintTargetIds,
+      ];
+
+    amExecution.journalTargetIds =
+      [
+        ...journalTargetIds,
+      ];
+
+    amExecution.nonJournalExpectedTargetIds =
+      amExecution.targetIds.filter(
+        (id) =>
+          !journalTargetIds.includes(id)
       );
-    } else {
-      console.debug(
-        "[PSYCHOLOGY] No sims qualified for a journal this cycle."
+
+    G.amExecution = amExecution;
+    execution.amExecution =
+      amExecution;
+
+    const journalTargets =
+      journalTargetIds
+        .map(
+          (id) =>
+            G.sims?.[id]
+        )
+        .filter(
+          (sim) =>
+            sim?.id
+        );
+
+    const phaseStatsBefore =
+      snapshotAllStats();
+
+    if (G.DEBUG_PSYCHOLOGY_LOGS) {
+      console.groupCollapsed(
+        `[PSYCHOLOGY SCHEDULE][Cycle ${G.cycle}]`
+      );
+      console.log(
+        "EXPECTED TARGETS:",
+        amExecution.targetIds
+      );
+      console.log(
+        "ACTION TARGETS:",
+        amExecution.actionTargetIds
+      );
+      console.log(
+        "CURRENT CONSTRAINT TARGETS:",
+        amExecution.constraintTargetIds
+      );
+      console.log(
+        "ACTIVE CONSTRAINT TARGETS:",
+        activeConstraintTargetIds
+      );
+      console.log(
+        "SUCCESSFUL OBSERVERS:",
+        amExecution.observerIds
+      );
+      console.log(
+        "FINAL JOURNAL TARGETS:",
+        journalTargetIds
+      );
+      console.log(
+        "MISSING EXPECTED ACTIONS:",
+        amExecution.missingTargetIds
+      );
+      console.groupEnd();
+    }
+
+    /* ------------------------------------------------------------
+       SIM JOURNAL PHASE
+    ------------------------------------------------------------ */
+
+    try {
+      timelineEvent(
+        `>>> SIM JOURNALS`
+      );
+
+      if (journalTargets.length) {
+        await stepSimJournals(
+          journalTargets,
+          tacticMap,
+          amExecution,
+          phaseStatsBefore,
+          cycleBeliefSummary
+        );
+      } else {
+        console.debug(
+          "[PSYCHOLOGY] No sims qualified for a journal this cycle."
+        );
+
+        timelineEvent(
+          `// NO JOURNAL PARTICIPANTS`
+        );
+      }
+
+      timelineEvent(
+        `// JOURNAL PHASE COMPLETE`
+      );
+    } catch (error) {
+      console.error(
+        "Journal phase error:",
+        error
       );
 
       timelineEvent(
-        `// NO JOURNAL PARTICIPANTS`
+        `!! JOURNAL PHASE ERROR`
       );
     }
 
-    timelineEvent(
-      `// JOURNAL PHASE COMPLETE`
+    /* ------------------------------------------------------------
+       DETERMINISTIC CONSTRAINT PASS
+  
+       This runs once for every constrained sim, regardless of whether
+       that sim wrote a journal. It must remain outside the per-journal
+       worker to prevent skipped or duplicate constraint progression.
+    ------------------------------------------------------------ */
+
+    const constraintTickResults =
+      tickAllActiveConstraints();
+
+    /* ------------------------------------------------------------
+       FINAL STATS SUMMARY / UI REFRESH
+    ------------------------------------------------------------ */
+
+    logFinalStatsSummary({
+      phaseStatsBefore,
+      journalTargetIds,
+      constraintTickResults,
+    });
+
+    refreshSimDisplays({
+      phaseStatsBefore,
+      journalTargetIds,
+      constraintTickResults,
+    });
+
+    /* ------------------------------------------------------------
+       BELIEF SUMMARY
+    ------------------------------------------------------------ */
+
+    logBeliefSummary(
+      cycleBeliefSummary
     );
-  } catch (error) {
-    console.error(
-      "Journal phase error:",
-      error
-    );
 
-    timelineEvent(
-      `!! JOURNAL PHASE ERROR`
-    );
-  }
-
-  /* ------------------------------------------------------------
-     DETERMINISTIC CONSTRAINT PASS
-
-     This runs once for every constrained sim, regardless of whether
-     that sim wrote a journal. It must remain outside the per-journal
-     worker to prevent skipped or duplicate constraint progression.
-  ------------------------------------------------------------ */
-
-  const constraintTickResults =
-    tickAllActiveConstraints();
-
-  /* ------------------------------------------------------------
-     FINAL STATS SUMMARY / UI REFRESH
-  ------------------------------------------------------------ */
-
-  logFinalStatsSummary({
-    phaseStatsBefore,
-    journalTargetIds,
-    constraintTickResults,
-  });
-
-  refreshSimDisplays({
-    phaseStatsBefore,
-    journalTargetIds,
-    constraintTickResults,
-  });
-
-  /* ------------------------------------------------------------
-     BELIEF SUMMARY
-  ------------------------------------------------------------ */
-
-  logBeliefSummary(
-    cycleBeliefSummary
-  );
-
-  // ------------------------------------------------------------
-  // OPTIONAL: Print extraction stats for the current cycle
-  // ------------------------------------------------------------
-  if (
-    G.DEBUG_PSYCHOLOGY_LOGS &&
-    G.extractionStats?.cycles[G.cycle]
-  ) {
-    console.group(
-      `[EXTRACTION STATS][Cycle ${G.cycle}]`
-    );
-    console.table(
-      G.extractionStats.cycles[G.cycle]
-    );
-    console.groupEnd();
+    // ------------------------------------------------------------
+    // OPTIONAL: Print extraction stats for the current cycle
+    // ------------------------------------------------------------
+    if (
+      G.DEBUG_PSYCHOLOGY_LOGS &&
+      G.extractionStats?.cycles[G.cycle]
+    ) {
+      console.groupCollapsed(
+        `[EXTRACTION STATS][Cycle ${G.cycle}]`
+      );
+      console.table(
+        G.extractionStats.cycles[G.cycle]
+      );
+      console.groupEnd();
+    }
+  } finally {
+    endPsychologyPhaseLog();
   }
 }
 
@@ -1105,6 +1181,8 @@ async function processSimJournalCycle(
       diff: [],
     };
   }
+
+  beginSimPsychologyLog(sim.id);
 
   timelineEvent(
     `${sim.id} journal start`
@@ -1239,7 +1317,7 @@ async function processSimJournalCycle(
        DEBUG: SUBJECTIVE INPUT
     ========================= */
 
-    console.group(
+    console.groupCollapsed(
       `[AM CONTEXT][${sim.id}]`
     );
 
@@ -1359,24 +1437,34 @@ async function processSimJournalCycle(
         cleanAM
       );
 
-    const rawStatsJson =
-      await callModel(
-        "FORENSIC_STATS",
-        statsPrompt,
-        [
+    let rawStatsJson = null;
+
+    try {
+      rawStatsJson =
+        await callModel(
+          "FORENSIC_STATS",
+          statsPrompt,
+          [
+            {
+              role: "user",
+              content:
+                "Analyze and output JSON only.",
+            },
+          ],
+          2400,
           {
-            role: "user",
-            content:
-              "Analyze and output JSON only.",
-          },
-        ],
-        2400,
-        {
-          purpose: "STATS",
-          subject: sim.id
-        }
+            purpose: "STATS",
+            subject: sim.id
+          }
+        );
+    } catch (error) {
+      console.error(
+        `[STATS MODEL JSON][${sim.id}] STATS MODEL CALL FAILED`,
+        error
       );
 
+      throw error;
+    }
 
     timelineEvent(
       `${sim.id} stats analysis`
@@ -1387,6 +1475,12 @@ async function processSimJournalCycle(
         rawStatsJson,
         sim.id
       );
+
+    logStatsModelJson({
+      simId: sim.id,
+      rawStatsJson,
+      sanitizedStatsJson,
+    });
 
     const parsedStatDeltas =
       parseStatDeltasWithStats(
@@ -1817,6 +1911,7 @@ async function processSimJournalCycle(
       diff: [],
     };
   } finally {
+
     showWriting(
       sim.id,
       false
@@ -1825,6 +1920,8 @@ async function processSimJournalCycle(
     timelineEvent(
       `${sim.id} journal complete`
     );
+
+    endSimPsychologyLog();
   }
 }
 
@@ -2461,7 +2558,7 @@ function tickAllActiveConstraints() {
   if (
     Object.keys(results).length
   ) {
-    console.group(
+    console.groupCollapsed(
       `[CONSTRAINT SUMMARY][Cycle ${G.cycle}]`
     );
 
@@ -2525,7 +2622,7 @@ function logFinalStatsSummary({
       )
     );
 
-  console.group(
+  console.groupCollapsed(
     `[STATS SUMMARY][Cycle ${G.cycle}]`
   );
 
@@ -2686,7 +2783,7 @@ function refreshSimDisplays({
 function logBeliefSummary(
   cycleBeliefSummary
 ) {
-  console.group(
+  console.groupCollapsed(
     `[BELIEF SUMMARY][Cycle ${G.cycle}]`
   );
 

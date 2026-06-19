@@ -1,6 +1,6 @@
 // js/engine/strategy/extractors/repairTargetsExtractor.js
 
- import {
+import {
   stripJsonComments,
   fixSingleQuotedSchemaValues,
   fixMissingCommas,
@@ -11,6 +11,10 @@
   splitRepeatedObjectBlocks,
   splitMultiIdCascade
 } from "./utils.js";
+
+import {
+  normalizeUnicode,
+} from "./normalizeUnicode.js";
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
 
@@ -32,7 +36,10 @@ export function repairTargetsExtractor(
    * Normalize recoverable schema strings before locating the
    * array, avoiding a second incompatible apostrophe parser.
    */
-  const source = fixSingleQuotedSchemaValues(input);
+  const source =
+    fixSingleQuotedSchemaValues(
+      normalizeUnicode(input)
+    );
   const targetsIndex = source.indexOf('"targets"');
 
   if (targetsIndex === -1) {

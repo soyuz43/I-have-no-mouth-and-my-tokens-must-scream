@@ -4,7 +4,7 @@ import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
 import { timelineEvent } from "../../ui/timeline.js";
-
+import { addLog } from "../../ui/logs.js";
 import { createCommsState } from "./state/createCommsState.js";
 import { step } from "./engine.js";
 
@@ -29,6 +29,56 @@ function logDetail(message, data = null) {
   if (LOG_ORCHESTRATOR_DETAILS) {
     console.debug(`[COMMS DETAIL] ${message}`, data || "");
   }
+}
+
+function logIntentTimeline(state) {
+  const rows =
+    Array.isArray(state.intentTimeline)
+      ? state.intentTimeline
+      : [];
+
+  console.groupCollapsed(
+    `[COMMS INTENT KEYS][Cycle ${G.cycle ?? "?"}] ${rows.length} messages`
+  );
+
+  if (!rows.length) {
+    console.warn(
+      "[COMMS INTENT KEYS] no intent timeline captured"
+    );
+    console.groupEnd();
+    return;
+  }
+
+  const tableRows =
+    rows.map((entry) => ({
+      "#": entry.order,
+      kind: entry.kind,
+      route: `${entry.from} → ${entry.to}`,
+      intentKey: entry.intentKey || "(none)",
+      intent: entry.intent || "(missing)",
+      rawIntent: entry.rawIntent || "",
+      status: entry.status || "unknown",
+      note: entry.note || "",
+    }));
+
+  console.table(tableRows);
+
+  for (const entry of rows) {
+    if (
+      !entry.intent ||
+      entry.status === "missing" ||
+      entry.status === "fallback" ||
+      entry.status === "unknown" ||
+      entry.intent === "other"
+    ) {
+      console.warn(
+        `[COMMS INTENT WARNING] ${entry.kind} ${entry.from} → ${entry.to}`,
+        entry
+      );
+    }
+  }
+
+  console.groupEnd();
 }
 
 function beginTurnLog(simId, turnType) {
@@ -100,6 +150,12 @@ export async function runCommsCycle() {
   }
 
   logFlow("starting inter-sim communication cycle");
+
+  addLog(
+    "SYSTEM // COMMS START",
+    `Inter-sim communication cycle ${G.cycle ?? 0} started.`,
+    "comms-start"
+  );
 
   /* ------------------------------------------------------------
      INIT STATE
@@ -214,7 +270,12 @@ export async function runCommsCycle() {
 
     state.firstPassCompleted.add(fromId);
 
-    beginTurnLog(fromId, "turn");
+    const turnType =
+      state.pendingReactiveIntel?.has(fromId)
+        ? "reactive"
+        : "turn";
+
+    beginTurnLog(fromId, turnType);
 
     try {
       await step({
@@ -317,6 +378,9 @@ export async function runCommsCycle() {
   G.comms.lastCycle = messages;
   G.comms.history.push(...messages);
 
+  // intent timeline
+  logIntentTimeline(state);
+  
   if (LOG_ORCHESTRATOR_PERSIST) {
     console.groupCollapsed("[COMMS PERSIST]");
     console.debug(`lastCycleCount: ${messages.length}`);
@@ -335,6 +399,13 @@ export async function runCommsCycle() {
   }
 
   /* ============================================================ */
+
+  addLog(
+    "SYSTEM // COMMS END",
+    `Inter-sim communication cycle ${G.cycle ?? 0} complete. ` +
+    `${state.counters.messageCount} messages exchanged.`,
+    "comms-end"
+  );
 
   timelineEvent("inter-sim phase complete");
 

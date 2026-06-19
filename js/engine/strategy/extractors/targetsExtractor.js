@@ -12,6 +12,9 @@ import {
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
 
+import {
+  normalizeUnicode,
+} from "./normalizeUnicode.js";
 
 /* ============================================================
    TARGETS ARRAY EXTRACTOR (SCHEMA-AWARE)
@@ -35,7 +38,10 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
    * The scanner can then rely on normal JSON double-quote rules
    * without guessing whether an apostrophe is possessive.
    */
-  const source = fixSingleQuotedSchemaValues(input);
+  const source =
+    fixSingleQuotedSchemaValues(
+      normalizeUnicode(input)
+    );
   const targetsIndex = source.indexOf('"targets"');
 
   if (targetsIndex === -1) {

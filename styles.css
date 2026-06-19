@@ -686,6 +686,22 @@ header {
 .is-entry .is-who { color: #9a8a7a; }
 .is-entry .is-what { color: #8a9a8a; }
 
+.log-e.comms-start {
+  border-left-color: #2ecc71;
+}
+
+.log-e.comms-start .log-spk {
+  color: #2ecc71;
+}
+
+.log-e.comms-end {
+  border-left-color: #e74c3c;
+}
+
+.log-e.comms-end .log-spk {
+  color: #e74c3c;
+}
+
 .is-compose { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
 .is-from { display: flex; gap: 3px; flex-wrap: wrap; }
 .is-fbtn {

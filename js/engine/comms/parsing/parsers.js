@@ -124,47 +124,85 @@ export function parseReply(raw) {
     /REPLY:\s*"([\s\S]+?)"\s*$/i
   );
 
-  if (!replyMatch) return null;
+  if (!replyMatch) {
+    console.warn(
+      "[REPLY PARSE] failed to capture REPLY text",
+      {
+        rawPreview:
+          String(raw || "").slice(0, 1000),
+      }
+    );
 
-  const intentLine = raw.match(/INTENT:\s*(.+)/i);
+    return null;
+  }
+
+  const intentLine =
+    raw.match(/INTENT:\s*(.+)/i);
 
   if (!intentLine) {
+    console.warn(
+      "[INTENT PARSE] missing INTENT line; defaulting to other",
+      {
+        rawPreview:
+          String(raw || "").slice(0, 1000),
+      }
+    );
+
     return {
-      text: replyMatch[1]
-        .trim()
-        .slice(0, MAX_MESSAGE_LENGTH),
+      text:
+        replyMatch[1]
+          .trim()
+          .slice(0, MAX_MESSAGE_LENGTH),
+
       intent: "other",
+      intentParseStatus: "missing",
+      rawIntent: null,
     };
   }
 
-  let intentStr = intentLine[1].trim();
+  let intentStr =
+    intentLine[1].trim();
 
-  // Remove markdown artifacts
-  intentStr = intentStr.replace(/\*/g, "");
+  const rawIntent =
+    intentStr;
 
-  const possibleIntents = intentStr
-    .split(/[&,\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  intentStr =
+    intentStr.replace(/\*/g, "");
+
+  const possibleIntents =
+    intentStr
+      .split(/[&,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
   let intent =
     possibleIntents[0]?.toLowerCase() || "";
 
-  intent = intent.replace(/[^a-z0-9_]/g, "");
+  intent =
+    intent.replace(/[^a-z0-9_]/g, "");
 
   if (!intent || intent.length < 3) {
-    console.warn("[INTENT PARSE] invalid or empty intent", {
-      raw: intentLine[1],
-      cleaned: intent,
-    });
+    console.warn(
+      "[INTENT PARSE] invalid or empty intent; defaulting to other",
+      {
+        raw: rawIntent,
+        cleaned: intent,
+        rawPreview:
+          String(raw || "").slice(0, 1000),
+      }
+    );
 
     intent = "other";
   }
 
   return {
-    text: replyMatch[1]
-      .trim()
-      .slice(0, MAX_MESSAGE_LENGTH),
+    text:
+      replyMatch[1]
+        .trim()
+        .slice(0, MAX_MESSAGE_LENGTH),
+
     intent,
+    intentParseStatus: intent === "other" ? "fallback" : "parsed",
+    rawIntent,
   };
 }
