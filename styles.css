@@ -680,6 +680,7 @@ header {
   font-family: "Courier Prime", monospace;
   line-height: 1.6;
   color: #bbb;                   /* brighter */
+  
 }
 .is-log::-webkit-scrollbar { width: 2px; }
 .is-entry { margin-bottom: 4px; animation: fadeUp 0.3s ease; }
@@ -700,6 +701,17 @@ header {
 
 .log-e.comms-end .log-spk {
   color: #e74c3c;
+}
+.log-intent {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(255,255,255,.25);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.log-gap {
+  height: 6px;
 }
 
 .is-compose { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }

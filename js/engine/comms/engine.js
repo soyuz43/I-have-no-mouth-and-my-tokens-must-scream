@@ -491,8 +491,8 @@ export async function step({ fromId, state, queue }) {
     }
 
     addLog(
-      `${visibility.toUpperCase()} ${fromId}→${toId} [intent:outreach] [AUTO]`,
-      `"${message}"`,
+      `${visibility.toUpperCase()} ${fromId}→${toId} [AUTO]`,
+      `"${message}"\n\n// INTENT: OUTREACH`,
       "chat"
     );
 
@@ -888,8 +888,8 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
     applyCommunicationEffect(toId, fromId, normalizedIntent);
 
     addLog(
-      `PRIVATE ${toId}→${fromId} [intent:${normalizedIntent}] [AUTO]`,
-      `"${replyText}"`,
+      `PRIVATE ${toId}→${fromId} [AUTO]`,
+      `"${replyText}"\n\n// INTENT: ${normalizedIntent.toUpperCase()}`,
       "sim"
     );
 

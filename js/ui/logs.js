@@ -10,6 +10,28 @@
 import { G } from "../core/state.js";
 import { downloadTextFile, escapeHtml } from "../core/utils.js";
 
+// Helpers
+
+function renderLogBody(body) {
+  return String(body)
+    .split("\n")
+    .map((line) => {
+      const escapedLine =
+        escapeHtml(line);
+
+      if (/^\/\/\s*INTENT:/i.test(line.trim())) {
+        return `<div class="log-intent">${escapedLine}</div>`;
+      }
+
+      if (line.trim() === "") {
+        return `<div class="log-gap"></div>`;
+      }
+
+      return `<div>${escapedLine}</div>`;
+    })
+    .join("");
+}
+
 /* ============================================================
    RUNTIME LOGGING
    ============================================================ */
@@ -27,8 +49,7 @@ export function addLog(spk, body, type = "sys", tactic = "", allowHtml = false) 
   const renderedBody =
     allowHtml
       ? body
-      : escapeHtml(String(body)).replace(/\n/g, "<br>");
-
+      : renderLogBody(body);
 
   let renderedTactic = "";
 
