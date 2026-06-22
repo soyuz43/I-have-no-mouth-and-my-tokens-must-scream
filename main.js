@@ -38,6 +38,9 @@ import {
   setBackend,
   toggleSplit,
   scanOllama,
+  scanColab,
+  updateColabScanAvailability,
+  invalidateColabConnection,
   selTarget,
   selMode,
   setFrom,
@@ -210,6 +213,11 @@ window.setVisibility = setVisibility;
 window.setBackend = setBackend;
 window.toggleSplit = toggleSplit;
 window.scanOllama = scanOllama;
+window.scanColab = scanColab;
+window.updateColabScanAvailability =
+  updateColabScanAvailability;
+window.invalidateColabConnection =
+  invalidateColabConnection;
 
 window.selTarget = selTarget;
 window.selMode = selMode;

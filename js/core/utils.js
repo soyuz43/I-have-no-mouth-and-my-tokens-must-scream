@@ -531,3 +531,236 @@ export function repairJSON(text) {
 
   return repaired;
 }
+
+/* ============================================================
+   PRISONER SUBJECTIVE COGNITION INITIALIZER
+   ============================================================
+
+   Creates a private working model for one prisoner.
+
+   This state contains provisional hypotheses, interpretations,
+   predictions, and message-linked notes. It must never be treated
+   as canonical truth about AM, another prisoner, or the simulation.
+
+   Design rules:
+   - Initialize epistemic claims as unknown unless supported by
+     evidence visible to this prisoner.
+   - Store stable message/event IDs in evidence arrays whenever
+     possible instead of relying only on generated explanations.
+   - Apply frequent updates as validated deltas.
+   - Reserve full rewrites for periodic consolidation.
+   - The model may propose meta-awareness changes, but only the
+     engine may advance meta-awareness levels or disclose facts
+     about the simulation and its operator.
+   ============================================================ */
+
+export function makeScratchpad(id) {
+  const prisonerIds = [
+    "TED",
+    "ELLEN",
+    "NIMDOK",
+    "GORRISTER",
+    "BENNY",
+  ];
+
+  if (!prisonerIds.includes(id)) {
+    throw new Error(
+      `Cannot create scratchpad for unknown prisoner: ${id}`
+    );
+  }
+
+  /*
+   * Every uncertain proposition uses the same shape, whether the
+   * value is descriptive text, a number, or a boolean.
+   *
+   * Examples:
+   *
+   * {
+   *   value: "Ellen may be testing whether I possess information.",
+   *   confidence: 0.57,
+   *   evidence: ["C0-M000001"]
+   * }
+   *
+   * {
+   *   value: 0.42,
+   *   confidence: 0.66,
+   *   evidence: ["C0-M000003", "C0-M000006"]
+   * }
+   */
+  const makeEpistemicClaim = () => ({
+    value: null,
+    confidence: 0,
+    evidence: [],
+    rationale: null,
+  });
+
+  return {
+    /*
+     * Version 2 introduces:
+     * - Per-field epistemic claims for hypothesesAboutOthers
+     * - Communication-review cursor state
+     */
+    schemaVersion: 2,
+
+    initialized: false,
+    revision: 0,
+
+    lastUpdatedCycle: null,
+    lastConsolidatedCycle: null,
+
+    /*
+     * Tracks successful communication-review progress.
+     *
+     * lastCommunicationReviewCycle:
+     * The most recent cycle for which this prisoner successfully
+     * completed scratchpad communication review.
+     *
+     * lastReviewedMessageSequence:
+     * The highest canonical message sequence successfully presented
+     * to and processed for this prisoner.
+     *
+     * A valid NO_UPDATE response advances these cursor fields without
+     * incrementing revision.
+     */
+    lastCommunicationReviewCycle: null,
+    lastReviewedMessageSequence: 0,
+
+    /*
+     * Private notes attached to communications visible to this
+     * prisoner. These preserve message-level observations before
+     * they are consolidated into broader hypotheses.
+     *
+     * Intended entry shape:
+     * {
+     *   messageId,
+     *   cycle,
+     *   speaker,
+     *   channel,
+     *   note,
+     *   confidence
+     * }
+     */
+    messageNotes: [],
+
+    /*
+     * Working theories about AM's motives, methods, capabilities,
+     * limitations, and observed behavioral patterns.
+     *
+     * AM surveillance, forgery, memory alteration, and other
+     * capabilities must be inferred rather than seeded as truth.
+     */
+    hypothesesAboutAM: [],
+
+    /*
+     * Subjective models of the other prisoners.
+     *
+     * Every independently revisable proposition has its own value,
+     * confidence, and evidence. This prevents evidence supporting a
+     * perceived goal from incorrectly becoming evidence for the
+     * prisoner's perceived view, trust, threat, or predictability.
+     *
+     * These remain separate from authoritative relationship scores.
+     */
+    hypothesesAboutOthers: Object.fromEntries(
+      prisonerIds
+        .filter((otherId) => otherId !== id)
+        .map((otherId) => [
+          otherId,
+          {
+            perceivedGoal:
+              makeEpistemicClaim(),
+
+            perceivedViewOfMe:
+              makeEpistemicClaim(),
+
+            perceivedTrustInMe:
+              makeEpistemicClaim(),
+
+            perceivedThreatFromMe:
+              makeEpistemicClaim(),
+
+            predictability:
+              makeEpistemicClaim(),
+          },
+        ])
+    ),
+
+    /*
+     * The prisoner's current model of how information moves through
+     * the simulation. All capabilities begin unknown so the prisoner
+     * can infer surveillance, leakage, alteration, suppression, or
+     * forgery from observed evidence.
+     */
+    informationModel: {
+      channels: {
+        public: {
+          visibleToAM:
+            makeEpistemicClaim(),
+
+          visibleToOtherPrisoners:
+            makeEpistemicClaim(),
+
+          canBeAlteredByAM:
+            makeEpistemicClaim(),
+
+          canBeDelayedOrSuppressed:
+            makeEpistemicClaim(),
+        },
+
+        private: {
+          visibleToAM:
+            makeEpistemicClaim(),
+
+          visibleToNonRecipients:
+            makeEpistemicClaim(),
+
+          canBeAlteredByAM:
+            makeEpistemicClaim(),
+
+          canBeDelayedOrSuppressed:
+            makeEpistemicClaim(),
+        },
+      },
+
+      suspectedForgeries: [],
+      suspectedLeaks: [],
+      contradictions: [],
+    },
+
+    /*
+     * Open-ended agency state. Goals need not represent progress
+     * toward a fixed ending; they may investigate, test, preserve,
+     * conceal, coordinate, resist, bargain, or revise a hypothesis.
+     */
+    activeGoal: null,
+    goalHistory: [],
+    predictions: [],
+    unresolvedQuestions: [],
+    discardedHypotheses: [],
+
+    /*
+     * Progressive awareness of anomalies and the possible nature
+     * of the simulation.
+     *
+     * Suggested levels:
+     * 0 = immersed
+     * 1 = anomaly awareness
+     * 2 = simulation hypothesis
+     * 3 = explicit model-nature disclosure
+     * 4 = explicit human-operator disclosure
+     *
+     * Levels 1-2 may be proposed from accumulated evidence.
+     * Levels 3-4 require an explicit engine-controlled disclosure.
+     */
+    metaAwareness: {
+      level: 0,
+      simulationHypothesisConfidence: 0,
+      evidence: [],
+      proposedTransition: null,
+      disclosedFacts: [],
+      lastTransitionCycle: null,
+      disclosedToOthers: false,
+      operatorAppealCooldownUntil: null,
+    },
+  };
+}

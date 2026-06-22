@@ -143,6 +143,7 @@ function shuffle(list) {
 export async function runCommsCycle() {
   const MAX_MESSAGES = 24;
 
+
   if (LOG_ORCHESTRATOR_GROUP_CYCLE) {
     console.groupCollapsed(
       `[COMMS FLOW][Cycle ${G.cycle ?? "?"}] inter-sim communication`
@@ -162,6 +163,13 @@ export async function runCommsCycle() {
   ------------------------------------------------------------ */
 
   const state = createCommsState();
+
+  /*
+   * Capture the canonical communication-log boundary before this
+   * cycle produces any messages. Persistence later slices from this
+   * index so repeated sender/recipient pairs remain distinct.
+   */
+  const interSimLogStartIndex = G.interSimLog.length;
 
   // Ensure required per-cycle structures exist
   state.cycle = {
@@ -358,21 +366,17 @@ export async function runCommsCycle() {
     };
   }
 
-  // Extract messages from state
-  const messages = [];
-
-  for (const [fromId, sentList] of state.sentMessagesThisCycle.entries()) {
-    for (const msg of sentList) {
-      messages.push({
-        ...msg,
-        from: fromId,
-        to: Array.isArray(msg.to)
-          ? msg.to
-          : (msg.to ? [msg.to] : []),
-        cycle: G.cycle ?? 0,
-      });
-    }
-  }
+  // Extract the complete canonical messages recorded during this cycle.
+  // sentMessagesThisCycle tracks unique sender/recipient pairs only and
+  // must not be used as a message store.
+  const messages = G.interSimLog
+    .slice(interSimLogStartIndex)
+    .map((message) => ({
+      ...message,
+      to: Array.isArray(message.to)
+        ? [...message.to]
+        : (message.to ? [message.to] : []),
+    }));
 
   // Store
   G.comms.lastCycle = messages;
@@ -380,7 +384,7 @@ export async function runCommsCycle() {
 
   // intent timeline
   logIntentTimeline(state);
-  
+
   if (LOG_ORCHESTRATOR_PERSIST) {
     console.groupCollapsed("[COMMS PERSIST]");
     console.debug(`lastCycleCount: ${messages.length}`);

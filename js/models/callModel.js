@@ -5,6 +5,7 @@
 // Supports:
 //  - Anthropic
 //  - Ollama
+//  - Colab endpoint (OpenAI-compatible)
 //
 // Handles:
 //  - role → model routing
@@ -25,7 +26,7 @@ let modelCallSequence = 0;
 
 /**
  * Convert provider-specific or structured message content
- * into a plain string for debug logging and Ollama.
+ * into a plain string for debug logging and non-Anthropic providers.
  */
 function normalizeMessageContent(content) {
   if (typeof content === "string") {
@@ -248,8 +249,8 @@ function makeModelCallContext(
   const subject =
     metadata?.subject
       ? normalizeCallLabel(
-          metadata.subject
-        )
+        metadata.subject
+      )
       : null;
 
   const sequenceLabel =
@@ -389,7 +390,7 @@ export async function callModel(
 
             system_prompt_characters:
               typeof systemPrompt ===
-              "string"
+                "string"
                 ? systemPrompt.length
                 : 0,
 
@@ -456,6 +457,16 @@ export async function callModel(
               messages,
               maxTokens
             );
+        } else if (
+          G.backend === "colab"
+        ) {
+          result =
+            await callColab(
+              model,
+              systemPrompt,
+              messages,
+              maxTokens
+            );
         } else {
           throw new Error(
             `Unknown backend: ${G.backend}`
@@ -468,7 +479,7 @@ export async function callModel(
         const durationMs =
           Math.round(
             (endTime - startTime) *
-              100
+            100
           ) / 100;
 
         if (debugEnabled) {
@@ -545,7 +556,7 @@ export async function callModel(
         const durationMs =
           Math.round(
             (endTime - startTime) *
-              100
+            100
           ) / 100;
 
         console.group(
@@ -699,11 +710,11 @@ async function callOllama(
       role: "system",
       content:
         typeof systemPrompt ===
-        "string"
+          "string"
           ? systemPrompt
           : String(
-              systemPrompt ?? ""
-            )
+            systemPrompt ?? ""
+          )
     },
 
     ...normalizedMessages.map(
@@ -772,7 +783,7 @@ async function callOllama(
   if (
     !data.message ||
     typeof data.message.content !==
-      "string"
+    "string"
   ) {
     console.warn(
       "[OLLAMA WARNING] Invalid response shape",
@@ -782,6 +793,253 @@ async function callOllama(
 
   const raw =
     data.message?.content || "";
+
+  const cleaned =
+    stripThinkTags(raw);
+
+  return {
+    raw,
+    cleaned,
+    providerResponse: data
+  };
+}
+
+/* ============================================================
+   COLAB
+   OpenAI-compatible remote inference endpoint
+   ============================================================ */
+
+async function callColab(
+  model,
+  systemPrompt,
+  messages,
+  maxTokens
+) {
+  const endpoint =
+    String(
+      G.colabEndpoint || ""
+    )
+      .trim()
+      .replace(/\/+$/, "");
+
+  const bearerToken =
+    String(
+      G.colabBearerToken || ""
+    ).trim();
+
+  if (!endpoint) {
+    throw new Error(
+      "Colab endpoint is not configured."
+    );
+  }
+
+  if (
+    !/^https?:\/\//i.test(endpoint)
+  ) {
+    throw new Error(
+      "Colab endpoint must begin with http:// or https://."
+    );
+  }
+
+  if (!bearerToken) {
+    throw new Error(
+      "Colab bearer token is not configured."
+    );
+  }
+
+  const normalizedMessages =
+    Array.isArray(messages)
+      ? messages
+      : [];
+
+  const colabMessages = [
+    {
+      role: "system",
+
+      content:
+        typeof systemPrompt ===
+          "string"
+          ? systemPrompt
+          : String(
+            systemPrompt ?? ""
+          )
+    },
+
+    ...normalizedMessages.map(
+      (message) => ({
+        role:
+          message?.role ||
+          "user",
+
+        content:
+          normalizeMessageContent(
+            message?.content
+          )
+      })
+    )
+  ];
+
+  const body = {
+    model,
+    messages: colabMessages,
+    max_tokens: maxTokens,
+    temperature: 0.85,
+    stream: false
+  };
+
+  const timeoutMs =
+    Number.isFinite(
+      G.colabRequestTimeoutMs
+    ) &&
+      G.colabRequestTimeoutMs > 0
+      ? G.colabRequestTimeoutMs
+      : 15 * 60 * 1000;
+
+  const controller =
+    new AbortController();
+
+  const timeoutId =
+    setTimeout(
+      () => controller.abort(),
+      timeoutMs
+    );
+
+  let response;
+  let responseText;
+
+  try {
+    response = await fetch(
+      `${endpoint}/v1/chat/completions`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          Accept:
+            "application/json",
+
+          Authorization:
+            `Bearer ${bearerToken}`
+        },
+
+        body:
+          JSON.stringify(body),
+
+        signal:
+          controller.signal
+      }
+    );
+
+    responseText =
+      await response.text();
+  } catch (error) {
+    if (
+      error?.name === "AbortError"
+    ) {
+      throw new Error(
+        `Colab inference timed out after ${Math.round(timeoutMs / 60000)} minutes.`
+      );
+    }
+
+    throw new Error(
+      `Colab inference endpoint could not be reached: ${error?.message ||
+      String(error)
+      }`
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  let data = null;
+
+  if (responseText) {
+    try {
+      data =
+        JSON.parse(responseText);
+    } catch {
+      data = null;
+    }
+  }
+
+  const providerError =
+    data?.error?.message ??
+    data?.error ??
+    data?.detail ??
+    data?.message ??
+    responseText;
+
+  const providerMessage =
+    typeof providerError ===
+      "string"
+      ? providerError.trim()
+      : providerError != null
+        ? JSON.stringify(
+          providerError
+        )
+        : "";
+
+  const errorDetail =
+    providerMessage
+      ? `: ${createPreview(
+        providerMessage,
+        500
+      )}`
+      : "";
+
+  if (
+    response.status === 401 ||
+    response.status === 403
+  ) {
+    throw new Error(
+      `Colab authentication failed with HTTP ${response.status}${errorDetail}`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Colab request failed with HTTP ${response.status}${errorDetail}`
+    );
+  }
+
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    throw new Error(
+      `Colab returned non-JSON data with HTTP ${response.status}.`
+    );
+  }
+
+  if (data?.error) {
+    throw new Error(
+      providerMessage ||
+      "Colab returned an unspecified provider error."
+    );
+  }
+
+  const responseContent =
+    data?.choices?.[0]
+      ?.message?.content;
+
+  if (
+    responseContent == null
+  ) {
+    console.warn(
+      "[COLAB WARNING] Invalid response shape",
+      data
+    );
+
+    throw new Error(
+      "Colab returned an invalid OpenAI-compatible response shape."
+    );
+  }
+
+  const raw =
+    normalizeMessageContent(
+      responseContent
+    );
 
   const cleaned =
     stripThinkTags(raw);
