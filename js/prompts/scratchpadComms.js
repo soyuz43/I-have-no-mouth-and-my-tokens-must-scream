@@ -8,6 +8,7 @@ import {
   SCRATCHPAD_COMMS_PROTOCOL_VERSION,
 } from "../engine/scratchpad/comms/protocol.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatScratchpadContext } from "./utils/formatScratchpadContext.js";
 
 /*
 ============================================================
@@ -41,10 +42,6 @@ The engine, not the model:
 export const SCRATCHPAD_COMMS_VERSION =
   SCRATCHPAD_COMMS_PROTOCOL_VERSION;
 
-const RECENT_MESSAGE_NOTE_LIMIT = 8;
-const ACTIVE_PREDICTION_LIMIT = 8;
-const UNRESOLVED_QUESTION_LIMIT = 8;
-
 
 function escapeXml(value) {
   return String(value ?? "")
@@ -63,10 +60,65 @@ function normalizeRecipients(to) {
   return to ? [to] : [];
 }
 
+function formatPromptList(
+  values,
+  emptyLabel = "none"
+) {
+  if (!Array.isArray(values)) {
+    return `- ${emptyLabel}`;
+  }
+
+  const items = values
+    .map((value) =>
+      String(value ?? "").trim()
+    )
+    .filter(Boolean);
+
+  if (items.length === 0) {
+    return `- ${emptyLabel}`;
+  }
+
+  return items
+    .map((item) => `- ${item}`)
+    .join("\n");
+}
+
+function formatPromptRecord(
+  record,
+  emptyLabel = "none"
+) {
+  if (
+    !record ||
+    typeof record !== "object" ||
+    Array.isArray(record)
+  ) {
+    return `- ${emptyLabel}`;
+  }
+
+  const entries =
+    Object.entries(record);
+
+  if (entries.length === 0) {
+    return `- ${emptyLabel}`;
+  }
+
+  return entries
+    .map(([key, value]) => {
+      const renderedValue =
+        value !== null &&
+          typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value);
+
+      return `- ${key}: ${renderedValue}`;
+    })
+    .join("\n");
+}
+
 function formatVisibleMessages(visibleMessages) {
   if (!Array.isArray(visibleMessages)) {
     throw new TypeError(
-      "buildScratchpadCommsInitPrompt expected visibleMessages to be an array."
+      "buildScratchpadCommsPrompt expected visibleMessages to be an array."
     );
   }
 
@@ -85,107 +137,20 @@ function formatVisibleMessages(visibleMessages) {
       const recipients =
         normalizeRecipients(message.to).join(",");
 
+      const messageId =
+        escapeXml(message.messageId);
+
       return [
-        `<MESSAGE`,
-        ` id="${escapeXml(message.messageId)}"`,
-        ` kind="${escapeXml(message.kind ?? "MESSAGE")}"`,
-        ` from="${escapeXml(message.from ?? "UNKNOWN")}"`,
-        ` to="${escapeXml(recipients)}"`,
-        ` visibility="${escapeXml(message.visibility ?? "unknown")}"`,
-        ` intent="${escapeXml(message.intent ?? "unknown")}"`,
-        `>`,
+        `--- START MESSAGE ${messageId} ---`,
+        `FROM: ${escapeXml(message.from ?? "UNKNOWN")}`,
+        `TO: ${escapeXml(recipients)}`,
+        `VISIBILITY: ${escapeXml(message.visibility ?? "unknown")}`,
+        `TEXT:`,
         escapeXml(message.text ?? ""),
-        `</MESSAGE>`,
-      ].join("");
+        `--- END MESSAGE ${messageId} ---`,
+      ].join("\n");
     })
-    .join("\n");
-}
-
-function buildCurrentScratchpadSnapshot(sim) {
-  const scratchpad =
-    sim.scratchpad ?? {};
-
-  return {
-    /*
-     * Preserve only the newest message-linked notes in the prompt.
-     * The complete messageNotes array remains stored in scratchpad
-     * state and is not modified here.
-     */
-    messageNotes:
-      Array.isArray(
-        scratchpad.messageNotes
-      )
-        ? scratchpad
-            .messageNotes
-            .slice(
-              -RECENT_MESSAGE_NOTE_LIMIT
-            )
-        : [],
-
-    /*
-     * This structure has one fixed entry for every other prisoner,
-     * so it does not grow without bound.
-     */
-    hypothesesAboutOthers:
-      scratchpad
-        .hypothesesAboutOthers ??
-      {},
-
-    /*
-     * Communication review currently updates channel claims only.
-     * Exclude unrelated information-model collections from this
-     * narrowly scoped prompt.
-     */
-    informationModel: {
-      channels:
-        scratchpad
-          .informationModel
-          ?.channels ??
-        {},
-    },
-
-    /*
-     * Include only unresolved predictions, then retain the newest
-     * bounded subset. Filtering before slicing prevents resolved
-     * recent entries from crowding active older predictions out.
-     */
-    predictions:
-      Array.isArray(
-        scratchpad.predictions
-      )
-        ? scratchpad
-            .predictions
-            .filter(
-              (prediction) =>
-                prediction
-                  ?.resolved !== true
-            )
-            .slice(
-              -ACTIVE_PREDICTION_LIMIT
-            )
-        : [],
-
-    /*
-     * Include only questions that still need resolution, bounded to
-     * the newest relevant entries.
-     */
-    unresolvedQuestions:
-      Array.isArray(
-        scratchpad
-          .unresolvedQuestions
-      )
-        ? scratchpad
-            .unresolvedQuestions
-            .filter(
-              (question) =>
-                question
-                  ?.resolved !== true
-            )
-            .slice(
-              -UNRESOLVED_QUESTION_LIMIT
-            )
-        : [],
-  };
+    .join("\n\n");
 }
 
 export function buildScratchpadCommsPrompt(
@@ -210,11 +175,58 @@ export function buildScratchpadCommsPrompt(
     others,
   } = buildPromptContext(sim, state);
 
-  const currentScratchpad =
-    buildCurrentScratchpadSnapshot(sim);
+  const formattedCurrentScratchpad =
+    formatScratchpadContext(
+      sim,
+      others
+    );
+
+  const formattedDrives = [
+    `- Primary: ${sim.drives?.primary ?? "unknown"}`,
+    `- Secondary: ${sim.drives?.secondary ?? "unknown"}`,
+  ].join("\n");
+
+  const formattedAnchors =
+    formatPromptList(
+      sim.anchors,
+      "no current anchors"
+    );
+
+  const formattedBeliefs =
+    formatPromptRecord(
+      b,
+      "no current beliefs"
+    );
+
+  const formattedOtherPrisoners =
+    formatPromptList(
+      others,
+      "no other prisoners"
+    );
 
   const formattedMessages =
     formatVisibleMessages(visibleMessages);
+
+  const validMessageIds = [
+    ...new Set(
+      visibleMessages.map(
+        (message) =>
+          String(
+            message.messageId
+          )
+      )
+    ),
+  ];
+
+  const formattedValidMessageIds =
+    validMessageIds.length > 0
+      ? validMessageIds
+        .map(
+          (messageId) =>
+            `- ${escapeXml(messageId)}`
+        )
+        .join("\n")
+      : "- (none; return NO_UPDATE)";
 
   return `
 You are ${sim.id}.
@@ -224,20 +236,40 @@ You are privately reviewing communications you personally observed.
 This is private cognitive maintenance.
 It is not spoken dialogue, a journal entry, or an omniscient analysis.
 
-YOUR IDENTITY
+YOUR CURRENT IDENTITY
 
 Name: ${sim.id}
-Primary drive: ${sim.drives?.primary ?? "unknown"}
-Secondary drive: ${sim.drives?.secondary ?? "unknown"}
-Other prisoners: ${others.join(", ")}
+
+DRIVES
+
+${formattedDrives}
+
+PERSONAL ANCHORS
+
+${formattedAnchors}
+
+OTHER PRISONERS
+
+${formattedOtherPrisoners}
 
 CURRENT BELIEFS
 
-${JSON.stringify(b, null, 2)}
+${formattedBeliefs}
 
 CURRENT RELEVANT SCRATCHPAD
 
-${JSON.stringify(currentScratchpad, null, 2)}
+${formattedCurrentScratchpad}
+
+The identity, drives, anchors, beliefs, and scratchpad above provide
+background context for interpreting the communications.
+
+They are not evidence for a new operation.
+
+Every new operation must be materially supported by one or more records
+in VISIBLE COMMUNICATIONS.
+
+Existing beliefs may affect interpretation, but they cannot replace
+visible-message evidence.
 
 VISIBLE COMMUNICATIONS
 
@@ -251,22 +283,21 @@ ${formattedMessages}
 
 YOUR TASK
 
-Review the visible communications and propose only information worth
-preserving in your private scratchpad.
+Begin with NO_UPDATE as the default.
 
-Do not annotate every message.
+Create an operation only when a visible communication supports a
+specific, new, and useful conclusion that is not already represented in
+the current scratchpad.
 
-Store something only when it may matter later, such as:
+Most reviews should produce zero, one, or two operations.
 
-- an apparent motive;
-- a promise, bargain, threat, refusal, or commitment;
-- a contradiction;
-- an attempt to gain leverage;
-- evidence about how another prisoner may view you;
-- evidence about another prisoner's likely objective;
-- a concrete unresolved question;
-- a testable prediction;
-- actual evidence about how a communication channel may function.
+The operation types below are a vocabulary, not a checklist.
+Do not create an operation merely because that operation type exists.
+
+Prefer one precise, well-supported operation over several weak or
+speculative operations.
+
+If no conclusion meets this standard, return NO_UPDATE.
 
 EPISTEMIC RULES
 
@@ -279,9 +310,16 @@ EPISTEMIC RULES
 - Do not assume AM cannot read private messages.
 - Do not assume any channel is authentic, secure, complete, immediate,
   or unaltered.
-- Propose a channel belief only when the supplied evidence materially
-  supports it.
-- Use only message IDs present in VISIBLE COMMUNICATIONS.
+- CHANNEL operations require direct evidence of actual channel
+  behavior.
+- A prisoner's claim, hope, intention, or plan that a channel is hidden,
+  secure, authentic, immediate, or unaltered is not channel evidence.
+- Ordinary message content alone normally does not justify a CHANNEL
+  operation.
+- Use CHANNEL only when the visible evidence demonstrates behavior such
+  as observation by a non-recipient, alteration, delay, suppression, or
+  inconsistent delivery.
+- Use only message IDs listed in VALID MESSAGE REFERENCES.
 - Preserve uncertainty when multiple explanations remain possible.
 - Do not repeat information already present in the current scratchpad
   unless you are proposing a meaningful revision.
@@ -315,7 +353,9 @@ Allowed operations:
 The engine appends this to messageNotes and obtains the speaker, cycle,
 channel, and original text from the referenced canonical message.
 
-2. Update a descriptive theory about another prisoner:
+2. Update a verbal theory about another prisoner:
+
+Use OTHER only for conclusions expressed as words.
 
 <OTHER target="PRISONER_ID" field="perceivedGoal" confidence="0.00" refs="MESSAGE_ID,MESSAGE_ID">Concise provisional theory.</OTHER>
 
@@ -324,7 +364,12 @@ Allowed OTHER fields:
 - perceivedGoal
 - perceivedViewOfMe
 
+Never use perceivedTrustInMe, perceivedThreatFromMe, or predictability
+with OTHER.
+
 3. Update a numerical theory-of-mind estimate:
+
+Use SCORE only when assigning a numerical value between 0 and 1.
 
 <SCORE target="PRISONER_ID" field="perceivedTrustInMe" value="0.00" confidence="0.00" refs="MESSAGE_ID,MESSAGE_ID">Concise reason.</SCORE>
 
@@ -334,11 +379,18 @@ Allowed SCORE fields:
 - perceivedThreatFromMe
 - predictability
 
+Never use perceivedGoal or perceivedViewOfMe with SCORE.
+
 The value and confidence must each be between 0 and 1.
 
 4. Add an unresolved question:
 
 <QUESTION about="SUBJECT" priority="low" refs="MESSAGE_ID,MESSAGE_ID">Concrete unresolved question.</QUESTION>
+
+The about attribute is a fixed category token, not a description.
+
+Put the detailed topic inside the question text.
+Copy one exact subject from the following list.
 
 Allowed QUESTION subjects:
 
@@ -358,6 +410,12 @@ about your own behavior or memory.
 5. Add a testable prediction:
 
 <PREDICTION about="SUBJECT" confidence="0.00" withinCycles="1" refs="MESSAGE_ID,MESSAGE_ID">Concrete expected future behavior.</PREDICTION>
+
+The about attribute must be one exact token from the Allowed QUESTION
+subjects list above.
+
+The about attribute is a category, not a description.
+Put the specific predicted behavior inside the operation text.
 
 withinCycles must be an integer between ${MIN_PREDICTION_HORIZON} and ${MAX_PREDICTION_HORIZON}.
 
@@ -389,13 +447,49 @@ If nothing deserves storage, return:
 <NO_UPDATE/>
 </SCRATCHPAD_UPDATES>
 
-Otherwise return only the supported operations:
+Otherwise return one or more supported operation tags inside exactly
+one SCRATCHPAD_UPDATES block.
 
-<SCRATCHPAD_UPDATES>
-<NOTE ref="C0-M000001" confidence="0.66">Ellen appears to be testing whether I possess useful information.</NOTE>
-<OTHER target="ELLEN" field="perceivedGoal" confidence="0.57" refs="C0-M000001">Determine whether I possess privileged information.</OTHER>
-<QUESTION about="ELLEN" priority="medium" refs="C0-M000001">Does Ellen genuinely believe AM has a plan, or is the claim bait?</QUESTION>
-</SCRATCHPAD_UPDATES>
+Do not copy placeholder identifiers, sample claims, or unsupported
+interpretations from the operation grammar.
+
+Use only the exact targets, subjects, and message IDs explicitly allowed
+for this review.
+
+Construct every operation only from the current VISIBLE COMMUNICATIONS.
+
+VALID MESSAGE REFERENCES FOR THIS REVIEW
+
+You may use only the following message IDs in ref or refs attributes:
+
+${formattedValidMessageIds}
+
+These message IDs are opaque tokens.
+
+Copy them exactly, character for character, from the list above.
+
+Never:
+
+- invent a message ID;
+- reconstruct a message ID;
+- add spaces to a message ID;
+- remove or substitute characters;
+- add names, initials, labels, or the word MSG;
+- use a message ID not listed above.
+
+If no listed message ID supports an operation, omit that operation.
+
+Before returning the block, silently remove any operation that:
+
+- contains a message ID not listed in VALID MESSAGE REFERENCES;
+- contains a listed message ID that was not copied exactly;
+- uses an illegal target, field, subject, or value;
+- is not materially supported by its cited messages;
+- merely repeats the current scratchpad;
+- converts a prisoner's claim into established fact;
+- exists only to demonstrate an operation type.
+
+Do not describe this check.
 
 Do not use the characters < or > inside operation text.
 Use &lt; or &gt; if those characters are necessary.

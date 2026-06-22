@@ -7,50 +7,361 @@ import { addLog } from "../../../ui/logs.js";
 import { applyOverheardEffect } from "../../relationships.js";
 
 /* ============================================================
-   SOCIAL MEMORY: OVERHEARD COMMUNICATION
+   OVERHEARING LEDGER
 ============================================================ */
 
-export function recordOverheard(listener, fromId, toId, text) {
-  const listenerSim = G.sims[listener];
-  if (!listenerSim) return;
+function ensureOverhearingLedger() {
+  if (
+    !G.overhearing ||
+    typeof G.overhearing !== "object"
+  ) {
+    G.overhearing = {
+      history: [],
+      lastCycle: [],
+      nextEventSequence: 1,
+    };
+  }
 
-  // --- Store overheard memory ---
-  if (!listenerSim.overheard) listenerSim.overheard = [];
+  if (
+    !Array.isArray(
+      G.overhearing.history
+    )
+  ) {
+    G.overhearing.history = [];
+  }
+
+  if (
+    !Array.isArray(
+      G.overhearing.lastCycle
+    )
+  ) {
+    G.overhearing.lastCycle = [];
+  }
+
+  if (
+    !Number.isSafeInteger(
+      G.overhearing.nextEventSequence
+    ) ||
+    G.overhearing.nextEventSequence < 1
+  ) {
+    const highestExistingSequence =
+      G.overhearing.history.reduce(
+        (highest, event) =>
+          Number.isSafeInteger(
+            event?.sequence
+          )
+            ? Math.max(
+                highest,
+                event.sequence
+              )
+            : highest,
+        0
+      );
+
+    G.overhearing.nextEventSequence =
+      highestExistingSequence + 1;
+  }
+
+  return G.overhearing;
+}
+
+function normalizeSourceMessage(
+  sourceMessage
+) {
+  if (
+    !sourceMessage ||
+    typeof sourceMessage !== "object" ||
+    Array.isArray(sourceMessage)
+  ) {
+    return null;
+  }
+
+  const from =
+    String(
+      sourceMessage.from ?? ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const recipients =
+    Array.isArray(sourceMessage.to)
+      ? sourceMessage.to
+      : sourceMessage.to
+        ? [sourceMessage.to]
+        : [];
+
+  const to =
+    String(
+      recipients[0] ?? ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const messageId =
+    String(
+      sourceMessage.messageId ?? ""
+    ).trim();
+
+  const sequence =
+    Number(
+      sourceMessage.sequence
+    );
+
+  if (
+    !SIM_IDS.includes(from) ||
+    !SIM_IDS.includes(to) ||
+    !messageId ||
+    !Number.isSafeInteger(sequence) ||
+    sequence < 1
+  ) {
+    return null;
+  }
+
+  return {
+    messageId,
+    sequence,
+
+    cycle:
+      Number.isInteger(
+        sourceMessage.cycle
+      )
+        ? sourceMessage.cycle
+        : Number.isInteger(G.cycle)
+          ? G.cycle
+          : 0,
+
+    kind:
+      String(
+        sourceMessage.kind ??
+        "MESSAGE"
+      )
+        .trim()
+        .toUpperCase(),
+
+    from,
+    to,
+
+    text:
+      String(
+        sourceMessage.text ?? ""
+      ),
+
+    visibility:
+      String(
+        sourceMessage.visibility ??
+        ""
+      )
+        .trim()
+        .toLowerCase(),
+  };
+}
+
+/* ============================================================
+   CANONICAL OVERHEARING EVENT CREATION
+============================================================ */
+
+export function recordOverheard({
+  listener,
+  sourceMessage,
+  outcome,
+  perception,
+  perceivedText = null,
+  characterRange = null,
+}) {
+  const listenerId =
+    String(listener ?? "")
+      .trim()
+      .toUpperCase();
+
+  const listenerSim =
+    G.sims?.[listenerId];
+
+  const source =
+    normalizeSourceMessage(
+      sourceMessage
+    );
+
+  if (
+    !listenerSim ||
+    !source
+  ) {
+    return null;
+  }
+
+  const ledger =
+    ensureOverhearingLedger();
+
+  const sequence =
+    ledger.nextEventSequence++;
+
+  const createdAt =
+    Date.now();
+
+  const event = {
+    eventId:
+      `C${source.cycle}-O${String(sequence).padStart(6, "0")}`,
+
+    sequence,
+    cycle:
+      source.cycle,
+
+    listener:
+      listenerId,
+
+    participants: {
+      from:
+        source.from,
+
+      to:
+        source.to,
+    },
+
+    outcome,
+
+    sourceMessageIds: [
+      source.messageId,
+    ],
+
+    observations: [
+      {
+        sourceMessageId:
+          source.messageId,
+
+        sourceMessageSequence:
+          source.sequence,
+
+        perception,
+
+        text:
+          perceivedText,
+
+        characterRange:
+          characterRange
+            ? {
+                start:
+                  characterRange.start,
+
+                end:
+                  characterRange.end,
+              }
+            : null,
+      },
+    ],
+
+    sourceKind:
+      source.kind,
+
+    sourceVisibility:
+      source.visibility,
+
+    createdAt,
+  };
+
+  ledger.history.push(event);
+  ledger.lastCycle.push(event);
+
+  /*
+   * Compatibility memory:
+   *
+   * Existing journals, reply prompts, rumor propagation, reactive
+   * handling, and relationship effects still read sim.overheard.
+   * Keep the old fields while attaching canonical provenance.
+   */
+  if (
+    !Array.isArray(
+      listenerSim.overheard
+    )
+  ) {
+    listenerSim.overheard = [];
+  }
+
+  const compatibilityText =
+    outcome === "observed_only"
+      ? "(whispering observed)"
+      : String(
+          perceivedText ?? ""
+        );
 
   listenerSim.overheard.push({
-    from: fromId,
-    to: toId,
-    text,
-    cycle: G.cycle,
-    timestamp: Date.now(),
+    eventId:
+      event.eventId,
+
+    sourceMessageId:
+      source.messageId,
+
+    sourceMessageSequence:
+      source.sequence,
+
+    outcome,
+    perception,
+
+    from:
+      source.from,
+
+    to:
+      source.to,
+
+    text:
+      compatibilityText,
+
+    cycle:
+      source.cycle,
+
+    timestamp:
+      createdAt,
   });
 
-  if (listenerSim.overheard.length > 20) {
+  if (
+    listenerSim.overheard.length >
+    20
+  ) {
     listenerSim.overheard.shift();
   }
 
-  // --- Delegate trust effects to relationship system ---
-  applyOverheardEffect(listener, fromId, toId, text);
+  applyOverheardEffect(
+    listenerId,
+    source.from,
+    source.to,
+    compatibilityText
+  );
+
+  return event;
 }
 
 /* ============================================================
    RECEIVED MESSAGE MEMORY
 ============================================================ */
 
-export function recordReceived(simId, fromId, text) {
-  const sim = G.sims[simId];
+export function recordReceived(
+  simId,
+  fromId,
+  text
+) {
+  const sim =
+    G.sims[simId];
+
   if (!sim) return;
 
-  if (!sim.received) sim.received = [];
+  if (!sim.received) {
+    sim.received = [];
+  }
 
   sim.received.push({
-    from: fromId,
+    from:
+      fromId,
+
     text,
-    cycle: G.cycle,
-    timestamp: Date.now(),
+
+    cycle:
+      G.cycle,
+
+    timestamp:
+      Date.now(),
   });
 
-  if (sim.received.length > 20) {
+  if (
+    sim.received.length > 20
+  ) {
     sim.received.shift();
   }
 }
@@ -59,18 +370,44 @@ export function recordReceived(simId, fromId, text) {
    SOCIAL OVERHEARING MODEL
 ============================================================ */
 
-export function maybeOverhear(fromId, toId, message) {
-  const leak = G.privateLeak || {
-    full: 0.04,
-    fragment: 0.12,
-    seen: 0.32,
-  };
+export function maybeOverhear(
+  sourceMessage
+) {
+  const source =
+    normalizeSourceMessage(
+      sourceMessage
+    );
 
-  const others = SIM_IDS.filter(
-    (id) => id !== fromId && id !== toId
-  );
+  if (
+    !source ||
+    source.visibility !== "private"
+  ) {
+    return null;
+  }
 
-  if (!others.length) return;
+  const {
+    from: fromId,
+    to: toId,
+    text: message,
+  } = source;
+
+  const leak =
+    G.privateLeak || {
+      full: 0.04,
+      fragment: 0.12,
+      seen: 0.32,
+    };
+
+  const others =
+    SIM_IDS.filter(
+      (id) =>
+        id !== fromId &&
+        id !== toId
+    );
+
+  if (!others.length) {
+    return null;
+  }
 
   /* ------------------------------------------------------------
      SELECT MOST LIKELY LISTENER
@@ -80,15 +417,34 @@ export function maybeOverhear(fromId, toId, message) {
   let bestScore = -Infinity;
 
   for (const id of others) {
-    const sim = G.sims[id];
+    const sim =
+      G.sims[id];
+
     if (!sim) continue;
 
-    const relToFrom = sim.relationships?.[fromId] ?? 0;
-    const relToTo = sim.relationships?.[toId] ?? 0;
+    const relToFrom =
+      sim.relationships?.[fromId] ??
+      0;
 
-    const closeness = (relToFrom + relToTo) / 200;
-    const paranoia = 1 - (sim.beliefs?.others_trustworthy ?? 0.5);
-    const attention = (sim.sanity ?? 50) / 100;
+    const relToTo =
+      sim.relationships?.[toId] ??
+      0;
+
+    const closeness =
+      (relToFrom + relToTo) /
+      200;
+
+    const paranoia =
+      1 -
+      (
+        sim.beliefs
+          ?.others_trustworthy ??
+        0.5
+      );
+
+    const attention =
+      (sim.sanity ?? 50) /
+      100;
 
     const score =
       closeness * 0.5 +
@@ -102,70 +458,166 @@ export function maybeOverhear(fromId, toId, message) {
     }
   }
 
-  if (!bestListener) return;
+  if (!bestListener) {
+    return null;
+  }
 
-  const listener = bestListener;
+  const listener =
+    bestListener;
 
   /* ------------------------------------------------------------
      ADJUSTED PROBABILITY
   ------------------------------------------------------------ */
 
-  const sim = G.sims[listener];
+  const listenerSim =
+    G.sims[listener];
 
   const paranoia =
-    1 - (sim.beliefs?.others_trustworthy ?? 0.5);
+    1 -
+    (
+      listenerSim.beliefs
+        ?.others_trustworthy ??
+      0.5
+    );
 
   const attention =
-    (sim.sanity ?? 50) / 100;
+    (listenerSim.sanity ?? 50) /
+    100;
 
   const modifier =
-    0.6 + paranoia * 0.3 + attention * 0.1;
+    0.6 +
+    paranoia * 0.3 +
+    attention * 0.1;
 
-  const r = Math.random() / modifier;
+  const roll =
+    Math.random() /
+    modifier;
 
   /* ------------------------------------------------------------
-     OVERHEARING OUTCOMES
+     FULL MESSAGE
   ------------------------------------------------------------ */
 
-  if (r < leak.full) {
+  if (roll < leak.full) {
     addLog(
       `OVERHEARD ${listener} // ${fromId}→${toId}`,
       `"${message}"`,
       "whisper"
     );
 
-    recordOverheard(listener, fromId, toId, message);
+    return recordOverheard({
+      listener,
+      sourceMessage:
+        source,
+
+      outcome:
+        "full",
+
+      perception:
+        "full",
+
+      perceivedText:
+        message,
+
+      characterRange: {
+        start: 0,
+        end:
+          message.length,
+      },
+    });
   }
 
-  else if (r < leak.full + leak.fragment) {
+  /* ------------------------------------------------------------
+     MESSAGE FRAGMENT
+  ------------------------------------------------------------ */
+
+  if (
+    roll <
+    leak.full +
+    leak.fragment
+  ) {
+    const requestedLength =
+      Math.floor(
+        Math.random() * 50
+      ) + 20;
+
     const fragmentLength =
-      Math.floor(Math.random() * 50) + 20;
+      Math.min(
+        requestedLength,
+        message.length
+      );
 
-    const region =
-      Math.random() < 0.25 ? 0 :
-      Math.random() < 0.75 ? 1 :
-      2;
+    const regionRoll =
+      Math.random();
 
+    let perception;
     let start;
 
-    if (region === 0) {
+    if (regionRoll < 0.25) {
+      perception =
+        "head_fragment";
+
       start = 0;
-    } else if (region === 1) {
-      start = Math.floor(
-        Math.random() *
-        Math.max(1, message.length - fragmentLength)
-      );
+    } else if (
+      regionRoll < 0.8125
+    ) {
+      perception =
+        "middle_fragment";
+
+      start =
+        Math.floor(
+          Math.random() *
+          Math.max(
+            1,
+            message.length -
+            fragmentLength
+          )
+        );
     } else {
-      start = Math.max(
-        0,
-        message.length - fragmentLength
-      );
+      perception =
+        "tail_fragment";
+
+      start =
+        Math.max(
+          0,
+          message.length -
+          fragmentLength
+        );
     }
 
-    const fragment = message
-      .slice(start, start + fragmentLength)
-      .trim()
-      .replace(/^[^a-zA-Z0-9]+/, "") + "...";
+    const end =
+      Math.min(
+        message.length,
+        start +
+        fragmentLength
+      );
+
+    const fragmentBody =
+      message
+        .slice(start, end)
+        .trim()
+        .replace(
+          /^[^a-zA-Z0-9]+/,
+          ""
+        );
+
+    let fragment;
+
+    if (
+      perception ===
+      "head_fragment"
+    ) {
+      fragment =
+        `${fragmentBody}...`;
+    } else if (
+      perception ===
+      "tail_fragment"
+    ) {
+      fragment =
+        `...${fragmentBody}`;
+    } else {
+      fragment =
+        `...${fragmentBody}...`;
+    }
 
     addLog(
       `OVERHEARD ${listener} // ${fromId}→${toId}`,
@@ -173,21 +625,60 @@ export function maybeOverhear(fromId, toId, message) {
       "whisper"
     );
 
-    recordOverheard(listener, fromId, toId, fragment);
+    return recordOverheard({
+      listener,
+      sourceMessage:
+        source,
+
+      outcome:
+        "fragment",
+
+      perception,
+
+      perceivedText:
+        fragment,
+
+      characterRange: {
+        start,
+        end,
+      },
+    });
   }
 
-  else if (r < leak.full + leak.fragment + leak.seen) {
+  /* ------------------------------------------------------------
+     CONVERSATION OBSERVED, NO WORDS HEARD
+  ------------------------------------------------------------ */
+
+  if (
+    roll <
+    leak.full +
+    leak.fragment +
+    leak.seen
+  ) {
     addLog(
       `NOTICE ${listener}`,
       `${fromId} and ${toId} were seen whispering.`,
       "whisper"
     );
 
-    recordOverheard(
+    return recordOverheard({
       listener,
-      fromId,
-      toId,
-      "(whispering observed)"
-    );
+      sourceMessage:
+        source,
+
+      outcome:
+        "observed_only",
+
+      perception:
+        "observed_only",
+
+      perceivedText:
+        null,
+
+      characterRange:
+        null,
+    });
   }
+
+  return null;
 }

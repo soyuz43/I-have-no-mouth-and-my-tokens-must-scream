@@ -243,12 +243,17 @@ export const G = {
     nextMessageSequence: 1,
   },
 
-  privateLeak: {
-    seen: 0.15,
-    fragment: 0.12,
-    full: 0.03,
+  overhearing: {
+    history: [],
+    lastCycle: [],
+    nextEventSequence: 1,
   },
 
+  privateLeak: {
+    seen: 0.158,
+    fragment: 0.136,
+    full: 0.048,
+  },
 
   /* ============================================================
    DERIVED (PER-CYCLE) BELIEF EVIDENCE

@@ -105,8 +105,13 @@
             >
               ANTHROPIC API
             </button>
+
             <button class="btog" data-b="ollama" onclick="setBackend(this)">
               OLLAMA (local)
+            </button>
+
+            <button class="btog" data-b="colab" onclick="setBackend(this)">
+              COLAB ENDPOINT
             </button>
           </div>
 
@@ -114,6 +119,7 @@
             <div class="ollama-status" id="ollama-status">
               Click "Scan Ollama" to discover local models.
             </div>
+
             <button
               class="jm-btn"
               style="
@@ -128,10 +134,6 @@
               ⟳ SCAN OLLAMA MODELS
             </button>
           </div>
-
-          <button class="btog" data-b="colab" onclick="setBackend(this)">
-            COLAB ENDPOINT
-          </button>
 
           <div id="colab-section" style="display: none">
             <div class="sf">
