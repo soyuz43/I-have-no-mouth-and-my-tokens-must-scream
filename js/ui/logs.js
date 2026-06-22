@@ -36,7 +36,16 @@ function renderLogBody(body) {
    RUNTIME LOGGING
    ============================================================ */
 
-export function addLog(spk, body, type = "sys", tactic = "", allowHtml = false) {
+let pendingLogScrollTimer =
+  null;
+
+export function addLog(
+  spk,
+  body,
+  type = "sys",
+  tactic = "",
+  allowHtml = false
+) {
 
   const feed = document.getElementById("rp-log");
   if (!feed) return;
@@ -82,7 +91,32 @@ export function addLog(spk, body, type = "sys", tactic = "", allowHtml = false) 
     `<div class="log-ts">CYCLE ${G.cycle} // ${new Date().toTimeString().slice(0, 8)}</div>`;
 
   feed.appendChild(el);
-  feed.scrollTop = feed.scrollHeight;
+
+  /*
+   * Coalesce rapid log bursts into one smooth scroll instead of
+   * repeatedly restarting the scroll animation for every entry.
+   */
+  if (
+    pendingLogScrollTimer !==
+    null
+  ) {
+    clearTimeout(
+      pendingLogScrollTimer
+    );
+  }
+
+  pendingLogScrollTimer =
+    setTimeout(() => {
+      pendingLogScrollTimer =
+        null;
+
+      requestAnimationFrame(() => {
+        feed.scrollTo({
+          top: feed.scrollHeight,
+          behavior: "smooth",
+        });
+      });
+    }, 50);
 
   // store for exports
   G.transmissionLog.push({

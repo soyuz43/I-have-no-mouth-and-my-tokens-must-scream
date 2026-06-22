@@ -703,15 +703,29 @@ header {
   color: #e74c3c;
 }
 .log-intent {
-  margin-top: 8px;
-  padding-left: 10px;
-  border-left: 2px solid rgba(255,255,255,.25);
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 1px 0 3px;
+  padding: 1px 7px 1px 6px;
+  border-left: 2px solid currentColor;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.045),
+    transparent
+  );
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.43rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  font-style: normal;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: normal;
 }
 
 .log-gap {
-  height: 6px;
+  height: 2px;
 }
 
 .is-compose { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
@@ -1010,11 +1024,18 @@ header {
 
 .rp-log {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 7px 9px;
+  overflow-x: hidden;
+  padding: 5px 7px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
+}
+
+.rp-log > .log-e,
+.rp-log > .thinking-row {
+  flex: 0 0 auto;
 }
 .rp-log::-webkit-scrollbar { width: 3px; }
 .rp-log::-webkit-scrollbar-thumb { background: var(--dim); }
@@ -1032,12 +1053,15 @@ header {
 .log-toggle:hover { opacity: 1; color: #ccc; }
 
 .log-e {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  overflow: visible;
   font-size: 0.58rem;
-  line-height: 1.6;
-  padding: 6px 7px;
+  line-height: 1.48;
+  padding: 5px 7px 4px;
   border-left: 2px solid #0e0e0e;
   font-family: "Courier Prime", monospace;
-  animation: fadeUp 0.3s ease;
 }
 .log-e.am { border-left-color: var(--crimson); background: #030000; }
 .log-e.sim { border-left-color: #051005; background: #010301; }
@@ -1045,10 +1069,15 @@ header {
 .log-e.chat { border-left-color: #1a1000; background: #020100; }
 
 .log-spk {
+  display: block;
   font-family: "Share Tech Mono", monospace;
-  font-size: 0.46rem;
-  letter-spacing: 0.18em;
-  margin-bottom: 2px;
+  font-size: 0.47rem;
+  line-height: 1.15;
+  letter-spacing: 0.14em;
+  margin-bottom: 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  text-transform: uppercase;
 }
 .log-e.am .log-spk { color: var(--red); }
 .log-e.sim .log-spk { color: var(--green); }
@@ -1057,6 +1086,10 @@ header {
 
 .log-body {
   color: #d8c8aa;
+  line-height: 1.48;
+  padding-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   text-shadow: 0 0 3px rgba(255, 80, 80, 0.15);
 }
 .log-e.sim .log-body { color: #80b080; text-shadow: 0 0 3px rgba(0, 255, 100, 0.15); }

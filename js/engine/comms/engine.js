@@ -291,7 +291,10 @@ export async function step({ fromId, state, queue }) {
 
     const overheardList = fromSim.overheard || [];
 
-    if (overheardList.length > 0) {
+    if (
+      overheardList.length > 0 &&
+      !reactiveIntel
+    ) {
       const rumorPressure = Math.min(0.4, 0.1 + overheardList.length * 0.03);
 
       if (Math.random() < rumorPressure) {
@@ -557,16 +560,17 @@ export async function step({ fromId, state, queue }) {
       text: message,
     });
 
-    recordInterSimMessage({
-      kind: "OUTREACH",
-      from: fromId,
-      to: toId,
-      text: message,
-      visibility,
-      intent: outreachIntent,
-      normalizedIntent: outreachIntent,
-      intentParseStatus: "implicit",
-    });
+    const outreachRecord =
+      recordInterSimMessage({
+        kind: "OUTREACH",
+        from: fromId,
+        to: toId,
+        text: message,
+        visibility,
+        intent: outreachIntent,
+        normalizedIntent: outreachIntent,
+        intentParseStatus: "implicit",
+      });
 
     G.lastContact[fromId] = toId;
 
@@ -587,7 +591,7 @@ export async function step({ fromId, state, queue }) {
 
     addLog(
       `${visibility.toUpperCase()} ${fromId}→${toId} [AUTO]`,
-      `"${message}"\n\n// INTENT: OUTREACH`,
+      `// INTENT: OUTREACH\n\n"${message}"`,
       "chat"
     );
 
@@ -597,66 +601,143 @@ export async function step({ fromId, state, queue }) {
 
     if (visibility === "private") {
       // === REACTIVE OVERHEARING LOGIC ===
-      const beforeOverhears = new Set(SIM_IDS.filter(s =>
-        G.sims[s]?.overheard?.some(o => o.cycle === G.cycle && o.from === fromId && o.to?.includes(toId))
-      ));
 
-      maybeOverhear(fromId, toId, message);
+      /*
+       * maybeOverhear() returns the exact canonical event created by this
+       * message, or null when nobody perceived it. Do not infer event
+       * creation from changes to the bounded compatibility arrays.
+       */
+      const overhearEvent =
+        maybeOverhear(outreachRecord);
 
-      // Check for high-salience overhears that should trigger immediate reaction
+      const listener =
+        overhearEvent?.listener ?? null;
 
-      for (const listener of SIM_IDS) {
-        if (listener === fromId || listener === toId) continue;
-        if (cycle.activeThisCycle.has(listener)) continue;
-        if (counters.messageCount >= state.messageBudget) break;
+      if (
+        listener &&
+        listener !== fromId &&
+        listener !== toId &&
+        !cycle.activeThisCycle.has(listener) &&
+        counters.messageCount < state.messageBudget
+      ) {
+        const observation =
+          overhearEvent.observations?.[0] ??
+          null;
 
-        const listenerSim = G.sims[listener];
+        const perceivedText =
+          overhearEvent.outcome ===
+            "observed_only"
+            ? "(whispering observed)"
+            : String(
+              observation?.text ?? ""
+            );
 
-        const hadBefore = beforeOverhears.has(listener);
+        const suspicion =
+          overhearEvent.outcome === "fragment"
+            ? 0.005
+            : overhearEvent.outcome ===
+              "observed_only"
+              ? 0.008
+              : 0.01;
 
-        const recentOverhear = listenerSim?.overheard?.findLast?.(o =>
-          o.cycle === G.cycle && o.from === fromId && o.to?.includes(toId)
-        );
+        if (suspicion >= 0.008) {
+          cycle.activeThisCycle.add(
+            listener
+          );
 
-        if (recentOverhear && !hadBefore) {
-          const suspicion = recentOverhear.text?.includes("...") ? 0.005 :
-            recentOverhear.text === "(whispering observed)" ? 0.008 : 0.01;
+          const existingIdx =
+            queue.indexOf(listener);
 
-          if (suspicion >= 0.008) {
-            cycle.activeThisCycle.add(listener);
-
-            const existingIdx = queue.indexOf(listener);
-
-            if (existingIdx !== -1) {
-              queue.splice(existingIdx, 1);
-            }
-
-            // Insert immediately AFTER current actor
-            queue.splice(1, 0, listener);
-
-            state.pendingReactiveIntel.set(listener, {
-              overheard: {
-                from: fromId,
-                to: toId,
-                text: message.slice(0, 440),
-                visibility
-              }
-            });
-
-            // Conditional overhear reaction logging
-            logOverhearReaction({
-              listener,
-              from: fromId,
-              to: toId,
-              suspicion
-            });
-
-            timelineEvent(`[REACTIVE] ${listener} may respond to overheard: ${fromId}→${toId}`);
+          if (existingIdx !== -1) {
+            queue.splice(
+              existingIdx,
+              1
+            );
           }
+
+          /*
+           * During the normal scheduler, fromId has already been removed from
+           * queue, so index 0 is the next turn.
+           *
+           * During the burst pass, fromId remains inside the actively iterated
+           * burstQueue, so insert after it to avoid shifting the iterator back
+           * onto the current actor.
+           */
+          const currentActorIdx =
+            queue.indexOf(fromId);
+
+          const reactiveInsertIdx =
+            currentActorIdx >= 0
+              ? currentActorIdx + 1
+              : 0;
+
+          queue.splice(
+            reactiveInsertIdx,
+            0,
+            listener
+          );
+
+          state.pendingReactiveIntel.set(
+            listener,
+            {
+              overheard: {
+                eventId:
+                  overhearEvent.eventId ??
+                  null,
+
+                sourceMessageId:
+                  observation
+                    ?.sourceMessageId ??
+                  overhearEvent
+                    .sourceMessageIds?.[0] ??
+                  null,
+
+                outcome:
+                  overhearEvent.outcome ??
+                  null,
+
+                perception:
+                  observation?.perception ??
+                  null,
+
+                from:
+                  overhearEvent
+                    .participants?.from ??
+                  fromId,
+
+                to:
+                  overhearEvent
+                    .participants?.to ??
+                  toId,
+
+                text:
+                  perceivedText.slice(
+                    0,
+                    440
+                  ),
+
+                visibility:
+                  overhearEvent
+                    .sourceVisibility ??
+                  visibility,
+              },
+            }
+          );
+
+          // Conditional overhear reaction logging.
+          logOverhearReaction({
+            listener,
+            from: fromId,
+            to: toId,
+            suspicion,
+          });
+
+          timelineEvent(
+            `[REACTIVE] ${listener} may respond to overheard: ${fromId}→${toId}`
+          );
         }
       }
     }
-
     recordReceived(toId, fromId, message);
 
     if (!sentMessagesThisCycle.has(fromId)) {
@@ -983,7 +1064,7 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
 
     addLog(
       `PRIVATE ${toId}→${fromId} [AUTO]`,
-      `"${replyText}"\n\n// INTENT: ${normalizedIntent.toUpperCase()}`,
+      `// INTENT: ${normalizedIntent.toUpperCase()}\n\n"${replyText}"`,
       "sim"
     );
 

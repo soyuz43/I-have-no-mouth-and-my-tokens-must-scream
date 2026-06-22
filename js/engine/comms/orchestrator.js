@@ -143,6 +143,16 @@ function shuffle(list) {
 export async function runCommsCycle() {
   const MAX_MESSAGES = 24;
 
+  /*
+   * Preserve the complete canonical overhearing history, but clear
+   * the per-cycle view before this cycle can create any new events.
+   */
+  if (
+    G.overhearing &&
+    typeof G.overhearing === "object"
+  ) {
+    G.overhearing.lastCycle = [];
+  }
 
   if (LOG_ORCHESTRATOR_GROUP_CYCLE) {
     console.groupCollapsed(
@@ -230,32 +240,84 @@ export async function runCommsCycle() {
   ) {
     let fromId = null;
 
-    logDetail("replyTargetsThisCycle", Array.from(state.replyTargetsThisCycle.entries()));
+    logDetail(
+      "replyTargetsThisCycle",
+      Array.from(
+        state.replyTargetsThisCycle.entries()
+      )
+    );
+
+    /*
+     * Fresh reactive intel takes priority over normal first-pass ordering
+     * and reply continuation. The listener was moved to the front of the
+     * queue when the overhearing event was created.
+     */
+    const reactiveFromId =
+      queue.find((candidateId) =>
+        state.pendingReactiveIntel?.has(
+          candidateId
+        )
+      ) ?? null;
+
+    if (reactiveFromId) {
+      fromId =
+        reactiveFromId;
+
+      logDetail(
+        `reactive priority: ${reactiveFromId}`
+      );
+    }
 
     // --- PRIORITY: pending reply continuation ---
-    for (const [targetId, perSender] of state.replyTargetsThisCycle.entries()) {
-      if (state.firstPassCompleted.size < SIM_IDS.length) continue;
-
-      for (const [senderId, info] of perSender.entries()) {
-        if (info.remaining > 0) {
-          fromId = senderId;
-          info.remaining -= 1;
-
-          logDetail(`reply continuation: ${senderId} (remaining: ${info.remaining})`);
-
-          if (info.remaining <= 0) {
-            perSender.delete(senderId);
-          }
-
-          if (perSender.size === 0) {
-            state.replyTargetsThisCycle.delete(targetId);
-          }
-
-          break;
+    if (!fromId) {
+      for (
+        const [
+          targetId,
+          perSender,
+        ] of state.replyTargetsThisCycle.entries()
+      ) {
+        if (
+          state.firstPassCompleted.size <
+          SIM_IDS.length
+        ) {
+          continue;
         }
-      }
 
-      if (fromId) break;
+        for (
+          const [
+            senderId,
+            info,
+          ] of perSender.entries()
+        ) {
+          if (info.remaining > 0) {
+            fromId =
+              senderId;
+
+            info.remaining -= 1;
+
+            logDetail(
+              `reply continuation: ${senderId} ` +
+              `(remaining: ${info.remaining})`
+            );
+
+            if (info.remaining <= 0) {
+              perSender.delete(
+                senderId
+              );
+            }
+
+            if (perSender.size === 0) {
+              state.replyTargetsThisCycle.delete(
+                targetId
+              );
+            }
+
+            break;
+          }
+        }
+
+        if (fromId) break;
+      }
     }
 
     // --- FALLBACK: normal scheduling ---
