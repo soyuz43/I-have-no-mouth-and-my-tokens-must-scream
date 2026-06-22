@@ -1,6 +1,6 @@
 // js/core/state.js
 
-import { makeBelief, makeDrives } from "./utils.js";
+import { makeBelief, makeDrives, makeScratchpad } from "./utils.js";
 
 /* ============================================================
    RELATIONSHIP GRAPH INITIALIZER
@@ -155,6 +155,10 @@ export const G = {
     BENNY: "claude-sonnet-4-20250514",
   },
 
+  colabEndpoint: "",
+  colabBearerToken: "",
+  colabModels: [],
+
   ollamaModels: [],
 
   vault: {
@@ -232,6 +236,12 @@ export const G = {
   interSimLog: [],
   transmissionLog: [],
   lastContact: {},
+
+  comms: {
+    history: [],
+    lastCycle: [],
+    nextMessageSequence: 1,
+  },
 
   privateLeak: {
     seen: 0.15,
@@ -331,6 +341,8 @@ export const G = {
 
       relationships: makeRelationships("TED"),
 
+      scratchpad: makeScratchpad("TED"),
+
       vulnerability:
         "Was a young, capable organizer who thrived on leading people and earning respect. Always needed to feel essential — the one who could fix things, rally the group, turn chaos into order. Ordinary life felt like failure.",
 
@@ -375,6 +387,8 @@ export const G = {
       location: "central_chamber",
 
       relationships: makeRelationships("ELLEN"),
+
+      scratchpad: makeScratchpad("ELLEN"),
 
       vulnerability:
         "Loved the quiet order of libraries — old paper, ink, the faint musty smell of books that held centuries. Found deep calm in cataloging, preserving, knowing exactly where every story belonged. Sensory memory is sacred to her; deprivation starves something core.",
@@ -421,6 +435,8 @@ export const G = {
       location: "central_chamber",
 
       relationships: makeRelationships("NIMDOK"),
+
+      scratchpad: makeScratchpad("NIMDOK"),
 
       vulnerability:
         "Was a meticulous, brilliant researcher driven by curiosity and precision. Valued knowledge above morality at times; believed understanding justified any cost. The erasure of his real name and past work leaves a void where pride and identity used to live.",
@@ -469,6 +485,8 @@ export const G = {
 
       relationships: makeRelationships("GORRISTER"),
 
+      scratchpad: makeScratchpad("GORRISTER"),
+
       vulnerability:
         "Once believed in protecting the vulnerable and doing no harm — carried quiet decency, a sense that endurance mattered. Tried to end his own pain before capture; now the inability to choose even that feels like the last theft of agency.",
 
@@ -514,6 +532,8 @@ export const G = {
       location: "central_chamber",
 
       relationships: makeRelationships("BENNY"),
+
+      scratchpad: makeScratchpad("BENNY"),
 
       vulnerability:
         "Was once sharp, handsome, intellectually alive — solved complex problems, published ideas, felt the thrill of discovery and connection. Fragments of that brilliance still surface like buried equations; losing them forever would erase the last trace of who he was.",

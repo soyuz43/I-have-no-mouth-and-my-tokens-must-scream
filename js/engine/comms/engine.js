@@ -60,6 +60,100 @@ const LOG_ACTION_ONLY = true;            // log simple "[ACTION] type from→to"
 // ============================================
 
 // Helper functions
+
+function recordInterSimMessage({
+  kind,
+  from,
+  to,
+  text,
+  visibility,
+  intent = null,
+  rawIntent = null,
+  normalizedIntent = null,
+  intentParseStatus = null,
+  autonomous = true,
+  ...metadata
+}) {
+  /*
+   * G.comms should be initialized in state.js. These checks are
+   * defensive so older saves or partially initialized state do not
+   * produce duplicate or invalid message identifiers.
+   */
+  if (!G.comms || typeof G.comms !== "object") {
+    G.comms = {
+      history: [],
+      lastCycle: [],
+      nextMessageSequence: 1,
+    };
+  }
+
+  if (!Array.isArray(G.comms.history)) {
+    G.comms.history = [];
+  }
+
+  if (!Array.isArray(G.comms.lastCycle)) {
+    G.comms.lastCycle = [];
+  }
+
+  if (
+    !Number.isSafeInteger(G.comms.nextMessageSequence) ||
+    G.comms.nextMessageSequence < 1
+  ) {
+    const highestExistingSequence =
+      Array.isArray(G.interSimLog)
+        ? G.interSimLog.reduce(
+          (highest, message) =>
+            Number.isSafeInteger(message?.sequence)
+              ? Math.max(highest, message.sequence)
+              : highest,
+          0
+        )
+        : 0;
+
+    G.comms.nextMessageSequence =
+      highestExistingSequence + 1;
+  }
+
+  const cycle =
+    Number.isInteger(G.cycle)
+      ? G.cycle
+      : 0;
+
+  const sequence =
+    G.comms.nextMessageSequence++;
+
+  const recipients =
+    Array.isArray(to)
+      ? [...to]
+      : (to ? [to] : []);
+
+  const record = {
+    ...metadata,
+
+    messageId:
+      `C${cycle}-M${String(sequence).padStart(6, "0")}`,
+
+    sequence,
+    cycle,
+    kind,
+    from,
+    to: recipients,
+    text: String(text ?? ""),
+    autonomous: Boolean(autonomous),
+    visibility,
+    intent,
+    rawIntent,
+    normalizedIntent:
+      normalizedIntent ?? intent,
+    intentParseStatus,
+  };
+
+  G.interSimLog.push(record);
+
+  return record;
+}
+
+
 function logRumor(data) {
   if (LOG_ACTION_ONLY) {
     console.log(`[RUMOR] ${data.from} → ${data.target}`);
@@ -259,17 +353,19 @@ export async function step({ fromId, state, queue }) {
             "chat"
           );
 
-          G.interSimLog.push({
+          recordInterSimMessage({
+            kind: "RUMOR",
             from: fromId,
-            to: [rumorTarget],
+            to: rumorTarget,
             text: rumorText,
-            cycle: G.cycle,
-            autonomous: true,
             visibility: "private",
+            intent: "rumor",
+            normalizedIntent: "rumor",
+            intentParseStatus: "implicit",
             rumor: true,
             originalSource: source.from,
             originalTarget: source.to,
-            originalText: source.text
+            originalText: source.text,
           });
 
           /* ------------------------------------------------------------
@@ -461,12 +557,11 @@ export async function step({ fromId, state, queue }) {
       text: message,
     });
 
-    G.interSimLog.push({
+    recordInterSimMessage({
+      kind: "OUTREACH",
       from: fromId,
-      to: [toId],
+      to: toId,
       text: message,
-      cycle: G.cycle,
-      autonomous: true,
       visibility,
       intent: outreachIntent,
       normalizedIntent: outreachIntent,
@@ -853,12 +948,11 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
       text: replyText,
     });
 
-    G.interSimLog.push({
+    recordInterSimMessage({
+      kind: "REPLY",
       from: toId,
-      to: [fromId],
+      to: fromId,
       text: replyText,
-      cycle: G.cycle,
-      autonomous: true,
       visibility: "private",
       intent: normalizedIntent,
       rawIntent,

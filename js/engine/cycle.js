@@ -773,15 +773,26 @@ async function runInteractionAnalysisPhase() {
   for (const sim of Object.values(G.sims)) {
 
     console.debug(`[INTERACTION LOOP] processing ${sim.id}`);
-
+    
     // ------------------------------------------------------------
-    // MERGE ALL MESSAGE SOURCES
+    // SELECT CANONICAL MESSAGE SOURCE
     // ------------------------------------------------------------
 
-    const sourceLog = [
-      ...(Array.isArray(G.comms?.history) ? G.comms.history : []),
-      ...(Array.isArray(G.interSimLog) ? G.interSimLog : [])
-    ];
+    /*
+     * G.comms.history contains the canonical records persisted from
+     * G.interSimLog. Concatenating both stores would analyze every
+     * persisted communication twice.
+     *
+     * G.interSimLog remains a compatibility fallback for older state
+     * that does not yet contain canonical communication history.
+     */
+    const sourceLog =
+      Array.isArray(G.comms?.history) &&
+      G.comms.history.length > 0
+        ? G.comms.history
+        : Array.isArray(G.interSimLog)
+          ? G.interSimLog
+          : [];
 
     // ------------------------------------------------------------
     // FILTER RELEVANT EVENTS SAFELY

@@ -4,7 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
 import { EMBEDDED_TACTICS } from "../engine/tactics.js";
-import { runCommsCycle } from "../engine/comms/orchestrator.js";
+import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
 
 import { crawlVault, fetchAMContext, ghGet } from "../core/github.js";
 
@@ -122,6 +122,21 @@ function collectModelConfig() {
       G.backend = btn.dataset.b;
     }
   });
+
+  // Colab runtime config from setup UI.
+  // This is intentionally kept in runtime state only.
+  G.colabEndpoint =
+    document
+      .getElementById("colab-endpoint")
+      ?.value
+      ?.trim()
+      ?.replace(/\/+$/, "") || "";
+
+  G.colabBearerToken =
+    document
+      .getElementById("colab-token")
+      ?.value
+      ?.trim() || "";
 
   const split = G.splitModels;
 
@@ -262,6 +277,45 @@ export async function bootAM() {
 
   }
 
+  if (G.backend === "colab") {
+
+    const endpointReady =
+      Boolean(
+        G.colabEndpoint
+      );
+
+    const tokenReady =
+      Boolean(
+        G.colabBearerToken
+      );
+
+    const modelsReady =
+      Array.isArray(
+        G.colabModels
+      ) &&
+      G.colabModels.length > 0;
+
+    if (
+      !endpointReady ||
+      !tokenReady ||
+      !modelsReady
+    ) {
+      bootLog(
+        "✗ Test the Colab connection and discover at least one model before initialization.",
+        true
+      );
+
+      btn.disabled = false;
+
+      return;
+    }
+
+    bootLog(
+      `✓ Colab ready. ${G.colabModels.length} model${G.colabModels.length === 1 ? "" : "s"} available.`
+    );
+
+  }
+
   /* ---------------------------------------------------------
      CONTEXT + VAULT
   --------------------------------------------------------- */
@@ -361,7 +415,7 @@ export async function bootAM() {
     "sys"
   );
 
-  await runCommsCycle();
+  await runCommunicationPhase();
 
   addLog(
     "SYSTEM // DONE",

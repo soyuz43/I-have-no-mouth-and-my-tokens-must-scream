@@ -129,6 +129,47 @@
             </button>
           </div>
 
+          <button class="btog" data-b="colab" onclick="setBackend(this)">
+            COLAB ENDPOINT
+          </button>
+
+          <div id="colab-section" style="display: none">
+            <div class="sf">
+              <label class="sl">ENDPOINT URL</label>
+              <input
+                class="si"
+                id="colab-endpoint"
+                oninput="updateColabScanAvailability()"
+                placeholder="https://example.trycloudflare.com"
+              />
+            </div>
+
+            <div class="sf">
+              <label class="sl">BEARER TOKEN</label>
+              <input
+                class="si"
+                id="colab-token"
+                type="password"
+                autocomplete="off"
+                oninput="invalidateColabConnection()"
+                placeholder="Session bearer token"
+              />
+            </div>
+
+            <div class="ollama-status" id="colab-status">
+              Enter the active Colab endpoint and token.
+            </div>
+
+            <button
+              class="jm-btn"
+              id="colab-scan-btn"
+              onclick="scanColab()"
+              disabled
+            >
+              ⟳ TEST COLAB CONNECTION
+            </button>
+          </div>
+
           <!-- Split model toggle -->
           <div class="model-split-toggle">
             <div
