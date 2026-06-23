@@ -3,20 +3,54 @@
 // Unified Model API Layer
 //
 // Supports:
-//  - Anthropic
-//  - Ollama
-//  - Colab endpoint (OpenAI-compatible)
+//   - Anthropic Messages API
+//   - Ollama native chat API
+//   - OpenAI-compatible Chat Completions APIs
+//   - Existing Colab endpoint configuration
 //
-// Handles:
-//  - role → model routing
-//  - provider normalization
-//  - queued model execution
-//  - full prompt/response debug logging
-//  - informative model-call identifiers
+// Architecture:
+//   role -> model
+//   backend -> protocol adapter
+//
+// Backward-compatible backend values:
+//   - "anthropic"
+//   - "ollama"
+//   - "colab"
+//
+// Additional backend values:
+//   - "openai"
+//   - "openai-compatible"
+//
+// OpenAI-compatible configuration:
+//
+//   G.openAICompatibleEndpoint
+//   G.openAICompatibleApiKey
+//   G.openAICompatibleRequestTimeoutMs
+//   G.openAICompatibleRequireApiKey
+//   G.openAICompatibleTemperature
+//
+// Existing Colab configuration remains supported:
+//
+//   G.colabEndpoint
+//   G.colabBearerToken
+//   G.colabRequestTimeoutMs
 
 import { G } from "../core/state.js";
 import { stripThinkTags } from "../core/utils.js";
 import { enqueueModelCall } from "./modelQueue.js";
+
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
+const DEFAULT_MAX_TOKENS = 5000;
+const DEFAULT_TEMPERATURE = 0.85;
+
+const DEFAULT_REMOTE_TIMEOUT_MS =
+  2 * 60 * 1000;
+
+const DEFAULT_LONG_RUNNING_TIMEOUT_MS =
+  15 * 60 * 1000;
 
 /* ============================================================
    MODEL CALL DEBUG HELPERS
@@ -25,8 +59,8 @@ import { enqueueModelCall } from "./modelQueue.js";
 let modelCallSequence = 0;
 
 /**
- * Convert provider-specific or structured message content
- * into a plain string for debug logging and non-Anthropic providers.
+ * Convert provider-specific or structured message content into
+ * a plain string for logging and text-only providers.
  */
 function normalizeMessageContent(content) {
   if (typeof content === "string") {
@@ -80,21 +114,85 @@ function normalizeMessageContent(content) {
 }
 
 /**
- * Create detached message objects for logging so later mutation
- * does not make an old console entry appear to change.
+ * Snapshot messages when callModel() is invoked.
+ *
+ * Model calls may wait in a queue. Taking a snapshot prevents
+ * later caller mutations from changing the queued request or
+ * making its debug output misrepresent what was submitted.
+ */
+function snapshotMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  if (
+    typeof structuredClone === "function"
+  ) {
+    try {
+      return structuredClone(messages);
+    } catch {
+      // Fall through to a conservative manual copy.
+    }
+  }
+
+  return messages.map((message) => {
+    if (
+      !message ||
+      typeof message !== "object"
+    ) {
+      return message;
+    }
+
+    let content =
+      message.content;
+
+    if (Array.isArray(content)) {
+      content = content.map((part) => {
+        if (
+          part &&
+          typeof part === "object"
+        ) {
+          return { ...part };
+        }
+
+        return part;
+      });
+    } else if (
+      content &&
+      typeof content === "object"
+    ) {
+      content = { ...content };
+    }
+
+    return {
+      ...message,
+      content
+    };
+  });
+}
+
+/**
+ * Create detached, text-normalized message objects for logging.
  */
 function normalizeMessagesForDebug(messages) {
   if (!Array.isArray(messages)) {
     return [];
   }
 
-  return messages.map((message, index) => ({
-    index,
-    role: message?.role || "unknown",
-    content: normalizeMessageContent(
-      message?.content
-    )
-  }));
+  return messages.map(
+    (message, index) => ({
+      index,
+
+      role:
+        message?.role ||
+        "unknown",
+
+      content:
+        normalizeMessageContent(
+          message?.content
+        )
+    })
+  );
 }
 
 function createPreview(
@@ -113,7 +211,7 @@ function createPreview(
 }
 
 /**
- * Convert arbitrary names into readable, consistent call-ID parts.
+ * Convert arbitrary names into readable call-ID components.
  */
 function normalizeCallLabel(value) {
   return String(value || "UNKNOWN")
@@ -123,8 +221,7 @@ function normalizeCallLabel(value) {
 }
 
 /**
- * Infer the kind of model task when the caller does not explicitly
- * provide metadata.purpose.
+ * Infer the kind of model task when metadata.purpose is omitted.
  */
 function inferModelCallPurpose(
   role,
@@ -159,7 +256,8 @@ function inferModelCallPurpose(
       .toLowerCase();
 
   if (
-    normalizedRole === "FORENSIC_STATS"
+    normalizedRole ===
+    "FORENSIC_STATS"
   ) {
     return "STATS";
   }
@@ -260,20 +358,29 @@ function makeModelCallContext(
   const idParts = [
     `C${cycle}`,
     normalizedRole,
+
     subject
       ? `SUBJECT-${subject}`
       : null,
+
     purpose,
     `CALL${sequenceLabel}`
   ].filter(Boolean);
 
   return {
-    id: idParts.join("-"),
+    id:
+      idParts.join("-"),
+
     cycle,
-    role: normalizedRole,
+
+    role:
+      normalizedRole,
+
     subject,
     purpose,
-    sequence: modelCallSequence
+
+    sequence:
+      modelCallSequence
   };
 }
 
@@ -286,6 +393,694 @@ function getClockMilliseconds() {
   }
 
   return Date.now();
+}
+
+function calculateDurationMs(startTime) {
+  return (
+    Math.round(
+      (
+        getClockMilliseconds() -
+        startTime
+      ) * 100
+    ) / 100
+  );
+}
+
+/* ============================================================
+   GENERAL HELPERS
+   ============================================================ */
+
+function firstDefined(...values) {
+  return values.find(
+    (value) =>
+      value !== undefined &&
+      value !== null
+  );
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const normalized =
+      String(value ?? "").trim();
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return "";
+}
+
+function normalizePositiveNumber(
+  value,
+  fallback
+) {
+  return (
+    Number.isFinite(value) &&
+    value > 0
+  )
+    ? value
+    : fallback;
+}
+
+function normalizeMaxTokens(value) {
+  return Math.max(
+    1,
+
+    Math.floor(
+      normalizePositiveNumber(
+        value,
+        DEFAULT_MAX_TOKENS
+      )
+    )
+  );
+}
+
+function normalizeBackendName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+}
+
+function parseJsonSafely(value) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProviderError(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractProviderError(
+  data,
+  responseText
+) {
+  return normalizeProviderError(
+    data?.error?.message ??
+    data?.error ??
+    data?.detail ??
+    data?.message ??
+    responseText
+  );
+}
+
+function createProviderErrorDetail(
+  data,
+  responseText
+) {
+  const message =
+    extractProviderError(
+      data,
+      responseText
+    );
+
+  if (!message) {
+    return "";
+  }
+
+  return `: ${createPreview(
+    message,
+    500
+  )}`;
+}
+
+function formatTimeout(timeoutMs) {
+  if (timeoutMs >= 60_000) {
+    const minutes =
+      Math.round(
+        timeoutMs / 60_000
+      );
+
+    return `${minutes} minute${
+      minutes === 1
+        ? ""
+        : "s"
+    }`;
+  }
+
+  const seconds =
+    Math.max(
+      1,
+      Math.round(timeoutMs / 1000)
+    );
+
+  return `${seconds} second${
+    seconds === 1
+      ? ""
+      : "s"
+  }`;
+}
+
+/**
+ * Validate a service URL without assuming a specific provider.
+ */
+function parseServiceUrl(
+  value,
+  label
+) {
+  const raw =
+    String(value || "").trim();
+
+  if (!raw) {
+    throw new Error(
+      `${label} is not configured.`
+    );
+  }
+
+  let url;
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `${label} is not a valid URL.`
+    );
+  }
+
+  if (
+    url.protocol !== "http:" &&
+    url.protocol !== "https:"
+  ) {
+    throw new Error(
+      `${label} must use HTTP or HTTPS.`
+    );
+  }
+
+  if (
+    url.username ||
+    url.password
+  ) {
+    throw new Error(
+      `${label} must not contain embedded credentials.`
+    );
+  }
+
+  if (
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      `${label} must not contain a query string or fragment.`
+    );
+  }
+
+  return url;
+}
+
+/**
+ * Accept any of:
+ *
+ * https://api.example.com
+ * https://api.example.com/v1
+ * https://api.example.com/v1/chat/completions
+ */
+function buildChatCompletionsUrl(value) {
+  const url =
+    parseServiceUrl(
+      value,
+      "OpenAI-compatible endpoint"
+    );
+
+  const path =
+    url.pathname.replace(/\/+$/, "");
+
+  if (
+    /\/chat\/completions$/i.test(path)
+  ) {
+    url.pathname = path;
+  } else if (
+    /\/v1$/i.test(path)
+  ) {
+    url.pathname =
+      `${path}/chat/completions`;
+  } else {
+    url.pathname =
+      `${path}/v1/chat/completions`;
+  }
+
+  return url.toString();
+}
+
+/**
+ * Accept any of:
+ *
+ * https://api.anthropic.com
+ * https://api.anthropic.com/v1
+ * https://api.anthropic.com/v1/messages
+ */
+function buildAnthropicMessagesUrl(value) {
+  const url =
+    parseServiceUrl(
+      value,
+      "Anthropic endpoint"
+    );
+
+  const path =
+    url.pathname.replace(/\/+$/, "");
+
+  if (
+    /\/v1\/messages$/i.test(path)
+  ) {
+    url.pathname = path;
+  } else if (
+    /\/v1$/i.test(path)
+  ) {
+    url.pathname =
+      `${path}/messages`;
+  } else {
+    url.pathname =
+      `${path}/v1/messages`;
+  }
+
+  return url.toString();
+}
+
+/**
+ * Accept any of:
+ *
+ * http://localhost:11434
+ * http://localhost:11434/api
+ * http://localhost:11434/api/chat
+ */
+function buildOllamaChatUrl(value) {
+  const url =
+    parseServiceUrl(
+      value,
+      "Ollama endpoint"
+    );
+
+  const path =
+    url.pathname.replace(/\/+$/, "");
+
+  if (
+    /\/api\/chat$/i.test(path)
+  ) {
+    url.pathname = path;
+  } else if (
+    /\/api$/i.test(path)
+  ) {
+    url.pathname =
+      `${path}/chat`;
+  } else {
+    url.pathname =
+      `${path}/api/chat`;
+  }
+
+  return url.toString();
+}
+
+/**
+ * Execute a JSON request with timeout and network-error handling.
+ *
+ * The response body is read as text first so provider errors and
+ * invalid JSON responses can be reported accurately.
+ */
+async function postJson({
+  url,
+  headers,
+  body,
+  timeoutMs,
+  requestLabel
+}) {
+  const controller =
+    new AbortController();
+
+  const timeoutId =
+    setTimeout(
+      () => controller.abort(),
+      timeoutMs
+    );
+
+  try {
+    const response =
+      await fetch(url, {
+        method: "POST",
+        headers,
+
+        body:
+          JSON.stringify(body),
+
+        signal:
+          controller.signal
+      });
+
+    const responseText =
+      await response.text();
+
+    return {
+      response,
+      responseText,
+
+      data:
+        parseJsonSafely(
+          responseText
+        )
+    };
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw new Error(
+        `${requestLabel} timed out after ${formatTimeout(timeoutMs)}.`
+      );
+    }
+
+    throw new Error(
+      `${requestLabel} could not be completed: ${
+        error?.message ||
+        String(error)
+      }`
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function normalizeTextMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages.map((message) => {
+    const normalizedMessage = {
+      role:
+        message?.role ||
+        "user",
+
+      content:
+        normalizeMessageContent(
+          message?.content
+        )
+    };
+
+    if (
+      typeof message?.name === "string" &&
+      message.name.trim()
+    ) {
+      normalizedMessage.name =
+        message.name;
+    }
+
+    return normalizedMessage;
+  });
+}
+
+/* ============================================================
+   MODEL AND BACKEND RESOLUTION
+   ============================================================ */
+
+function resolveModel(role) {
+  const models =
+    G?.models;
+
+  if (
+    !models ||
+    typeof models !== "object"
+  ) {
+    throw new Error(
+      "Model configuration is missing."
+    );
+  }
+
+  const rawRole =
+    String(role || "").trim();
+
+  const candidates = [
+    rawRole,
+    rawRole.toUpperCase(),
+    rawRole.toLowerCase(),
+    "AM",
+    "am",
+    "DEFAULT",
+    "default"
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      typeof models[candidate] ===
+        "string" &&
+      models[candidate].trim()
+    ) {
+      return models[candidate].trim();
+    }
+  }
+
+  throw new Error(
+    `No model is configured for role "${rawRole || "UNKNOWN"}".`
+  );
+}
+
+/**
+ * Resolve and snapshot backend configuration when callModel()
+ * is invoked.
+ *
+ * This prevents a queued request from silently switching backend
+ * if global application state changes while it is waiting.
+ */
+function resolveBackendRoute(role) {
+  const configuredBackend =
+    normalizeBackendName(
+      G?.backend
+    );
+
+  const model =
+    resolveModel(role);
+
+  if (configuredBackend === "anthropic") {
+    const apiKey =
+      firstNonEmptyString(
+        G.anthropicKey
+      );
+
+    if (!apiKey) {
+      throw new Error(
+        "Anthropic API key is not configured."
+      );
+    }
+
+    return {
+      backend:
+        "anthropic",
+
+      adapter:
+        "anthropic-messages",
+
+      provider:
+        "Anthropic",
+
+      model,
+
+      endpoint:
+        buildAnthropicMessagesUrl(
+          firstNonEmptyString(
+            G.anthropicEndpoint,
+            "https://api.anthropic.com"
+          )
+        ),
+
+      apiKey,
+
+      anthropicVersion:
+        firstNonEmptyString(
+          G.anthropicVersion,
+          "2023-06-01"
+        ),
+
+      timeoutMs:
+        normalizePositiveNumber(
+          G.anthropicRequestTimeoutMs,
+          DEFAULT_REMOTE_TIMEOUT_MS
+        )
+    };
+  }
+
+  if (configuredBackend === "ollama") {
+    const configuredOptions =
+      (
+        G.ollamaOptions &&
+        typeof G.ollamaOptions ===
+          "object" &&
+        !Array.isArray(G.ollamaOptions)
+      )
+        ? { ...G.ollamaOptions }
+        : {};
+
+    return {
+      backend:
+        "ollama",
+
+      adapter:
+        "ollama-native",
+
+      provider:
+        "Ollama",
+
+      model,
+
+      endpoint:
+        buildOllamaChatUrl(
+          firstNonEmptyString(
+            G.ollamaEndpoint,
+            "http://localhost:11434"
+          )
+        ),
+
+      timeoutMs:
+        normalizePositiveNumber(
+          G.ollamaRequestTimeoutMs,
+          DEFAULT_LONG_RUNNING_TIMEOUT_MS
+        ),
+
+      temperature:
+        Number.isFinite(
+          G.ollamaTemperature
+        )
+          ? G.ollamaTemperature
+          : DEFAULT_TEMPERATURE,
+
+      think:
+        Boolean(G.ollamaThink),
+
+      options:
+        configuredOptions
+    };
+  }
+
+  if (
+    configuredBackend === "colab" ||
+    configuredBackend === "openai" ||
+    configuredBackend ===
+      "openai-compatible"
+  ) {
+    const isColab =
+      configuredBackend === "colab";
+
+    const isOpenAI =
+      configuredBackend === "openai";
+
+    const endpoint =
+      firstNonEmptyString(
+        G.openAICompatibleEndpoint,
+        G.openaiEndpoint,
+        G.colabEndpoint,
+
+        isOpenAI
+          ? "https://api.openai.com"
+          : ""
+      );
+
+    const apiKey =
+      firstNonEmptyString(
+        G.openAICompatibleApiKey,
+        G.openAICompatibleBearerToken,
+        G.openaiKey,
+        G.openAIKey,
+        G.colabBearerToken
+      );
+
+    const requireApiKey =
+      Boolean(
+        firstDefined(
+          G.openAICompatibleRequireApiKey,
+          G.colabRequireBearerToken,
+          true
+        )
+      );
+
+    if (
+      requireApiKey &&
+      !apiKey
+    ) {
+      throw new Error(
+        `${
+          isColab
+            ? "Colab bearer token"
+            : "OpenAI-compatible API key"
+        } is not configured.`
+      );
+    }
+
+    return {
+      backend:
+        configuredBackend,
+
+      adapter:
+        "openai-chat",
+
+      provider:
+        isColab
+          ? "Colab"
+          : isOpenAI
+            ? "OpenAI"
+            : "OpenAI-compatible",
+
+      model,
+
+      endpoint:
+        buildChatCompletionsUrl(
+          endpoint
+        ),
+
+      apiKey,
+
+      timeoutMs:
+        normalizePositiveNumber(
+          firstDefined(
+            G.openAICompatibleRequestTimeoutMs,
+            G.colabRequestTimeoutMs
+          ),
+
+          isColab
+            ? DEFAULT_LONG_RUNNING_TIMEOUT_MS
+            : DEFAULT_REMOTE_TIMEOUT_MS
+        ),
+
+      temperature:
+        Number.isFinite(
+          firstDefined(
+            G.openAICompatibleTemperature,
+            G.colabTemperature
+          )
+        )
+          ? firstDefined(
+            G.openAICompatibleTemperature,
+            G.colabTemperature
+          )
+          : DEFAULT_TEMPERATURE
+    };
+  }
+
+  if (!configuredBackend) {
+    throw new Error(
+      "Model backend is not configured."
+    );
+  }
+
+  throw new Error(
+    `Unknown backend: ${G.backend}`
+  );
 }
 
 /* ============================================================
@@ -302,35 +1097,78 @@ function getClockMilliseconds() {
  *   Complete system prompt.
  *
  * @param {Array} messages
- *   Provider-normalized conversation messages.
+ *   Conversation messages.
  *
  * @param {number} maxTokens
- *   Output-token limit. Explicit call-site values override the
- *   5000-token default.
+ *   Output-token limit.
  *
  * @param {Object} metadata
  *   Optional debug metadata:
+ *
  *   {
  *     purpose: "STATS",
  *     subject: "NIMDOK"
  *   }
+ *
+ * @returns {Promise<string>}
+ *   Cleaned model response text.
  */
 export async function callModel(
   role,
   systemPrompt,
   messages,
-  maxTokens = 5000,
-  metadata = {}
+  maxTokensOrMetadata = DEFAULT_MAX_TOKENS,
+  maybeMetadata = {}
 ) {
-  const model =
-    resolveModel(role);
+  let maxTokens = DEFAULT_MAX_TOKENS;
+  let metadata = {};
+
+  if (
+    typeof maxTokensOrMetadata === "object" &&
+    maxTokensOrMetadata !== null
+  ) {
+    metadata = maxTokensOrMetadata;
+  } else {
+    maxTokens = maxTokensOrMetadata;
+    metadata = maybeMetadata;
+  }
+
+  const normalizedSystemPrompt =
+    String(systemPrompt ?? "");
+
+  const requestMessages =
+    snapshotMessages(messages);
+
+  const normalizedMaxTokens =
+    normalizeMaxTokens(maxTokens);
+
+  const requestMetadata =
+    (
+      metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata)
+    )
+      ? { ...metadata }
+      : {};
+
+  const route =
+    resolveBackendRoute(role);
+
+  const adapter =
+    MODEL_ADAPTERS[route.adapter];
+
+  if (typeof adapter !== "function") {
+    throw new Error(
+      `No adapter is registered for "${route.adapter}".`
+    );
+  }
 
   const callContext =
     makeModelCallContext(
       role,
-      systemPrompt,
-      messages,
-      metadata
+      normalizedSystemPrompt,
+      requestMessages,
+      requestMetadata
     );
 
   return enqueueModelCall(
@@ -340,7 +1178,7 @@ export async function callModel(
 
       const normalizedMessages =
         normalizeMessagesForDebug(
-          messages
+          requestMessages
         );
 
       const latestUserMessage =
@@ -351,12 +1189,9 @@ export async function callModel(
               message.role === "user"
           );
 
-      const startTime =
-        getClockMilliseconds();
-
       if (debugEnabled) {
         console.groupCollapsed(
-          `[MODEL INPUT][DEBUG][${callContext.id}] ${role} → ${model}`
+          `[MODEL INPUT][DEBUG][${callContext.id}] ${role} → ${route.provider}/${route.model}`
         );
 
         console.debug(
@@ -377,22 +1212,29 @@ export async function callModel(
             purpose:
               callContext.purpose,
 
-            model,
-
             backend:
-              G.backend,
+              route.backend,
+
+            adapter:
+              route.adapter,
+
+            provider:
+              route.provider,
+
+            model:
+              route.model,
+
+            endpoint:
+              route.endpoint,
 
             max_tokens:
-              maxTokens,
+              normalizedMaxTokens,
 
             message_count:
               normalizedMessages.length,
 
             system_prompt_characters:
-              typeof systemPrompt ===
-                "string"
-                ? systemPrompt.length
-                : 0,
+              normalizedSystemPrompt.length,
 
             message_characters:
               normalizedMessages.reduce(
@@ -407,7 +1249,7 @@ export async function callModel(
 
             system_preview:
               createPreview(
-                systemPrompt
+                normalizedSystemPrompt
               ),
 
             latest_user_preview:
@@ -417,13 +1259,13 @@ export async function callModel(
               ),
 
             metadata:
-              { ...metadata }
+              requestMetadata
           }
         );
 
         console.debug(
           "SYSTEM PROMPT:",
-          systemPrompt
+          normalizedSystemPrompt
         );
 
         console.debug(
@@ -434,57 +1276,54 @@ export async function callModel(
         console.groupEnd();
       }
 
+      const requestStartTime =
+        getClockMilliseconds();
+
       try {
-        let result;
+        const result =
+          await adapter({
+            route,
+
+            systemPrompt:
+              normalizedSystemPrompt,
+
+            messages:
+              requestMessages,
+
+            maxTokens:
+              normalizedMaxTokens
+          });
 
         if (
-          G.backend === "anthropic"
+          !result ||
+          typeof result !== "object"
         ) {
-          result =
-            await callAnthropic(
-              model,
-              systemPrompt,
-              messages,
-              maxTokens
-            );
-        } else if (
-          G.backend === "ollama"
-        ) {
-          result =
-            await callOllama(
-              model,
-              systemPrompt,
-              messages,
-              maxTokens
-            );
-        } else if (
-          G.backend === "colab"
-        ) {
-          result =
-            await callColab(
-              model,
-              systemPrompt,
-              messages,
-              maxTokens
-            );
-        } else {
           throw new Error(
-            `Unknown backend: ${G.backend}`
+            `Adapter "${route.adapter}" returned an invalid result.`
           );
         }
 
-        const endTime =
-          getClockMilliseconds();
+        const raw =
+          typeof result.raw === "string"
+            ? result.raw
+            : normalizeMessageContent(
+              result.raw
+            );
 
-        const durationMs =
-          Math.round(
-            (endTime - startTime) *
-            100
-          ) / 100;
+        const cleaned =
+          typeof result.cleaned ===
+            "string"
+            ? result.cleaned
+            : raw;
+
+        const requestDurationMs =
+          calculateDurationMs(
+            requestStartTime
+          );
 
         if (debugEnabled) {
           console.groupCollapsed(
-            `[MODEL RESPONSE][DEBUG][${callContext.id}] ${role} ← ${model} (${durationMs} ms)`
+            `[MODEL RESPONSE][DEBUG][${callContext.id}] ${role} ← ${route.provider}/${route.model} (${requestDurationMs} ms)`
           );
 
           console.debug(
@@ -505,38 +1344,41 @@ export async function callModel(
               purpose:
                 callContext.purpose,
 
-              model,
-
               backend:
-                G.backend,
+                route.backend,
 
-              duration_ms:
-                durationMs,
+              adapter:
+                route.adapter,
+
+              provider:
+                route.provider,
+
+              model:
+                route.model,
+
+              request_duration_ms:
+                requestDurationMs,
 
               raw_characters:
-                result.raw.length,
+                raw.length,
 
               cleaned_characters:
-                result.cleaned.length,
+                cleaned.length,
 
               response_was_cleaned:
-                result.raw !==
-                result.cleaned
+                raw !== cleaned
             }
           );
 
           console.debug(
             "RAW MODEL RESPONSE:",
-            result.raw
+            raw
           );
 
-          if (
-            result.cleaned !==
-            result.raw
-          ) {
+          if (cleaned !== raw) {
             console.debug(
               "CLEANED MODEL RESPONSE:",
-              result.cleaned
+              cleaned
             );
           }
 
@@ -548,19 +1390,15 @@ export async function callModel(
           console.groupEnd();
         }
 
-        return result.cleaned;
+        return cleaned;
       } catch (error) {
-        const endTime =
-          getClockMilliseconds();
-
-        const durationMs =
-          Math.round(
-            (endTime - startTime) *
-            100
-          ) / 100;
+        const requestDurationMs =
+          calculateDurationMs(
+            requestStartTime
+          );
 
         console.group(
-          `[MODEL ERROR][${callContext.id}] ${role} → ${model}`
+          `[MODEL ERROR][${callContext.id}] ${role} → ${route.provider}/${route.model}`
         );
 
         console.error({
@@ -579,13 +1417,23 @@ export async function callModel(
           purpose:
             callContext.purpose,
 
-          model,
-
           backend:
-            G.backend,
+            route.backend,
 
-          duration_ms:
-            durationMs,
+          adapter:
+            route.adapter,
+
+          provider:
+            route.provider,
+
+          model:
+            route.model,
+
+          endpoint:
+            route.endpoint,
+
+          request_duration_ms:
+            requestDurationMs,
 
           error
         });
@@ -595,83 +1443,103 @@ export async function callModel(
         throw error;
       }
     },
-    `${callContext.id}:${model}`
+
+    [
+      callContext.id,
+      route.backend,
+      route.model
+    ].join(":")
   );
 }
 
 /* ============================================================
-   MODEL ROUTING
+   ANTHROPIC MESSAGES ADAPTER
    ============================================================ */
 
-function resolveModel(role) {
-  return (
-    G.models?.[role] ||
-    G.models?.am
-  );
-}
-
-/* ============================================================
-   ANTHROPIC
-   ============================================================ */
-
-async function callAnthropic(
-  model,
+async function callAnthropic({
+  route,
   systemPrompt,
   messages,
   maxTokens
-) {
+}) {
   const body = {
-    model,
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages
+    model:
+      route.model,
+
+    max_tokens:
+      maxTokens,
+
+    system:
+      systemPrompt,
+
+    messages:
+      Array.isArray(messages)
+        ? messages
+        : []
   };
 
-  const response = await fetch(
-    "https://api.anthropic.com/v1/messages",
-    {
-      method: "POST",
+  const {
+    response,
+    responseText,
+    data
+  } =
+    await postJson({
+      url:
+        route.endpoint,
 
       headers: {
         "Content-Type":
           "application/json",
 
+        Accept:
+          "application/json",
+
         "x-api-key":
-          G.anthropicKey,
+          route.apiKey,
 
         "anthropic-version":
-          "2023-06-01"
+          route.anthropicVersion
       },
 
-      body:
-        JSON.stringify(body)
-    }
-  );
+      body,
 
-  let data;
+      timeoutMs:
+        route.timeoutMs,
 
-  try {
-    data =
-      await response.json();
-  } catch {
-    throw new Error(
-      `Anthropic returned non-JSON data with HTTP ${response.status}.`
-    );
-  }
+      requestLabel:
+        "Anthropic request"
+    });
 
   if (
     !response.ok ||
     data?.error
   ) {
     throw new Error(
-      data?.error?.message ||
-      `Anthropic request failed with HTTP ${response.status}.`
+      `Anthropic request failed with HTTP ${response.status}${createProviderErrorDetail(
+        data,
+        responseText
+      )}`
+    );
+  }
+
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    throw new Error(
+      `Anthropic returned non-JSON data with HTTP ${response.status}.`
+    );
+  }
+
+  if (!Array.isArray(data.content)) {
+    throw new Error(
+      "Anthropic returned an invalid Messages API response shape."
     );
   }
 
   const raw =
     data.content
-      ?.map((contentBlock) => {
+      .map((contentBlock) => {
         if (
           typeof contentBlock?.text ===
           "string"
@@ -681,325 +1549,102 @@ async function callAnthropic(
 
         return "";
       })
-      .join("") || "";
+      .join("");
 
   return {
     raw,
-    cleaned: raw,
-    providerResponse: data
+    cleaned:
+      raw,
+
+    providerResponse:
+      data
   };
 }
 
 /* ============================================================
-   OLLAMA
+   OLLAMA NATIVE ADAPTER
    ============================================================ */
 
-async function callOllama(
-  model,
+async function callOllama({
+  route,
   systemPrompt,
   messages,
   maxTokens
-) {
-  const normalizedMessages =
-    Array.isArray(messages)
-      ? messages
-      : [];
-
+}) {
   const ollamaMessages = [
     {
-      role: "system",
+      role:
+        "system",
+
       content:
-        typeof systemPrompt ===
-          "string"
-          ? systemPrompt
-          : String(
-            systemPrompt ?? ""
-          )
+        systemPrompt
     },
 
-    ...normalizedMessages.map(
-      (message) => ({
-        role:
-          message?.role ||
-          "user",
-
-        content:
-          normalizeMessageContent(
-            message?.content
-          )
-      })
-    )
+    ...normalizeTextMessages(messages)
   ];
 
   const body = {
-    model,
-    messages: ollamaMessages,
-    stream: false,
-    think: false,
+    model:
+      route.model,
+
+    messages:
+      ollamaMessages,
+
+    stream:
+      false,
+
+    think:
+      route.think,
 
     options: {
-      num_ctx: 10240,
-      num_predict: maxTokens,
-      temperature: 0.85
+      num_ctx:
+        10240,
+
+      ...route.options,
+
+      temperature:
+        route.temperature,
+
+      num_predict:
+        maxTokens
     }
   };
 
-  const response = await fetch(
-    "http://localhost:11434/api/chat",
-    {
-      method: "POST",
+  const {
+    response,
+    responseText,
+    data
+  } =
+    await postJson({
+      url:
+        route.endpoint,
 
       headers: {
         "Content-Type":
+          "application/json",
+
+        Accept:
           "application/json"
       },
 
-      body:
-        JSON.stringify(body)
-    }
-  );
+      body,
 
-  let data;
+      timeoutMs:
+        route.timeoutMs,
 
-  try {
-    data =
-      await response.json();
-  } catch {
-    throw new Error(
-      `Ollama returned non-JSON data with HTTP ${response.status}.`
-    );
-  }
+      requestLabel:
+        "Ollama request"
+    });
 
   if (
     !response.ok ||
     data?.error
   ) {
     throw new Error(
-      data?.error ||
-      `Ollama request failed with HTTP ${response.status}.`
-    );
-  }
-
-  if (
-    !data.message ||
-    typeof data.message.content !==
-    "string"
-  ) {
-    console.warn(
-      "[OLLAMA WARNING] Invalid response shape",
-      data
-    );
-  }
-
-  const raw =
-    data.message?.content || "";
-
-  const cleaned =
-    stripThinkTags(raw);
-
-  return {
-    raw,
-    cleaned,
-    providerResponse: data
-  };
-}
-
-/* ============================================================
-   COLAB
-   OpenAI-compatible remote inference endpoint
-   ============================================================ */
-
-async function callColab(
-  model,
-  systemPrompt,
-  messages,
-  maxTokens
-) {
-  const endpoint =
-    String(
-      G.colabEndpoint || ""
-    )
-      .trim()
-      .replace(/\/+$/, "");
-
-  const bearerToken =
-    String(
-      G.colabBearerToken || ""
-    ).trim();
-
-  if (!endpoint) {
-    throw new Error(
-      "Colab endpoint is not configured."
-    );
-  }
-
-  if (
-    !/^https?:\/\//i.test(endpoint)
-  ) {
-    throw new Error(
-      "Colab endpoint must begin with http:// or https://."
-    );
-  }
-
-  if (!bearerToken) {
-    throw new Error(
-      "Colab bearer token is not configured."
-    );
-  }
-
-  const normalizedMessages =
-    Array.isArray(messages)
-      ? messages
-      : [];
-
-  const colabMessages = [
-    {
-      role: "system",
-
-      content:
-        typeof systemPrompt ===
-          "string"
-          ? systemPrompt
-          : String(
-            systemPrompt ?? ""
-          )
-    },
-
-    ...normalizedMessages.map(
-      (message) => ({
-        role:
-          message?.role ||
-          "user",
-
-        content:
-          normalizeMessageContent(
-            message?.content
-          )
-      })
-    )
-  ];
-
-  const body = {
-    model,
-    messages: colabMessages,
-    max_tokens: maxTokens,
-    temperature: 0.85,
-    stream: false
-  };
-
-  const timeoutMs =
-    Number.isFinite(
-      G.colabRequestTimeoutMs
-    ) &&
-      G.colabRequestTimeoutMs > 0
-      ? G.colabRequestTimeoutMs
-      : 15 * 60 * 1000;
-
-  const controller =
-    new AbortController();
-
-  const timeoutId =
-    setTimeout(
-      () => controller.abort(),
-      timeoutMs
-    );
-
-  let response;
-  let responseText;
-
-  try {
-    response = await fetch(
-      `${endpoint}/v1/chat/completions`,
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          Accept:
-            "application/json",
-
-          Authorization:
-            `Bearer ${bearerToken}`
-        },
-
-        body:
-          JSON.stringify(body),
-
-        signal:
-          controller.signal
-      }
-    );
-
-    responseText =
-      await response.text();
-  } catch (error) {
-    if (
-      error?.name === "AbortError"
-    ) {
-      throw new Error(
-        `Colab inference timed out after ${Math.round(timeoutMs / 60000)} minutes.`
-      );
-    }
-
-    throw new Error(
-      `Colab inference endpoint could not be reached: ${error?.message ||
-      String(error)
-      }`
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  let data = null;
-
-  if (responseText) {
-    try {
-      data =
-        JSON.parse(responseText);
-    } catch {
-      data = null;
-    }
-  }
-
-  const providerError =
-    data?.error?.message ??
-    data?.error ??
-    data?.detail ??
-    data?.message ??
-    responseText;
-
-  const providerMessage =
-    typeof providerError ===
-      "string"
-      ? providerError.trim()
-      : providerError != null
-        ? JSON.stringify(
-          providerError
-        )
-        : "";
-
-  const errorDetail =
-    providerMessage
-      ? `: ${createPreview(
-        providerMessage,
-        500
+      `Ollama request failed with HTTP ${response.status}${createProviderErrorDetail(
+        data,
+        responseText
       )}`
-      : "";
-
-  if (
-    response.status === 401 ||
-    response.status === 403
-  ) {
-    throw new Error(
-      `Colab authentication failed with HTTP ${response.status}${errorDetail}`
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Colab request failed with HTTP ${response.status}${errorDetail}`
     );
   }
 
@@ -1008,31 +1653,157 @@ async function callColab(
     typeof data !== "object"
   ) {
     throw new Error(
-      `Colab returned non-JSON data with HTTP ${response.status}.`
+      `Ollama returned non-JSON data with HTTP ${response.status}.`
     );
   }
-
-  if (data?.error) {
-    throw new Error(
-      providerMessage ||
-      "Colab returned an unspecified provider error."
-    );
-  }
-
-  const responseContent =
-    data?.choices?.[0]
-      ?.message?.content;
 
   if (
-    responseContent == null
+    typeof data.message?.content !==
+    "string"
   ) {
-    console.warn(
-      "[COLAB WARNING] Invalid response shape",
-      data
-    );
-
     throw new Error(
-      "Colab returned an invalid OpenAI-compatible response shape."
+      "Ollama returned an invalid chat response shape."
+    );
+  }
+
+  const raw =
+    data.message.content;
+
+  return {
+    raw,
+
+    cleaned:
+      stripThinkTags(raw),
+
+    providerResponse:
+      data
+  };
+}
+
+/* ============================================================
+   OPENAI-COMPATIBLE CHAT COMPLETIONS ADAPTER
+   ============================================================ */
+
+async function callOpenAICompatible({
+  route,
+  systemPrompt,
+  messages,
+  maxTokens
+}) {
+  const chatMessages = [
+    {
+      role:
+        "system",
+
+      content:
+        systemPrompt
+    },
+
+    ...normalizeTextMessages(messages)
+  ];
+
+  const body = {
+    model:
+      route.model,
+
+    messages:
+      chatMessages,
+
+    max_tokens:
+      maxTokens,
+
+    temperature:
+      route.temperature,
+
+    stream:
+      false
+  };
+
+  const headers = {
+    "Content-Type":
+      "application/json",
+
+    Accept:
+      "application/json"
+  };
+
+  if (route.apiKey) {
+    headers.Authorization =
+      `Bearer ${route.apiKey}`;
+  }
+
+  const {
+    response,
+    responseText,
+    data
+  } =
+    await postJson({
+      url:
+        route.endpoint,
+
+      headers,
+      body,
+
+      timeoutMs:
+        route.timeoutMs,
+
+      requestLabel:
+        `${route.provider} inference request`
+    });
+
+  if (
+    response.status === 401 ||
+    response.status === 403
+  ) {
+    throw new Error(
+      `${route.provider} authentication failed with HTTP ${response.status}${createProviderErrorDetail(
+        data,
+        responseText
+      )}`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `${route.provider} request failed with HTTP ${response.status}${createProviderErrorDetail(
+        data,
+        responseText
+      )}`
+    );
+  }
+
+  if (
+    !data ||
+    typeof data !== "object"
+  ) {
+    throw new Error(
+      `${route.provider} returned non-JSON data with HTTP ${response.status}.`
+    );
+  }
+
+  if (data.error) {
+    throw new Error(
+      extractProviderError(
+        data,
+        responseText
+      ) ||
+      `${route.provider} returned an unspecified provider error.`
+    );
+  }
+
+  const firstChoice =
+    data.choices?.[0];
+
+  const responseContent =
+    firstChoice?.message?.content ??
+    firstChoice?.text;
+
+  if (
+    responseContent === undefined ||
+    responseContent === null
+  ) {
+    throw new Error(
+      `${route.provider} returned an invalid Chat Completions response shape.`
     );
   }
 
@@ -1041,12 +1812,29 @@ async function callColab(
       responseContent
     );
 
-  const cleaned =
-    stripThinkTags(raw);
-
   return {
     raw,
-    cleaned,
-    providerResponse: data
+
+    cleaned:
+      stripThinkTags(raw),
+
+    providerResponse:
+      data
   };
 }
+
+/* ============================================================
+   ADAPTER REGISTRY
+   ============================================================ */
+
+const MODEL_ADAPTERS =
+  Object.freeze({
+    "anthropic-messages":
+      callAnthropic,
+
+    "ollama-native":
+      callOllama,
+
+    "openai-chat":
+      callOpenAICompatible
+  });
