@@ -78,6 +78,18 @@ import {
 } from "./js/ui/parserMetricsModal.js";
 
 // ============================================================
+// UI — COGNITION
+// ============================================================
+
+import {
+  openCognitionModal,
+  closeCognitionModal,
+  switchCognitionSim,
+  switchCognitionOverview,
+  renderCognitionModal,
+} from "./js/ui/cognitionModal.js";
+
+// ============================================================
 // UI — RELATIONSHIPS
 // ============================================================
 
@@ -166,6 +178,14 @@ window.showWriting = showWriting;
 // Metric Modal
 window.openParserMetricsModal = openParserMetricsModal;
 window.closeParserMetricsModal = closeParserMetricsModal;
+
+// ---------- COGNITION MODAL ----------
+
+window.openCognitionModal = openCognitionModal;
+window.closeCognitionModal = closeCognitionModal;
+window.switchCognitionSim = switchCognitionSim;
+window.switchCognitionOverview = switchCognitionOverview;
+window.renderCognitionModal = renderCognitionModal;
 
 // ---------- JOURNAL MODAL ----------
 

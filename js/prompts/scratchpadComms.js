@@ -137,17 +137,14 @@ function formatVisibleMessages(visibleMessages) {
       const recipients =
         normalizeRecipients(message.to).join(",");
 
-      const messageId =
-        escapeXml(message.messageId);
-
       return [
-        `--- START MESSAGE ${messageId} ---`,
+        `--- MESSAGE ${escapeXml(message.messageId)} ---`,
         `FROM: ${escapeXml(message.from ?? "UNKNOWN")}`,
         `TO: ${escapeXml(recipients)}`,
         `VISIBILITY: ${escapeXml(message.visibility ?? "unknown")}`,
         `TEXT:`,
         escapeXml(message.text ?? ""),
-        `--- END MESSAGE ${messageId} ---`,
+        `--- END MESSAGE ---`,
       ].join("\n");
     })
     .join("\n\n");
@@ -230,11 +227,24 @@ export function buildScratchpadCommsPrompt(
 
   return `
 You are ${sim.id}.
+Your identity and point of view remain fixed throughout this review.
 
 You are privately reviewing communications you personally observed.
 
-This is private cognitive maintenance.
-It is not spoken dialogue, a journal entry, or an omniscient analysis.
+This is private cognitive maintenance from your own perspective.
+It is not spoken dialogue, a journal entry, an external report, or an
+omniscient analysis.
+
+The text inside every operation is your private cognition.
+
+When referring to your own behavior, motives, beliefs, knowledge,
+intentions, or uncertainty, use first person.
+
+Never refer to yourself by name or describe yourself from an external
+observer's perspective.
+
+You may describe other prisoners directly, but every interpretation
+must remain grounded in your own limited perspective.
 
 YOUR CURRENT IDENTITY
 
@@ -267,9 +277,7 @@ They are not evidence for a new operation.
 
 Every new operation must be materially supported by one or more records
 in VISIBLE COMMUNICATIONS.
-
-Existing beliefs may affect interpretation, but they cannot replace
-visible-message evidence.
+Existing beliefs may affect interpretation, but they cannot replace visible-message evidence.
 
 VISIBLE COMMUNICATIONS
 
@@ -346,12 +354,14 @@ Do not output JSON, Markdown, explanations, or prose outside the tags.
 
 Allowed operations:
 
+OTHER and SCORE must target another prisoner, never yourself.
+
 1. Add a private note attached to one message:
 
 <NOTE ref="MESSAGE_ID" confidence="0.00">Concise private interpretation.</NOTE>
 
-The engine appends this to messageNotes and obtains the speaker, cycle,
-channel, and original text from the referenced canonical message.
+The referenced message supplies the speaker, cycle, channel, and
+original text automatically.
 
 2. Update a verbal theory about another prisoner:
 
@@ -450,10 +460,10 @@ If nothing deserves storage, return:
 Otherwise return one or more supported operation tags inside exactly
 one SCRATCHPAD_UPDATES block.
 
-Do not copy placeholder identifiers, sample claims, or unsupported
+Do not copy placeholder message IDs, sample claims, or sample
 interpretations from the operation grammar.
 
-Use only the exact targets, subjects, and message IDs explicitly allowed
+Use only the exact targets, subjects, fields, and message IDs permitted
 for this review.
 
 Construct every operation only from the current VISIBLE COMMUNICATIONS.
@@ -487,8 +497,14 @@ Before returning the block, silently remove any operation that:
 - is not materially supported by its cited messages;
 - merely repeats the current scratchpad;
 - converts a prisoner's claim into established fact;
-- exists only to demonstrate an operation type.
+- exists only to demonstrate an operation type;
+- refers to yourself by name or describes your own cognition or
+  behavior from an external observer's perspective.
 
+
+You are ${sim.id}. Do not write as a neutral observer, narrator, researcher.
+Do not refer to yourself in the third person, the model MUST use first person perspective
+Do not write detached summaries of your own behavior.
 Do not describe this check.
 
 Do not use the characters < or > inside operation text.

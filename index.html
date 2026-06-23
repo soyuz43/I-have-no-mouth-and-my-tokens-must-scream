@@ -417,8 +417,84 @@
     </div>
 
     <!-- ══════════════════════════════════════════════
+     COGNITION MODAL
+══════════════════════════════════════════════ -->
+    <div id="cognition-modal">
+      <div class="jm-box" id="cognition-box">
+        <div class="jm-header">
+          <div>
+            <div class="jm-title" id="cognition-title">TED // COGNITION</div>
+            <div class="jm-meta" id="cognition-meta">
+              SCRATCHPAD · REVISION 0
+            </div>
+          </div>
+
+          <div class="jm-actions">
+            <button class="jm-btn close-btn" onclick="closeCognitionModal()">
+              ✕ CLOSE
+            </button>
+          </div>
+        </div>
+
+        <div class="jm-nav" id="cognition-nav">
+          <button
+            class="cog-nav-btn sel"
+            data-s="TED"
+            onclick="switchCognitionSim(this)"
+          >
+            TED
+          </button>
+
+          <button
+            class="cog-nav-btn"
+            data-s="ELLEN"
+            onclick="switchCognitionSim(this)"
+          >
+            ELLEN
+          </button>
+
+          <button
+            class="cog-nav-btn"
+            data-s="NIMDOK"
+            onclick="switchCognitionSim(this)"
+          >
+            NIMDOK
+          </button>
+
+          <button
+            class="cog-nav-btn"
+            data-s="GORRISTER"
+            onclick="switchCognitionSim(this)"
+          >
+            GORRISTER
+          </button>
+
+          <button
+            class="cog-nav-btn"
+            data-s="BENNY"
+            onclick="switchCognitionSim(this)"
+          >
+            BENNY
+          </button>
+          <button
+            class="cog-nav-btn cog-overview-btn"
+            data-view="overview"
+            onclick="switchCognitionOverview(this)"
+          >
+            OVERVIEW
+          </button>
+        </div>
+
+        <div class="jm-body" id="cognition-body">
+          <div class="jm-empty">No cognition recorded yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════
      SESSION EXPORT MODAL
 ══════════════════════════════════════════════ -->
+
     <div id="session-modal">
       <div class="sm-box">
         <div class="sm-header">
@@ -795,6 +871,21 @@
                   "
                 >
                   ASSESSMENT
+                </button>
+
+                <button
+                  onclick="openCognitionModal()"
+                  style="
+                    font-family: &quot;Share Tech Mono&quot;, monospace;
+                    font-size: 0.38rem;
+                    padding: 1px 6px;
+                    border: 1px solid #2a1a00;
+                    background: #030303;
+                    color: #5a3a00;
+                    cursor: pointer;
+                  "
+                >
+                  COGNITION
                 </button>
               </div>
 
