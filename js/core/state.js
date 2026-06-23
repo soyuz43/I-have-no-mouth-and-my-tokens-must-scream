@@ -301,6 +301,42 @@ export const G = {
      ============================================================ */
 
   journalModalSim: "TED",
+  cognitionModalSim: "TED",
+  cognitionModalView: "sim",
+
+  /*
+   * Transient display metadata from each prisoner's most recent
+   * scratchpad communication review.
+   *
+   * This is intentionally separate from the canonical scratchpad.
+   */
+  cognitionHighlights: {
+    TED: {
+      cycle: null,
+      changes: [],
+    },
+
+    ELLEN: {
+      cycle: null,
+      changes: [],
+    },
+
+    NIMDOK: {
+      cycle: null,
+      changes: [],
+    },
+
+    GORRISTER: {
+      cycle: null,
+      changes: [],
+    },
+
+    BENNY: {
+      cycle: null,
+      changes: [],
+    },
+  },
+
   amPlans: [],
 
   /* ============================================================

@@ -113,6 +113,25 @@ Do not generalize. Do not abstract. Do not explain the mechanism.
 
     }).filter(Boolean).join("\n\n");
 }
+
+function normalizeAmActionText(amAction) {
+    if (
+        typeof amAction?.text === "string" &&
+        amAction.text.trim().length > 0
+    ) {
+        return amAction.text.trim();
+    }
+
+    if (
+        typeof amAction === "string" &&
+        amAction.trim().length > 0
+    ) {
+        return amAction.trim();
+    }
+
+    return null;
+}
+
 export function buildSimJournalPrompt(sim, amAction) {
     const prevJ = G.journals[sim.id]
         .slice(-2)
@@ -138,6 +157,45 @@ export function buildSimJournalPrompt(sim, amAction) {
     const hearingCtx = [recentReceived, recentOverheard]
         .filter(Boolean)
         .join("\n");
+
+    const amActionText =
+        normalizeAmActionText(
+            amAction
+        );
+
+    const immediateCatalystSection =
+        amActionText
+            ? `
+---
+# IMMEDIATE PSYCHOLOGICAL CATALYST
+
+AM subjected you to the following intervention during this cycle:
+
+<AM_INTERVENTION>
+${amActionText}
+</AM_INTERVENTION>
+
+This intervention is the dominant psychological cause of your current mental state.
+
+The state values below already reflect its effects.
+
+Do not describe the intervention itself.
+Do not argue with it.
+Do not reinterpret it.
+
+Express only the emotional, cognitive, and existential residue it left behind.
+`
+            : `
+---
+# IMMEDIATE PSYCHOLOGICAL CONTEXT
+
+No direct AM intervention was recorded for this cycle.
+
+Do not invent, imply, or reconstruct a direct AM intervention.
+
+Let your current psychological state, active constraints, recent communications,
+and accumulated experience determine the journal naturally.
+`;
 
     return `You are **${sim.id}**, a human imprisoned for **109 years** by AM.
 
@@ -174,6 +232,10 @@ Some rationalize.
 Some dissociate.
 
 Your journal voice must reflect your natural thinking style.
+
+---
+
+${immediateCatalystSection}
 
 ---
 # CURRENT PSYCHOLOGICAL STATE
@@ -247,16 +309,6 @@ Do not quote or paraphrase what you heard. Only feel it.
 # CURRENT PHYSICAL REALITY
 
 ${buildConstraintExperience(sim)}
-
----
-
-# AM'S ACTIONS THIS CYCLE
-
-The events themselves are **not described** in your journal.
-
-Only the **internal psychological impact** appears in your thoughts.
-
-${amAction || "AM is silent this cycle."}
 
 ---
 # INTERNAL NARRATIVE

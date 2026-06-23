@@ -34,18 +34,59 @@ const Exporter = {
 
     // State captured at the beginning of the current cycle.
     prevState: null,
+
+    /*
+     * Full telemetry from the most recently completed cycle.
+     * This is cloned before temporary buffers are cleared.
+     */
+    lastCompletedCycle: null,
+
+    /*
+     * Bounded analytical history for live UI projections.
+     * This intentionally excludes large journal and evidence text.
+     */
+    overviewHistory: [],
+    overviewHistoryMax: 100,
 };
 
 /* ============================================================
    INITIALIZATION
 ============================================================ */
 
+
 export function initExporter(runId = null) {
     Exporter.runId = runId || `am_run_${Date.now()}`;
     Exporter.prevState = null;
+
+    Exporter.lastCompletedCycle = null;
+    Exporter.overviewHistory = [];
+
     clearAllBuffers();
 
     console.log(`[EXPORTER] Initialized run ${Exporter.runId}`);
+}
+
+/* ============================================================
+   READ-ONLY LIVE TELEMETRY ACCESS
+   ------------------------------------------------------------
+   Returns detached copies so UI code cannot mutate exporter
+   buffers or retained history.
+============================================================ */
+
+export function getExporterOverviewData() {
+    return cloneValue({
+        runId:
+            Exporter.runId,
+
+        latestCycle:
+            Exporter.lastCompletedCycle,
+
+        history:
+            Exporter.overviewHistory,
+
+        historyLimit:
+            Exporter.overviewHistoryMax,
+    });
 }
 
 /* ============================================================
@@ -1961,6 +2002,160 @@ function escapeCSVValue(value) {
     return text;
 }
 
+
+/* ============================================================
+   RETAINED OVERVIEW TELEMETRY
+   ------------------------------------------------------------
+   The latest completed cycle retains the complete export payload.
+
+   Historical entries retain only bounded analytical streams,
+   avoiding an unbounded accumulation of journal text, message
+   contents, evidence previews, and observation narratives.
+============================================================ */
+
+function buildOverviewHistoryEntry(
+    exportData
+) {
+    const streams =
+        exportData?.streams &&
+            typeof exportData.streams === "object"
+            ? exportData.streams
+            : {};
+
+    return cloneValue({
+        run_id:
+            exportData?.run_id ??
+            null,
+
+        cycle:
+            exportData?.cycle ??
+            null,
+
+        export_timestamp:
+            exportData?.export_timestamp ??
+            Date.now(),
+
+        streams: {
+            state:
+                asArray(
+                    streams.state
+                ),
+
+            dynamics:
+                asArray(
+                    streams.dynamics
+                ),
+
+            constraints:
+                asArray(
+                    streams.constraints
+                ),
+
+            relationships:
+                asArray(
+                    streams.relationships
+                ),
+
+            global:
+                asArray(
+                    streams.global
+                ),
+
+            decisions:
+                asArray(
+                    streams.decisions
+                ),
+
+            phases:
+                asArray(
+                    streams.phases
+                ),
+
+            tactics:
+                asArray(
+                    streams.tactics
+                ),
+
+            assessments:
+                asArray(
+                    streams.assessments
+                ),
+        },
+    });
+}
+
+function retainCompletedCycle(
+    exportData
+) {
+    if (
+        !exportData ||
+        typeof exportData !== "object"
+    ) {
+        console.warn(
+            "[EXPORTER] Cannot retain malformed cycle export",
+            exportData
+        );
+
+        return;
+    }
+
+    /*
+     * Keep one complete cycle for detailed provenance inspection.
+     * cloneValue() prevents clearAllBuffers() from erasing it.
+     */
+    Exporter.lastCompletedCycle =
+        cloneValue(
+            exportData
+        );
+
+    const historyEntry =
+        buildOverviewHistoryEntry(
+            exportData
+        );
+
+    /*
+     * Replace rather than duplicate when finalization is
+     * accidentally invoked twice for the same cycle.
+     */
+    const existingIndex =
+        Exporter.overviewHistory.findIndex(
+            (entry) =>
+                entry?.cycle ===
+                historyEntry.cycle
+        );
+
+    if (existingIndex >= 0) {
+        Exporter.overviewHistory[
+            existingIndex
+        ] = historyEntry;
+    } else {
+        Exporter.overviewHistory.push(
+            historyEntry
+        );
+    }
+
+    const historyLimit =
+        Math.max(
+            1,
+            Number(
+                Exporter.overviewHistoryMax
+            ) || 100
+        );
+
+    const overflow =
+        Exporter.overviewHistory.length -
+        historyLimit;
+
+    if (overflow > 0) {
+        Exporter.overviewHistory.splice(
+            0,
+            overflow
+        );
+    }
+}
+
+
+
 /* ============================================================
    EXPORT ALL STREAMS
 ============================================================ */
@@ -2034,6 +2229,16 @@ export function exportAllAsJSON(
                 Exporter.buffers.observability_unknowns,
         },
     };
+
+    if (clearAfter) {
+        /*
+         * The current cycle-finalization path exports with
+         * clearAfter=true after every telemetry stream is recorded.
+         */
+        retainCompletedCycle(
+            exportData
+        );
+    }
 
     const jsonString =
         JSON.stringify(

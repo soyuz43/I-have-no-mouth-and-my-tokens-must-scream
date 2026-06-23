@@ -156,6 +156,311 @@ function cloneValue(value) {
   );
 }
 
+/* ============================================================
+   COGNITION UPDATE HIGHLIGHTS
+   ------------------------------------------------------------
+   Produces transient UI metadata from committed scratchpad paths.
+
+   NEW:
+   - a previously absent value was created;
+   - an unset epistemic claim gained its first actual value;
+   - a new collection record was appended.
+
+   UPDATED:
+   - an already populated claim or existing record changed.
+============================================================ */
+
+function getPathTokens(path) {
+  return (
+    String(path ?? "")
+      .match(/[^.[\]]+/g) ??
+    []
+  );
+}
+
+function getValueAtPath(
+  root,
+  path
+) {
+  const tokens =
+    getPathTokens(path);
+
+  let current = root;
+
+  for (const token of tokens) {
+    if (
+      current === null ||
+      current === undefined
+    ) {
+      return undefined;
+    }
+
+    current =
+      current[token];
+  }
+
+  return current;
+}
+
+function isRecord(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  );
+}
+
+function isEpistemicClaimRecord(value) {
+  return Boolean(
+    isRecord(value) &&
+    (
+      "value" in value ||
+      "confidence" in value ||
+      "evidence" in value ||
+      "rationale" in value
+    )
+  );
+}
+
+function hasStoredClaimValue(claim) {
+  if (
+    !isEpistemicClaimRecord(claim)
+  ) {
+    return false;
+  }
+
+  const value =
+    claim.value;
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return false;
+  }
+
+  if (
+    typeof value === "string"
+  ) {
+    return value.trim().length > 0;
+  }
+
+  return true;
+}
+
+function isEmptyStoredValue(value) {
+  return (
+    value === null ||
+    value === undefined ||
+    (
+      typeof value === "string" &&
+      value.trim() === ""
+    )
+  );
+}
+
+function classifyCognitionChange(
+  beforeValue,
+  afterValue
+) {
+  if (
+    isEpistemicClaimRecord(
+      afterValue
+    )
+  ) {
+    const existedBefore =
+      hasStoredClaimValue(
+        beforeValue
+      );
+
+    const existsAfter =
+      hasStoredClaimValue(
+        afterValue
+      );
+
+    if (
+      !existedBefore &&
+      existsAfter
+    ) {
+      return "new";
+    }
+
+    return "updated";
+  }
+
+  if (
+    isEmptyStoredValue(
+      beforeValue
+    ) &&
+    !isEmptyStoredValue(
+      afterValue
+    )
+  ) {
+    return "new";
+  }
+
+  return "updated";
+}
+
+function buildCognitionHighlightState({
+  cycle,
+  changedPaths,
+  beforeScratchpad,
+  afterScratchpad,
+}) {
+  const paths = [
+    ...new Set(
+      (
+        Array.isArray(
+          changedPaths
+        )
+          ? changedPaths
+          : []
+      )
+        .map(
+          (path) =>
+            String(path ?? "")
+              .trim()
+        )
+        .filter(Boolean)
+    ),
+  ];
+
+  return {
+    cycle,
+
+    changes:
+      paths.map((path) => {
+        const beforeValue =
+          getValueAtPath(
+            beforeScratchpad,
+            path
+          );
+
+        const afterValue =
+          getValueAtPath(
+            afterScratchpad,
+            path
+          );
+
+        return {
+          path,
+
+          kind:
+            classifyCognitionChange(
+              beforeValue,
+              afterValue
+            ),
+        };
+      }),
+  };
+}
+
+function mergeCognitionHighlightState(
+  simId,
+  incomingState
+) {
+  G.cognitionHighlights ??=
+    Object.create(null);
+
+  const existingState =
+    G.cognitionHighlights[simId] &&
+    typeof G.cognitionHighlights[
+      simId
+    ] === "object"
+      ? G.cognitionHighlights[simId]
+      : {
+        cycle: null,
+        changes: [],
+      };
+
+  const existingChanges =
+    Array.isArray(
+      existingState.changes
+    )
+      ? existingState.changes
+      : [];
+
+  const incomingChanges =
+    Array.isArray(
+      incomingState?.changes
+    )
+      ? incomingState.changes
+      : [];
+
+  const byPath =
+    new Map();
+
+  for (const change of existingChanges) {
+    const path =
+      String(
+        change?.path ??
+        ""
+      ).trim();
+
+    if (!path) {
+      continue;
+    }
+
+    byPath.set(
+      path,
+      {
+        path,
+
+        kind:
+          change?.kind === "new"
+            ? "new"
+            : "updated",
+      }
+    );
+  }
+
+  for (const change of incomingChanges) {
+    const path =
+      String(
+        change?.path ??
+        ""
+      ).trim();
+
+    if (!path) {
+      continue;
+    }
+
+    const previous =
+      byPath.get(path);
+
+    /*
+     * Preserve NEW until viewed. If an unread newly created value
+     * changes again, it is still new from the user's perspective.
+     */
+    const kind =
+      previous?.kind === "new" ||
+      change?.kind === "new"
+        ? "new"
+        : "updated";
+
+    byPath.set(
+      path,
+      {
+        path,
+        kind,
+      }
+    );
+  }
+
+  G.cognitionHighlights[simId] = {
+    cycle:
+      incomingState?.cycle ??
+      existingState.cycle ??
+      null,
+
+    changes:
+      Array.from(
+        byPath.values()
+      ),
+  };
+}
+
 function normalizeError(error) {
   if (error instanceof Error) {
     return {
@@ -609,7 +914,7 @@ export async function runScratchpadCommsReviewForSim(
     messages = null,
     cycle = G.cycle,
     maxTokens =
-      SCRATCHPAD_COMMS_MAX_TOKENS,
+    SCRATCHPAD_COMMS_MAX_TOKENS,
   } = {}
 ) {
   const startTime =
@@ -658,12 +963,13 @@ export async function runScratchpadCommsReviewForSim(
     if (
       !sim.scratchpad ||
       typeof sim.scratchpad !==
-        "object"
+      "object"
     ) {
       throw new TypeError(
         `${normalizedSimId} has no valid scratchpad object.`
       );
     }
+
 
     const history =
       messages === null
@@ -979,6 +1285,24 @@ export async function runScratchpadCommsReviewForSim(
       });
     }
 
+    if (
+      commitResult.substantiveChanged
+    ) {
+      mergeCognitionHighlightState(
+        normalizedSimId,
+        buildCognitionHighlightState({
+          cycle:
+            normalizedCycle,
+
+          changedPaths:
+            commitResult.changedPaths,
+
+          beforeScratchpad,
+          afterScratchpad,
+        })
+      );
+    }
+
     stage = "complete";
 
     return makeCompletedReviewResult({
@@ -1167,7 +1491,7 @@ function buildPhaseSummary({
 export async function runScratchpadCommsCycle({
   cycle = G.cycle,
   maxTokens =
-    SCRATCHPAD_COMMS_MAX_TOKENS,
+  SCRATCHPAD_COMMS_MAX_TOKENS,
 } = {}) {
   const startTime =
     getClockMilliseconds();

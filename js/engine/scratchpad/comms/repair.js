@@ -48,6 +48,213 @@ const KNOWN_TAG_SET =
   ]);
 
 /* ============================================================
+   ENTITY-ENCODED PROTOCOL TAGS
+   ------------------------------------------------------------
+   Some models return the entire XML-like response HTML-escaped:
+
+   &lt;SCRATCHPAD_UPDATES&gt;
+   &lt;NO_UPDATE/&gt;
+   &lt;/SCRATCHPAD_UPDATES&gt;
+
+   Decode only recognized protocol tags, and only when the response
+   does not already contain a real wrapper. This preserves legitimate
+   &lt; and &gt; entities inside operation text.
+============================================================ */
+
+function decodeEntityEncodedProtocolTags(
+  text
+) {
+  const source =
+    String(text ?? "");
+
+  if (
+    findOpeningWrapper(
+      source
+    )
+  ) {
+    return {
+      text: source,
+      decodedTagCount: 0,
+    };
+  }
+
+  const encodedWrapperExpression =
+    new RegExp(
+      `&lt;\\s*${WRAPPER}\\b[\\s\\S]*?&gt;`,
+      "i"
+    );
+
+  if (
+    !encodedWrapperExpression.test(
+      source
+    )
+  ) {
+    return {
+      text: source,
+      decodedTagCount: 0,
+    };
+  }
+
+  const knownTagNames =
+    Array.from(
+      KNOWN_TAG_SET
+    ).join("|");
+
+  const encodedTagExpression =
+    new RegExp(
+      `&lt;\\s*(\\/?)\\s*(${knownTagNames})(\\b[\\s\\S]*?)&gt;`,
+      "gi"
+    );
+
+  let decodedTagCount = 0;
+  let insideWrapper = false;
+  let openOperationTag = null;
+
+  const decoded =
+    source.replace(
+      encodedTagExpression,
+      (
+        fullMatch,
+        closingSlash,
+        rawTagName,
+        remainder
+      ) => {
+        const normalizedName =
+          normalizeKnownTagName(
+            rawTagName
+          );
+
+        const isClosing =
+          closingSlash === "/";
+
+        const decodedRemainder =
+          String(remainder ?? "")
+            .replace(
+              /&quot;/gi,
+              '"'
+            )
+            .replace(
+              /&apos;/gi,
+              "'"
+            )
+            .replace(
+              /&#(?:34|x22);/gi,
+              '"'
+            )
+            .replace(
+              /&#(?:39|x27);/gi,
+              "'"
+            );
+
+        const isSelfClosing =
+          /\/\s*$/.test(
+            decodedRemainder
+          );
+
+        let shouldDecode = false;
+
+        if (!insideWrapper) {
+          if (
+            !isClosing &&
+            normalizedName ===
+              WRAPPER
+          ) {
+            insideWrapper = true;
+            shouldDecode = true;
+          }
+        } else if (openOperationTag) {
+          if (
+            isClosing &&
+            normalizedName ===
+              openOperationTag
+          ) {
+            openOperationTag = null;
+            shouldDecode = true;
+          }
+        } else if (
+          normalizedName ===
+          WRAPPER
+        ) {
+          if (isClosing) {
+            insideWrapper = false;
+            shouldDecode = true;
+          }
+        } else if (!isClosing) {
+          shouldDecode = true;
+
+          if (!isSelfClosing) {
+            openOperationTag =
+              normalizedName;
+          }
+        }
+
+        if (!shouldDecode) {
+          return fullMatch;
+        }
+
+        decodedTagCount++;
+
+        return (
+          `<${closingSlash}` +
+          `${normalizedName}` +
+          `${decodedRemainder}>`
+        );
+      }
+    );
+
+  return {
+    text: decoded,
+    decodedTagCount,
+  };
+}
+
+test(
+  "preserves encoded protocol-looking text inside a fully encoded operation body",
+  () => {
+    const input =
+      "&lt;SCRATCHPAD_UPDATES&gt;" +
+      "&lt;NOTE ref=&quot;C0-M000001&quot; confidence=&quot;0.5&quot;&gt;" +
+      "Literal &lt;NO_UPDATE/&gt; text." +
+      "&lt;/NOTE&gt;" +
+      "&lt;/SCRATCHPAD_UPDATES&gt;";
+
+    const {
+      repairResult,
+      parsedResult,
+    } = repairAndParse(input);
+
+    assert.equal(
+      repairResult.diagnostics
+        .decodedEntityTagCount,
+      4
+    );
+
+    assert.equal(
+      parsedResult.status,
+      "success"
+    );
+
+    assert.deepEqual(
+      parsedResult.operations.map(
+        (operation) =>
+          operation.tag
+      ),
+      ["NOTE"]
+    );
+
+    assert.equal(
+      parsedResult.noUpdate,
+      false
+    );
+
+    assert.equal(
+      parsedResult.operations[0].text,
+      "Literal <NO_UPDATE/> text."
+    );
+  }
+);
+
+/* ============================================================
    BASIC NORMALIZATION
 ============================================================ */
 
@@ -264,7 +471,7 @@ function collectRecognizableOperations(text) {
     while (
       (
         match =
-          expression.exec(text)
+        expression.exec(text)
       ) !== null
     ) {
       candidates.push({
@@ -293,7 +500,7 @@ function collectRecognizableOperations(text) {
   while (
     (
       noUpdateMatch =
-        noUpdateExpression.exec(text)
+      noUpdateExpression.exec(text)
     ) !== null
   ) {
     candidates.push({
@@ -388,6 +595,23 @@ export function repairScratchpadCommsOutput(
     );
   }
 
+  const entityTagResult =
+    decodeEntityEncodedProtocolTags(
+      working
+    );
+
+  working =
+    entityTagResult.text;
+
+  if (
+    entityTagResult.decodedTagCount >
+    0
+  ) {
+    changes.push(
+      "decoded_entity_encoded_protocol_tags"
+    );
+  }
+
   const tagResult =
     normalizeKnownTags(
       working
@@ -438,7 +662,7 @@ export function repairScratchpadCommsOutput(
       findClosingWrapper(
         working,
         opening.index +
-          opening.length
+        opening.length
       );
 
     if (closing) {
@@ -463,9 +687,9 @@ export function repairScratchpadCommsOutput(
 
       if (
         discardedPrefixCharacters >
-          0 ||
+        0 ||
         discardedSuffixCharacters >
-          0
+        0
       ) {
         changes.push(
           "removed_text_outside_wrapper"
@@ -595,6 +819,9 @@ export function repairScratchpadCommsOutput(
       removedFenceCount:
         fenceResult.removedFenceCount,
 
+      decodedEntityTagCount:
+        entityTagResult.decodedTagCount,
+
       normalizedTagCount:
         tagResult.normalizedTagCount +
         finalTagResult.normalizedTagCount,
@@ -641,11 +868,19 @@ export function repairScratchpadCommsText(
 export function hasRecognizableScratchpadOperations(
   rawOutput
 ) {
+  const rawNormalized =
+    normalizeRawOutput(
+      rawOutput
+    );
+
+  const entityDecoded =
+    decodeEntityEncodedProtocolTags(
+      rawNormalized
+    ).text;
+
   const normalized =
     normalizeKnownTags(
-      normalizeRawOutput(
-        rawOutput
-      )
+      entityDecoded
     ).text;
 
   return (
