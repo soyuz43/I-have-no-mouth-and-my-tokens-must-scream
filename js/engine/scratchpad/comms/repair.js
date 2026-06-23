@@ -208,51 +208,7 @@ function decodeEntityEncodedProtocolTags(
   };
 }
 
-test(
-  "preserves encoded protocol-looking text inside a fully encoded operation body",
-  () => {
-    const input =
-      "&lt;SCRATCHPAD_UPDATES&gt;" +
-      "&lt;NOTE ref=&quot;C0-M000001&quot; confidence=&quot;0.5&quot;&gt;" +
-      "Literal &lt;NO_UPDATE/&gt; text." +
-      "&lt;/NOTE&gt;" +
-      "&lt;/SCRATCHPAD_UPDATES&gt;";
 
-    const {
-      repairResult,
-      parsedResult,
-    } = repairAndParse(input);
-
-    assert.equal(
-      repairResult.diagnostics
-        .decodedEntityTagCount,
-      4
-    );
-
-    assert.equal(
-      parsedResult.status,
-      "success"
-    );
-
-    assert.deepEqual(
-      parsedResult.operations.map(
-        (operation) =>
-          operation.tag
-      ),
-      ["NOTE"]
-    );
-
-    assert.equal(
-      parsedResult.noUpdate,
-      false
-    );
-
-    assert.equal(
-      parsedResult.operations[0].text,
-      "Literal <NO_UPDATE/> text."
-    );
-  }
-);
 
 /* ============================================================
    BASIC NORMALIZATION

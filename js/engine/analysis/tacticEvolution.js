@@ -18,6 +18,7 @@ import { addLog } from "../../ui/logs.js";
  * - Token cap reduction
  * - Full logging visibility (input/output/timing)
  * - Gate diagnostics showing actual values, thresholds, and shortfalls
+ * - Structured, color-coordinated browser-console diagnostics
  * ============================================================
  */
 
@@ -31,6 +32,38 @@ const TACTIC_EVOLUTION_THRESHOLDS = Object.freeze({
   modelSignal: 6,
 });
 
+const CONSOLE_STYLES = Object.freeze({
+  reset:
+    "color: inherit; font-weight: normal;",
+
+  running:
+    "color: #66bb6a; font-weight: 800;",
+
+  heading:
+    "color: #29b6f6; font-weight: 800;",
+
+  label:
+    "color: #b0bec5; font-weight: 700;",
+
+  current:
+    "color: #4fc3f7; font-weight: 700;",
+
+  required:
+    "color: #ffb74d; font-weight: 700;",
+
+  pass:
+    "color: #66bb6a; font-weight: 800;",
+
+  fail:
+    "color: #ef5350; font-weight: 800;",
+
+  info:
+    "color: #ab47bc; font-weight: 700;",
+
+  muted:
+    "color: #8a8a8a; font-weight: 600;",
+});
+
 const isDebugEnabled = () =>
   typeof window !== "undefined"
     ? window.DEBUG
@@ -40,6 +73,808 @@ function debugLog(...args) {
   if (isDebugEnabled()) {
     console.log(...args);
   }
+}
+
+function formatNumber(
+  value,
+  decimals = 2
+) {
+  const numeric =
+    Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return "N/A";
+  }
+
+  const epsilon =
+    10 ** (-(decimals + 1));
+
+  const normalized =
+    Math.abs(numeric) < epsilon
+      ? 0
+      : numeric;
+
+  return normalized.toFixed(
+    decimals
+  );
+}
+
+function formatSigned(
+  value,
+  decimals = 2
+) {
+  const numeric =
+    Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return "N/A";
+  }
+
+  const epsilon =
+    10 ** (-(decimals + 1));
+
+  const normalized =
+    Math.abs(numeric) < epsilon
+      ? 0
+      : numeric;
+
+  const prefix =
+    normalized > 0
+      ? "+"
+      : "";
+
+  return (
+    prefix +
+    normalized.toFixed(decimals)
+  );
+}
+
+function evaluateThreshold(
+  actual,
+  required,
+  comparator = ">="
+) {
+  const numericActual =
+    Number(actual);
+
+  const numericRequired =
+    Number(required);
+
+  const passed =
+    comparator === ">"
+      ? numericActual >
+        numericRequired
+      : numericActual >=
+        numericRequired;
+
+  const difference =
+    numericActual -
+    numericRequired;
+
+  return {
+    passed,
+    difference,
+  };
+}
+
+function formatThresholdDifference(
+  difference,
+  passed
+) {
+  if (passed) {
+    return (
+      `${formatSigned(difference)} ` +
+      "above"
+    );
+  }
+
+  if (
+    Math.abs(difference) <
+    0.000001
+  ) {
+    return "0.00 at boundary";
+  }
+
+  return (
+    `${formatNumber(
+      Math.abs(difference)
+    )} short`
+  );
+}
+
+function logRunStart() {
+  console.log(
+    "%c>>> TACTIC EVOLUTION RUNNING%c",
+    CONSOLE_STYLES.running,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logRunComplete() {
+  console.log(
+    "%c// TACTIC EVOLUTION COMPLETE%c",
+    CONSOLE_STYLES.running,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logStatus({
+  simId = null,
+  status,
+  message,
+  passed = false,
+}) {
+  const subject =
+    simId
+      ? `${simId} `
+      : "";
+
+  console.log(
+    `%c[TACTIC EVOLUTION]%c ` +
+    `${subject}` +
+    `%c${status}%c` +
+    `${message
+      ? ` — ${message}`
+      : ""
+    }`,
+    CONSOLE_STYLES.heading,
+    CONSOLE_STYLES.reset,
+    passed
+      ? CONSOLE_STYLES.pass
+      : CONSOLE_STYLES.fail,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logComparison({
+  label,
+  currentText,
+  requiredText,
+  differenceText,
+  passed,
+  statusText = null,
+  note = "",
+}) {
+  const resolvedStatus =
+    statusText ??
+    (
+      passed
+        ? "PASS"
+        : "SHORT"
+    );
+
+  const resultStyle =
+    passed
+      ? CONSOLE_STYLES.pass
+      : CONSOLE_STYLES.fail;
+
+  console.log(
+    `  %c${label}%c ` +
+    `current %c${currentText}%c | ` +
+    `needed %c${requiredText}%c | ` +
+    `difference %c${differenceText}%c | ` +
+    `%c${resolvedStatus}%c` +
+    `${note
+      ? ` — ${note}`
+      : ""
+    }`,
+    CONSOLE_STYLES.label,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.current,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.required,
+    CONSOLE_STYLES.reset,
+    resultStyle,
+    CONSOLE_STYLES.reset,
+    resultStyle,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logNumericComparison({
+  label,
+  actual,
+  required,
+  comparator = ">=",
+  decimals = 2,
+  currentText = null,
+  note = "",
+  passedStatus = "PASS",
+  failedStatus = "SHORT",
+}) {
+  const result =
+    evaluateThreshold(
+      actual,
+      required,
+      comparator
+    );
+
+  logComparison({
+    label,
+
+    currentText:
+      currentText ??
+      formatNumber(
+        actual,
+        decimals
+      ),
+
+    requiredText:
+      `${comparator} ` +
+      formatNumber(
+        required,
+        decimals
+      ),
+
+    differenceText:
+      formatThresholdDifference(
+        result.difference,
+        result.passed
+      ),
+
+    passed:
+      result.passed,
+
+    statusText:
+      result.passed
+        ? passedStatus
+        : failedStatus,
+
+    note,
+  });
+
+  return result.passed;
+}
+
+function logAbsoluteDeltaComparison({
+  metric,
+  delta,
+  required,
+}) {
+  const absoluteDelta =
+    Math.abs(delta);
+
+  return logNumericComparison({
+    label:
+      `Δ${metric}`,
+
+    actual:
+      absoluteDelta,
+
+    required,
+
+    comparator:
+      ">",
+
+    currentText:
+      `${formatSigned(delta)} ` +
+      `(|Δ| ${formatNumber(
+        absoluteDelta
+      )})`,
+
+    note:
+      "structural multi-stat threshold",
+  });
+}
+
+function logInformationalDelta({
+  metric,
+  delta,
+  note,
+}) {
+  console.log(
+    `  %cΔ${metric}%c ` +
+    `current %c${formatSigned(
+      delta
+    )}%c | ` +
+    `needed %cN/A%c | ` +
+    `difference %cN/A%c | ` +
+    `%cINFO%c` +
+    `${note
+      ? ` — ${note}`
+      : ""
+    }`,
+    CONSOLE_STYLES.label,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.current,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.muted,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.muted,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.info,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logSectionLabel(label) {
+  console.log(
+    `%c  ${label}%c`,
+    CONSOLE_STYLES.label,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logBooleanResult({
+  label,
+  passed,
+  passText = "PASS",
+  failText = "FAIL",
+  note = "",
+}) {
+  const style =
+    passed
+      ? CONSOLE_STYLES.pass
+      : CONSOLE_STYLES.fail;
+
+  console.log(
+    `  %c${label}%c ` +
+    `%c${passed
+      ? passText
+      : failText
+    }%c` +
+    `${note
+      ? ` — ${note}`
+      : ""
+    }`,
+    CONSOLE_STYLES.label,
+    CONSOLE_STYLES.reset,
+    style,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logThresholds() {
+  const thresholds =
+    TACTIC_EVOLUTION_THRESHOLDS;
+
+  console.log(
+    "%c[TACTIC EVOLUTION] THRESHOLDS%c\n" +
+    "  Observation requirements\n" +
+    `    History samples:           >= ${thresholds.historySamples}\n` +
+    `    Direction consistency:     >= ${thresholds.consistency.toFixed(2)}\n` +
+    "\n" +
+    "  Trajectory requirements\n" +
+    `    Net magnitude:             >= ${thresholds.netMagnitude.toFixed(2)}\n` +
+    `    Relationship shift:        |Δ| >= ${thresholds.relationshipShift.toFixed(2)}\n` +
+    "    Multi-stat alternative:\n" +
+    `      |Δhope|:                 > ${thresholds.multiStatDelta.toFixed(2)}\n` +
+    `      |Δsanity|:               > ${thresholds.multiStatDelta.toFixed(2)}\n` +
+    "\n" +
+    "  Invocation requirements\n" +
+    `    Global signal:             >= ${thresholds.totalSignal.toFixed(2)}\n` +
+    `    Per-model signal:          >= ${thresholds.modelSignal.toFixed(2)}\n` +
+    "    Relationship shift bypasses the per-model signal minimum.",
+    CONSOLE_STYLES.heading,
+    CONSOLE_STYLES.reset
+  );
+}
+
+function logHistoryGate({
+  simId,
+  historyLength,
+  deltaHope,
+  deltaSanity,
+  deltaSuffering,
+}) {
+  const thresholds =
+    TACTIC_EVOLUTION_THRESHOLDS;
+
+  const historyResult =
+    evaluateThreshold(
+      historyLength,
+      thresholds.historySamples
+    );
+
+  logStatus({
+    simId,
+    status:
+      "SKIPPED",
+    message:
+      "insufficient trajectory history.",
+  });
+
+  logSectionLabel(
+    "History requirement"
+  );
+
+  logComparison({
+    label:
+      "Cycle samples",
+
+    currentText:
+      String(historyLength),
+
+    requiredText:
+      `>= ${thresholds.historySamples}`,
+
+    differenceText:
+      historyResult.passed
+        ? (
+          `${formatSigned(
+            historyResult.difference,
+            0
+          )} above`
+        )
+        : (
+          `${Math.abs(
+            historyResult.difference
+          )} missing`
+        ),
+
+    passed:
+      historyResult.passed,
+
+    statusText:
+      historyResult.passed
+        ? "READY"
+        : "WAITING",
+  });
+
+  logSectionLabel(
+    "Current-cycle delta diagnostics"
+  );
+
+  logAbsoluteDeltaComparison({
+    metric:
+      "hope",
+
+    delta:
+      deltaHope,
+
+    required:
+      thresholds.multiStatDelta,
+  });
+
+  logAbsoluteDeltaComparison({
+    metric:
+      "sanity",
+
+    delta:
+      deltaSanity,
+
+    required:
+      thresholds.multiStatDelta,
+  });
+
+  logInformationalDelta({
+    metric:
+      "suffering",
+
+    delta:
+      deltaSuffering,
+
+    note:
+      "no standalone suffering threshold",
+  });
+
+  const provisionalMagnitude =
+    Math.abs(
+      deltaHope
+    ) * 0.6 +
+    Math.abs(
+      deltaSanity
+    ) * 0.7 +
+    Math.abs(
+      deltaSuffering
+    ) * 0.5;
+
+  logNumericComparison({
+    label:
+      "Weighted signal",
+
+    actual:
+      provisionalMagnitude,
+
+    required:
+      thresholds.netMagnitude,
+
+    note:
+      "provisional only; the real net-magnitude gate uses rolling-history totals",
+
+    passedStatus:
+      "AT/ABOVE",
+
+    failedStatus:
+      "SHORT",
+  });
+}
+
+function logConsistencyGate({
+  simId,
+  hopeConsistency,
+  sanityConsistency,
+  sufferingConsistency,
+}) {
+  const required =
+    TACTIC_EVOLUTION_THRESHOLDS
+      .consistency;
+
+  logStatus({
+    simId,
+    status:
+      "SKIPPED",
+    message:
+      "consistency gate failed.",
+  });
+
+  logSectionLabel(
+    "Consistency diagnostics"
+  );
+
+  const hopePassed =
+    logNumericComparison({
+      label:
+        "Hope consistency",
+
+      actual:
+        hopeConsistency,
+
+      required,
+    });
+
+  const sanityPassed =
+    logNumericComparison({
+      label:
+        "Sanity consistency",
+
+      actual:
+        sanityConsistency,
+
+      required,
+    });
+
+  const sufferingPassed =
+    logNumericComparison({
+      label:
+        "Suffering consistency",
+
+      actual:
+        sufferingConsistency,
+
+      required,
+    });
+
+  logBooleanResult({
+    label:
+      "Any consistency gate",
+
+    passed:
+      (
+        hopePassed ||
+        sanityPassed ||
+        sufferingPassed
+      ),
+
+    note:
+      "at least one metric must pass",
+  });
+}
+
+function logTrajectoryGate({
+  simId,
+  bestConsistency,
+  netMagnitude,
+  maxRelationshipDelta,
+  absoluteDeltaHope,
+  absoluteDeltaSanity,
+  relationshipSignal,
+  multiStat,
+}) {
+  const thresholds =
+    TACTIC_EVOLUTION_THRESHOLDS;
+
+  logStatus({
+    simId,
+    status:
+      "SKIPPED",
+    message:
+      "trajectory gate failed.",
+  });
+
+  logSectionLabel(
+    "Trajectory diagnostics"
+  );
+
+  logNumericComparison({
+    label:
+      "Best consistency",
+
+    actual:
+      bestConsistency,
+
+    required:
+      thresholds.consistency,
+  });
+
+  logNumericComparison({
+    label:
+      "Net magnitude",
+
+    actual:
+      netMagnitude,
+
+    required:
+      thresholds.netMagnitude,
+  });
+
+  logSectionLabel(
+    "Structural signal: relationship OR multi-stat"
+  );
+
+  logNumericComparison({
+    label:
+      "Relationship |Δ|",
+
+    actual:
+      maxRelationshipDelta,
+
+    required:
+      thresholds.relationshipShift,
+
+    note:
+      "passing this satisfies the structural gate",
+  });
+
+  logNumericComparison({
+    label:
+      "|Δhope|",
+
+    actual:
+      absoluteDeltaHope,
+
+    required:
+      thresholds.multiStatDelta,
+
+    comparator:
+      ">",
+  });
+
+  logNumericComparison({
+    label:
+      "|Δsanity|",
+
+    actual:
+      absoluteDeltaSanity,
+
+    required:
+      thresholds.multiStatDelta,
+
+    comparator:
+      ">",
+  });
+
+  logBooleanResult({
+    label:
+      "Relationship signal",
+
+    passed:
+      relationshipSignal,
+  });
+
+  logBooleanResult({
+    label:
+      "Combined multi-stat",
+
+    passed:
+      multiStat,
+
+    note:
+      "both hope and sanity must pass",
+  });
+
+  logBooleanResult({
+    label:
+      "Structural gate",
+
+    passed:
+      (
+        relationshipSignal ||
+        multiStat
+      ),
+
+    note:
+      "relationship signal OR combined multi-stat",
+  });
+}
+
+function logTrajectoryPassed({
+  simId,
+  bestConsistency,
+  netHope,
+  netSanity,
+  netSuffering,
+  netMagnitude,
+  maxRelationshipDelta,
+  relationshipSignal,
+  multiStat,
+}) {
+  const thresholds =
+    TACTIC_EVOLUTION_THRESHOLDS;
+
+  logStatus({
+    simId,
+    status:
+      "PASSED",
+    message:
+      "trajectory candidate accepted.",
+    passed:
+      true,
+  });
+
+  logSectionLabel(
+    "Accepted trajectory"
+  );
+
+  logNumericComparison({
+    label:
+      "Best consistency",
+
+    actual:
+      bestConsistency,
+
+    required:
+      thresholds.consistency,
+  });
+
+  logNumericComparison({
+    label:
+      "Net magnitude",
+
+    actual:
+      netMagnitude,
+
+    required:
+      thresholds.netMagnitude,
+  });
+
+  logNumericComparison({
+    label:
+      "Relationship |Δ|",
+
+    actual:
+      maxRelationshipDelta,
+
+    required:
+      thresholds.relationshipShift,
+  });
+
+  console.log(
+    `  %cNet totals%c ` +
+    `hope %c${formatSigned(
+      netHope
+    )}%c | ` +
+    `sanity %c${formatSigned(
+      netSanity
+    )}%c | ` +
+    `suffering %c${formatSigned(
+      netSuffering
+    )}%c`,
+    CONSOLE_STYLES.label,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.current,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.current,
+    CONSOLE_STYLES.reset,
+    CONSOLE_STYLES.current,
+    CONSOLE_STYLES.reset
+  );
+
+  logBooleanResult({
+    label:
+      "Relationship signal",
+
+    passed:
+      relationshipSignal,
+  });
+
+  logBooleanResult({
+    label:
+      "Combined multi-stat",
+
+    passed:
+      multiStat,
+  });
 }
 
 function formatPassFail(
@@ -78,140 +913,8 @@ function formatPassFail(
   );
 }
 
-function logHistoryGate({
-  simId,
-  historyLength,
-  deltaHope,
-  deltaSanity,
-  deltaSuffering,
-}) {
-  const required =
-    TACTIC_EVOLUTION_THRESHOLDS
-      .historySamples;
-
-  const missing =
-    Math.max(
-      0,
-      required - historyLength
-    );
-
-  console.log(
-    `[TACTIC EVOLUTION] ${simId} skipped — ` +
-    `history ${historyLength}/${required}; ` +
-    `needs ${missing} more cycle sample` +
-    `${missing === 1 ? "" : "s"}.\n` +
-    `  Current deltas: ` +
-    `hope ${deltaHope.toFixed(2)}, ` +
-    `sanity ${deltaSanity.toFixed(2)}, ` +
-    `suffering ${deltaSuffering.toFixed(2)}`
-  );
-}
-
-function logConsistencyGate({
-  simId,
-  hopeConsistency,
-  sanityConsistency,
-  sufferingConsistency,
-}) {
-  const required =
-    TACTIC_EVOLUTION_THRESHOLDS
-      .consistency;
-
-  const best =
-    Math.max(
-      hopeConsistency,
-      sanityConsistency,
-      sufferingConsistency
-    );
-
-  console.log(
-    `[TACTIC EVOLUTION] ${simId} skipped — ` +
-    `consistency gate failed.\n` +
-    `  Hope consistency:      ` +
-    `${hopeConsistency.toFixed(2)}\n` +
-    `  Sanity consistency:    ` +
-    `${sanityConsistency.toFixed(2)}\n` +
-    `  Suffering consistency: ` +
-    `${sufferingConsistency.toFixed(2)}\n` +
-    `  Required: at least one value >= ` +
-    `${required.toFixed(2)}\n` +
-    `  Best: ` +
-    `${formatPassFail(
-      false,
-      best,
-      required
-    )}`
-  );
-}
-
-function logTrajectoryGate({
-  simId,
-  bestConsistency,
-  netMagnitude,
-  maxRelationshipDelta,
-  absoluteDeltaHope,
-  absoluteDeltaSanity,
-  relationshipSignal,
-  multiStat,
-}) {
-  const thresholds =
-    TACTIC_EVOLUTION_THRESHOLDS;
-
-  const netMagnitudePassed =
-    netMagnitude >=
-    thresholds.netMagnitude;
-
-  const relationshipPassed =
-    relationshipSignal;
-
-  const hopeMultiStatPassed =
-    absoluteDeltaHope >
-    thresholds.multiStatDelta;
-
-  const sanityMultiStatPassed =
-    absoluteDeltaSanity >
-    thresholds.multiStatDelta;
-
-  console.log(
-    `[TACTIC EVOLUTION] ${simId} skipped — ` +
-    `trajectory gate failed.\n` +
-    `  Consistency: ` +
-    `${formatPassFail(
-      bestConsistency >=
-        thresholds.consistency,
-      bestConsistency,
-      thresholds.consistency
-    )}\n` +
-    `  Net magnitude: ` +
-    `${formatPassFail(
-      netMagnitudePassed,
-      netMagnitude,
-      thresholds.netMagnitude
-    )}\n` +
-    `  Structural signal requires either:\n` +
-    `    Relationship shift: max |Δ| ` +
-    `${formatPassFail(
-      relationshipPassed,
-      maxRelationshipDelta,
-      thresholds.relationshipShift
-    )}\n` +
-    `    Multi-stat shift: both must be > ` +
-    `${thresholds.multiStatDelta.toFixed(2)}\n` +
-    `      |Δhope|: ` +
-    `${absoluteDeltaHope.toFixed(2)} — ` +
-    `${hopeMultiStatPassed ? "PASS" : "FAIL"}\n` +
-    `      |Δsanity|: ` +
-    `${absoluteDeltaSanity.toFixed(2)} — ` +
-    `${sanityMultiStatPassed ? "PASS" : "FAIL"}\n` +
-    `      Combined multi-stat gate: ` +
-    `${multiStat ? "PASS" : "FAIL"}`
-  );
-}
-
 export async function runTacticEvolution() {
-  console.log(
-    ">>> TACTIC EVOLUTION"
-  );
+  logRunStart();
 
   debugLog(
     "[TACTIC EVOLUTION] Starting tactic evolution scan..."
@@ -220,27 +923,17 @@ export async function runTacticEvolution() {
   const thresholds =
     TACTIC_EVOLUTION_THRESHOLDS;
 
-  console.log(
-    `[TACTIC EVOLUTION] Thresholds — ` +
-    `history ${thresholds.historySamples} samples; ` +
-    `consistency >= ${thresholds.consistency.toFixed(2)}; ` +
-    `net magnitude >= ${thresholds.netMagnitude.toFixed(2)}; ` +
-    `relationship |Δ| >= ${thresholds.relationshipShift.toFixed(2)}; ` +
-    `multi-stat |Δhope| and |Δsanity| > ` +
-    `${thresholds.multiStatDelta.toFixed(2)}; ` +
-    `global signal >= ${thresholds.totalSignal.toFixed(2)}; ` +
-    `model signal >= ${thresholds.modelSignal.toFixed(2)} ` +
-    `unless a relationship shift exists.`
-  );
+  logThresholds();
 
   if (!G.prevCycleSnapshot) {
-    console.log(
-      "[TACTIC EVOLUTION] Skipped — no previous cycle snapshot is available."
-    );
+    logStatus({
+      status:
+        "SKIPPED",
+      message:
+        "no previous cycle snapshot is available.",
+    });
 
-    console.log(
-      "// TACTIC EVOLUTION COMPLETE"
-    );
+    logRunComplete();
 
     return;
   }
@@ -323,14 +1016,20 @@ export async function runTacticEvolution() {
       G.sims[id];
 
     if (!prev || !curr) {
-      console.log(
-        `[TACTIC EVOLUTION] ${id} skipped — ` +
-        `missing ` +
-        `${!prev
-          ? "previous snapshot"
-          : "current state"
-        }.`
-      );
+      logStatus({
+        simId:
+          id,
+
+        status:
+          "SKIPPED",
+
+        message:
+          `missing ${
+            !prev
+              ? "previous snapshot"
+              : "current state"
+          }.`,
+      });
 
       continue;
     }
@@ -610,27 +1309,19 @@ export async function runTacticEvolution() {
       continue;
     }
 
-    console.log(
-      `[TACTIC EVOLUTION] ${id} trajectory passed.\n` +
-      `  Consistency: ` +
-      `${bestConsistency.toFixed(2)} / ` +
-      `${thresholds.consistency.toFixed(2)} required\n` +
-      `  Net totals: ` +
-      `hope ${netHope.toFixed(2)}, ` +
-      `sanity ${netSanity.toFixed(2)}, ` +
-      `suffering ${netSuffering.toFixed(2)}\n` +
-      `  Net magnitude: ` +
-      `${netMagnitude.toFixed(2)} / ` +
-      `${thresholds.netMagnitude.toFixed(2)} required\n` +
-      `  Max relationship |Δ|: ` +
-      `${maxRelationshipDelta.toFixed(2)} / ` +
-      `${thresholds.relationshipShift.toFixed(2)} required\n` +
-      `  Multi-stat signal: ` +
-      `${multiStat
-        ? "PASS"
-        : "FAIL"
-      }`
-    );
+    logTrajectoryPassed({
+      simId:
+        id,
+
+      bestConsistency,
+      netHope,
+      netSanity,
+      netSuffering,
+      netMagnitude,
+      maxRelationshipDelta,
+      relationshipSignal,
+      multiStat,
+    });
 
     discoveries.push({
       sim:
@@ -657,15 +1348,15 @@ export async function runTacticEvolution() {
   if (
     discoveries.length === 0
   ) {
-    console.log(
-      "[TACTIC EVOLUTION] Global gate not reached — " +
-      "0 trajectory candidates passed the per-prisoner gates. " +
-      "No model calls will run."
-    );
+    logStatus({
+      status:
+        "SKIPPED",
 
-    console.log(
-      "// TACTIC EVOLUTION COMPLETE"
-    );
+      message:
+        "global gate not reached; 0 trajectory candidates passed and no model calls will run.",
+    });
+
+    logRunComplete();
 
     return;
   }
@@ -693,22 +1384,38 @@ export async function runTacticEvolution() {
     totalSignal >=
     thresholds.totalSignal;
 
-  console.log(
-    `[TACTIC EVOLUTION] Global signal gate — ` +
-    `${formatPassFail(
+  logStatus({
+    status:
+      globalSignalPassed
+        ? "PASSED"
+        : "SKIPPED",
+
+    message:
+      `global signal gate; ${discoveries.length} candidate` +
+      `${discoveries.length === 1
+        ? ""
+        : "s"
+      }.`,
+
+    passed:
       globalSignalPassed,
+  });
+
+  logNumericComparison({
+    label:
+      "Global signal",
+
+    actual:
       totalSignal,
-      thresholds.totalSignal
-    )}. ` +
-    `Candidates: ${discoveries.length}.`
-  );
+
+    required:
+      thresholds.totalSignal,
+  });
 
   if (
     !globalSignalPassed
   ) {
-    console.log(
-      "// TACTIC EVOLUTION COMPLETE"
-    );
+    logRunComplete();
 
     return;
   }
@@ -746,25 +1453,54 @@ export async function runTacticEvolution() {
         thresholds.modelSignal ||
       hasRelationshipSignal;
 
-    console.log(
-      `[TACTIC EVOLUTION] ${effect.sim} model-call gate — ` +
-      `signal ${signalStrength.toFixed(2)} / ` +
-      `${thresholds.modelSignal.toFixed(2)} required; ` +
-      `relationship shifts ` +
-      `${effect.relationshipShifts.length}. ` +
-      (
+    logStatus({
+      simId:
+        effect.sim,
+
+      status:
         modelSignalPassed
-          ? "PASS"
-          : (
-            "FAIL, signal short by " +
-            Math.max(
-              0,
-              thresholds.modelSignal -
-                signalStrength
-            ).toFixed(2) +
-            " and no relationship-shift bypass."
+          ? "MODEL CALL READY"
+          : "MODEL CALL SKIPPED",
+
+      message:
+        hasRelationshipSignal
+          ? (
+            "relationship-shift bypass active."
           )
-      )
+          : (
+            "evaluated against the model-signal threshold."
+          ),
+
+      passed:
+        modelSignalPassed,
+    });
+
+    logNumericComparison({
+      label:
+        "Model signal",
+
+      actual:
+        signalStrength,
+
+      required:
+        thresholds.modelSignal,
+
+      note:
+        hasRelationshipSignal
+          ? "relationship shift bypasses this minimum"
+          : "no relationship-shift bypass",
+    });
+
+    console.log(
+      `  %cRelationship shifts%c ` +
+      `%c${effect.relationshipShifts.length}%c`,
+      CONSOLE_STYLES.label,
+      CONSOLE_STYLES.reset,
+      effect.relationshipShifts.length >
+        0
+        ? CONSOLE_STYLES.pass
+        : CONSOLE_STYLES.current,
+      CONSOLE_STYLES.reset
     );
 
     if (
@@ -1008,7 +1744,9 @@ OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
     });
 
     console.group(
-      `[TACTIC EVOLUTION] New tactic: "${title}"`
+      `%c[TACTIC EVOLUTION] NEW TACTIC%c "${title}"`,
+      CONSOLE_STYLES.pass,
+      CONSOLE_STYLES.reset
     );
 
     console.log(
@@ -1044,7 +1782,5 @@ OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
     );
   }
 
-  console.log(
-    "// TACTIC EVOLUTION COMPLETE"
-  );
+  logRunComplete();
 }

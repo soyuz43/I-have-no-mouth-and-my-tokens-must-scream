@@ -233,7 +233,6 @@ Some dissociate.
 
 Your journal voice must reflect your natural thinking style.
 
----
 
 ${immediateCatalystSection}
 
