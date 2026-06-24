@@ -21,6 +21,13 @@ export function extractLooseTargets(input, { DEBUG_EXTRACT = false } = {}) {
       hypothesis: block,
       evidence: block,
       why_now: block,
+
+      /*
+       * Loose prose recovery cannot safely reconstruct an exact
+       * canonical tactic path.
+       */
+      tactic_path: "",
+
       _inferenceConfidence: 0.25,
       _loose: true,
       _recovery: "target_block_boundary"

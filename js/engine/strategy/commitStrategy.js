@@ -50,6 +50,7 @@ export function commitStrategy(validTargets, { DEBUG = true } = {}) {
       hypothesis,
       why_now,
       evidence,
+      tactic_path,
       _inferenceConfidence
     } = t;
 
@@ -61,6 +62,15 @@ export function commitStrategy(validTargets, { DEBUG = true } = {}) {
     nextTargets[id] = {
       objective: objective.trim(),
       hypothesis: hypothesis.trim(),
+
+      /*
+       * This is the path selected by the current planning result.
+       * It is not persistent multi-cycle tactic runtime state.
+       */
+      tactic_path:
+        typeof tactic_path === "string"
+          ? tactic_path.trim()
+          : "",
 
       reasoning: {
         evidence: evidence.trim(),
@@ -104,8 +114,14 @@ export function commitStrategy(validTargets, { DEBUG = true } = {}) {
     console.table(
       Object.entries(G.amStrategy.targets).map(([id, t]) => ({
         id,
-        objective: t.objective?.slice(0, 40),
-        hasReasoning: !!t.reasoning
+        objective:
+          t.objective?.slice(0, 40),
+
+        tacticPath:
+          t.tactic_path || "(none)",
+
+        hasReasoning:
+          !!t.reasoning
       }))
     );
   }

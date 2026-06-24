@@ -148,6 +148,7 @@ export function enforceStrategy(validatedTargets = [], { DEBUG = false } = {}) {
       objective,
       hypothesis,
       reasoning,
+      tactic_path,
       confidence = 0.5
     } = target;
 
@@ -156,7 +157,12 @@ export function enforceStrategy(validatedTargets = [], { DEBUG = false } = {}) {
       typeof hypothesis !== "string" ||
       !reasoning ||
       typeof reasoning.evidence !== "string" ||
-      typeof reasoning.why_now !== "string"
+      typeof reasoning.why_now !== "string" ||
+      (
+        tactic_path !== undefined &&
+        tactic_path !== null &&
+        typeof tactic_path !== "string"
+      )
     ) {
       droppedInvalid++;
       droppedDetails.push({
@@ -176,6 +182,16 @@ export function enforceStrategy(validatedTargets = [], { DEBUG = false } = {}) {
       hypothesis: hypothesis.trim(),
       why_now: reasoning.why_now.trim(),
       evidence: reasoning.evidence.trim(),
+
+      /*
+       * Normalize the optional bridge field to a stable string.
+       * Empty means that no valid planner selection was recovered.
+       */
+      tactic_path:
+        typeof tactic_path === "string"
+          ? tactic_path.trim()
+          : "",
+
       _inferenceConfidence: confidence
     });
 

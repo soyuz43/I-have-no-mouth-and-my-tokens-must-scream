@@ -34,7 +34,13 @@ export function validateTarget(target, id, { DEBUG = false } = {}) {
       return { valid: false, errors, warnings };
     }
 
-    const { objective, hypothesis, why_now, evidence } = target;
+    const {
+      objective,
+      hypothesis,
+      why_now,
+      evidence,
+      tactic_path
+    } = target;
 
     // --------------------------------------------------
     // REQUIRED FIELDS
@@ -65,6 +71,23 @@ export function validateTarget(target, id, { DEBUG = false } = {}) {
     if (typeof evidence !== "string" || evidence.trim().length < 10) {
       errors.push(`Invalid or weak evidence`);
     }
+        /*
+     * Transitional Phase 3 rule:
+     *
+     * tactic_path is optional until the planning prompt has been
+     * updated. When present, however, it must be a string.
+     *
+     * Authorization against the target's candidate list belongs
+     * later in resolveTacticAssignments().
+     */
+    if (
+      tactic_path !== undefined &&
+      tactic_path !== null &&
+      typeof tactic_path !== "string"
+    ) {
+      errors.push(`Invalid tactic_path`);
+    }
+
 
     // --------------------------------------------------
     // HYPOTHESIS OBSERVABILITY CHECK (CLEAN STRUCTURE)

@@ -1,4 +1,4 @@
 .vscode/
 diff.txt
-*.txt
+/*.txt
 /outputs/
