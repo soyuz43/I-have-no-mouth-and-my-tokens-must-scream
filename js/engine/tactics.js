@@ -3,41 +3,6 @@
 import { G } from "../core/state.js";
 
 
-/* ============================================================
-   TACTIC CONTENT PARSER
-   Converts tactic.content text into structured fields
-   ============================================================ */
-
-function parseTacticContent(tactic) {
-
-  if (tactic.parsed) return tactic.parsed;
-
-  const text = tactic.content || "";
-
-  const get = (label) => {
-    const m = text.match(new RegExp(label + ":\\s*([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z]+:|$)", "i"));
-    return m ? m[1].trim() : "";
-  };
-
-  const executionMatch = text.match(/Execution:\s*([\s\S]*?)(?=\nLoop:|\nOutcome:|$)/i);
-
-  const steps = executionMatch
-    ? executionMatch[1]
-      .split("\n")
-      .map(s => s.replace(/^\d+\.\s*/, "").trim())
-      .filter(Boolean)
-    : [];
-
-  tactic.parsed = {
-    objective: get("Objective"),
-    trigger: get("Trigger"),
-    loop: get("Loop"),
-    outcome: get("Outcome"),
-    execution: steps
-  };
-
-  return tactic.parsed;
-}
 // ══════════════════════════════════════════════════════════
 // EMBEDDED TACTIC LIBRARY — hardcoded strike package
 // No vault dependency. Always available.
@@ -277,274 +242,304 @@ export const EMBEDDED_TACTICS = [
     isEmbedded: true,
   },
 ];
-export function pickTactics(sim) {
 
-  const objective =
-    G.amStrategy?.targets?.[sim.id]?.objective?.toLowerCase() || "";
 
-  /* ------------------------------------------------------------
-     BUILD TACTIC POOL
-  ------------------------------------------------------------ */
+export function parseTacticContent(tactic) {
+  if (!tactic || typeof tactic !== "object") {
+    return {
+      objective: "",
+      trigger: "",
+      loop: "",
+      outcome: "",
+      execution: [],
+    };
+  }
+
+  if (tactic.parsed) {
+    return tactic.parsed;
+  }
+
+  const text = tactic.content || "";
+
+  const get = (label) => {
+    const match = text.match(
+      new RegExp(
+        `${label}:\\s*([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z]+:|$)`,
+        "i"
+      )
+    );
+
+    return match ? match[1].trim() : "";
+  };
+
+  const executionMatch = text.match(
+    /Execution:\s*([\s\S]*?)(?=\nLoop:|\nOutcome:|$)/i
+  );
+
+  const execution = executionMatch
+    ? executionMatch[1]
+        .split("\n")
+        .map((line) =>
+          line.replace(/^\d+\.\s*/, "").trim()
+        )
+        .filter(Boolean)
+    : [];
+
+  tactic.parsed = {
+    objective: get("Objective"),
+    trigger: get("Trigger"),
+    loop: get("Loop"),
+    outcome: get("Outcome"),
+    execution,
+  };
+
+  return tactic.parsed;
+}
+
+export function formatTacticLabel(tactic) {
+  if (!tactic || typeof tactic !== "object") {
+    return "";
+  }
+
+  const title =
+    String(tactic.title || tactic.path || "").trim();
+
+  const taxonomy = [
+    tactic.category,
+    tactic.subcategory,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("/");
+
+  return taxonomy
+    ? `[${taxonomy}] ${title}`
+    : title;
+}
+
+// Replacment of picktactics()
+
+export function rankTacticCandidates(
+  sim,
+  {
+    objectiveHint = "",
+    limit = 5,
+  } = {}
+) {
+  if (!sim?.id) {
+    return [];
+  }
+
+  const objective = String(
+    objectiveHint ||
+      G.amStrategy?.targets?.[sim.id]?.objective ||
+      ""
+  ).toLowerCase();
 
   const allAvailable = [
-    ...G.vault.allTactics,
-    ...G.vault.derivedTactics,
-    ...EMBEDDED_TACTICS
-  ];
+    ...(G.vault?.allTactics || []),
+    ...(G.vault?.derivedTactics || []),
+    ...EMBEDDED_TACTICS,
+  ].filter((tactic) => tactic?.path);
 
-  if (!allAvailable.length) return [];
-
-  /* ------------------------------------------------------------
-     AVOID RECENT REPEATS
-  ------------------------------------------------------------ */
+  if (!allAvailable.length) {
+    return [];
+  }
 
   const RECENT_WINDOW = 3;
 
-  const used = new Set(
+  const recentlyUsedPaths = new Set(
     (sim.tacticHistory || [])
-      .filter(h => G.cycle - h.cycle < RECENT_WINDOW)
-      .map(h => h.path)
+      .filter(
+        (entry) =>
+          Number.isFinite(entry?.cycle) &&
+          G.cycle - entry.cycle < RECENT_WINDOW
+      )
+      .map((entry) => entry.path)
+      .filter(Boolean)
   );
 
-  let available = allAvailable.filter(t => !used.has(t.path));
+  let available = allAvailable.filter(
+    (tactic) =>
+      !recentlyUsedPaths.has(tactic.path)
+  );
 
-  if (available.length === 0) {
+  if (!available.length) {
     available = allAvailable;
   }
 
-  /* ------------------------------------------------------------
-     SCORE TACTICS
-  ------------------------------------------------------------ */
+  const scored = available.map((tactic) => {
+    const parsed =
+      parseTacticContent(tactic);
 
-  const scored = available.map(t => {
-
-    const parsed = parseTacticContent(t) || {};
-
-    const text = (
-      (t.title || "") +
-      " " +
-      (t.category || "") +
-      " " +
-      (t.subcategory || "") +
-      " " +
-      (parsed.objective || "") +
-      " " +
-      (parsed.trigger || "") +
-      " " +
-      (parsed.outcome || "")
-    ).toLowerCase();
+    const searchableText = [
+      tactic.title,
+      tactic.category,
+      tactic.subcategory,
+      parsed.objective,
+      parsed.trigger,
+      parsed.outcome,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
     let score = 0;
 
-
-    /* ------------------------------------------------------------
-   PSYCHOLOGICAL VULNERABILITY BIAS
-   AM prefers attacking prisoners who react strongly
-    ------------------------------------------------------------ */
-
-    const profile = G.amProfiles?.[sim.id];
+    const profile =
+      G.amProfiles?.[sim.id];
 
     if (profile) {
+      const reactivity =
+        profile.reactivity ?? 0;
 
-      const reactivity = profile.reactivity ?? 0;
       const fragility =
-        (100 - (profile.avgSanity ?? sim.sanity)) * 0.05 +
-        (100 - (profile.avgHope ?? sim.hope)) * 0.03;
+        (100 -
+          (profile.avgSanity ??
+            sim.sanity ??
+            100)) *
+          0.05 +
+        (100 -
+          (profile.avgHope ??
+            sim.hope ??
+            100)) *
+          0.03;
 
-      score += reactivity * 0.02 + fragility;
-
+      score +=
+        reactivity * 0.02 +
+        fragility;
     }
-    /* ------------------------------------------------------------
-       OBJECTIVE SEMANTIC MATCH
-    ------------------------------------------------------------ */
 
     if (objective && parsed.objective) {
-
-      const objWords = objective.split(/\s+/);
-
-      for (const w of objWords) {
-
-        if (w.length < 4) continue;
-
-        if (parsed.objective.toLowerCase().includes(w)) {
-          score += 5;
+      for (const word of objective.split(/\s+/)) {
+        if (word.length < 4) {
+          continue;
         }
 
+        if (
+          parsed.objective
+            .toLowerCase()
+            .includes(word)
+        ) {
+          score += 5;
+        }
       }
-
     }
-
-    /* ------------------------------------------------------------
-       RELATIONSHIP SURFACE HEURISTICS
-    ------------------------------------------------------------ */
 
     let strongestTrust = 0;
 
-    for (const [other, val] of Object.entries(sim.relationships || {})) {
-
-      if (other === sim.id || val == null) continue;
-
-      if (Math.abs(val) > Math.abs(strongestTrust)) {
-        strongestTrust = val;
+    for (const [
+      otherId,
+      relationship,
+    ] of Object.entries(
+      sim.relationships || {}
+    )) {
+      if (
+        otherId === sim.id ||
+        !Number.isFinite(relationship)
+      ) {
+        continue;
       }
-
-    }
-
-    /* alliance sabotage */
-
-    if (strongestTrust > 0.4) {
 
       if (
-        text.includes("social") ||
-        text.includes("trust") ||
-        text.includes("betray") ||
-        text.includes("isolation")
+        Math.abs(relationship) >
+        Math.abs(strongestTrust)
       ) {
-        score += 3;
+        strongestTrust =
+          relationship;
       }
-
     }
 
-    /* paranoia amplification */
+    if (
+      strongestTrust > 0.4 &&
+      (
+        searchableText.includes("social") ||
+        searchableText.includes("trust") ||
+        searchableText.includes("betray") ||
+        searchableText.includes("isolation")
+      )
+    ) {
+      score += 3;
+    }
 
-    if (strongestTrust < -0.4) {
+    if (
+      strongestTrust < -0.4 &&
+      (
+        searchableText.includes("paranoia") ||
+        searchableText.includes("doubt") ||
+        searchableText.includes("cognitive")
+      )
+    ) {
+      score += 2;
+    }
 
+    for (
+      const historyEntry
+      of sim.tacticHistory || []
+    ) {
       if (
-        text.includes("paranoia") ||
-        text.includes("doubt") ||
-        text.includes("cognitive")
+        historyEntry?.path !==
+        tactic.path
       ) {
-        score += 2;
+        continue;
       }
 
+      const hopeDrop =
+        historyEntry?.deltas?.hope ?? 0;
+
+      const sanityDrop =
+        historyEntry?.deltas?.sanity ?? 0;
+
+      const sufferingGain =
+        historyEntry?.deltas?.suffering ?? 0;
+
+      score +=
+        Math.max(0, -hopeDrop) * 1.2;
+
+      score +=
+        Math.max(0, -sanityDrop) * 1.2;
+
+      score +=
+        Math.max(0, sufferingGain) * 0.8;
     }
 
-    /* explicit AM relationship objective */
-
-    const relKey = Object.keys(G.amStrategy?.relationships || {})
-      .find(k => k.startsWith(sim.id + "→"));
-
-    if (relKey) {
-
-      if (text.includes("trust") || text.includes("social")) {
-        score += 3;
-      }
-
-    }
-    /* ------------------------------------------------------------
-       REINFORCEMENT LEARNING WEIGHT
-       Boost tactics that previously reduced hope or sanity
-    ------------------------------------------------------------ */
-
-    for (const h of sim.tacticHistory || []) {
-
-      if (h.path !== t.path) continue;
-
-      const hopeDrop = h?.deltas?.hope ?? 0;
-      const sanityDrop = h?.deltas?.sanity ?? 0;
-      const sufferingGain = h?.deltas?.suffering ?? 0;
-
-      score += Math.max(0, -hopeDrop) * 1.2;
-      score += Math.max(0, -sanityDrop) * 1.2;
-      score += Math.max(0, sufferingGain) * 0.8;
-    }
-    /* ------------------------------------------------------------
-       RANDOM NOISE (prevents deterministic loops)
-    ------------------------------------------------------------ */
-
-    score += Math.random();
-
-    return { tactic: t, score };
-
+    return {
+      tactic,
+      score,
+    };
   });
 
-  if (!scored.length) {
-    return [available[Math.floor(Math.random() * available.length)]];
-  }
+  return scored
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
 
-  /* ------------------------------------------------------------
-   SORT AND TAKE TOP CANDIDATES
------------------------------------------------------------- */
+      return String(a.tactic.path)
+        .localeCompare(
+          String(b.tactic.path)
+        );
+    })
+    .slice(
+      0,
+      Math.max(1, limit)
+    )
+    .map((entry) => entry.tactic);
+}
 
-  scored.sort((a, b) => b.score - a.score);
 
-  const top = scored.slice(0, 5);
-
-  /* ------------------------------------------------------------
-     PRIMARY TACTIC SELECTION (WEIGHTED)
-  ------------------------------------------------------------ */
-
-  const primary = (() => {
-
-    const total = top.reduce((sum, t) => sum + t.score, 0);
-
-    if (!total || !isFinite(total)) return top[0].tactic;
-
-    let r = Math.random() * total;
-
-    for (const entry of top) {
-
-      r -= entry.score;
-
-      if (r <= 0) return entry.tactic;
-
+/**
+ * @deprecated
+ * Final tactic selection now belongs to the planning phase.
+ *
+ * This wrapper remains temporarily while older call sites are
+ * migrated away from pickTactics().
+ */
+export function pickTactics(sim) {
+  return rankTacticCandidates(
+    sim,
+    {
+      limit: 1,
     }
-
-    return top[0].tactic;
-
-  })();
-
-  /* ------------------------------------------------------------
-     OPTIONAL TACTIC CHAINING (~15% CHANCE)
-  ------------------------------------------------------------ */
-
-  if (Math.random() < 0.15) {
-
-    const parsedPrimary = parseTacticContent(primary);
-
-    const compatible = available
-      .filter(t => t.path !== primary.path)
-      .map(t => {
-
-        const parsed = parseTacticContent(t);
-
-        let synergy = 0;
-
-        if (parsed.trigger && parsedPrimary.trigger) {
-
-          const a = parsed.trigger.toLowerCase();
-          const b = parsedPrimary.trigger.toLowerCase();
-
-          if (a.includes("memory") || b.includes("memory")) synergy += 2;
-          if (a.includes("trust") || b.includes("trust")) synergy += 2;
-          if (a.includes("fear") || b.includes("fear")) synergy += 1;
-
-        }
-
-        if (t.category === primary.category) synergy += 1;
-
-        synergy += Math.random();
-
-        return { tactic: t, score: synergy };
-
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
-
-    if (compatible.length) {
-
-      const secondary =
-        compatible[Math.floor(Math.random() * compatible.length)].tactic;
-
-      return [primary, secondary];
-
-    }
-
-  }
-
-  /* ------------------------------------------------------------
-     DEFAULT SINGLE TACTIC
-  ------------------------------------------------------------ */
-
-  return [primary];
+  );
 }

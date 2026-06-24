@@ -28,6 +28,7 @@ import { normalizeTargetKeys } from "../extractors/normalizeKeys.js";
        hypothesis,
        why_now,
        evidence,
+       tactic_path?,
        _inferenceConfidence?,
        _derivedFromGroup?
      }
@@ -57,8 +58,24 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
       objective,
       hypothesis,
       why_now,
-      evidence
+      evidence,
+      tactic_path
     } = normalizedTarget;
+
+    /*
+     * Preserve the raw extracted field if the legacy key
+     * normalizer did not explicitly retain it.
+     */
+    if (
+      tactic_path === undefined &&
+      Object.prototype.hasOwnProperty.call(
+        target,
+        "tactic_path"
+      )
+    ) {
+      tactic_path =
+        target.tactic_path;
+    }
 
     if (!id || typeof id !== "string") {
       if (DEBUG) console.warn(`[INTERPRET] missing id at ${index}`);
@@ -130,6 +147,13 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
         hypothesis,
         why_now,
         evidence,
+
+        /*
+         * Interpretation resolves the target ID only.
+         * It does not authorize or semantically evaluate this path.
+         */
+        tactic_path,
+
         _inferenceConfidence: inferenceConfidence,
         _derivedFromGroup: derivedFromGroup
       });

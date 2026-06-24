@@ -144,9 +144,28 @@ export function repairTargetsExtractor(
       }
 
       return {
-        targets: parsedArray.map(target =>
-          normalizeTargetKeys(target)
-        )
+        targets: parsedArray.map((target) => {
+          const normalized =
+            normalizeTargetKeys(target);
+
+          /*
+           * Structural repair may fix the surrounding JSON, but it
+           * must not rewrite or infer the tactic identifier.
+           */
+          if (
+            target &&
+            typeof target === "object" &&
+            Object.prototype.hasOwnProperty.call(
+              target,
+              "tactic_path"
+            )
+          ) {
+            normalized.tactic_path =
+              target.tactic_path;
+          }
+
+          return normalized;
+        }),
       };
     } catch (err) {
       if (DEBUG_EXTRACT) {
