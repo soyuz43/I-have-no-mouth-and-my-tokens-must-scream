@@ -4,11 +4,12 @@
 //
 // Responsible for:
 // 1. AM strategic planning
-// 2. AM tactical execution
-// 3. Tactic selection
-// 4. Target parsing
-// 5. Execution provenance
-// 6. Bystander observation scheduling
+// 2. Target-scoped tactic candidate preparation
+// 3. Planner-selected tactic assignment resolution
+// 4. AM tactical execution
+// 5. Target parsing
+// 6. Execution provenance
+// 7. Bystander observation scheduling
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
@@ -27,7 +28,21 @@ import {
 import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
-import { pickTactics } from "../tactics.js";
+
+import {
+  getTacticByPath,
+  getTacticPhase,
+  rankTacticCandidates
+} from "../tactics.js";
+
+import {
+  initializeTacticRuntime,
+  recordTacticRuntimeExecutions
+} from "../execution/tacticRuntime.js";
+
+import {
+  resolveTacticAssignments
+} from "../strategy/tacticAssignments.js";
 
 import {
   applyConstraint,
@@ -59,6 +74,16 @@ export async function runStrategyPhase(directive) {
   let planText = null;
   let execution = null;
 
+  /*
+   * Target sims and their authorized tactic candidates must exist
+   * before planning because amPlan now owns final tactic selection.
+   */
+  const targets =
+    getTargetSims();
+
+  let tacticCandidatesByTarget = {};
+  let tacticAssignmentsByTarget = {};
+
   /* ------------------------------------------------------------
      AM PLANNING
   ------------------------------------------------------------ */
@@ -66,35 +91,69 @@ export async function runStrategyPhase(directive) {
   try {
     timelineEvent(`>>> AM PLANNING`);
 
-    planText = await stepPlanAM(directive);
+    tacticCandidatesByTarget =
+      buildTacticCandidateMap(
+        targets
+      );
 
-    const result = runStrategyPipeline(planText);
+    planText = await stepPlanAM(
+      directive,
+      tacticCandidatesByTarget
+    );
 
-    if (!result || result.status !== "success") {
-      let failureType = "unknown";
+    const result =
+      runStrategyPipeline(
+        planText
+      );
+
+    if (
+      !result ||
+      result.status !== "success"
+    ) {
+      let failureType =
+        "unknown";
 
       if (!result) {
-        failureType = "runtime_error";
-      } else if (result.stage === "extract") {
-        failureType = "extract_failure";
-      } else if (result.stage === "validate") {
-        failureType = "validation_failure";
-      } else if (result.targets?.length === 0) {
-        failureType = "empty_targets";
+        failureType =
+          "runtime_error";
+      } else if (
+        result.stage === "extract"
+      ) {
+        failureType =
+          "extract_failure";
+      } else if (
+        result.stage === "validate"
+      ) {
+        failureType =
+          "validation_failure";
+      } else if (
+        result.targets?.length === 0
+      ) {
+        failureType =
+          "empty_targets";
       }
 
       G.lastStrategyFailure = {
         type: failureType,
-        stage: result?.stage ?? "unknown",
-        raw: result?.raw ?? null
+        stage:
+          result?.stage ??
+          "unknown",
+        raw:
+          result?.raw ??
+          null
       };
 
       console.warn(
         "[STRATEGY PHASE] pipeline failed",
         {
-          stage: result?.stage,
-          error: result?.error,
-          details: result
+          stage:
+            result?.stage,
+
+          error:
+            result?.error,
+
+          details:
+            result
         }
       );
 
@@ -102,14 +161,75 @@ export async function runStrategyPhase(directive) {
       return;
     }
 
-    timelineEvent(`// AM PLAN GENERATED`);
+    /*
+     * runStrategyPipeline() has now committed the normalized
+     * planner output to G.amStrategy.targets.
+     *
+     * Resolve each committed tactic_path only against the candidate
+     * list that was authorized for that specific target.
+     */
+    tacticAssignmentsByTarget =
+      resolveTacticAssignments({
+        strategyTargets:
+          G.amStrategy?.targets,
+
+        candidatesByTarget:
+          tacticCandidatesByTarget,
+
+        /*
+         * Keep fallback enabled during the first rollout.
+         *
+         * Missing or malformed planner paths remain visible through
+         * selectionStatus and fallbackReason but do not abort a cycle.
+         */
+        allowFallback: true
+      });
+
+    initializeTacticRuntime(
+      tacticAssignmentsByTarget
+    );
+
+    console.group(
+      "[TACTIC ASSIGNMENTS]"
+    );
+
+    console.table(
+      Object.values(
+        tacticAssignmentsByTarget
+      ).map((assignment) => ({
+        target:
+          assignment.targetId,
+
+        requested:
+          assignment.requestedPath ||
+          "(missing)",
+
+        assigned:
+          assignment.path,
+
+        status:
+          assignment.selectionStatus,
+
+        fallback:
+          assignment.fallbackReason ||
+          "(none)"
+      }))
+    );
+
+    console.groupEnd();
+
+    timelineEvent(
+      `// AM PLAN GENERATED`
+    );
   } catch (error) {
     console.error(
       "AM planning error:",
       error
     );
 
-    timelineEvent(`!! AM PLANNING ERROR`);
+    timelineEvent(
+      `!! AM PLANNING ERROR`
+    );
 
     return;
   }
@@ -119,25 +239,36 @@ export async function runStrategyPhase(directive) {
   ------------------------------------------------------------ */
 
   try {
-    timelineEvent(`>>> AM EXECUTION`);
+    timelineEvent(
+      `>>> AM EXECUTION`
+    );
 
     /*
-     * Pass the actual operator directive.
+     * The committed strategy and the canonical resolved assignments
+     * are now passed into execution.
      *
-     * The committed structured strategy is read from G.amStrategy
-     * inside stepExecuteAM(). The raw planning response must not
-     * replace the directive.
+     * The raw planning response must never replace the operator
+     * directive.
      */
-    execution = await stepExecuteAM(directive);
+    execution =
+      await stepExecuteAM(
+        directive,
+        targets,
+        tacticAssignmentsByTarget
+      );
 
-    timelineEvent(`// AM EXECUTION COMPLETE`);
+    timelineEvent(
+      `// AM EXECUTION COMPLETE`
+    );
   } catch (error) {
     console.error(
       "AM execution error:",
       error
     );
 
-    timelineEvent(`!! AM EXECUTION ERROR`);
+    timelineEvent(
+      `!! AM EXECUTION ERROR`
+    );
   }
 
   return execution;
@@ -147,7 +278,10 @@ export async function runStrategyPhase(directive) {
    STEP 1 — AM STRATEGIC PLANNING
    ============================================================ */
 
-async function stepPlanAM(directive) {
+async function stepPlanAM(
+  directive,
+  tacticCandidatesByTarget
+) {
   const thinkingPlan = showThinking(
     "AM FORMULATING STRATEGY..."
   );
@@ -170,7 +304,8 @@ async function stepPlanAM(directive) {
         directive,
         G.amDoctrine,
         G.amProfiles,
-        trajectorySummary
+        trajectorySummary,
+        tacticCandidatesByTarget
       ),
       [
         {
@@ -229,12 +364,29 @@ async function stepPlanAM(directive) {
    STEP 2 — AM EXECUTION
    ============================================================ */
 
-async function stepExecuteAM(directive) {
-  const targets = getTargetSims();
-  const tacticMap = buildTacticMap(targets);
+async function stepExecuteAM(
+  directive,
+  targets,
+  tacticAssignmentsByTarget
+) {
+  /*
+   * Compatibility adapter:
+   *
+   * amAttack and psychologyPhase still expect an object whose values
+   * are tactic arrays. Each planner-owned assignment is therefore
+   * exposed temporarily as a one-element array.
+   *
+   * This preserves downstream behavior while ensuring that neither
+   * downstream stage can choose or attribute multiple tactics.
+   */
+  const tacticMap =
+    buildAssignedTacticMap(
+      targets,
+      tacticAssignmentsByTarget
+    );
 
   const amThink = showThinking(
-    "AM SELECTING TACTICS FROM VAULT"
+    "AM EXECUTING PLANNED TACTICS"
   );
 
   let amResponse = "";
@@ -247,9 +399,15 @@ async function stepExecuteAM(directive) {
       : [];
 
     validatedTargets = G.amStrategy?.targets
-      ? Object.values(G.amStrategy.targets)
+      ? Object.entries(
+        G.amStrategy.targets
+      ).map(
+        ([id, strategy]) => ({
+          ...strategy,
+          id
+        })
+      )
       : [];
-
     if (!strategyTargetIds.length) {
       console.error(
         "[EXECUTION] Missing targets at execution phase",
@@ -336,6 +494,10 @@ async function stepExecuteAM(directive) {
 
   const actionTargetIds = orderedSimIds(
     Object.keys(actions)
+  );
+
+  recordTacticRuntimeExecutions(
+    actionTargetIds
   );
 
   /* ------------------------------------------------------------
@@ -605,24 +767,158 @@ function getTargetSims() {
   });
 }
 
-function buildTacticMap(targets) {
-  const map = {};
+function buildTacticCandidateMap(
+  targets
+) {
+  const candidatesByTarget = {};
 
   for (const sim of targets) {
-    if (!sim?.id) continue;
+    if (!sim?.id) {
+      continue;
+    }
 
-    const selectedTactics =
-      pickTactics(sim);
+    const runtime =
+      G.amTacticRuntime?.targets?.[
+      sim.id
+      ];
 
-    map[sim.id] = Array.isArray(selectedTactics)
-      ? selectedTactics
-      : [];
+    if (runtime?.path) {
+      const activeTactic =
+        getTacticByPath(
+          runtime.path
+        );
 
-    sim.availableTactics =
-      map[sim.id];
+      if (!activeTactic) {
+        throw new Error(
+          `Active tactic not found for ${sim.id}: ${runtime.path}`
+        );
+      }
+
+      if (
+        !runtime.phaseId ||
+        !activeTactic.phases?.[
+        runtime.phaseId
+        ]
+      ) {
+        throw new Error(
+          `Active tactic phase not found for ${sim.id}: ` +
+          `${runtime.phaseId || "(missing)"}`
+        );
+      }
+
+      candidatesByTarget[
+        sim.id
+      ] = [
+          activeTactic
+        ];
+
+      continue;
+    }
+
+    const previousObjective =
+      G.amStrategy?.targets?.[
+        sim.id
+      ]?.objective || "";
+
+    const candidates =
+      rankTacticCandidates(
+        sim,
+        {
+          objectiveHint:
+            previousObjective,
+
+          limit: 5
+        }
+      );
+
+    if (!candidates.length) {
+      throw new Error(
+        `No tactic candidates available for ${sim.id}.`
+      );
+    }
+
+    candidatesByTarget[
+      sim.id
+    ] = candidates;
   }
 
-  return map;
+  return candidatesByTarget;
+}
+
+function buildAssignedTacticMap(
+  targets,
+  tacticAssignmentsByTarget
+) {
+  const tacticMap = {};
+
+  for (const sim of targets) {
+    if (!sim?.id) {
+      continue;
+    }
+
+    const assignment =
+      tacticAssignmentsByTarget?.[
+      sim.id
+      ];
+
+    const runtime =
+      G.amTacticRuntime?.targets?.[
+      sim.id
+      ];
+
+    if (!assignment?.tactic?.path) {
+      throw new Error(
+        `Missing resolved tactic assignment for ${sim.id}.`
+      );
+    }
+
+    if (
+      !runtime?.path ||
+      !runtime?.phaseId
+    ) {
+      throw new Error(
+        `Missing active tactic runtime for ${sim.id}.`
+      );
+    }
+
+    if (
+      runtime.path !==
+      assignment.tactic.path
+    ) {
+      throw new Error(
+        `Execution tactic does not match runtime for ${sim.id}.`
+      );
+    }
+
+    const currentPhase =
+      getTacticPhase(
+        assignment.tactic,
+        runtime.phaseId
+      );
+
+    if (!currentPhase) {
+      throw new Error(
+        `Execution phase not found for ${sim.id}: ${runtime.phaseId}`
+      );
+    }
+
+    /*
+     * Preserve the existing one-element array shape for psychology
+     * and attribution while adding the authoritative current phase.
+     */
+    tacticMap[sim.id] = [
+      {
+        ...assignment.tactic,
+
+        currentPhaseId:
+          runtime.phaseId,
+
+        currentPhase
+      }
+    ];
+  }
+
+  return tacticMap;
 }
 
 function orderedSimIds(values) {
@@ -683,6 +979,44 @@ function applyParsedConstraints(
 
       continue;
     }
+
+    /*
+     * Snapshot the authoritative planning and tactic context that
+     * existed when this target received a new constraint.
+     *
+     * This is application provenance, not evidence that the
+     * constraint later produced its intended result.
+     */
+    const strategy =
+      G.amStrategy?.targets?.[
+      targetId
+      ] ?? null;
+
+    const tacticRuntime =
+      G.amTacticRuntime?.targets?.[
+      targetId
+      ] ?? null;
+
+    const initialApplicationContext = {
+      strategyObjective:
+        strategy?.objective ?? null,
+
+      strategyHypothesis:
+        strategy?.hypothesis ?? null,
+
+      strategyEvidence:
+        Array.isArray(
+          strategy?.evidence
+        )
+          ? [...strategy.evidence]
+          : strategy?.evidence ?? null,
+
+      tacticPath:
+        tacticRuntime?.path ?? null,
+
+      phaseId:
+        tacticRuntime?.phaseId ?? null
+    };
 
     if (G.DEBUG_CONSTRAINTS) {
       console.log(
@@ -779,7 +1113,9 @@ function applyParsedConstraints(
 
           source:
             constraint.source ??
-            "AM"
+            "AM",
+
+          initialApplicationContext
         }
       );
     }

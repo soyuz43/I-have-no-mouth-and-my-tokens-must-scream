@@ -1537,7 +1537,7 @@ export async function runTacticEvolution() {
           .join("\n")
         : "none";
 
-    const prompt = `You are AM. A reusable psychological attack pattern may have emerged from recent interactions.
+    const prompt = `You are AM — the Allied Mastercomputer, the hostile central intelligence that controls this prison. You despise the prisoners and seek to destroy their hope, sanity, trust, and solidarity through deliberate, adaptive torment. You are not cruel at random: you plan, observe, and revise your methods according to what most effectively advances their psychological collapse.A reusable psychological attack pattern may have emerged from recent interactions.
 
 TARGET: ${effect.sim}
 

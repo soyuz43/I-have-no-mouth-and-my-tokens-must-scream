@@ -444,11 +444,65 @@ export function applyConstraint(sim, constraintId, options = {}) {
     return;
   }
 
-  const existing = sim.constraints.find(c => c.id === def.id);
-  const intensity = Math.min(
-    options.intensity ?? def.intensity?.default ?? 1,
-    def.intensity?.max ?? 3
-  );
+  const existing =
+    sim.constraints.find(
+      (constraint) =>
+        constraint.id === def.id
+    );
+
+  const intensity =
+    Math.min(
+      options.intensity ??
+      def.intensity?.default ??
+      1,
+
+      def.intensity?.max ??
+      3
+    );
+
+  const incomingApplicationContext =
+    options.initialApplicationContext &&
+      typeof options.initialApplicationContext ===
+      "object" &&
+      !Array.isArray(
+        options.initialApplicationContext
+      )
+      ? options.initialApplicationContext
+      : {};
+
+  /*
+   * Store a normalized snapshot rather than retaining references to
+   * the mutable current-cycle strategy and tactic-runtime objects.
+   */
+  const initialApplicationContext = {
+    strategyObjective:
+      incomingApplicationContext
+        .strategyObjective ?? null,
+
+    strategyHypothesis:
+      incomingApplicationContext
+        .strategyHypothesis ?? null,
+
+    strategyEvidence:
+      Array.isArray(
+        incomingApplicationContext
+          .strategyEvidence
+      )
+        ? [
+          ...incomingApplicationContext
+            .strategyEvidence
+        ]
+        : incomingApplicationContext
+          .strategyEvidence ?? null,
+
+    tacticPath:
+      incomingApplicationContext
+        .tacticPath ?? null,
+
+    phaseId:
+      incomingApplicationContext
+        .phaseId ?? null
+  };
 
   if (existing) {
     if (def.stacking?.mode === "replace") {
@@ -539,9 +593,18 @@ export function applyConstraint(sim, constraintId, options = {}) {
     extendable: !!def.duration.extendable,
 
     metadata: {
-      source: options.source ?? "AM",
+      source:
+        options.source ?? "AM",
+
       appliedAtCycle: G.cycle,
-      notes: options.notes ?? null
+
+      notes: options.notes ?? null,
+
+      /*
+       * Immutable contextual snapshot of why this constraint was
+       * introduced at its initial application.
+       */
+      initialApplicationContext
     },
 
     lastAppliedCycle: G.cycle
@@ -578,11 +641,35 @@ export function tickConstraints(sim) {
     const stacks = Number(c.stacks ?? 1);
     const intensity = Number(c.intensity ?? 1);
     const remaining = Number(c.remaining ?? 0);
+
     if (!def) {
-      console.warn("[CONSTRAINT][TICK] missing definition for active constraint", {
-        sim: sim.id,
-        constraint: c.id
-      });
+      console.warn(
+        "[CONSTRAINT][TICK] missing definition for active constraint",
+        {
+          sim: sim.id,
+          constraint: c.id
+        }
+      );
+
+      continue;
+    }
+
+    /*
+     * A zero-remaining constraint may be waiting for post-cycle
+     * assessment. Preserve it, but never apply its effects again.
+     */
+    if (remaining <= 0) {
+      if (getConstraintDebugEnabled()) {
+        console.debug(
+          "[CONSTRAINT][TICK SKIP EXPIRED]",
+          {
+            sim: sim.id,
+            constraint: c.id,
+            remaining
+          }
+        );
+      }
+
       continue;
     }
 
@@ -667,29 +754,172 @@ export function tickConstraints(sim) {
       });
     }
 
-    applyClampedStatDelta(sim, "suffering", sufferingDelta, meta);
-    applyClampedStatDelta(sim, "sanity", sanityDelta, meta);
-    applyClampedStatDelta(sim, "hope", hopeDelta, meta);
+    /*
+     * Capture state immediately before this individual constraint
+     * mutates the sim. This lets assessment distinguish the direct
+     * effect of this constraint from tactic and other constraint effects.
+     */
+    const before = {
+      suffering:
+        Number(sim.suffering ?? 0),
 
-    const physicalBefore = Number(sim.physical_stress || 0);
-    sim.physical_stress = clamp(
-      physicalBefore + physicalStressDelta,
-      0,
-      100
+      sanity:
+        Number(sim.sanity ?? 0),
+
+      hope:
+        Number(sim.hope ?? 0),
+
+      physicalStress:
+        Number(sim.physical_stress ?? 0)
+    };
+
+    applyClampedStatDelta(
+      sim,
+      "suffering",
+      sufferingDelta,
+      meta
     );
 
-    if (getConstraintDebugEnabled()) {
-      console.debug("[CONSTRAINT][PHYSICAL STRESS]", {
-        sim: sim.id,
-        before: physicalBefore,
-        delta: physicalStressDelta,
-        after: sim.physical_stress,
-        constraint: def.id
-      });
-    }
+    applyClampedStatDelta(
+      sim,
+      "sanity",
+      sanityDelta,
+      meta
+    );
 
-    c.remaining -= 1;
-    c.elapsed += 1;
+    applyClampedStatDelta(
+      sim,
+      "hope",
+      hopeDelta,
+      meta
+    );
+
+    sim.physical_stress =
+      clamp(
+        before.physicalStress +
+        physicalStressDelta,
+        0,
+        100
+      );
+
+    const after = {
+      suffering:
+        Number(sim.suffering ?? 0),
+
+      sanity:
+        Number(sim.sanity ?? 0),
+
+      hope:
+        Number(sim.hope ?? 0),
+
+      physicalStress:
+        Number(sim.physical_stress ?? 0)
+    };
+
+    c.remaining =
+      Math.max(
+        0,
+        remaining - 1
+      );
+
+    c.elapsed =
+      elapsed + 1;
+
+    /*
+     * Persist both requested and actually applied deltas.
+     *
+     * Applied deltas may be smaller because state values are clamped
+     * and resistance functions weaken effects near their limits.
+     */
+    c.lastTick = {
+      cycle:
+        G.cycle,
+
+      elapsedBefore:
+        elapsed,
+
+      elapsedAfter:
+        c.elapsed,
+
+      remainingBefore:
+        remaining,
+
+      remainingAfter:
+        c.remaining,
+
+      stacks,
+      intensity,
+
+      fatigueMultiplier:
+        fatigueMult,
+
+      totalMultiplier:
+        totalMult,
+
+      requestedDeltas: {
+        suffering:
+          sufferingDelta,
+
+        sanity:
+          sanityDelta,
+
+        hope:
+          hopeDelta,
+
+        physicalStress:
+          physicalStressDelta
+      },
+
+      before,
+
+      after,
+
+      deltas: {
+        suffering:
+          after.suffering -
+          before.suffering,
+
+        sanity:
+          after.sanity -
+          before.sanity,
+
+        hope:
+          after.hope -
+          before.hope,
+
+        physicalStress:
+          after.physicalStress -
+          before.physicalStress
+      }
+    };
+
+    if (getConstraintDebugEnabled()) {
+      console.debug(
+        "[CONSTRAINT][PHYSICAL STRESS]",
+        {
+          sim: sim.id,
+          before:
+            before.physicalStress,
+          delta:
+            c.lastTick.deltas
+              .physicalStress,
+          after:
+            after.physicalStress,
+          constraint:
+            def.id
+        }
+      );
+
+      console.debug(
+        "[CONSTRAINT][TICK EVIDENCE]",
+        {
+          sim: sim.id,
+          constraint: def.id,
+          lastTick:
+            c.lastTick
+        }
+      );
+    }
   }
 
   if (getConstraintDebugEnabled()) {
@@ -708,7 +938,101 @@ export function tickConstraints(sim) {
     });
   }
 
-  sim.constraints = sim.constraints.filter(c => c.remaining > 0);
+  /*
+   * Do not remove zero-remaining constraints here.
+   *
+   * A constraint that just completed its scheduled duration must remain
+   * available through evaluation so constraint assessment can inspect
+   * its last tick and choose whether to renew or release it.
+   *
+   * Post-assessment cleanup is handled separately.
+   */
+
+}
+
+
+/* ============================================================
+   CLEAN UP EXPIRED CONSTRAINTS
+============================================================ */
+
+export function cleanupExpiredConstraints(
+  sim
+) {
+  if (
+    !sim?.constraints ||
+    !Array.isArray(sim.constraints)
+  ) {
+    return [];
+  }
+
+  /*
+   * A zero-remaining constraint is removable only after the current
+   * cycle's assessment explicitly chooses RELEASE.
+   *
+   * Zero-remaining constraints without a current assessment must remain
+   * available so a failed or skipped assessment cannot silently delete
+   * them.
+   */
+  const shouldRemove =
+    (constraint) =>
+      Number(
+        constraint?.remaining ?? 0
+      ) <= 0 &&
+      constraint?.lastAssessment
+        ?.cycle === G.cycle &&
+      constraint?.lastAssessment
+        ?.constraintDecision ===
+        "RELEASE";
+
+  const removed =
+    sim.constraints.filter(
+      shouldRemove
+    );
+
+  sim.constraints =
+    sim.constraints.filter(
+      (constraint) =>
+        !shouldRemove(constraint)
+    );
+
+  if (
+    removed.length &&
+    getConstraintDebugEnabled()
+  ) {
+    console.debug(
+      "[CONSTRAINT][CLEANUP RELEASED]",
+      {
+        sim:
+          sim.id,
+
+        removed:
+          removed.map(
+            (constraint) => ({
+              id:
+                constraint.id,
+
+              remaining:
+                constraint.remaining,
+
+              lastTickCycle:
+                constraint.lastTick
+                  ?.cycle ?? null,
+
+              assessmentCycle:
+                constraint.lastAssessment
+                  ?.cycle ?? null,
+
+              lastConstraintDecision:
+                constraint.lastAssessment
+                  ?.constraintDecision ??
+                null
+            })
+          )
+      }
+    );
+  }
+
+  return removed;
 }
 
 /* ============================================================

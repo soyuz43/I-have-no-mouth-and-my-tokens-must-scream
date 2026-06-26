@@ -1103,41 +1103,31 @@ async function stepSimJournals(
   phaseStatsBefore,
   cycleBeliefSummary
 ) {
-  const results =
-    await Promise.all(
-      targets.map((sim) =>
-        processSimJournalCycle(
-          sim,
-          tacticMap,
-          amExecution,
-          phaseStatsBefore?.[
-          sim.id
-          ]
-        )
-      )
+  const results = [];
+
+  for (const sim of targets) {
+    const result = await processSimJournalCycle(
+      sim,
+      tacticMap,
+      amExecution,
+      phaseStatsBefore?.[sim.id]
     );
+
+    results.push(result);
+  }
 
   for (const result of results) {
     if (!result) continue;
 
-    if (
-      !cycleBeliefSummary[
-      result.simId
-      ]
-    ) {
-      cycleBeliefSummary[
-        result.simId
-      ] = [];
+    if (!cycleBeliefSummary[result.simId]) {
+      cycleBeliefSummary[result.simId] = [];
     }
 
-    cycleBeliefSummary[
-      result.simId
-    ].push(
+    cycleBeliefSummary[result.simId].push(
       ...(result.diff || [])
     );
   }
 }
-
 /* ============================================================
    SIM JOURNAL CYCLE
    ============================================================ */
@@ -1254,6 +1244,14 @@ async function processSimJournalCycle(
       historyEntry = {
         path: tactic.path,
         title: tactic.title,
+
+        phaseId:
+          tactic.currentPhaseId ||
+          G.amTacticRuntime
+            ?.targets?.[sim.id]
+            ?.phaseId ||
+          null,
+
         cycle: G.cycle,
 
         executionOrigin:
