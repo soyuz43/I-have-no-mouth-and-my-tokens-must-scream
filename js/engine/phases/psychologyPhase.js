@@ -1254,6 +1254,14 @@ async function processSimJournalCycle(
       historyEntry = {
         path: tactic.path,
         title: tactic.title,
+
+        phaseId:
+          tactic.currentPhaseId ||
+          G.amTacticRuntime
+            ?.targets?.[sim.id]
+            ?.phaseId ||
+          null,
+
         cycle: G.cycle,
 
         executionOrigin:

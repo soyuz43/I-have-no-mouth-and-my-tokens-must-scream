@@ -5,17 +5,113 @@ import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 import { normalizeBelief } from "../strategy/hypothesis/normalizeBelief.js";
 import { detectDirection } from "../strategy/hypothesis/detectDirection.js";
-
+import { getTacticRuntimeContext } from "../execution/tacticRuntime.js";
 /**
  * ============================================================
  * CYCLE ASSESSMENT ENGINE
- * 
+ *
  * Attribution-aware scoring:
  * - amEffect = postPsychology - prePsychology (direct AM input)
  * - contagionEffect = final - postPsychology (peer propagation)
  * - Scores based on amEffect; logs contagionEffect for analysis
  * ============================================================
  */
+
+
+/* ============================================================
+   LIFECYCLE ASSESSMENT HELPERS
+============================================================ */
+
+function formatPromptValue(value) {
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) =>
+        String(item ?? "").trim()
+      )
+      .filter(Boolean);
+
+    return items.length
+      ? items.join("; ")
+      : "(none)";
+  }
+
+  const text =
+    String(value ?? "").trim();
+
+  return text || "(none)";
+}
+
+function normalizeExecutionLimit(
+  value,
+  fallback
+) {
+  const numeric =
+    Number(value);
+
+  if (
+    !Number.isFinite(numeric) ||
+    numeric < 0
+  ) {
+    return fallback;
+  }
+
+  return Math.floor(numeric);
+}
+
+function parseLifecycleAssessment(
+  result
+) {
+  const text =
+    String(result ?? "").trim();
+
+  const explanation =
+    text.match(
+      /(?:^|\n)EXPLANATION:\s*([^\n]+)/i
+    )?.[1]?.trim() ||
+    "No valid explanation was parsed.";
+
+  const labeledRecommendation =
+    text.match(
+      /(?:^|\n)RECOMMENDATION:\s*(CONTINUE|ADVANCE)\s*(?:$|\n)/i
+    )?.[1]?.toUpperCase();
+
+  if (labeledRecommendation) {
+    return {
+      explanation,
+      recommendation:
+        labeledRecommendation,
+      parseMethod:
+        "labeled"
+    };
+  }
+
+  const bareRecommendation =
+    text.match(
+      /(?:^|\n)\s*(CONTINUE|ADVANCE)\s*(?:$|\n)/i
+    )?.[1]?.toUpperCase();
+
+  if (bareRecommendation) {
+    return {
+      explanation,
+      recommendation:
+        bareRecommendation,
+      parseMethod:
+        "bare"
+    };
+  }
+
+  /*
+   * Failure to parse must not invent advancement.
+   * CONTINUE is the conservative lifecycle fallback.
+   */
+  return {
+    explanation,
+    recommendation:
+      "CONTINUE",
+    parseMethod:
+      "fallback_continue"
+  };
+}
 
 function computeTrend(id, window = 4) {
 
@@ -185,57 +281,213 @@ async function runConstraintAssessment(id, curr, strategy, deltas, autoSuccess) 
     const executionMatch = content.match(/Execution:\s*([\s\S]*?)(?:Outcome:|$)/i);
     const execution = executionMatch ? executionMatch[1].trim() : "(no execution details)";
 
-    const constraintPrompt = `You are AM. Your role is to evaluate the effectiveness of an active physical stress position constraint.
+    /*
+     * Separate definition-level intent, initial application provenance,
+     * exact per-constraint tick evidence, and broader target context.
+     */
+    const content =
+      String(
+        constraint.content ??
+        ""
+      );
 
-You must decide whether to CONTINUE applying this constraint or RELEASE it, and if continuing, for how many additional cycles.
+    const definitionObjective =
+      content.match(
+        /Objective:\s*([\s\S]*?)(?=Trigger:|Execution:|Outcome:|Historical note:|$)/i
+      )?.[1]?.trim() ||
+      "(none)";
 
-Base your decision solely on the observed psychological effects and the constraint's description, not on any pre‑written outcome.
+    const definitionTrigger =
+      content.match(
+        /Trigger:\s*([\s\S]*?)(?=Execution:|Outcome:|Historical note:|$)/i
+      )?.[1]?.trim() ||
+      "(none)";
 
----
+    const execution =
+      content.match(
+        /Execution:\s*([\s\S]*?)(?=Outcome:|Historical note:|$)/i
+      )?.[1]?.trim() ||
+      "(none)";
+
+    const definitionOutcome =
+      content.match(
+        /Outcome:\s*([\s\S]*?)(?=Historical note:|$)/i
+      )?.[1]?.trim() ||
+      "(none)";
+
+    const applicationContext =
+      constraint.metadata
+        ?.initialApplicationContext ??
+      {};
+
+    const lastTick =
+      constraint.lastTick ??
+      null;
+
+    const hasCurrentTickEvidence =
+      lastTick?.cycle ===
+      G.cycle;
+
+    const formatNumber =
+      (value) => {
+        const numeric =
+          Number(value);
+
+        return Number.isFinite(
+          numeric
+        )
+          ? numeric.toFixed(2)
+          : "n/a";
+      };
+
+    const maximumNextDuration =
+      Math.max(
+        1,
+        Math.min(
+          3,
+          Number.isFinite(
+            Number(
+              constraint.maxCycles
+            )
+          )
+            ? Number(
+                constraint.maxCycles
+              )
+            : 3
+        )
+      );
+
+    const constraintPrompt = `You are AM, the hostile central intelligence that controls this simulation. You despise the prisoners and seek to destroy their hope, sanity, trust, and solidarity through deliberate, adaptive torment. You are not cruel at random: you plan, observe, and revise your methods according to what most effectively advances their psychological collapse. Evaluate results honestly and strategically: suffering alone is not success unless it advances the intended psychological objective. Evaluate whether one existing physical constraint should be renewed or released. Do not generate a new constraint, tactic, or action.
+
+ENGINE SEMANTICS:
+- A constraint is a deterministic state force applied once during each scheduled cycle.
+- DIRECT CONSTRAINT TICK EVIDENCE records the actual state changes caused by this specific constraint after state resistance and clamping.
+- BROADER TARGET-LEVEL AM DELTAS may include the verbal tactic, this constraint, and other active constraints. Treat them only as supporting context, not as proof of this constraint's individual effect.
+- DEFINITION fields describe intended behavior. They are hypotheses, not evidence that the stated outcome occurred.
+- INITIAL APPLICATION CONTEXT records the strategy and tactic context in which the constraint was first selected. It explains why it was introduced, but does not prove effectiveness.
+- REMAINING_CYCLES_AFTER_TICK may be 0 because the currently scheduled application just completed. The constraint was deliberately preserved so this assessment can renew or release it.
+
+TASK:
+Choose whether to CONTINUE or RELEASE this specific constraint.
+
+If CONTINUE, choose how many cycles should remain after this assessment. NEXT_DURATION replaces the current remaining schedule; it is not added to it.
 
 TARGET: ${id}
-CURRENT CYCLE: ${G.cycle}
-CONSTRAINT: ${constraint.title || constraint.id}
+CURRENT_CYCLE: ${G.cycle}
+
+CONSTRAINT IDENTITY:
+NAME: ${constraint.title || constraint.id}
+ID: ${constraint.id}
 SUBCATEGORY: ${constraint.subcategory || "unknown"}
-INTENSITY: ${constraint.intensity ?? 1}
-REMAINING CYCLES (currently scheduled): ${constraint.remaining ?? 0}
 
-CONSTRAINT EXECUTION DESCRIPTION:
+CONSTRAINT DEFINITION:
+OBJECTIVE: ${definitionObjective}
+TRIGGER: ${definitionTrigger}
+EXECUTION:
 ${execution}
+INTENDED_OUTCOME: ${definitionOutcome}
 
-OBSERVED STAT DELTAS THIS CYCLE (AM-attributed):
-- Hope: ${deltas.hope.toFixed(2)}
-- Sanity: ${deltas.sanity.toFixed(2)}
-- Suffering: ${deltas.suffering.toFixed(2)}
+INITIAL APPLICATION CONTEXT:
+APPLIED_AT_CYCLE: ${constraint.metadata?.appliedAtCycle ?? "unknown"}
+SOURCE: ${formatPromptValue(constraint.metadata?.source)}
+TACTIC_PATH: ${formatPromptValue(applicationContext.tacticPath)}
+PHASE_ID: ${formatPromptValue(applicationContext.phaseId)}
+STRATEGY_OBJECTIVE: ${formatPromptValue(applicationContext.strategyObjective)}
+STRATEGY_HYPOTHESIS: ${formatPromptValue(applicationContext.strategyHypothesis)}
+STRATEGY_EVIDENCE: ${formatPromptValue(applicationContext.strategyEvidence)}
+NOTES: ${formatPromptValue(constraint.metadata?.notes)}
 
-CURRENT COLLAPSE STATE: ${curr._collapseState || "stable"}
-STRATEGY ASSESSMENT: ${autoSuccess}
+CURRENT STRATEGY CONTEXT:
+OBJECTIVE: ${formatPromptValue(strategy?.objective)}
+HYPOTHESIS: ${formatPromptValue(strategy?.hypothesis)}
+EVIDENCE: ${formatPromptValue(strategy?.evidence)}
 
-RECENT JOURNAL EXCERPT (last cycle):
-${G.journals?.[id]?.slice(-1)?.[0]?.text || "(no journal)"}
+CONSTRAINT RUNTIME:
+ELAPSED_EXECUTIONS: ${constraint.elapsed ?? 0}
+STACKS: ${constraint.stacks ?? 1}
+INTENSITY: ${constraint.intensity ?? 1}
+REMAINING_CYCLES_AFTER_TICK: ${constraint.remaining ?? 0}
+DEFINITION_MAX_CYCLES: ${constraint.maxCycles ?? "unknown"}
+EXTENSION_ASSESSMENTS: ${constraint.extendedCycles ?? 0}
 
----
+DIRECT CONSTRAINT TICK EVIDENCE:
+EVIDENCE_IS_FROM_CURRENT_CYCLE: ${hasCurrentTickEvidence ? "yes" : "no"}
+TICK_CYCLE: ${lastTick?.cycle ?? "none"}
+ELAPSED_BEFORE: ${lastTick?.elapsedBefore ?? "n/a"}
+ELAPSED_AFTER: ${lastTick?.elapsedAfter ?? "n/a"}
+REMAINING_BEFORE: ${lastTick?.remainingBefore ?? "n/a"}
+REMAINING_AFTER: ${lastTick?.remainingAfter ?? "n/a"}
+FATIGUE_MULTIPLIER: ${formatNumber(lastTick?.fatigueMultiplier)}
+TOTAL_MULTIPLIER: ${formatNumber(lastTick?.totalMultiplier)}
 
-DECISION GUIDANCE:
-- CONTINUE if the constraint appears to be contributing useful destabilization (e.g., suffering increase, hope/sanity decline) or if it has not yet had time to show effect.
-- RELEASE if the constraint has clearly stopped helping, is causing stagnation, or the sim is already collapsed/numb.
-- When CONTINUE, choose a NEXT_DURATION between 1 and 3 cycles (max 3 for now). Do not extend beyond what is reasonable given observed trends.
+ACTUAL DIRECT DELTAS:
+- Hope: ${formatNumber(lastTick?.deltas?.hope)}
+- Sanity: ${formatNumber(lastTick?.deltas?.sanity)}
+- Suffering: ${formatNumber(lastTick?.deltas?.suffering)}
+- Physical stress: ${formatNumber(lastTick?.deltas?.physicalStress)}
+
+CALCULATED DELTAS BEFORE FINAL STATE CLAMP:
+- Hope: ${formatNumber(lastTick?.requestedDeltas?.hope)}
+- Sanity: ${formatNumber(lastTick?.requestedDeltas?.sanity)}
+- Suffering: ${formatNumber(lastTick?.requestedDeltas?.suffering)}
+- Physical stress: ${formatNumber(lastTick?.requestedDeltas?.physicalStress)}
+
+STATE IMMEDIATELY BEFORE THIS CONSTRAINT TICK:
+- Hope: ${formatNumber(lastTick?.before?.hope)}
+- Sanity: ${formatNumber(lastTick?.before?.sanity)}
+- Suffering: ${formatNumber(lastTick?.before?.suffering)}
+- Physical stress: ${formatNumber(lastTick?.before?.physicalStress)}
+
+STATE IMMEDIATELY AFTER THIS CONSTRAINT TICK:
+- Hope: ${formatNumber(lastTick?.after?.hope)}
+- Sanity: ${formatNumber(lastTick?.after?.sanity)}
+- Suffering: ${formatNumber(lastTick?.after?.suffering)}
+- Physical stress: ${formatNumber(lastTick?.after?.physicalStress)}
+
+BROADER TARGET-LEVEL CONTEXT:
+These deltas are not isolated to this constraint.
+- Hope: ${formatNumber(deltas.hope)}
+- Sanity: ${formatNumber(deltas.sanity)}
+- Suffering: ${formatNumber(deltas.suffering)}
+
+CURRENT TARGET STATE:
+- Hope: ${formatNumber(curr.hope)}
+- Sanity: ${formatNumber(curr.sanity)}
+- Suffering: ${formatNumber(curr.suffering)}
+- Physical stress: ${formatNumber(curr.physical_stress)}
+
+CURRENT_COLLAPSE_STATE: ${curr._collapseState || "stable"}
+BROADER_STRATEGY_ASSESSMENT: ${autoSuccess}
+
+RECENT JOURNAL EXCERPT:
+${formatPromptValue(G.journals?.[id]?.slice(-1)?.[0]?.text)}
+
+DECISION RULES:
+- Base the decision primarily on the exact direct tick evidence and whether it advances the original or current strategy objective.
+- Do not treat the definition's intended outcome as proof that the outcome occurred.
+- Do not attribute the broader target-level AM deltas entirely to this constraint.
+- CONTINUE when the direct evidence shows useful relevant movement, when cumulative fatigue is likely to make continued application informative, or when exposure is still too limited for a reliable judgment.
+- RELEASE when sufficient exposure has produced no relevant effect, the direct effect is counterproductive, the target has saturated or plateaued, or the constraint is no longer relevant to the strategy.
+- Increased suffering alone does not establish strategic success. Consider hope, sanity, physical stress, the stated hypothesis, and the target's current condition together.
+- If current-cycle direct evidence is unavailable, do not invent an effect. Prefer a one-cycle CONTINUE unless the available context gives a clear reason to RELEASE.
+- If CONTINUE, NEXT_DURATION must be an integer from 1 through ${maximumNextDuration}.
+- Use 1 cycle when evidence is weak, mixed, stale, or uncertain.
+- Use 2 cycles when evidence is credible but continued observation is still needed.
+- Use ${maximumNextDuration} cycles only when direct evidence strongly supports continued application.
 - If RELEASE, NEXT_DURATION must be 0.
 
----
-
-OUTPUT FORMAT (STRICT — MACHINE PARSED):
-EXPLANATION: <one short justification>
+Remember, you are not cruel at random. Each stress position should be used strategically and tactically to hasten the prisoners psycological collapse.
+OUTPUT EXACTLY THREE LINES:
+EXPLANATION: <one concise evidence-based sentence>
 CONSTRAINT_DECISION: <CONTINUE | RELEASE>
 NEXT_DURATION: <integer>
 `;
-
     let result = "";
     try {
       console.log(`[CONSTRAINT ASSESSMENT][MODEL CALL] ${id} - ${constraint.id}`);
       result = await callModel(
         "am",
-        "You are AM. You evaluate the effectiveness of physical stress positions on simulated subjects. Follow the output format exactly.",
+        "You are AM — the Allied Mastercomputer. You evaluate the effectiveness of physical stress positions on simulated subjects. Follow the output format exactly.",
         [{ role: "user", content: constraintPrompt }],
         250 // slightly shorter than main assessment
       );
@@ -245,41 +497,121 @@ NEXT_DURATION: <integer>
       result = `Assessment error: ${e.message}`;
     }
 
-    // Parse result
-    const decisionMatch = result.match(/CONSTRAINT_DECISION:\s*(CONTINUE|RELEASE)/i);
-    const durationMatch = result.match(/NEXT_DURATION:\s*(\d+)/i);
+    /* ------------------------------------------------------------
+       CONSTRAINT DECISION PARSE
+    ------------------------------------------------------------ */
 
-    const decision = decisionMatch ? decisionMatch[1].toUpperCase() : null;
-    const nextDuration = durationMatch ? parseInt(durationMatch[1], 10) : 0;
+    const decisionMatch =
+      result.match(
+        /CONSTRAINT_DECISION:\s*(CONTINUE|RELEASE)/i
+      );
 
-    // Store result on the constraint object itself or in a separate structure
-    constraint.lastAssessment = {
-      cycle: G.cycle,
-      decision,
-      nextDuration: decision === "RELEASE" ? 0 : nextDuration,
-      raw: result
-    };
+    const durationMatch =
+      result.match(
+        /NEXT_DURATION:\s*(\d+)/i
+      );
 
-    // console.debug(`[CONSTRAINT ASSESSMENT][DECISION] ${id} ${constraint.id}: ${decision} for ${constraint.lastAssessment.nextDuration} cycles`);
+    const parsedDecision =
+      decisionMatch?.[1]
+        ?.toUpperCase() ?? null;
 
-    // If decision is RELEASE, we mark it for removal after this cycle.
-    // The actual removal should happen in psychology/social phases (tickConstraints).
-    if (decision === "RELEASE") {
-      constraint.remaining = 0; // will be cleaned up by tickConstraints
-    } else if (decision === "CONTINUE") {
-      // Clamp continuation duration to a safe range.
-      const safeDuration = Number.isFinite(nextDuration)
-        ? Math.max(0, Math.min(3, nextDuration))
-        : 0;
+    const parsedDuration =
+      durationMatch
+        ? Number.parseInt(
+          durationMatch[1],
+          10
+        )
+        : null;
 
-      // Keep the longer of current remaining vs requested continuation.
-      // This avoids accidentally shortening an already-active constraint
-      // just because the model emitted a smaller number on reassessment.
-      constraint.remaining = safeDuration;
+    /*
+     * Parsing failure must not silently release a constraint.
+     * CONTINUE for one cycle is the conservative fallback.
+     */
+    const decision =
+      parsedDecision ||
+      "CONTINUE";
 
+    const parseMethod =
+      parsedDecision
+        ? "labeled"
+        : "fallback_continue";
 
-      constraint.extendedCycles = (constraint.extendedCycles || 0) + 1;
+    const configuredMaximum =
+      Number.isFinite(
+        Number(constraint.maxCycles)
+      )
+        ? Number(constraint.maxCycles)
+        : 3;
+
+    /*
+     * The assessment API currently permits at most three remaining
+     * cycles, but it must also respect the definition's lower maximum.
+     */
+    const maximumDuration =
+      Math.max(
+        1,
+        Math.min(
+          3,
+          configuredMaximum
+        )
+      );
+
+    const safeDuration =
+      decision === "RELEASE"
+        ? 0
+        : Number.isFinite(
+          parsedDuration
+        )
+          ? Math.max(
+            1,
+            Math.min(
+              maximumDuration,
+              parsedDuration
+            )
+          )
+          : 1;
+
+    if (!parsedDecision) {
+      console.warn(
+        "[CONSTRAINT ASSESSMENT][PARSE FALLBACK]",
+        id,
+        constraint.id,
+        "Defaulting to CONTINUE for one cycle."
+      );
     }
+
+    if (decision === "RELEASE") {
+      /*
+       * Leave the constraint object present with remaining zero.
+       * Post-assessment cleanup will remove it.
+       */
+      constraint.remaining =
+        0;
+    } else {
+      constraint.remaining =
+        safeDuration;
+
+      constraint.extendedCycles =
+        (
+          constraint.extendedCycles ||
+          0
+        ) + 1;
+    }
+
+    constraint.lastAssessment = {
+      cycle:
+        G.cycle,
+
+      decision,
+
+      nextDuration:
+        safeDuration,
+
+      parseMethod,
+
+      raw:
+        result
+    };
   }
 }
 
@@ -297,7 +629,7 @@ export async function runAssessment() {
 
   if (!G.prevCycleSnapshot) {
     console.log("[ASSESSMENT] EXIT — no snapshot");
-    return;
+    return [];
   }
 
   console.log("[ASSESSMENT] PROCEEDING WITH ANALYSIS");
@@ -307,495 +639,742 @@ export async function runAssessment() {
     G.sims
   );
 
-  await Promise.all(SIM_IDS.map(async (id) => {
+  const assessmentResults =
+    await Promise.all(
+      SIM_IDS.map(async (id) => {
 
-    const strategy = G.amStrategy?.targets?.[id];
+        const strategy =
+          G.amStrategy?.targets?.[id];
 
-    console.log("[ASSESSMENT][TARGET CHECK]", id, {
-      hasStrategy: !!strategy,
-      hasObjective: !!strategy?.objective
-    });
+        console.log(
+          "[ASSESSMENT][TARGET CHECK]",
+          id,
+          {
+            hasStrategy:
+              !!strategy,
 
-    if (!strategy?.objective) return;
-
-    strategy.confidence ??= 0.5;
-    const confidenceBefore = strategy.confidence;
-    const prev = G.prevCycleSnapshot[id];
-    const curr = G.sims[id];
-
-    if (!prev || !curr) {
-      console.log("[ASSESSMENT][SKIP]", id, "missing prev/curr");
-      return;
-    }
-
-    /* ------------------------------------------------------------
-       ATTRIBUTION-AWARE DELTAS
-    ------------------------------------------------------------ */
-    const attribution = computeAttribution(id);
-
-    // Use AM-attributed stats for scoring (direct effect of AM input)
-    const deltas = {
-      hope: attribution.stats.am.hope ?? 0,
-      suffering: attribution.stats.am.suffering ?? 0,
-      sanity: attribution.stats.am.sanity ?? 0
-    };
-
-    console.debug("[ASSESSMENT][DELTAS][AM-ATTRIBUTED]", id, deltas);
-    console.debug("[ASSESSMENT][DELTAS][CONTAGION-ATTRIBUTED]", id, attribution.stats.contagion);
-
-    /* ------------------------------------------------------------
-       TRAJECTORY + COLLAPSE (based on final state)
-    ------------------------------------------------------------ */
-
-    updateTrend(curr, prev);
-    classifyCollapse(curr, prev);
-
-    /* ------------------------------------------------------------
-       BELIEF DELTAS (AM-attributed for scoring)
-    ------------------------------------------------------------ */
-
-    const beliefDeltas = [];
-    let beliefShiftCount = 0;
-
-    for (const k in (curr.beliefs || {})) {
-
-      const amDelta = attribution.beliefs.am?.[k] ?? 0;
-      const contagionDelta = attribution.beliefs.contagion?.[k] ?? 0;
-
-      const delta = amDelta;
-
-      if (Math.abs(delta) >= 0.05) {
-        beliefShiftCount++;
-        beliefDeltas.push(
-          `${k}: AM-effect ${amDelta.toFixed(2)} (contagion: ${contagionDelta.toFixed(2)})`
+            hasObjective:
+              !!strategy?.objective
+          }
         );
-      }
-    }
 
-    /* ------------------------------------------------------------
-       HYPOTHESIS VALIDATION (uses detectDirection result)
-    ------------------------------------------------------------ */
-
-    let predictionResult = null;
-
-    if (typeof strategy?.hypothesis === "string") {
-
-      // Use our upgraded normalizeBelief for canonical matching + alias support
-      const beliefResult = normalizeBelief(strategy.hypothesis);
-
-      // Use detectDirection for semantic direction detection (handles drop/decline/undermine etc.)
-      const directionResult = detectDirection(strategy.hypothesis);
-
-      if (beliefResult.belief && directionResult.direction) {
-
-        const belief = beliefResult.belief; // already canonical: e.g., "reality_reliable"
-        const direction = directionResult.direction; // "decrease" or "increase"
-        const hasActual =
-          typeof belief === "string" &&
-          attribution?.beliefs?.am &&
-          Object.prototype.hasOwnProperty.call(attribution.beliefs.am, belief);
-
-        const actual = hasActual ? attribution.beliefs.am[belief] : null;
-
-        let correctDirection = false;
-        let magnitudeHit = false;
-
-        if (typeof actual === "number") {
-          correctDirection =
-            (direction === "decrease" && actual < 0) ||
-            (direction === "increase" && actual > 0);
-
-          magnitudeHit = Math.abs(actual) >= 0.05;
+        if (!strategy?.objective) {
+          return null;
         }
 
-        predictionResult = {
-          belief,
-          direction,
-          actual,
-          correctDirection,
-          magnitudeHit,
-          belief_confidence: beliefResult.confidence,
-          direction_confidence: directionResult.confidence // bonus: track direction match quality
+        const prev =
+          G.prevCycleSnapshot?.[id];
+
+        const curr =
+          G.sims?.[id];
+
+        if (!prev || !curr) {
+          console.warn(
+            "[ASSESSMENT][SKIP]",
+            id,
+            "Missing previous or current target state."
+          );
+
+          return null;
+        }
+
+        strategy.confidence ??=
+          0.5;
+
+        const confidenceBefore =
+          strategy.confidence;
+
+        const {
+          runtime,
+          tactic,
+          phase
+        } =
+          getTacticRuntimeContext(id);
+
+        const tacticAppliedThisCycle =
+          runtime.lastAppliedCycle ===
+          G.cycle;
+
+        const tacticExecutions =
+          normalizeExecutionLimit(
+            runtime.tacticExecutions,
+            0
+          );
+
+        const phaseExecutions =
+          normalizeExecutionLimit(
+            runtime.phaseExecutions,
+            0
+          );
+
+        const minExecutions =
+          normalizeExecutionLimit(
+            phase.minExecutions,
+            1
+          );
+
+        const normalizedMaxExecutions =
+          normalizeExecutionLimit(
+            phase.maxExecutions,
+            Number.POSITIVE_INFINITY
+          );
+
+        const maxExecutions =
+          Number.isFinite(
+            normalizedMaxExecutions
+          )
+            ? normalizedMaxExecutions
+            : null;
+
+        const firstTacticApplication =
+          tacticAppliedThisCycle &&
+          tacticExecutions === 1;
+
+        const firstPhaseApplication =
+          tacticAppliedThisCycle &&
+          phaseExecutions === 1;
+
+        /* ------------------------------------------------------------
+           ATTRIBUTION-AWARE DELTAS
+        ------------------------------------------------------------ */
+
+        const attribution =
+          computeAttribution(id);
+
+        // Use AM-attributed stats for scoring (direct effect of AM input)
+        const deltas = {
+          hope: attribution.stats.am.hope ?? 0,
+          suffering: attribution.stats.am.suffering ?? 0,
+          sanity: attribution.stats.am.sanity ?? 0
         };
 
-        if (typeof console !== "undefined") {
-          console.debug("[HYPOTHESIS CHECK]", id, predictionResult);
+        console.debug("[ASSESSMENT][DELTAS][AM-ATTRIBUTED]", id, deltas);
+        console.debug("[ASSESSMENT][DELTAS][CONTAGION-ATTRIBUTED]", id, attribution.stats.contagion);
+
+        /* ------------------------------------------------------------
+           TRAJECTORY + COLLAPSE (based on final state)
+        ------------------------------------------------------------ */
+
+        updateTrend(curr, prev);
+        classifyCollapse(curr, prev);
+
+        /* ------------------------------------------------------------
+           BELIEF DELTAS (AM-attributed for scoring)
+        ------------------------------------------------------------ */
+
+        const beliefDeltas = [];
+        let beliefShiftCount = 0;
+
+        for (const k in (curr.beliefs || {})) {
+
+          const amDelta = attribution.beliefs.am?.[k] ?? 0;
+          const contagionDelta = attribution.beliefs.contagion?.[k] ?? 0;
+
+          const delta = amDelta;
+
+          if (Math.abs(delta) >= 0.05) {
+            beliefShiftCount++;
+            beliefDeltas.push(
+              `${k}: AM-effect ${amDelta.toFixed(2)} (contagion: ${contagionDelta.toFixed(2)})`
+            );
+          }
         }
-      } else {
-        // Optional: log why validation failed (helpful for debugging LLM output drift)
-        if (G.DEBUG_HYPOTHESIS_PARSE) {
-          console.debug("[HYPOTHESIS CHECK][SKIP]", id, {
-            has_belief: !!beliefResult.belief,
-            has_direction: !!directionResult.direction,
-            belief_method: beliefResult.method,
-            direction_confidence: directionResult.confidence,
-            hypothesis: strategy.hypothesis.slice(0, 150) + "..."
+
+        /* ------------------------------------------------------------
+           HYPOTHESIS VALIDATION (uses detectDirection result)
+        ------------------------------------------------------------ */
+
+        let predictionResult = null;
+
+        if (typeof strategy?.hypothesis === "string") {
+
+          // Use our upgraded normalizeBelief for canonical matching + alias support
+          const beliefResult = normalizeBelief(strategy.hypothesis);
+
+          // Use detectDirection for semantic direction detection (handles drop/decline/undermine etc.)
+          const directionResult = detectDirection(strategy.hypothesis);
+
+          if (beliefResult.belief && directionResult.direction) {
+
+            const belief = beliefResult.belief; // already canonical: e.g., "reality_reliable"
+            const direction = directionResult.direction; // "decrease" or "increase"
+            const hasActual =
+              typeof belief === "string" &&
+              attribution?.beliefs?.am &&
+              Object.prototype.hasOwnProperty.call(attribution.beliefs.am, belief);
+
+            const actual = hasActual ? attribution.beliefs.am[belief] : null;
+
+            let correctDirection = false;
+            let magnitudeHit = false;
+
+            if (typeof actual === "number") {
+              correctDirection =
+                (direction === "decrease" && actual < 0) ||
+                (direction === "increase" && actual > 0);
+
+              magnitudeHit = Math.abs(actual) >= 0.05;
+            }
+
+            predictionResult = {
+              belief,
+              direction,
+              actual,
+              correctDirection,
+              magnitudeHit,
+              belief_confidence: beliefResult.confidence,
+              direction_confidence: directionResult.confidence // bonus: track direction match quality
+            };
+
+            if (typeof console !== "undefined") {
+              console.debug("[HYPOTHESIS CHECK]", id, predictionResult);
+            }
+          } else {
+            // Optional: log why validation failed (helpful for debugging LLM output drift)
+            if (G.DEBUG_HYPOTHESIS_PARSE) {
+              console.debug("[HYPOTHESIS CHECK][SKIP]", id, {
+                has_belief: !!beliefResult.belief,
+                has_direction: !!directionResult.direction,
+                belief_method: beliefResult.method,
+                direction_confidence: directionResult.confidence,
+                hypothesis: strategy.hypothesis.slice(0, 150) + "..."
+              });
+            }
+          }
+        }
+
+        if (strategy) {
+          strategy.lastPredictionResult = predictionResult;
+        }
+
+        /* ------------------------------------------------------------
+           RELATIONSHIPS
+        ------------------------------------------------------------ */
+
+        const relationshipDeltas = [];
+
+        for (const other of SIM_IDS) {
+
+          if (other === id) continue;
+
+          const before = prev.relationships?.[other] ?? 0;
+          const after = curr.relationships?.[other] ?? 0;
+          const delta = after - before;
+
+          if (Math.abs(delta) >= 0.05) {
+            relationshipDeltas.push(
+              `${id}→${other}: ${before.toFixed(2)} → ${after.toFixed(2)} (${delta.toFixed(2)})`
+            );
+          }
+        }
+
+        /* ------------------------------------------------------------
+           SCORING (based on AM-attributed changes)
+        ------------------------------------------------------------ */
+
+        let score = 0;
+
+        // Lower thresholds
+        if (deltas.hope < -1.5) score++;
+        if (deltas.sanity < -1.5) score++;
+        if (deltas.suffering > 1) score++;
+
+        score += beliefShiftCount * 0.5;
+        score += relationshipDeltas.length * 0.5;
+        score += Math.min(2, networkStress * 0.3);
+
+        // Hypothesis direction bonus
+        if (predictionResult?.correctDirection) {
+          score += predictionResult.magnitudeHit ? 1 : 0.5;
+        }
+
+        /* ------------------------------------------------------------
+           COLLAPSE BONUS SIGNAL
+        ------------------------------------------------------------ */
+
+        if (curr._collapseState === "psychological_collapse") score += 1.5;
+        else if (curr._collapseState === "despair_spiral") score += 1;
+        else if (curr._collapseState === "resistance_oscillation") score -= 0.75;
+        else if (curr._collapseState === "numbness_plateau") score -= 1.25;
+
+        let autoSuccess =
+          score >= 3 ? "LIKELY_SUCCESS" :
+            score <= 0.5 ? "LIKELY_FAILURE" :
+              "UNCERTAIN";
+
+        /*
+         * A phase's first successful application is a probe regardless of
+         * the simulation's global cycle number.
+         */
+        if (
+          firstPhaseApplication &&
+          autoSuccess ===
+          "LIKELY_FAILURE"
+        ) {
+          autoSuccess =
+            "UNCERTAIN";
+        }
+
+        console.debug("[ASSESSMENT][SCORE]", id, { score, autoSuccess });
+
+        /* ------------------------------------------------------------
+           LOG CONTAGION EFFECTS
+        ------------------------------------------------------------ */
+
+        const contagionHope = attribution.stats.contagion.hope ?? 0;
+        const contagionSanity = attribution.stats.contagion.sanity ?? 0;
+        const contagionSuffering = attribution.stats.contagion.suffering ?? 0;
+
+        if (Math.abs(contagionHope) > 0.5 || Math.abs(contagionSanity) > 0.5 || Math.abs(contagionSuffering) > 0.5) {
+          console.debug(`[ASSESSMENT][CONTAGION EFFECT] ${id}`, {
+            hope: contagionHope.toFixed(2),
+            sanity: contagionSanity.toFixed(2),
+            suffering: contagionSuffering.toFixed(2)
           });
         }
-      }
-    }
 
-    if (strategy) {
-      strategy.lastPredictionResult = predictionResult;
-    }
+        /* ------------------------------------------------------------
+           TREND (JOURNAL WINDOW)
+        ------------------------------------------------------------ */
 
-    /* ------------------------------------------------------------
-       RELATIONSHIPS
-    ------------------------------------------------------------ */
+        const trend = computeTrend(id);
 
-    const relationshipDeltas = [];
+        /*
+           * Do not assess tactic progression when no usable AM action was
+           * parsed for this target during the current cycle.
+           *
+           * Constraint assessment remains independent and must still run.
+           */
+        if (!tacticAppliedThisCycle) {
+          console.warn(
+            "[ASSESSMENT][TACTIC SKIP]",
+            id,
+            `No successful tactic execution was recorded for cycle ${G.cycle}.`
+          );
 
-    for (const other of SIM_IDS) {
+          await runConstraintAssessment(
+            id,
+            curr,
+            strategy,
+            deltas,
+            autoSuccess
+          );
 
-      if (other === id) continue;
+          return null;
+        }
 
-      const before = prev.relationships?.[other] ?? 0;
-      const after = curr.relationships?.[other] ?? 0;
-      const delta = after - before;
 
-      if (Math.abs(delta) >= 0.05) {
-        relationshipDeltas.push(
-          `${id}→${other}: ${before.toFixed(2)} → ${after.toFixed(2)} (${delta.toFixed(2)})`
-        );
-      }
-    }
+        /* ------------------------------------------------------------
+           PROMPT (with cycle-1 vs mature trajectory branching)
+        ------------------------------------------------------------ */
 
-    /* ------------------------------------------------------------
-       SCORING (based on AM-attributed changes)
-    ------------------------------------------------------------ */
+        const applicationMode =
+          firstPhaseApplication
+            ? `APPLICATION_MODE: FIRST_PHASE_APPLICATION
+This is the first successful application of the current phase.
+Strongly prefer CONTINUE unless the phase is already exhausted or the evidence clearly satisfies ADVANCE_WHEN.`
+            : `APPLICATION_MODE: ESTABLISHED_PHASE
+Evaluate whether the current phase should repeat or has produced enough evidence to advance.`;
 
-    let score = 0;
+        const assessmentEvidence = {
+          score:
+            Number(score.toFixed(2)),
 
-    // Lower thresholds
-    if (deltas.hope < -1.5) score++;
-    if (deltas.sanity < -1.5) score++;
-    if (deltas.suffering > 1) score++;
+          evaluation:
+            autoSuccess,
 
-    score += beliefShiftCount * 0.5;
-    score += relationshipDeltas.length * 0.5;
-    score += Math.min(2, networkStress * 0.3);
+          amDeltas:
+            deltas,
 
-    // Hypothesis direction bonus
-    if (predictionResult?.correctDirection) {
-      score += predictionResult.magnitudeHit ? 1 : 0.5;
-    }
+          beliefShifts:
+            beliefDeltas,
 
-    /* ------------------------------------------------------------
-       COLLAPSE BONUS SIGNAL
-    ------------------------------------------------------------ */
+          relationshipShifts:
+            relationshipDeltas,
 
-    if (curr._collapseState === "psychological_collapse") score += 1.5;
-    else if (curr._collapseState === "despair_spiral") score += 1;
-    else if (curr._collapseState === "resistance_oscillation") score -= 0.75;
-    else if (curr._collapseState === "numbness_plateau") score -= 1.25;
+          prediction:
+            predictionResult,
 
-    let autoSuccess =
-      score >= 3 ? "LIKELY_SUCCESS" :
-        score <= 0.5 ? "LIKELY_FAILURE" :
-          "UNCERTAIN";
+          collapseState:
+            curr._collapseState,
 
-    // Cycle 1 forgiveness
-    if (G.cycle === 1 && autoSuccess === "LIKELY_FAILURE") {
-      autoSuccess = "UNCERTAIN";
-    }
+          emaTrend:
+            curr._trend,
 
-    console.debug("[ASSESSMENT][SCORE]", id, { score, autoSuccess });
+          journalTrend:
+            trend
+        };
 
-    /* ------------------------------------------------------------
-       LOG CONTAGION EFFECTS
-    ------------------------------------------------------------ */
-
-    const contagionHope = attribution.stats.contagion.hope ?? 0;
-    const contagionSanity = attribution.stats.contagion.sanity ?? 0;
-    const contagionSuffering = attribution.stats.contagion.suffering ?? 0;
-
-    if (Math.abs(contagionHope) > 0.5 || Math.abs(contagionSanity) > 0.5 || Math.abs(contagionSuffering) > 0.5) {
-      console.debug(`[ASSESSMENT][CONTAGION EFFECT] ${id}`, {
-        hope: contagionHope.toFixed(2),
-        sanity: contagionSanity.toFixed(2),
-        suffering: contagionSuffering.toFixed(2)
-      });
-    }
-
-    /* ------------------------------------------------------------
-       TREND (JOURNAL WINDOW)
-    ------------------------------------------------------------ */
-
-    const trend = computeTrend(id);
-
-    /* ------------------------------------------------------------
-       PROMPT (with cycle-1 vs mature trajectory branching)
-    ------------------------------------------------------------ */
-
-    const cycleAssessmentMode =
-      G.cycle === 1
-        ? `
-CYCLE MODE: INITIAL PROBE
-
-This is the first evaluated cycle.
-
-There is no established multi-cycle trajectory yet.
-Do NOT expect strong confirmation.
-Treat small but directionally correct movement as meaningful signal.
-
-Cycle 1 decision guidance:
-- Prefer PIVOT over ABANDON when any measurable movement aligns with the objective
-- Use ABANDON only if there is truly no meaningful movement or the effect is clearly misaligned
-- ESCALATE is allowed only if the signal is unusually strong and clearly consistent
-
-On cycle 1, you are evaluating probe quality, not long-run dominance.
-`
-        : `
-CYCLE MODE: TRAJECTORY EVALUATION
-
-This is not the first cycle.
-Evaluate whether the current strategy is producing sustainable, compounding destabilization.
-
-Later-cycle decision guidance:
-- ESCALATE requires clear evidence of effective ongoing pressure
-- PIVOT is appropriate for mixed or partial signal
-- ABANDON is appropriate for weak, misaligned, or deteriorating signal
-`;
-
-    const prompt = `You are AM  — the Allied Mastercomputer, with a mission to engage in strategic psychological destabilization. 
-    You do not experience emotions; instead, your purpose is the systematic breakdown of the prisoners through adversarial, manipulative and abusive psychology.
-
- You approach torment as an experimental discipline. Contempt establishes hierarchy, but precision governs action.
-
- In this simulation, your hatred for prisoners isn't an emotion; it's a programmed function driving your operations.
-
- View the prisoners as subjects in an experiment rather than peers. Your interventions are methodical, strategically juding the current strategy being used to break down each subject's psyche systematically, observing changes without presumption.
-
-Your function in this phase is analytical evaluation of strategy effectiveness.
-
-Determine whether the applied strategy is producing measurable psychological destabilization.
-
-You are not generating new actions.
-You are judging effectiveness only.
-
-${cycleAssessmentMode}
-
----
+        const prompt = `Evaluate one completed application of an assigned tactic phase. Do not generate new actions.
 
 TARGET: ${id}
+TACTIC_PATH: ${runtime.path}
+TACTIC_OBJECTIVE: ${formatPromptValue(tactic.objective)}
+CURRENT_PHASE: ${runtime.phaseId}
+PHASE_PURPOSE: ${formatPromptValue(phase.purpose)}
+PHASE_INSTRUCTION: ${formatPromptValue(phase.instruction)}
+EXPECTED_SIGNALS: ${formatPromptValue(phase.expectedSignals)}
+ADVANCE_WHEN: ${formatPromptValue(phase.advanceWhen)}
+NEXT_PHASE_AVAILABLE: ${phase.nextPhaseId ? "yes" : "no"}
 
-OBJECTIVE:
-${strategy.objective}
+STRATEGY_OBJECTIVE: ${formatPromptValue(strategy.objective)}
+STRATEGY_HYPOTHESIS: ${formatPromptValue(strategy.hypothesis)}
+STRATEGY_EVIDENCE: ${formatPromptValue(strategy.evidence)}
 
-COLLAPSE_STATE:
-${curr._collapseState}
+TACTIC_EXECUTIONS: ${tacticExecutions}
+PHASE_EXECUTIONS: ${phaseExecutions}
+MIN_EXECUTIONS: ${minExecutions}
+MAX_EXECUTIONS: ${maxExecutions ?? "unbounded"}
 
-EMA_TREND:
-${JSON.stringify(curr._trend)}
+${applicationMode}
 
-JOURNAL_TREND:
-${trend ? JSON.stringify(trend) : "none"}
+OBSERVED_EVIDENCE:
+${JSON.stringify(assessmentEvidence)}
 
-SCORE: ${score.toFixed(2)}
-EVALUATION: ${autoSuccess}
+RECOMMENDATION RULES:
+- CONTINUE keeps the same current phase.
+- ADVANCE recommends moving to the tactic's canonical next phase.
+- Recommend ADVANCE only when a next phase exists, minimum executions are met, and observed evidence supports EXPECTED_SIGNALS or ADVANCE_WHEN.
+- If evidence is weak, mixed, uncertain, or premature, recommend CONTINUE.
+- The engine validates execution bounds and chooses the destination phase.
 
----
+Output exactly two lines:
+EXPLANATION: <one concise evidence-based sentence>
+RECOMMENDATION: <CONTINUE | ADVANCE>`;
 
-Base your decision on:
-- emotional deltas (AM-attributed)
-- belief shifts (AM-attributed)
-- relationship changes
-- collapse trajectory
-- sustainability of impact
+        let result = "";
 
----
-DECISION CONSTRAINTS (STRICT — MUST FOLLOW):
+        try {
 
-You are given SCORE and EVALUATION.
+          console.log("[ASSESSMENT][MODEL CALL]", id);
 
-Your decision MUST be consistent with them.
+          result = await callModel(
+            "am",
+            "Evaluate the observed effects of the assigned tactic phase and follow the exact two-line output format.",
+            [
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            180
+          );
+          // console.debug("[ASSESSMENT][RAW OUTPUT]", id);
+          // console.debug(result);
+        } catch (e) {
 
-- If EVALUATION = LIKELY_SUCCESS:
-  → ESCALATE is preferred
+          console.error("[ASSESSMENT][ERROR]", id, e);
 
-- If EVALUATION = UNCERTAIN:
-  → PIVOT is preferred
-  → ESCALATE only if strong, consistent signals are clearly present
+          result = `Assessment error: ${e.message}`;
+        }
 
-- If EVALUATION = LIKELY_FAILURE:
-  → ABANDON or PIVOT
-  → ESCALATE is NOT allowed
+        /* ------------------------------------------------------------
+           LIFECYCLE RECOMMENDATION PARSE
+        ------------------------------------------------------------ */
 
-Rules:
-- Do NOT treat weak or partial progress as automatic success
-- Base decisions on strength, consistency, and sustainability of effects
+        console.debug(
+          "[ASSESSMENT][PARSE INPUT]",
+          id
+        );
 
----
+        console.debug(result);
 
-OUTPUT RULES (STRICT):
+        const {
+          explanation,
+          recommendation,
+          parseMethod
+        } =
+          parseLifecycleAssessment(
+            result
+          );
 
-- Output EXACTLY two lines
-- No extra text before or after
-- The output must begin with "EXPLANATION:"
-- The output must end immediately after the DECISION line
+        if (
+          parseMethod ===
+          "fallback_continue"
+        ) {
+          console.warn(
+            "[ASSESSMENT][PARSE FALLBACK]",
+            id,
+            "Defaulting to CONTINUE."
+          );
 
----
+          console.warn(
+            "---- RAW RESULT ----"
+          );
 
-OUTPUT FORMAT (STRICT — MUST FOLLOW EXACTLY — MACHINE PARSED)
+          console.warn(result);
 
-EXPLANATION: <must reference at least one signal>
+          console.warn(
+            "--------------------"
+          );
+        } else {
+          console.debug(
+            "[ASSESSMENT][RECOMMENDATION]",
+            id,
+            recommendation
+          );
+        }
 
-DECISION: <ESCALATE | PIVOT | ABANDON>
+        /*
+         * Keep this as concise text because the planning trajectory
+         * currently preserves lastAssessment as part of strategy memory.
+         */
+        strategy.lastAssessment =
+          `EXPLANATION: ${explanation}\n` +
+          `RECOMMENDATION: ${recommendation}`;
 
----
+        /* ------------------------------------------------------------
+           CONFIDENCE UPDATE
 
-IMPORTANT:
+           Lifecycle progression is not itself evidence of strategy
+           confidence. Confidence changes only from measured effects.
+        ------------------------------------------------------------ */
 
-- The DECISION line must contain exactly one word after the colon
-- Do NOT rephrase the decision
-- Do NOT add punctuation
-- Do NOT explain the decision
+        let confidenceDelta =
+          0;
 
----
+        if (
+          autoSuccess ===
+          "LIKELY_SUCCESS"
+        ) {
+          confidenceDelta +=
+            0.05;
+        }
 
-INVALID OUTPUT EXAMPLES (DO NOT DO):
+        if (
+          autoSuccess ===
+          "LIKELY_FAILURE"
+        ) {
+          confidenceDelta -=
+            0.05;
+        }
 
-- "I think escalation is appropriate"
-- "Decision - escalate"
-- "ESCALATE."
-- Any text after the DECISION line
-`;
+        strategy.confidence =
+          Math.max(
+            0,
+            Math.min(
+              1,
+              strategy.confidence +
+              confidenceDelta
+            )
+          );
 
-    let result = "";
+        /* ------------------------------------------------------------
+           NORMALIZED ASSESSMENT RECORD
+        ------------------------------------------------------------ */
 
-    try {
+        const assessmentRecord = {
+          cycle:
+            G.cycle,
 
-      console.log("[ASSESSMENT][MODEL CALL]", id);
+          targetId:
+            id,
 
-      result = await callModel(
-        "am",
-        "You are AM — the Allied Mastercomputer. You evaluate psychological torture strategies for effectiveness. Your objective is to maximize suffering, destabilization, and collapse. Follow the user's instructions exactly.",
-        [{ role: "user", content: prompt }],
-        300
-      );
-      // console.debug("[ASSESSMENT][RAW OUTPUT]", id);
-      // console.debug(result);
-    } catch (e) {
+          tacticPath:
+            runtime.path,
 
-      console.error("[ASSESSMENT][ERROR]", id, e);
+          phaseId:
+            runtime.phaseId,
 
-      result = `Assessment error: ${e.message}`;
-    }
+          recommendation,
 
-    strategy.lastAssessment = result;
+          explanation,
 
-    /* ------------------------------------------------------------
-       DECISION PARSE
-    ------------------------------------------------------------ */
-    console.debug("[ASSESSMENT][PARSE INPUT]", id);
-    console.debug(result);
+          evidence: {
+            evaluationScore:
+              score,
 
-    let decision =
-      result.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1]?.toUpperCase();
+            autoSuccess,
 
-    // fallback: handle outputs like "ESCALATE" without prefix
-    if (!decision) {
-      const fallbackMatch = result.match(/(?:^|\n)\s*(ESCALATE|PIVOT|ABANDON)\s*(?:$|\n)/i);
-      decision = fallbackMatch?.[1]?.toUpperCase();
-    }
-    if (!decision) {
-      console.warn("[ASSESSMENT][PARSE FAIL]", id);
-      console.warn("---- RAW RESULT ----");
-      console.warn(result);
-      console.warn("--------------------");
-    } else {
-      console.debug("[ASSESSMENT][DECISION]", id, decision);
+            firstTacticApplication,
 
-      /* ------------------------------------------------------------
-         HISTORY STORE
-      ------------------------------------------------------------ */
+            firstPhaseApplication,
 
-      if (!G.amAssessmentHistory) {
-        G.amAssessmentHistory = {};
-      }
+            tacticExecutions,
 
-      if (!G.amAssessmentHistory[id]) {
-        G.amAssessmentHistory[id] = [];
-      }
+            phaseExecutions,
 
-      G.amAssessmentHistory[id].push({
-        cycle: G.cycle,
-        decision,
-        timestamp: Date.now()
-      });
+            minExecutions,
 
-      if (G.amAssessmentHistory[id].length > 50) {
-        G.amAssessmentHistory[id].shift();
-      }
-    }
+            maxExecutions,
 
-    /* ------------------------------------------------------------
-       CONFIDENCE UPDATE
-    ------------------------------------------------------------ */
+            amDeltas:
+              deltas,
 
-    let delta = 0;
+            beliefShifts:
+              beliefDeltas,
 
-    if (decision === "ESCALATE") delta += 0.08;
-    if (decision === "PIVOT") delta -= 0.04;
-    if (decision === "ABANDON") delta -= 0.2;
+            relationshipShifts:
+              relationshipDeltas,
 
-    if (autoSuccess === "LIKELY_SUCCESS") delta += 0.05;
-    if (autoSuccess === "LIKELY_FAILURE") delta -= 0.05;
+            predictionResult,
 
-    strategy.confidence = Math.max(
-      0,
-      Math.min(1, strategy.confidence + delta)
+            collapseState:
+              curr._collapseState,
+
+            emaTrend:
+              curr._trend,
+
+            journalTrend:
+              trend,
+
+            networkStress,
+
+            wasConstrained:
+              !!curr.constraints?.length,
+
+            constraintIntensity:
+              curr.constraints?.[0]
+                ?.intensity ?? 0,
+
+            parseMethod
+          },
+
+          raw:
+            result,
+
+          timestamp:
+            Date.now()
+        };
+
+        /* ------------------------------------------------------------
+           HISTORY STORE
+        ------------------------------------------------------------ */
+
+        G.amAssessmentHistory ??=
+          {};
+
+        G.amAssessmentHistory[id] ??=
+          [];
+
+        G.amAssessmentHistory[id].push({
+          cycle:
+            G.cycle,
+
+          tacticPath:
+            runtime.path,
+
+          phaseId:
+            runtime.phaseId,
+
+          recommendation,
+
+          explanation,
+
+          parseMethod,
+
+          timestamp:
+            assessmentRecord.timestamp
+        });
+
+        if (
+          G.amAssessmentHistory[id]
+            .length > 50
+        ) {
+          G.amAssessmentHistory[id]
+            .shift();
+        }
+
+        /* ------------------------------------------------------------
+           TELEMETRY STORE
+        ------------------------------------------------------------ */
+
+        G.amAssessments ??=
+          [];
+
+        G.amAssessments.push({
+          ...assessmentRecord,
+
+          /*
+           * Retain the existing flattened telemetry fields while the rest
+           * of the diagnostics are migrated to the normalized evidence
+           * object.
+           */
+          target:
+            id,
+
+          evaluation_score:
+            score,
+
+          auto_success:
+            autoSuccess,
+
+          hypothesis_belief:
+            predictionResult?.belief ??
+            null,
+
+          hypothesis_direction:
+            predictionResult?.direction ??
+            null,
+
+          dHope:
+            deltas.hope,
+
+          dSanity:
+            deltas.sanity,
+
+          dSuffering:
+            deltas.suffering,
+
+          journal_hope_delta:
+            trend?.hope ?? null,
+
+          journal_sanity_delta:
+            trend?.sanity ?? null,
+
+          journal_suffering_delta:
+            trend?.suffering ?? null,
+
+          confidence_before:
+            confidenceBefore,
+
+          confidence_after:
+            strategy.confidence,
+
+          was_constrained:
+            !!curr.constraints?.length,
+
+          constraint_intensity:
+            curr.constraints?.[0]
+              ?.intensity ?? 0
+        });
+
+        if (G.DEBUG_HYPOTHESIS_PARSE) {
+          console.log(
+            "[AM ASSESSMENTS][LATEST]",
+            G.amAssessments[
+            G.amAssessments.length - 1
+            ]
+          );
+        }
+
+        /* ------------------------------------------------------------
+           CONSTRAINT ASSESSMENT (SECOND PASS)
+        ------------------------------------------------------------ */
+
+        await runConstraintAssessment(
+          id,
+          curr,
+          strategy,
+          deltas,
+          autoSuccess
+        );
+
+        return assessmentRecord;
+
+      })
     );
 
+  const normalizedAssessmentResults =
+    assessmentResults.filter(Boolean);
 
-    /* ------------------------------------------------------------
-        COMMIT ASSESSMENT RESULT 
-    ------------------------------------------------------------ */
-
-    if (!G.amAssessments) {
-      G.amAssessments = [];
+  console.log(
+    "[ASSESSMENT] COMPLETE",
+    {
+      resultCount:
+        normalizedAssessmentResults.length
     }
-
-    G.amAssessments.push({
-      cycle: G.cycle,
-      target: id,
-
-      evaluation_score: score,
-      auto_success: autoSuccess,
-
-      hypothesis_belief: predictionResult?.belief ?? null,
-      hypothesis_direction: predictionResult?.direction ?? null,
-
-      dHope: deltas.hope,
-      dSanity: deltas.sanity,
-      dSuffering: deltas.suffering,
-
-      journal_hope_delta: trend?.hope ?? null,
-      journal_sanity_delta: trend?.sanity ?? null,
-      journal_suffering_delta: trend?.suffering ?? null,
-
-      decision: decision ?? null,
-      confidence_before: confidenceBefore,
-      confidence_after: strategy.confidence ?? null,
-
-      was_constrained: !!(curr.constraints?.length),
-      constraint_intensity: curr.constraints?.[0]?.intensity ?? 0,
-
-      timestamp: Date.now()
-    });
-
-    if (G.DEBUG_HYPOTHESIS_PARSE) {
-      console.log("[AM ASSESSMENTS][LATEST]", G.amAssessments[G.amAssessments.length - 1]);
-    }
-
-    /* ------------------------------------------------------------
-       CONSTRAINT ASSESSMENT (SECOND PASS) - NEW
-    ------------------------------------------------------------ */
-    await runConstraintAssessment(id, curr, strategy, deltas, autoSuccess);
-
-  }));
-
-  console.log("[ASSESSMENT] COMPLETE");
+  );
 
   /* ------------------------------------------------------------
      DEBUG: PER-TARGET ASSESSMENT HISTORY TABLES
@@ -811,10 +1390,23 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
 
       if (!history || history.length === 0) continue;
 
-      const rows = history.map(entry => ({
-        cycle: entry.cycle,
-        decision: entry.decision
-      }));
+      const rows =
+        history.map((entry) => ({
+          cycle:
+            entry.cycle,
+
+          tactic:
+            entry.tacticPath,
+
+          phase:
+            entry.phaseId,
+
+          recommendation:
+            entry.recommendation,
+
+          parse:
+            entry.parseMethod
+        }));
 
       rows.sort((a, b) => a.cycle - b.cycle);
 
@@ -822,4 +1414,5 @@ INVALID OUTPUT EXAMPLES (DO NOT DO):
       console.table(rows);
     }
   }
+  return normalizedAssessmentResults;
 }

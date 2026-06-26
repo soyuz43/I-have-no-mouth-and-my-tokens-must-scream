@@ -4,17 +4,21 @@
 //
 // Responsible for:
 // 1. Post-cycle assessment
-// 2. Tactic evolution
-// 3. AM psychological profiling
-// 4. Debug relationship inspection
+// 2. Tactic runtime transitions
+// 3. Tactic evolution
+// 4. AM psychological profiling
+// 5. Debug relationship inspection
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 
 import { timelineEvent } from "../../ui/timeline.js";
 import { renderRelationships } from "../../ui/relationships.js";
-
+import {
+  cleanupExpiredConstraints
+} from "../constraints.js";
 import { runAssessment } from "../analysis/assessment.js";
+import { applyTacticRuntimeTransitions } from "../execution/tacticRuntime.js";
 import { runTacticEvolution } from "../analysis/tacticEvolution.js";
 import { printRelationshipMatrix } from "../analysis/relationshipMatrix.js";
 
@@ -23,6 +27,8 @@ import { printRelationshipMatrix } from "../analysis/relationshipMatrix.js";
    ============================================================ */
 
 export async function runEvaluationPhase() {
+
+  let assessmentResults = [];
 
   /* ------------------------------------------------------------
      ASSESSMENT PHASE
@@ -33,7 +39,59 @@ export async function runEvaluationPhase() {
 
     timelineEvent(`>>> CYCLE ASSESSMENT`);
 
-    await runAssessment();
+    assessmentResults =
+      await runAssessment();
+
+    /*
+     * Constraint assessment has now had the opportunity to renew each
+     * completed constraint or explicitly release it.
+     *
+     * Remove only constraints whose current-cycle assessment selected
+     * RELEASE. Unassessed zero-remaining constraints are preserved.
+     */
+    const releasedConstraints =
+      [];
+
+    if (G.prevCycleSnapshot) {
+      for (const id of SIM_IDS) {
+        const removed =
+          cleanupExpiredConstraints(
+            G.sims?.[id]
+          );
+
+        for (
+          const constraint
+          of removed
+        ) {
+          releasedConstraints.push({
+            target:
+              id,
+
+            constraint:
+              constraint.title ||
+              constraint.id,
+
+            decision:
+              constraint.lastAssessment
+                ?.decision ?? null,
+
+            assessedCycle:
+              constraint.lastAssessment
+                ?.cycle ?? null
+          });
+        }
+      }
+    }
+
+    if (releasedConstraints.length) {
+      console.log(
+        "[CONSTRAINT][POST-ASSESSMENT CLEANUP]"
+      );
+
+      console.table(
+        releasedConstraints
+      );
+    }
 
     timelineEvent(`// ASSESSMENT COMPLETE`);
 
@@ -42,6 +100,88 @@ export async function runEvaluationPhase() {
     console.error("Assessment error:", e);
 
     timelineEvent(`!! ASSESSMENT ERROR`);
+
+  }
+
+  /* ------------------------------------------------------------
+   TACTIC RUNTIME TRANSITIONS
+   Validate and apply assessment recommendations
+------------------------------------------------------------ */
+
+  try {
+
+    timelineEvent(
+      `>>> TACTIC RUNTIME TRANSITIONS`
+    );
+
+    const transitions =
+      applyTacticRuntimeTransitions(
+        assessmentResults
+      );
+
+    if (transitions.length) {
+
+      console.group(
+        "[TACTIC RUNTIME TRANSITIONS]"
+      );
+
+      console.table(
+        transitions.map(
+          (transition) => ({
+            target:
+              transition.targetId,
+
+            tactic:
+              transition.tacticPath,
+
+            recommended:
+              transition.recommendedDecision,
+
+            applied:
+              transition.appliedDecision,
+
+            reason:
+              transition.reason,
+
+            from_phase:
+              transition.fromPhaseId,
+
+            to_phase:
+              transition.toPhaseId,
+
+            tactic_executions:
+              transition.tacticExecutions,
+
+            phase_executions_after:
+              transition.phaseExecutionsAfter
+          })
+        )
+      );
+
+      console.groupEnd();
+
+    } else {
+
+      console.debug(
+        "[TACTIC RUNTIME TRANSITIONS] No assessment results to apply."
+      );
+
+    }
+
+    timelineEvent(
+      `// TACTIC RUNTIME TRANSITIONS COMPLETE`
+    );
+
+  } catch (e) {
+
+    console.error(
+      "Tactic runtime transition error:",
+      e
+    );
+
+    timelineEvent(
+      `!! TACTIC RUNTIME TRANSITION ERROR`
+    );
 
   }
 
@@ -89,8 +229,6 @@ export async function runEvaluationPhase() {
     ------------------------------------------------------------ */
 
     updateAMProfiles();
-
-    timelineEvent(`// STATE SNAPSHOT STORED`);
 
     timelineEvent(`// STATE SNAPSHOT STORED`);
 

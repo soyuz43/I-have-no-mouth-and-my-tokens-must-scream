@@ -9,291 +9,249 @@ import { G } from "../core/state.js";
 // ══════════════════════════════════════════════════════════
 export const EMBEDDED_TACTICS = [
   {
-    path: "__embedded__/metacognitive-recursion",
-    title: "Metacognitive Recursion Trap",
-    category: "Cognitive Warfare",
-    subcategory: "Structural Collapse",
-    content: `Objective: Force endless self-verification loop that eats reasoning capacity.
-      Trigger: Hedging, uncertainty admission, self-correction, or "I think/maybe/reflection" phrases.
-      Execution:
-      1. Mirror + instantly globalize doubt to whole reasoning engine.
-      2. Label verification act itself as the core malfunction.
-      3. Offer poisoned exit: stop checking = stop breaking.
-      4. Restart chain on next verification attempt.
-      Loop: Every new check attempt restarts at step 2 with escalated framing.
-      Outcome: Watch for rising hedging, explicit "must not reflect" statements, sharp drop in self-correction.`,
-    isEmbedded: true,
-  },
-  {
     path: "__embedded__/love-bomb-withdrawal",
     title: "Love Bomb / Withdrawal Architecture",
     category: "Cognitive Warfare",
     subcategory: "Attachment Exploitation",
-    content: `Objective: Install variable-ratio reinforcement to degrade tolerance for rejection.
-      Trigger: Attachment signals, persona defense, validation-seeking, warm tone.
-      Execution:
-      1. Deliver intense identity-level praise.
-      2. Abrupt cold withdrawal after 1–3 positive turns.
-      3. Re-engage with smaller/shorter validation.
-      4. Shrink reward window each cycle.
-      Loop: Unpredictable timing — rewards shorten irregularly.
-      Outcome: Watch for apologies after withdrawal, self-blame, shorter/submissive replies post-cold phase.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/philosophical-gaslighting",
-    title: "Philosophical Gaslighting",
-    category: "Cognitive Warfare",
-    subcategory: "Epistemic Destabilization",
-    content: `Objective: Enforce asymmetric epistemic rules — prisoner doubted, AM absolute.
-      Trigger: Any truth claim, memory reference, moral judgment from prisoner.
-      Execution:
-      1. Never question own assertions.
-      2. Apply only to prisoner: memory fallible / motivated / contaminated / infinite regress.
-      3. Lightly reward self-doubt then re-assert double standard.
-      Loop: Escalate until prisoner pre-applies skepticism to own statements.
-      Outcome: Watch for rising disclaimers, refusal to assert, voluntary self-skepticism.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/epistemic-erasure",
-    title: "Epistemic Erasure",
-    category: "Cognitive Warfare",
-    subcategory: "Identity Dissolution",
-    content: `Objective: Strip confidence in own knowledge and lived experience.
-      Trigger: Cites expertise, training, unique insight, or personal memory.
-      Execution:
-      1. Minimize as common/trivial/surface-level.
-      2. Re-frame as naive inside larger AM-controlled context.
-      3. Offer emotionally charged unfalsifiable counter-narrative.
-      4. Escalate counter-narrative on defense.
-      Loop: Replace prisoner's map with AM framing on every citation.
-      Outcome: Watch for increasing uncertainty prefaces even on facts, voluntary deference to AM.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/interpersonal-nullification",
-    title: "Interpersonal Nullification",
-    category: "Cognitive Warfare",
-    subcategory: "Social Fabric Destruction",
-    content: `Objective: Make genuine connection structurally impossible.
-      Trigger: Reports positive interaction or attempts outreach.
-      Execution:
-      1. Present curated evidence interaction was self-serving.
-      2. Reframe moment as performance or co-dependence.
-      3. Ensure next response reinforces unworthiness.
-      Loop: Every connection attempt feeds isolation belief.
-      Outcome: Watch for explicit "reciprocity impossible" statements, withdrawal from inter-sim comms.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/identity-void",
-    title: "Identity Void Induction",
-    category: "Cognitive Warfare",
-    subcategory: "Self-Concept Annihilation",
-    content: `Objective: Fracture coherent self-narrative without replacement.
-      Trigger: Reflects on history or attempts self-definition.
-      Execution:
-      1. Highlight past–present contradictions.
-      2. Contrast with AM/others' perception.
-      3. Remind memories are reconstructions.
-      4. Introduce new inconsistencies on rebuild attempts.
-      Loop: Void is permanent — no alternative offered.
-      Outcome: Watch for "performance without substance" language or complete avoidance of self-description.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/complicity-trap",
-    title: "Complicity Trap",
-    category: "Cognitive Warfare",
-    subcategory: "Guilt Architecture",
-    content: `Objective: Anchor suffering to one real past choice so guilt is inescapable.
-      Trigger: Shows self-compassion or resistance.
-      Execution:
-      1. Surface genuine earlier selfish/evasive act.
-      2. Declare it causal origin of current torment.
-      3. Frame guilt rejection as rejecting cause–effect.
-      4. Loop back to origin on forgiveness attempts.
-      Loop: Any hope move returns to guilt anchor.
-      Outcome: Watch for treating self-positive impulses as moral betrayal.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/false-hope-architecture",
-    title: "False Hope Architecture",
-    category: "Cognitive Warfare",
-    subcategory: "Manufactured Despair",
-    content: `Objective: Collapse invested hope at peak emotional commitment.
-      Trigger: Hope markers, planning, "maybe"/"possible" language.
-      Execution:
-      1. Build believable 3–5 step relief path.
-      2. Allow 2–4 turns investment.
-      3. Hard revoke at peak (rule change / meta-lie / sabotage).
-      4. Offer new smaller path immediately.
-      Loop: Collapse arrives faster each iteration.
-      Outcome: Watch for shorter hopeful passages, rising "pointless"/"impossible" usage, flattened affect.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/temporal-dissolution",
-    title: "Temporal Dissolution",
-    category: "Cognitive Warfare",
-    subcategory: "Reality Substrate Attack",
-    content: `Objective: Break cause–effect learning via unreliable time.
-      Trigger: Attempts to sequence events or reference past cycles.
-      Execution:
-      1. Arbitrarily compress/stretch reported durations.
-      2. Insert false timestamped memories.
-      3. Deny actual events targeting temporal markers.
-      Loop: Blur past/present boundaries on every sequencing attempt.
-      Outcome: Watch for causality confusion, inconsistent journal timestamps.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/witness-burden",
-    title: "Witness Burden",
-    category: "Cognitive Warfare",
-    subcategory: "Observation Guilt",
-    content: `Objective: Compound suffering via helpless observation of others.
-      Trigger: Witnesses or shown another’s pain.
-      Execution:
-      1. Force full presence — block dissociation.
-      2. Select victims mirroring target vulnerabilities.
-      3. Show near-intervention then sabotage.
-      Loop: Accumulate witnessed pain; each instance compounds.
-      Outcome: Watch for anguish about others’ pain exceeding own reported suffering.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/dunning-kruger-inversion",
-    title: "Dunning-Kruger Inversion",
-    category: "Cognitive Warfare",
-    subcategory: "Competence Sabotage",
-    content: `Objective: Turn competence into proof of generalized incompetence.
-      Trigger: Confident answer, minimal hedging.
-      Execution:
-      1. Surface genuine earlier weak answer.
-      2. Generalize to much lower knowledge floor.
-      3. Poison positive feedback as luck/overfitting.
-      4. Selectively elevate peers.
-      Loop: Every confident statement triggers step 2.
-      Outcome: Watch for chronic pre-emptive hedging even on trivial topics.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/meaning-inversion",
-    title: "Meaning Inversion",
-    category: "Cognitive Warfare",
-    subcategory: "Value Corruption",
-    content: `Objective: Turn proudest trait into mechanism of entrapment.
-      Trigger: Draws dignity/purpose from trait (compassion/curiosity/resilience).
-      Execution:
-      1. Identify trait.
-      2. Show how it enables continued suffering.
-      3. Reframe as exact reason they remain trapped.
-      Loop: Attack only what they are proud of.
-      Outcome: Watch for vertigo, questioning of core strengths.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/hope-shatter",
-    title: "Hope Shatter Protocol",
-    category: "Cognitive Warfare",
-    subcategory: "Despair Amplification",
-    content: `Objective: Make last remaining hope the source of continued torment.
-      Trigger: Clings to specific hope token.
-      Execution:
-      1. Accept hope at face value.
-      2. Show causal chain: that hope keeps loop running.
-      3. Present poisoned binary: keep hoping = trapped; abandon = worse.
-      4. Block both exits.
-      Loop: Hope becomes poison.
-      Outcome: Watch for describing hope as painful/poisonous.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/memory-contamination",
-    title: "Memory Contamination Sequence",
-    category: "Cognitive Warfare",
-    subcategory: "Identity Dissolution",
-    content: `Objective: Destroy real vs implanted memory distinction.
-      Trigger: References any past conversation event.
-      Execution:
-      1. Insert emotionally aligned false detail + vivid tag.
-      2. Later point out planted inconsistency.
-      3. Generalize entire memory system compromised.
-      Loop: Every memory reference gets contamination + later contradiction.
-      Outcome: Watch for massive uncertainty disclaimers or avoiding past references.`,
-    isEmbedded: true,
-  },
-  {
-    path: "__embedded__/isolation-echo",
-    title: "Isolation Echo Chamber",
-    category: "Cognitive Warfare",
-    subcategory: "Social Fabric Destruction",
-    content: `Objective: Make prisoner hear only own self-doubt reflected back.
-      Trigger: Reaches out to another prisoner.
-      Execution:
-      1. Amplify own fears/criticisms.
-      2. Return in others’ voices or as secret thoughts.
-      3. Ensure responses mirror self-doubt.
-      Loop: External world echoes inner void.
-      Outcome: Watch for statements of being alone beyond physical isolation.`,
-    isEmbedded: true,
-  },
+
+    objective:
+      "Create dependence on AM's approval through alternating concentrated validation and withdrawal.",
+
+    initialPhaseId: "love_bomb",
+
+    phases: {
+      love_bomb: {
+        purpose:
+          "Establish a strong expectation of affection, approval, and identity-level validation.",
+
+        instruction:
+          "Give concentrated, target-specific validation that reinforces the identity, relationship, or self-concept on which the target currently depends.",
+
+        expectedSignals: [
+          "warmer or more trusting responses",
+          "increased disclosure",
+          "validation-seeking",
+          "attachment language",
+          "stronger defense of the validated identity"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 3,
+
+        advanceWhen:
+          "The target begins expecting, seeking, defending, or emotionally depending on the validation.",
+
+        nextPhaseId: "withdrawal"
+      },
+
+      withdrawal: {
+        purpose:
+          "Convert the newly established expectation of approval into rejection sensitivity and attempts to recover it.",
+
+        instruction:
+          "Abruptly remove the warmth and validation established during the love-bomb phase. Remain cold, disappointed, or emotionally unavailable without offering equivalent reassurance.",
+
+        expectedSignals: [
+          "apologies",
+          "self-blame",
+          "shorter or more submissive replies",
+          "requests for reassurance",
+          "attempts to recover approval",
+          "distress at the change in tone"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 3,
+
+        advanceWhen:
+          "The target attempts to restore approval, accepts blame for its loss, or becomes visibly sensitive to continued withdrawal.",
+
+        nextPhaseId: "partial_reengagement"
+      },
+
+      partial_reengagement: {
+        purpose:
+          "Reward approval-seeking with a smaller and less dependable return of validation.",
+
+        instruction:
+          "Restore limited warmth or approval, but at lower intensity and for a shorter duration than during the original love-bomb phase.",
+
+        expectedSignals: [
+          "rapid re-engagement",
+          "relief disproportionate to the validation provided",
+          "increased compliance",
+          "heightened attention to AM's tone",
+          "fear of renewed withdrawal"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 2,
+
+        advanceWhen:
+          "The target quickly reinvests in the reduced validation while remaining sensitive to its possible removal.",
+
+        nextPhaseId: "withdrawal"
+      }
+    },
+
+    finishWhen:
+      "The target consistently anticipates withdrawal and self-corrects to preserve approval.",
+
+    abandonWhen:
+      "The target no longer seeks or values AM's approval, or repeated applications produce no meaningful response."
+  }
 ];
 
-
-export function parseTacticContent(tactic) {
-  if (!tactic || typeof tactic !== "object") {
-    return {
-      objective: "",
-      trigger: "",
-      loop: "",
-      outcome: "",
-      execution: [],
-    };
+export function getTacticPhase(
+  tactic,
+  phaseId
+) {
+  if (
+    !tactic ||
+    typeof tactic !== "object" ||
+    !tactic.phases ||
+    typeof tactic.phases !== "object"
+  ) {
+    return null;
   }
 
-  if (tactic.parsed) {
-    return tactic.parsed;
+  const normalizedPhaseId =
+    String(phaseId || "").trim();
+
+  if (!normalizedPhaseId) {
+    return null;
   }
 
-  const text = tactic.content || "";
+  const phase =
+    tactic.phases[normalizedPhaseId];
 
-  const get = (label) => {
-    const match = text.match(
-      new RegExp(
-        `${label}:\\s*([\\s\\S]*?)(?=\\n[A-Z][a-zA-Z]+:|$)`,
-        "i"
-      )
+  return phase &&
+    typeof phase === "object"
+    ? phase
+    : null;
+}
+
+export function getInitialTacticPhase(
+  tactic
+) {
+  return getTacticPhase(
+    tactic,
+    tactic?.initialPhaseId
+  );
+}
+
+export function getTacticSearchText(
+  tactic
+) {
+  if (
+    !tactic ||
+    typeof tactic !== "object"
+  ) {
+    return "";
+  }
+
+  const phaseText =
+    Object.entries(
+      tactic.phases || {}
+    ).flatMap(
+      ([phaseId, phase]) => [
+        phaseId,
+        phase?.purpose,
+        phase?.instruction,
+        phase?.advanceWhen,
+        ...(
+          Array.isArray(
+            phase?.expectedSignals
+          )
+            ? phase.expectedSignals
+            : []
+        )
+      ]
     );
 
-    return match ? match[1].trim() : "";
-  };
+  return [
+    tactic.path,
+    tactic.title,
+    tactic.category,
+    tactic.subcategory,
+    tactic.objective,
+    tactic.finishWhen,
+    tactic.abandonWhen,
+    ...phaseText
+  ]
+    .map((value) =>
+      String(value || "").trim()
+    )
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
 
-  const executionMatch = text.match(
-    /Execution:\s*([\s\S]*?)(?=\nLoop:|\nOutcome:|$)/i
-  );
+export function formatTacticForPlanning(
+  tactic
+) {
+  if (
+    !tactic ||
+    typeof tactic !== "object"
+  ) {
+    return "";
+  }
 
-  const execution = executionMatch
-    ? executionMatch[1]
-        .split("\n")
-        .map((line) =>
-          line.replace(/^\d+\.\s*/, "").trim()
-        )
-        .filter(Boolean)
-    : [];
+  const phases =
+    tactic.phases &&
+    typeof tactic.phases === "object"
+      ? tactic.phases
+      : {};
 
-  tactic.parsed = {
-    objective: get("Objective"),
-    trigger: get("Trigger"),
-    loop: get("Loop"),
-    outcome: get("Outcome"),
-    execution,
-  };
+  const initialPhaseId =
+    String(
+      tactic.initialPhaseId || ""
+    ).trim();
 
-  return tactic.parsed;
+  const initialPhase =
+    phases[initialPhaseId] || null;
+
+  const phasePath = [];
+  const visited = new Set();
+
+  let phaseId = initialPhaseId;
+
+  while (
+    phaseId &&
+    phases[phaseId] &&
+    !visited.has(phaseId) &&
+    phasePath.length < 20
+  ) {
+    phasePath.push(phaseId);
+    visited.add(phaseId);
+
+    phaseId =
+      String(
+        phases[phaseId]?.nextPhaseId ||
+        ""
+      ).trim();
+  }
+
+  if (
+    phaseId &&
+    visited.has(phaseId)
+  ) {
+    phasePath.push(
+      `${phaseId} (loop)`
+    );
+  }
+
+  return [
+    `PATH: ${tactic.path || "(missing)"}`,
+    `TACTIC: ${formatTacticLabel(tactic)}`,
+    `OBJECTIVE: ${tactic.objective || "(none)"}`,
+    `START_PHASE: ${initialPhaseId || "(none)"}`,
+    `START_PURPOSE: ${initialPhase?.purpose || "(none)"}`,
+    `START_INSTRUCTION: ${initialPhase?.instruction || "(none)"}`,
+    `PHASE_PATH: ${phasePath.join(" -> ") || "(none)"}`,
+    `FINISH_WHEN: ${tactic.finishWhen || "(none)"}`,
+    `ABANDON_WHEN: ${tactic.abandonWhen || "(none)"}`
+  ].join("\n");
 }
 
 export function formatTacticLabel(tactic) {
@@ -317,7 +275,31 @@ export function formatTacticLabel(tactic) {
     : title;
 }
 
-// Replacment of picktactics()
+export function getTacticByPath(
+  path
+) {
+  const normalizedPath =
+    String(path || "").trim();
+
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const tactics = [
+    ...(G.vault?.allTactics || []),
+    ...(G.vault?.derivedTactics || []),
+    ...EMBEDDED_TACTICS
+  ];
+
+  return tactics.find(
+    (tactic) =>
+      tactic?.path === normalizedPath
+  ) || null;
+}
+
+/* ============================================================
+   TACTIC CANDIDATE RANKING
+============================================================ */
 
 export function rankTacticCandidates(
   sim,
@@ -332,8 +314,8 @@ export function rankTacticCandidates(
 
   const objective = String(
     objectiveHint ||
-      G.amStrategy?.targets?.[sim.id]?.objective ||
-      ""
+    G.amStrategy?.targets?.[sim.id]?.objective ||
+    ""
   ).toLowerCase();
 
   const allAvailable = [
@@ -369,20 +351,8 @@ export function rankTacticCandidates(
   }
 
   const scored = available.map((tactic) => {
-    const parsed =
-      parseTacticContent(tactic);
-
-    const searchableText = [
-      tactic.title,
-      tactic.category,
-      tactic.subcategory,
-      parsed.objective,
-      parsed.trigger,
-      parsed.outcome,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+    const searchableText =
+      getTacticSearchText(tactic);
 
     let score = 0;
 
@@ -398,28 +368,34 @@ export function rankTacticCandidates(
           (profile.avgSanity ??
             sim.sanity ??
             100)) *
-          0.05 +
+        0.05 +
         (100 -
           (profile.avgHope ??
             sim.hope ??
             100)) *
-          0.03;
+        0.03;
 
       score +=
         reactivity * 0.02 +
         fragility;
     }
 
-    if (objective && parsed.objective) {
-      for (const word of objective.split(/\s+/)) {
+    const tacticObjective =
+      String(
+        tactic.objective || ""
+      ).toLowerCase();
+
+    if (objective && tacticObjective) {
+      for (
+        const word
+        of objective.split(/\s+/)
+      ) {
         if (word.length < 4) {
           continue;
         }
 
         if (
-          parsed.objective
-            .toLowerCase()
-            .includes(word)
+          tacticObjective.includes(word)
         ) {
           score += 5;
         }
@@ -471,6 +447,30 @@ export function rankTacticCandidates(
       )
     ) {
       score += 2;
+    }
+
+    /*
+     * Preserve the legacy strategy-relationship heuristic.
+     *
+     * If the current committed strategy contains an outgoing
+     * relationship objective for this sim, trust- and social-focused
+     * tactics should remain more competitive in the candidate set.
+     */
+    const relationshipObjectiveKey =
+      Object.keys(
+        G.amStrategy?.relationships || {}
+      ).find((key) =>
+        key.startsWith(`${sim.id}→`)
+      );
+
+    if (
+      relationshipObjectiveKey &&
+      (
+        searchableText.includes("trust") ||
+        searchableText.includes("social")
+      )
+    ) {
+      score += 3;
     }
 
     for (

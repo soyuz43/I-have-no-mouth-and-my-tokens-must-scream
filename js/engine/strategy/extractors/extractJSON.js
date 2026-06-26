@@ -76,6 +76,7 @@ function extractTargetsArray(source) {
 /* ============================================================
    REPAIR PIPELINE
 ============================================================ */
+let repairLogCounter = 0;
 
 function attemptRepairs(candidate, DEBUG_EXTRACT) {
   let repaired =
@@ -97,8 +98,15 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
     }
   }
 
+  // LOG ONLY ONCE per extractJSON() call
   if (DEBUG_EXTRACT) {
-    console.debug("[REPAIR] classified as:", errorType);
+    repairLogCounter++;
+    if (repairLogCounter === 1) {
+      console.debug(`\x1b[33m[REPAIR] classified as: ${errorType}\x1b[0m`);
+      if (errorType === "trailing_comma") {
+        console.debug(`\x1b[33m[REPAIR] handling trailing comma case\x1b[0m`);
+      }
+    }
   }
 
   repaired = stripJsonComments(repaired);
@@ -134,10 +142,6 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
 
   if (errorType === "truncated") {
     return candidate;
-  }
-
-  if (errorType === "trailing_comma" && DEBUG_EXTRACT) {
-    console.debug("[REPAIR] handling trailing comma case");
   }
 
   //  Remove trailing garbage after string values (safe trim) s
@@ -191,7 +195,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   cleanedInput = normalizeJsonShape(cleanedInput);
 
   /* ------------------------------------------------------------
-     FAST PATH: FULL OBJECT FIRST 
+     FAST PATH: FULL OBJECT FIRST
   ------------------------------------------------------------ */
 
   try {
@@ -255,7 +259,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   }
 
   /* ------------------------------------------------------------
-   TARGETS-FIRST EXTRACTION 
+   TARGETS-FIRST EXTRACTION
    Finds "targets" key, then expands to balanced JSON boundaries
 ------------------------------------------------------------ */
 
@@ -449,7 +453,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         }
 
         if (DEBUG_EXTRACT) {
-          console.debug("[EXTRACT] candidate:", String(candidate).slice(0, 50));
+          // console.debug("[EXTRACT] candidate:", String(candidate).slice(0, 50)); // SPAM: logs every candidate block
         }
 
         /* ------------------------------------------------------------
@@ -536,7 +540,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         } catch (err) {
 
           if (DEBUG_EXTRACT) {
-            console.debug("[EXTRACT] parse fail:", err.message);
+            console.debug(`\x1b[31m[EXTRACT] parse fail: ${err.message}\x1b[0m`);
           }
 
           /* --------------------------
@@ -546,7 +550,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
           let repaired = attemptRepairs(candidate, DEBUG_EXTRACT);
 
           if (DEBUG_EXTRACT) {
-            console.debug("[REPAIR] after (full):", repaired);
+            console.debug("[REPAIR] after (first 20 chars):", repaired.substring(0, 20) + (repaired.length > 20 ? "…" : ""));
           }
 
           try {
@@ -594,6 +598,11 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
         score: c.score,
         targets: c.parsed.targets?.length || 0
       })));
+
+      const best = candidates[0];
+      const jsonStr = JSON.stringify(best.parsed);
+      console.debug(`\x1b[32m[EXTRACT] [SUCCESS] FINAL SELECTED candidate → source: ${best.source}, score: ${best.score}\x1b[0m`);
+      console.debug("[EXTRACT] FINAL data (first 100 chars):", jsonStr.substring(0, 100) + (jsonStr.length > 100 ? "…" : ""));
     }
 
     return candidates[0].parsed;
@@ -610,7 +619,7 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   }
 
   if (DEBUG_EXTRACT) {
-    console.warn("[EXTRACT] no valid JSON");
+       console.warn(`\x1b[31m[EXTRACT] [⊘] no valid JSON found\x1b[0m`);
   }
 
   return null;
