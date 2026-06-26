@@ -22,13 +22,219 @@ import { applyTacticRuntimeTransitions } from "../execution/tacticRuntime.js";
 import { runTacticEvolution } from "../analysis/tacticEvolution.js";
 import { printRelationshipMatrix } from "../analysis/relationshipMatrix.js";
 
+function snapshotForConsole(value) {
+  if (
+    typeof structuredClone ===
+    "function"
+  ) {
+    try {
+      return structuredClone(
+        value
+      );
+    } catch {
+      // Fall through to JSON cloning.
+    }
+  }
+
+  try {
+    return JSON.parse(
+      JSON.stringify(value)
+    );
+  } catch {
+    return value;
+  }
+}
+
+/* ============================================================
+   PLANNER-FACING ASSESSMENT STATE
+============================================================ */
+
+function publishAssessmentState(
+  assessmentOutput,
+  tacticTransitions
+) {
+  const tacticAssessments =
+    Array.isArray(
+      assessmentOutput?.tacticAssessments
+    )
+      ? assessmentOutput.tacticAssessments
+      : [];
+
+  const constraintAssessments =
+    Array.isArray(
+      assessmentOutput?.constraintAssessments
+    )
+      ? assessmentOutput.constraintAssessments
+      : [];
+
+  const transitions =
+    Array.isArray(
+      tacticTransitions
+    )
+      ? tacticTransitions
+      : [];
+
+  const tacticAssessmentsByTarget =
+    new Map(
+      tacticAssessments.map(
+        (assessment) => [
+          assessment.targetId,
+          assessment
+        ]
+      )
+    );
+
+  const transitionsByTarget =
+    new Map(
+      transitions.map(
+        (transition) => [
+          transition.targetId,
+          transition
+        ]
+      )
+    );
+
+  const constraintDecisionsByTarget =
+    new Map();
+
+  for (
+    const assessment
+    of constraintAssessments
+  ) {
+    const targetId =
+      assessment?.targetId;
+
+    if (
+      !SIM_IDS.includes(
+        targetId
+      )
+    ) {
+      continue;
+    }
+
+    const targetConstraintDecisions =
+      constraintDecisionsByTarget
+        .get(targetId) ||
+      [];
+
+    targetConstraintDecisions.push({
+      constraintId:
+        assessment.constraintId,
+
+      constraintTitle:
+        assessment.constraintTitle,
+
+      constraintDecision:
+        assessment.constraintDecision,
+
+      nextDuration:
+        assessment.nextDuration,
+
+      explanation:
+        assessment.explanation
+    });
+
+    constraintDecisionsByTarget.set(
+      targetId,
+      targetConstraintDecisions
+    );
+  }
+
+  const targets = {};
+
+  for (const id of SIM_IDS) {
+    const tacticAssessment =
+      tacticAssessmentsByTarget.get(id);
+
+    const transition =
+      transitionsByTarget.get(id);
+
+    const constraintDecisions =
+      constraintDecisionsByTarget.get(id) ||
+      [];
+
+    const targetState = {};
+
+    /*
+     * A planner-facing tactic decision is published only when the
+     * assessment recommendation was successfully validated and applied
+     * by the runtime transition layer.
+     */
+    if (
+      tacticAssessment &&
+      transition
+    ) {
+      targetState.tacticDecision = {
+        tacticPath:
+          transition.tacticPath,
+
+        assessedPhaseId:
+          transition.fromPhaseId,
+
+        resultingPhaseId:
+          transition.toPhaseId,
+
+        tacticRecommendation:
+          transition.tacticRecommendation,
+
+        tacticDecision:
+          transition.tacticDecision,
+
+        terminal:
+          transition.terminal === true,
+
+        reason:
+          transition.reason,
+
+        explanation:
+          tacticAssessment.explanation
+      };
+    }
+
+    /*
+     * Constraint decisions are independent from tactic decisions.
+     * Omit the property entirely when no constraints were assessed.
+     */
+    if (
+      constraintDecisions.length
+    ) {
+      targetState.constraintDecisions =
+        constraintDecisions;
+    }
+
+    if (
+      Object.keys(
+        targetState
+      ).length
+    ) {
+      targets[id] =
+        targetState;
+    }
+  }
+
+  G.amAssessmentState = {
+    cycle:
+      G.cycle,
+
+    targets
+  };
+
+  return G.amAssessmentState;
+}
+
 /* ============================================================
    EVALUATION PHASE ORCHESTRATOR
-   ============================================================ */
+============================================================ */
 
 export async function runEvaluationPhase() {
 
-  let assessmentResults = [];
+  let assessmentOutput = {
+    tacticAssessments: [],
+    constraintAssessments: []
+  };
+
+  let tacticTransitions =
+    [];
 
   /* ------------------------------------------------------------
      ASSESSMENT PHASE
@@ -37,17 +243,50 @@ export async function runEvaluationPhase() {
 
   try {
 
-    timelineEvent(`>>> CYCLE ASSESSMENT`);
+    timelineEvent(
+      `>>> CYCLE ASSESSMENT`
+    );
 
-    assessmentResults =
+    const result =
       await runAssessment();
 
+    if (
+      !result ||
+      !Array.isArray(
+        result.tacticAssessments
+      ) ||
+      !Array.isArray(
+        result.constraintAssessments
+      )
+    ) {
+      throw new TypeError(
+        "runAssessment() returned an invalid assessment contract."
+      );
+    }
+
+    assessmentOutput =
+      result;
+
+    console.log(
+      "[ASSESSMENT][CURRENT CYCLE RECORDS]",
+      snapshotForConsole(
+        (
+          Array.isArray(
+            G.amAssessments
+          )
+            ? G.amAssessments
+            : []
+        ).filter(
+          (entry) =>
+            entry?.cycle ===
+            G.cycle
+        )
+      )
+    );
+
     /*
-     * Constraint assessment has now had the opportunity to renew each
-     * completed constraint or explicitly release it.
-     *
-     * Remove only constraints whose current-cycle assessment selected
-     * RELEASE. Unassessed zero-remaining constraints are preserved.
+     * Constraint assessment records are already preserved in
+     * assessmentOutput before cleanup removes released runtime objects.
      */
     const releasedConstraints =
       [];
@@ -71,19 +310,23 @@ export async function runEvaluationPhase() {
               constraint.title ||
               constraint.id,
 
-            decision:
+            constraintDecision:
               constraint.lastAssessment
-                ?.decision ?? null,
+                ?.constraintDecision ??
+              null,
 
             assessedCycle:
               constraint.lastAssessment
-                ?.cycle ?? null
+                ?.cycle ??
+              null
           });
         }
       }
     }
 
-    if (releasedConstraints.length) {
+    if (
+      releasedConstraints.length
+    ) {
       console.log(
         "[CONSTRAINT][POST-ASSESSMENT CLEANUP]"
       );
@@ -93,20 +336,27 @@ export async function runEvaluationPhase() {
       );
     }
 
-    timelineEvent(`// ASSESSMENT COMPLETE`);
+    timelineEvent(
+      `// ASSESSMENT COMPLETE`
+    );
 
-  } catch (e) {
+  } catch (error) {
 
-    console.error("Assessment error:", e);
+    console.error(
+      "Assessment error:",
+      error
+    );
 
-    timelineEvent(`!! ASSESSMENT ERROR`);
+    timelineEvent(
+      `!! ASSESSMENT ERROR`
+    );
 
   }
 
   /* ------------------------------------------------------------
-   TACTIC RUNTIME TRANSITIONS
-   Validate and apply assessment recommendations
------------------------------------------------------------- */
+     TACTIC RUNTIME TRANSITIONS
+     Validate recommendations and apply authoritative decisions
+  ------------------------------------------------------------ */
 
   try {
 
@@ -114,19 +364,29 @@ export async function runEvaluationPhase() {
       `>>> TACTIC RUNTIME TRANSITIONS`
     );
 
-    const transitions =
+    tacticTransitions =
       applyTacticRuntimeTransitions(
-        assessmentResults
+        assessmentOutput
+          .tacticAssessments
       );
 
-    if (transitions.length) {
+    console.log(
+      "[TACTIC RUNTIME][POST-TRANSITION STATE]",
+      snapshotForConsole(
+        G.amTacticRuntime
+      )
+    );
+
+    if (
+      tacticTransitions.length
+    ) {
 
       console.group(
         "[TACTIC RUNTIME TRANSITIONS]"
       );
 
       console.table(
-        transitions.map(
+        tacticTransitions.map(
           (transition) => ({
             target:
               transition.targetId,
@@ -134,11 +394,14 @@ export async function runEvaluationPhase() {
             tactic:
               transition.tacticPath,
 
-            recommended:
-              transition.recommendedDecision,
+            tacticRecommendation:
+              transition.tacticRecommendation,
 
-            applied:
-              transition.appliedDecision,
+            tacticDecision:
+              transition.tacticDecision,
+
+            terminal:
+              transition.terminal === true,
 
             reason:
               transition.reason,
@@ -163,7 +426,7 @@ export async function runEvaluationPhase() {
     } else {
 
       console.debug(
-        "[TACTIC RUNTIME TRANSITIONS] No assessment results to apply."
+        "[TACTIC RUNTIME TRANSITIONS] No tactic assessments to apply."
       );
 
     }
@@ -172,15 +435,48 @@ export async function runEvaluationPhase() {
       `// TACTIC RUNTIME TRANSITIONS COMPLETE`
     );
 
-  } catch (e) {
+  } catch (error) {
 
     console.error(
       "Tactic runtime transition error:",
-      e
+      error
     );
 
     timelineEvent(
       `!! TACTIC RUNTIME TRANSITION ERROR`
+    );
+
+  }
+
+  /* ------------------------------------------------------------
+     ASSESSMENT STATE PUBLICATION
+     Expose authoritative results to the next planning cycle
+  ------------------------------------------------------------ */
+
+  try {
+
+    const assessmentState =
+      publishAssessmentState(
+        assessmentOutput,
+        tacticTransitions
+      );
+
+    console.log(
+      "[AM ASSESSMENT STATE][PUBLISHED]",
+      snapshotForConsole(
+        assessmentState
+      )
+    );
+    
+  } catch (error) {
+
+    console.error(
+      "Assessment state publication error:",
+      error
+    );
+
+    timelineEvent(
+      `!! ASSESSMENT STATE ERROR`
     );
 
   }
@@ -192,17 +488,26 @@ export async function runEvaluationPhase() {
 
   try {
 
-    timelineEvent(`>>> TACTIC EVOLUTION`);
+    timelineEvent(
+      `>>> TACTIC EVOLUTION`
+    );
 
     await runTacticEvolution();
 
-    timelineEvent(`// TACTIC EVOLUTION COMPLETE`);
+    timelineEvent(
+      `// TACTIC EVOLUTION COMPLETE`
+    );
 
-  } catch (e) {
+  } catch (error) {
 
-    console.error("Tactic evolution error:", e);
+    console.error(
+      "Tactic evolution error:",
+      error
+    );
 
-    timelineEvent(`!! TACTIC EVOLUTION ERROR`);
+    timelineEvent(
+      `!! TACTIC EVOLUTION ERROR`
+    );
 
   }
 
@@ -212,7 +517,9 @@ export async function runEvaluationPhase() {
 
   try {
 
-    timelineEvent(`>>> FINALIZING CYCLE`);
+    timelineEvent(
+      `>>> FINALIZING CYCLE`
+    );
 
     renderRelationships();
 
@@ -230,13 +537,20 @@ export async function runEvaluationPhase() {
 
     updateAMProfiles();
 
-    timelineEvent(`// STATE SNAPSHOT STORED`);
+    timelineEvent(
+      `// STATE SNAPSHOT STORED`
+    );
 
-  } catch (e) {
+  } catch (error) {
 
-    console.error("Finalize cycle error:", e);
+    console.error(
+      "Finalize cycle error:",
+      error
+    );
 
-    timelineEvent(`!! FINALIZATION ERROR`);
+    timelineEvent(
+      `!! FINALIZATION ERROR`
+    );
 
   }
 

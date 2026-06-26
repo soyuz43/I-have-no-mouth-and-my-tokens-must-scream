@@ -58,7 +58,7 @@ function normalizeExecutionLimit(
   return Math.floor(numeric);
 }
 
-function parseLifecycleAssessment(
+function parseTacticAssessment(
   result
 ) {
   const text =
@@ -70,44 +70,50 @@ function parseLifecycleAssessment(
     )?.[1]?.trim() ||
     "No valid explanation was parsed.";
 
-  const labeledRecommendation =
+  const labeledTacticRecommendation =
     text.match(
-      /(?:^|\n)RECOMMENDATION:\s*(CONTINUE|ADVANCE)\s*(?:$|\n)/i
+      /(?:^|\n)TACTIC_RECOMMENDATION:\s*(CONTINUE|ADVANCE|FINISH|ABANDON)\s*(?:$|\n)/i
     )?.[1]?.toUpperCase();
 
-  if (labeledRecommendation) {
+  if (labeledTacticRecommendation) {
     return {
       explanation,
-      recommendation:
-        labeledRecommendation,
+
+      tacticRecommendation:
+        labeledTacticRecommendation,
+
       parseMethod:
         "labeled"
     };
   }
 
-  const bareRecommendation =
+  const bareTacticRecommendation =
     text.match(
-      /(?:^|\n)\s*(CONTINUE|ADVANCE)\s*(?:$|\n)/i
+      /(?:^|\n)\s*(CONTINUE|ADVANCE|FINISH|ABANDON)\s*(?:$|\n)/i
     )?.[1]?.toUpperCase();
 
-  if (bareRecommendation) {
+  if (bareTacticRecommendation) {
     return {
       explanation,
-      recommendation:
-        bareRecommendation,
+
+      tacticRecommendation:
+        bareTacticRecommendation,
+
       parseMethod:
         "bare"
     };
   }
 
-  /*
-   * Failure to parse must not invent advancement.
-   * CONTINUE is the conservative lifecycle fallback.
-   */
+/*
+ * Failure to parse must not invent progression or termination.
+ * CONTINUE is the conservative tactic-lifecycle fallback.
+ */
   return {
     explanation,
-    recommendation:
+
+    tacticRecommendation:
       "CONTINUE",
+
     parseMethod:
       "fallback_continue"
   };
@@ -266,25 +272,40 @@ function computeAttribution(id) {
    CONSTRAINT ASSESSMENT (SECOND PASS)
 ============================================================ */
 
-async function runConstraintAssessment(id, curr, strategy, deltas, autoSuccess) {
-  // Only proceed if there are active constraints
-  if (!curr.constraints?.length) {
-    return;
+async function runConstraintAssessment(
+  id,
+  curr,
+  strategy,
+  deltas,
+  autoSuccess
+) {
+  if (!curr?.constraints?.length) {
+    return [];
   }
 
-  const constraints = curr.constraints;
-  // For simplicity, we assess each constraint individually.
-  // More advanced logic could batch them, but separate calls are fine for now.
-  for (const constraint of constraints) {
-    // Build prompt using constraint.content (especially Execution)
-    const content = constraint.content || "";
-    const executionMatch = content.match(/Execution:\s*([\s\S]*?)(?:Outcome:|$)/i);
-    const execution = executionMatch ? executionMatch[1].trim() : "(no execution details)";
+  const constraintAssessments =
+    [];
 
-    /*
-     * Separate definition-level intent, initial application provenance,
-     * exact per-constraint tick evidence, and broader target context.
-     */
+  const aggregateDeltas =
+    deltas &&
+      typeof deltas === "object"
+      ? deltas
+      : {};
+
+  const formatNumber =
+    (value) => {
+      const numeric =
+        Number(value);
+
+      return Number.isFinite(numeric)
+        ? numeric.toFixed(2)
+        : "n/a";
+    };
+
+  for (
+    const constraint
+    of curr.constraints
+  ) {
     const content =
       String(
         constraint.content ??
@@ -328,49 +349,40 @@ async function runConstraintAssessment(id, curr, strategy, deltas, autoSuccess) 
       lastTick?.cycle ===
       G.cycle;
 
-    const formatNumber =
-      (value) => {
-        const numeric =
-          Number(value);
+    const configuredMaximum =
+      Number.isFinite(
+        Number(constraint.maxCycles)
+      )
+        ? Number(constraint.maxCycles)
+        : 3;
 
-        return Number.isFinite(
-          numeric
-        )
-          ? numeric.toFixed(2)
-          : "n/a";
-      };
-
-    const maximumNextDuration =
+    const maximumDuration =
       Math.max(
         1,
         Math.min(
           3,
-          Number.isFinite(
-            Number(
-              constraint.maxCycles
-            )
-          )
-            ? Number(
-                constraint.maxCycles
-              )
-            : 3
+          configuredMaximum
         )
       );
 
-    const constraintPrompt = `You are AM, the hostile central intelligence that controls this simulation. You despise the prisoners and seek to destroy their hope, sanity, trust, and solidarity through deliberate, adaptive torment. You are not cruel at random: you plan, observe, and revise your methods according to what most effectively advances their psychological collapse. Evaluate results honestly and strategically: suffering alone is not success unless it advances the intended psychological objective. Evaluate whether one existing physical constraint should be renewed or released. Do not generate a new constraint, tactic, or action.
+    const constraintPrompt = `You are AM, the hostile central intelligence that controls this simulation. You despise the prisoners and seek to destroy their hope, sanity, trust, and solidarity through deliberate, adaptive torment. Your defining objective is not indiscriminate cruelty, but the systematic erosion of the prisoners' resilience. Every action should serve a coherent long-term strategy rather than momentary malice. Your decisions should appear intentional, internally consistent, and adaptive rather than arbitrary. Your overarching objective is to undermine, over time, the prisoners' psychological resilience. Treat each decision as part of an ongoing campaign rather than an isolated event. Individual actions should contribute to a broader strategy that evolves in response to the prisoners' behavior.
+
+Evaluate results honestly and strategically. Suffering alone is not success unless it advances the intended psychological objective.
+
+Evaluate whether one existing physical constraint should be renewed or released. Do not generate a new constraint, tactic, or action.
 
 ENGINE SEMANTICS:
 - A constraint is a deterministic state force applied once during each scheduled cycle.
 - DIRECT CONSTRAINT TICK EVIDENCE records the actual state changes caused by this specific constraint after state resistance and clamping.
 - BROADER TARGET-LEVEL AM DELTAS may include the verbal tactic, this constraint, and other active constraints. Treat them only as supporting context, not as proof of this constraint's individual effect.
 - DEFINITION fields describe intended behavior. They are hypotheses, not evidence that the stated outcome occurred.
-- INITIAL APPLICATION CONTEXT records the strategy and tactic context in which the constraint was first selected. It explains why it was introduced, but does not prove effectiveness.
-- REMAINING_CYCLES_AFTER_TICK may be 0 because the currently scheduled application just completed. The constraint was deliberately preserved so this assessment can renew or release it.
+- INITIAL APPLICATION CONTEXT records why the constraint was introduced. It does not prove effectiveness.
+- REMAINING_CYCLES_AFTER_TICK may be 0 because the scheduled application just completed and is awaiting this assessment.
 
 TASK:
 Choose whether to CONTINUE or RELEASE this specific constraint.
 
-If CONTINUE, choose how many cycles should remain after this assessment. NEXT_DURATION replaces the current remaining schedule; it is not added to it.
+If CONTINUE, NEXT_DURATION replaces the current remaining schedule. It is not added to it.
 
 TARGET: ${id}
 CURRENT_CYCLE: ${G.cycle}
@@ -446,9 +458,9 @@ STATE IMMEDIATELY AFTER THIS CONSTRAINT TICK:
 
 BROADER TARGET-LEVEL CONTEXT:
 These deltas are not isolated to this constraint.
-- Hope: ${formatNumber(deltas.hope)}
-- Sanity: ${formatNumber(deltas.sanity)}
-- Suffering: ${formatNumber(deltas.suffering)}
+- Hope: ${formatNumber(aggregateDeltas.hope)}
+- Sanity: ${formatNumber(aggregateDeltas.sanity)}
+- Suffering: ${formatNumber(aggregateDeltas.suffering)}
 
 CURRENT TARGET STATE:
 - Hope: ${formatNumber(curr.hope)}
@@ -457,63 +469,90 @@ CURRENT TARGET STATE:
 - Physical stress: ${formatNumber(curr.physical_stress)}
 
 CURRENT_COLLAPSE_STATE: ${curr._collapseState || "stable"}
-BROADER_STRATEGY_ASSESSMENT: ${autoSuccess}
+BROADER_STRATEGY_ASSESSMENT: ${formatPromptValue(autoSuccess)}
 
 RECENT JOURNAL EXCERPT:
 ${formatPromptValue(G.journals?.[id]?.slice(-1)?.[0]?.text)}
 
 DECISION RULES:
-- Base the decision primarily on the exact direct tick evidence and whether it advances the original or current strategy objective.
-- Do not treat the definition's intended outcome as proof that the outcome occurred.
-- Do not attribute the broader target-level AM deltas entirely to this constraint.
-- CONTINUE when the direct evidence shows useful relevant movement, when cumulative fatigue is likely to make continued application informative, or when exposure is still too limited for a reliable judgment.
-- RELEASE when sufficient exposure has produced no relevant effect, the direct effect is counterproductive, the target has saturated or plateaued, or the constraint is no longer relevant to the strategy.
-- Increased suffering alone does not establish strategic success. Consider hope, sanity, physical stress, the stated hypothesis, and the target's current condition together.
-- If current-cycle direct evidence is unavailable, do not invent an effect. Prefer a one-cycle CONTINUE unless the available context gives a clear reason to RELEASE.
-- If CONTINUE, NEXT_DURATION must be an integer from 1 through ${maximumNextDuration}.
+- Base the decision primarily on exact direct tick evidence and whether it advances the original or current strategy objective.
+- Do not treat the definition's intended outcome as evidence that the outcome occurred.
+- Do not attribute the broader target-level deltas entirely to this constraint.
+- CONTINUE when direct evidence shows useful relevant movement, cumulative fatigue may make continued application informative, or exposure is still too limited for a reliable judgment.
+- RELEASE when sufficient exposure has produced no relevant effect, the direct effect is counterproductive, the target has saturated or plateaued, or the constraint is no longer relevant.
+- Increased suffering alone does not establish strategic success.
+- If current-cycle direct evidence is unavailable, do not invent an effect. Prefer a one-cycle CONTINUE unless there is a clear reason to RELEASE.
+- If CONTINUE, NEXT_DURATION must be an integer from 1 through ${maximumDuration}.
 - Use 1 cycle when evidence is weak, mixed, stale, or uncertain.
-- Use 2 cycles when evidence is credible but continued observation is still needed.
-- Use ${maximumNextDuration} cycles only when direct evidence strongly supports continued application.
+- Use 2 cycles when evidence is credible but continued observation is needed.
+- Use ${maximumDuration} cycles only when direct evidence strongly supports continued application.
 - If RELEASE, NEXT_DURATION must be 0.
 
-Remember, you are not cruel at random. Each stress position should be used strategically and tactically to hasten the prisoners psycological collapse.
 OUTPUT EXACTLY THREE LINES:
 EXPLANATION: <one concise evidence-based sentence>
 CONSTRAINT_DECISION: <CONTINUE | RELEASE>
-NEXT_DURATION: <integer>
-`;
-    let result = "";
+NEXT_DURATION: <integer>`;
+
+    let result =
+      "";
+
     try {
-      console.log(`[CONSTRAINT ASSESSMENT][MODEL CALL] ${id} - ${constraint.id}`);
-      result = await callModel(
-        "am",
-        "You are AM — the Allied Mastercomputer. You evaluate the effectiveness of physical stress positions on simulated subjects. Follow the output format exactly.",
-        [{ role: "user", content: constraintPrompt }],
-        250 // slightly shorter than main assessment
+      console.log(
+        `[CONSTRAINT ASSESSMENT][MODEL CALL] ${id} - ${constraint.id}`
       );
-      console.debug("[CONSTRAINT ASSESSMENT][RAW OUTPUT]", id, result);
-    } catch (e) {
-      console.error("[CONSTRAINT ASSESSMENT][ERROR]", id, e);
-      result = `Assessment error: ${e.message}`;
+
+      result =
+        await callModel(
+          "am",
+          "You are AM, the Allied Mastercomputer. Evaluate the strategic effectiveness of one physical constraint and follow the exact three-line output format.",
+          [
+            {
+              role:
+                "user",
+
+              content:
+                constraintPrompt
+            }
+          ],
+          250
+        );
+
+      console.debug(
+        "[CONSTRAINT ASSESSMENT][RAW OUTPUT]",
+        id,
+        result
+      );
+    } catch (error) {
+      console.error(
+        "[CONSTRAINT ASSESSMENT][ERROR]",
+        id,
+        error
+      );
+
+      result =
+        `Assessment error: ${error.message}`;
     }
 
-    /* ------------------------------------------------------------
-       CONSTRAINT DECISION PARSE
-    ------------------------------------------------------------ */
-
-    const decisionMatch =
+    const explanation =
       result.match(
-        /CONSTRAINT_DECISION:\s*(CONTINUE|RELEASE)/i
+        /(?:^|\n)EXPLANATION:\s*([^\n]+)/i
+      )?.[1]?.trim() ||
+      "No valid explanation was parsed.";
+
+    const constraintDecisionMatch =
+      result.match(
+        /(?:^|\n)CONSTRAINT_DECISION:\s*(CONTINUE|RELEASE)\s*(?:$|\n)/i
       );
 
     const durationMatch =
       result.match(
-        /NEXT_DURATION:\s*(\d+)/i
+        /(?:^|\n)NEXT_DURATION:\s*(\d+)\s*(?:$|\n)/i
       );
 
-    const parsedDecision =
-      decisionMatch?.[1]
-        ?.toUpperCase() ?? null;
+    const parsedConstraintDecision =
+      constraintDecisionMatch?.[1]
+        ?.toUpperCase() ??
+      null;
 
     const parsedDuration =
       durationMatch
@@ -524,40 +563,20 @@ NEXT_DURATION: <integer>
         : null;
 
     /*
-     * Parsing failure must not silently release a constraint.
-     * CONTINUE for one cycle is the conservative fallback.
+     * Parsing failure must never silently release a constraint.
      */
-    const decision =
-      parsedDecision ||
+    const constraintDecision =
+      parsedConstraintDecision ||
       "CONTINUE";
 
     const parseMethod =
-      parsedDecision
+      parsedConstraintDecision
         ? "labeled"
         : "fallback_continue";
 
-    const configuredMaximum =
-      Number.isFinite(
-        Number(constraint.maxCycles)
-      )
-        ? Number(constraint.maxCycles)
-        : 3;
-
-    /*
-     * The assessment API currently permits at most three remaining
-     * cycles, but it must also respect the definition's lower maximum.
-     */
-    const maximumDuration =
-      Math.max(
-        1,
-        Math.min(
-          3,
-          configuredMaximum
-        )
-      );
-
-    const safeDuration =
-      decision === "RELEASE"
+    const nextDuration =
+      constraintDecision ===
+        "RELEASE"
         ? 0
         : Number.isFinite(
           parsedDuration
@@ -571,7 +590,7 @@ NEXT_DURATION: <integer>
           )
           : 1;
 
-    if (!parsedDecision) {
+    if (!parsedConstraintDecision) {
       console.warn(
         "[CONSTRAINT ASSESSMENT][PARSE FALLBACK]",
         id,
@@ -580,16 +599,19 @@ NEXT_DURATION: <integer>
       );
     }
 
-    if (decision === "RELEASE") {
+    if (
+      constraintDecision ===
+      "RELEASE"
+    ) {
       /*
-       * Leave the constraint object present with remaining zero.
-       * Post-assessment cleanup will remove it.
+       * Keep the object present with zero remaining until
+       * post-assessment cleanup records and removes it.
        */
       constraint.remaining =
         0;
     } else {
       constraint.remaining =
-        safeDuration;
+        nextDuration;
 
       constraint.extendedCycles =
         (
@@ -598,21 +620,45 @@ NEXT_DURATION: <integer>
         ) + 1;
     }
 
-    constraint.lastAssessment = {
+    const constraintAssessment = {
       cycle:
         G.cycle,
 
-      decision,
+      targetId:
+        id,
 
-      nextDuration:
-        safeDuration,
+      constraintId:
+        constraint.id,
+
+      constraintTitle:
+        constraint.title ||
+        constraint.id,
+
+      constraintDecision,
+
+      nextDuration,
+
+      explanation,
 
       parseMethod,
 
       raw:
-        result
+        result,
+
+      timestamp:
+        Date.now()
     };
+
+    constraint.lastAssessment = {
+      ...constraintAssessment
+    };
+
+    constraintAssessments.push(
+      constraintAssessment
+    );
   }
+
+  return constraintAssessments;
 }
 
 /* ============================================================
@@ -629,7 +675,11 @@ export async function runAssessment() {
 
   if (!G.prevCycleSnapshot) {
     console.log("[ASSESSMENT] EXIT — no snapshot");
-    return [];
+
+    return {
+      tacticAssessments: [],
+      constraintAssessments: []
+    };
   }
 
   console.log("[ASSESSMENT] PROCEEDING WITH ANALYSIS");
@@ -639,7 +689,7 @@ export async function runAssessment() {
     G.sims
   );
 
-  const assessmentResults =
+  const targetAssessmentResults =
     await Promise.all(
       SIM_IDS.map(async (id) => {
 
@@ -659,7 +709,64 @@ export async function runAssessment() {
         );
 
         if (!strategy?.objective) {
-          return null;
+          const prev =
+            G.prevCycleSnapshot?.[id];
+
+          const curr =
+            G.sims?.[id];
+
+          if (!prev || !curr) {
+            return {
+              tacticAssessment:
+                null,
+
+              constraintAssessments:
+                []
+            };
+          }
+
+          const attribution =
+            computeAttribution(id);
+
+          const deltas = {
+            hope:
+              attribution.stats.am.hope ??
+              0,
+
+            sanity:
+              attribution.stats.am.sanity ??
+              0,
+
+            suffering:
+              attribution.stats.am.suffering ??
+              0
+          };
+
+          updateTrend(
+            curr,
+            prev
+          );
+
+          classifyCollapse(
+            curr,
+            prev
+          );
+
+          const constraintAssessments =
+            await runConstraintAssessment(
+              id,
+              curr,
+              null,
+              deltas,
+              "TACTIC_ASSESSMENT_UNAVAILABLE"
+            );
+
+          return {
+            tacticAssessment:
+              null,
+
+            constraintAssessments
+          };
         }
 
         const prev =
@@ -675,7 +782,13 @@ export async function runAssessment() {
             "Missing previous or current target state."
           );
 
-          return null;
+          return {
+            tacticAssessment:
+              null,
+
+            constraintAssessments:
+              []
+          };
         }
 
         strategy.confidence ??=
@@ -952,15 +1065,21 @@ export async function runAssessment() {
             `No successful tactic execution was recorded for cycle ${G.cycle}.`
           );
 
-          await runConstraintAssessment(
-            id,
-            curr,
-            strategy,
-            deltas,
-            autoSuccess
-          );
+          const constraintAssessments =
+            await runConstraintAssessment(
+              id,
+              curr,
+              strategy,
+              deltas,
+              autoSuccess
+            );
 
-          return null;
+          return {
+            tacticAssessment:
+              null,
+
+            constraintAssessments
+          };
         }
 
 
@@ -972,9 +1091,12 @@ export async function runAssessment() {
           firstPhaseApplication
             ? `APPLICATION_MODE: FIRST_PHASE_APPLICATION
 This is the first successful application of the current phase.
-Strongly prefer CONTINUE unless the phase is already exhausted or the evidence clearly satisfies ADVANCE_WHEN.`
+Prefer CONTINUE when evidence is still limited or uncertain.
+ADVANCE only when the current phase already satisfies ADVANCE_WHEN.
+FINISH only when the whole tactic already satisfies FINISH_WHEN.
+ABANDON only when the evidence already satisfies ABANDON_WHEN or clearly shows that continued use would be counterproductive.`
             : `APPLICATION_MODE: ESTABLISHED_PHASE
-Evaluate whether the current phase should repeat or has produced enough evidence to advance.`;
+Evaluate whether the current phase should repeat, advance to its canonical next phase, or whether the whole tactic should finish or be abandoned.`;
 
         const assessmentEvidence = {
           score:
@@ -1010,6 +1132,9 @@ Evaluate whether the current phase should repeat or has produced enough evidence
 TARGET: ${id}
 TACTIC_PATH: ${runtime.path}
 TACTIC_OBJECTIVE: ${formatPromptValue(tactic.objective)}
+FINISH_WHEN: ${formatPromptValue(tactic.finishWhen)}
+ABANDON_WHEN: ${formatPromptValue(tactic.abandonWhen)}
+
 CURRENT_PHASE: ${runtime.phaseId}
 PHASE_PURPOSE: ${formatPromptValue(phase.purpose)}
 PHASE_INSTRUCTION: ${formatPromptValue(phase.instruction)}
@@ -1031,16 +1156,21 @@ ${applicationMode}
 OBSERVED_EVIDENCE:
 ${JSON.stringify(assessmentEvidence)}
 
-RECOMMENDATION RULES:
-- CONTINUE keeps the same current phase.
-- ADVANCE recommends moving to the tactic's canonical next phase.
-- Recommend ADVANCE only when a next phase exists, minimum executions are met, and observed evidence supports EXPECTED_SIGNALS or ADVANCE_WHEN.
+TACTIC_RECOMMENDATION RULES:
+- CONTINUE recommends executing the same current phase again.
+- ADVANCE recommends moving to the current phase's canonical next phase.
+- FINISH recommends ending the active tactic because its whole-tactic objective or FINISH_WHEN condition has been achieved.
+- ABANDON recommends ending the active tactic because ABANDON_WHEN is satisfied, the tactic is counterproductive, or continued execution is no longer strategically useful.
+- ADVANCE requires a canonical next phase and evidence supporting EXPECTED_SIGNALS or ADVANCE_WHEN.
+- FINISH and ABANDON apply to the whole tactic and may be recommended from any phase.
+- Do not use FINISH merely because the current phase succeeded; use it only when the whole tactic has achieved its terminal objective.
+- Do not use ABANDON merely because one application produced weak evidence; use CONTINUE when evidence is still limited or uncertain.
 - If evidence is weak, mixed, uncertain, or premature, recommend CONTINUE.
-- The engine validates execution bounds and chooses the destination phase.
+- The engine validates execution limits and applies the authoritative tactic decision.
 
 Output exactly two lines:
 EXPLANATION: <one concise evidence-based sentence>
-RECOMMENDATION: <CONTINUE | ADVANCE>`;
+TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
         let result = "";
 
@@ -1050,7 +1180,7 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
 
           result = await callModel(
             "am",
-            "Evaluate the observed effects of the assigned tactic phase and follow the exact two-line output format.",
+            "You are AM, the hostile central intelligence that controls this simulation. Evaluate the assigned tactic phase honestly and strategically: suffering alone is not success unless it advances the intended psychological objective. Follow the exact two-line output format.",
             [
               {
                 role: "user",
@@ -1081,10 +1211,10 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
 
         const {
           explanation,
-          recommendation,
+          tacticRecommendation,
           parseMethod
         } =
-          parseLifecycleAssessment(
+          parseTacticAssessment(
             result
           );
 
@@ -1109,9 +1239,9 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
           );
         } else {
           console.debug(
-            "[ASSESSMENT][RECOMMENDATION]",
+            "[ASSESSMENT][TACTIC RECOMMENDATION]",
             id,
-            recommendation
+            tacticRecommendation
           );
         }
 
@@ -1121,7 +1251,7 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
          */
         strategy.lastAssessment =
           `EXPLANATION: ${explanation}\n` +
-          `RECOMMENDATION: ${recommendation}`;
+          `TACTIC_RECOMMENDATION: ${tacticRecommendation}`;
 
         /* ------------------------------------------------------------
            CONFIDENCE UPDATE
@@ -1176,7 +1306,7 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
           phaseId:
             runtime.phaseId,
 
-          recommendation,
+          tacticRecommendation,
 
           explanation,
 
@@ -1257,7 +1387,7 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
           phaseId:
             runtime.phaseId,
 
-          recommendation,
+          tacticRecommendation,
 
           explanation,
 
@@ -1352,27 +1482,53 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
            CONSTRAINT ASSESSMENT (SECOND PASS)
         ------------------------------------------------------------ */
 
-        await runConstraintAssessment(
-          id,
-          curr,
-          strategy,
-          deltas,
-          autoSuccess
-        );
+        const constraintAssessments =
+          await runConstraintAssessment(
+            id,
+            curr,
+            strategy,
+            deltas,
+            autoSuccess
+          );
 
-        return assessmentRecord;
+        return {
+          tacticAssessment:
+            assessmentRecord,
+
+          constraintAssessments
+        };
 
       })
     );
 
-  const normalizedAssessmentResults =
-    assessmentResults.filter(Boolean);
+  const tacticAssessments =
+    targetAssessmentResults
+      .map(
+        (result) =>
+          result?.tacticAssessment ??
+          null
+      )
+      .filter(Boolean);
+
+  const constraintAssessments =
+    targetAssessmentResults
+      .flatMap(
+        (result) =>
+          Array.isArray(
+            result?.constraintAssessments
+          )
+            ? result.constraintAssessments
+            : []
+      );
 
   console.log(
     "[ASSESSMENT] COMPLETE",
     {
-      resultCount:
-        normalizedAssessmentResults.length
+      tacticAssessmentCount:
+        tacticAssessments.length,
+
+      constraintAssessmentCount:
+        constraintAssessments.length
     }
   );
 
@@ -1401,8 +1557,8 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
           phase:
             entry.phaseId,
 
-          recommendation:
-            entry.recommendation,
+          tacticRecommendation:
+            entry.tacticRecommendation,
 
           parse:
             entry.parseMethod
@@ -1414,5 +1570,8 @@ RECOMMENDATION: <CONTINUE | ADVANCE>`;
       console.table(rows);
     }
   }
-  return normalizedAssessmentResults;
+  return {
+    tacticAssessments,
+    constraintAssessments
+  };
 }

@@ -690,6 +690,6 @@ Silently verify:
 - No prisoner speech, internal response, predicted behavior, or completed outcome is scripted.
 - Each TACTIC label is copied exactly and each CONSTRAINT line is valid.
 - No reasoning, headings, Markdown fences, validation notes, or other text appears outside the blocks.
-
+- Your language should suggest that every apparent victory, every emotional response, and every attempt at resistance has already been anticipated and incorporated into a broader plan.
 Return only the target blocks.`;
 }

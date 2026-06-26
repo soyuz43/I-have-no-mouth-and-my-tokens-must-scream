@@ -16,7 +16,9 @@ import {
 export const TACTIC_RUNTIME_DECISIONS =
   Object.freeze({
     CONTINUE: "CONTINUE",
-    ADVANCE: "ADVANCE"
+    ADVANCE: "ADVANCE",
+    FINISH: "FINISH",
+    ABANDON: "ABANDON"
   });
 
 /* ============================================================
@@ -30,7 +32,8 @@ function ensureTacticRuntimeRoot() {
     Array.isArray(G.amTacticRuntime)
   ) {
     G.amTacticRuntime = {
-      targets: {}
+      targets: {},
+      archive: {}
     };
   }
 
@@ -40,6 +43,14 @@ function ensureTacticRuntimeRoot() {
     Array.isArray(G.amTacticRuntime.targets)
   ) {
     G.amTacticRuntime.targets = {};
+  }
+
+  if (
+    !G.amTacticRuntime.archive ||
+    typeof G.amTacticRuntime.archive !== "object" ||
+    Array.isArray(G.amTacticRuntime.archive)
+  ) {
+    G.amTacticRuntime.archive = {};
   }
 
   return G.amTacticRuntime;
@@ -328,7 +339,8 @@ export function initializeTacticRuntime(
 export function recordTacticRuntimeExecutions(
   targetIds
 ) {
-  const updated = [];
+  const updated =
+    [];
 
   for (
     const targetId
@@ -371,12 +383,16 @@ export function recordTacticRuntimeExecutions(
 
     updated.push({
       targetId,
+
       path:
         runtime.path,
+
       phaseId:
         runtime.phaseId,
+
       tacticExecutions:
         runtime.tacticExecutions,
+
       phaseExecutions:
         runtime.phaseExecutions
     });
@@ -398,7 +414,8 @@ function appendTransitionHistory(
       runtime.transitionHistory
     )
   ) {
-    runtime.transitionHistory = [];
+    runtime.transitionHistory =
+      [];
   }
 
   runtime.transitionHistory.push(
@@ -479,27 +496,27 @@ function validateAssessmentContext(
     );
   }
 
-  const recommendation =
+  const tacticRecommendation =
     normalizeDecision(
-      assessment.recommendation
+      assessment.tacticRecommendation
     );
 
-  if (!recommendation) {
+  if (!tacticRecommendation) {
     throw new Error(
       `Cannot transition tactic runtime for ${targetId}: ` +
-      `unsupported recommendation ${assessment.recommendation}.`
+      `unsupported tactic recommendation ${assessment.tacticRecommendation}.`
     );
   }
 
-  return recommendation;
+  return tacticRecommendation;
 }
 
 /* ============================================================
    TRANSITION RESOLUTION
 ============================================================ */
 
-function resolveAppliedDecision(
-  recommendation,
+function resolveTacticDecision(
+  tacticRecommendation,
   context
 ) {
   const {
@@ -539,34 +556,78 @@ function resolveAppliedDecision(
         )
       : null;
 
+  if (
+    tacticRecommendation ===
+    TACTIC_RUNTIME_DECISIONS.FINISH
+  ) {
+    return {
+      tacticDecision:
+        TACTIC_RUNTIME_DECISIONS.FINISH,
+
+      reason:
+        "assessment_recommended_finish",
+
+      nextPhaseId:
+        null,
+
+      terminal:
+        true
+    };
+  }
+
+  if (
+    tacticRecommendation ===
+    TACTIC_RUNTIME_DECISIONS.ABANDON
+  ) {
+    return {
+      tacticDecision:
+        TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+      reason:
+        "assessment_recommended_abandon",
+
+      nextPhaseId:
+        null,
+
+      terminal:
+        true
+    };
+  }
+
   /*
    * The model may recommend advancement, but the engine owns the
    * minimum-execution gate.
    */
   if (
-    recommendation ===
+    tacticRecommendation ===
       TACTIC_RUNTIME_DECISIONS.ADVANCE &&
     phaseExecutions <
       minExecutions
   ) {
     return {
-      appliedDecision:
+      tacticDecision:
         TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
       reason:
         "minimum_executions_not_met",
 
       nextPhaseId:
-        null
+        null,
+
+      terminal:
+        false
     };
   }
 
   /*
    * A phase may not continue indefinitely beyond its declared
    * maximum. Once exhausted, the canonical next phase is forced.
+   *
+   * If no canonical next phase exists, exhaustion abandons the
+   * tactic rather than inventing successful completion.
    */
   if (
-    recommendation ===
+    tacticRecommendation ===
       TACTIC_RUNTIME_DECISIONS.CONTINUE &&
     Number.isFinite(
       maxExecutions
@@ -578,25 +639,37 @@ function resolveAppliedDecision(
       !nextPhaseId ||
       !nextPhase
     ) {
-      throw new Error(
-        `Cannot continue exhausted phase ${runtime.phaseId}: ` +
-        `no valid canonical next phase exists.`
-      );
+      return {
+        tacticDecision:
+          TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+        reason:
+          "terminal_phase_exhausted",
+
+        nextPhaseId:
+          null,
+
+        terminal:
+          true
+      };
     }
 
     return {
-      appliedDecision:
+      tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
       reason:
         "maximum_executions_reached",
 
-      nextPhaseId
+      nextPhaseId,
+
+      terminal:
+        false
     };
   }
 
   if (
-    recommendation ===
+    tacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE
   ) {
     if (
@@ -610,33 +683,39 @@ function resolveAppliedDecision(
     }
 
     return {
-      appliedDecision:
+      tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
       reason:
         "assessment_recommended_advance",
 
-      nextPhaseId
+      nextPhaseId,
+
+      terminal:
+        false
     };
   }
 
   return {
-    appliedDecision:
+    tacticDecision:
       TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
     reason:
       "assessment_recommended_continue",
 
     nextPhaseId:
-      null
+      null,
+
+    terminal:
+      false
   };
 }
 
 /* ============================================================
-   TRANSITION APPLICATION
+   TRANSITION PREPARATION
 ============================================================ */
 
-function applyOneTacticRuntimeTransition(
+function prepareOneTacticRuntimeTransition(
   assessment
 ) {
   const targetId =
@@ -646,7 +725,7 @@ function applyOneTacticRuntimeTransition(
 
   if (!targetId) {
     throw new Error(
-      `Cannot apply tactic runtime transition: invalid target ID ${assessment?.targetId}.`
+      `Cannot prepare tactic runtime transition: invalid target ID ${assessment?.targetId}.`
     );
   }
 
@@ -655,7 +734,7 @@ function applyOneTacticRuntimeTransition(
       targetId
     );
 
-  const recommendation =
+  const tacticRecommendation =
     validateAssessmentContext(
       assessment,
       context
@@ -669,10 +748,24 @@ function applyOneTacticRuntimeTransition(
     runtime.phaseId;
 
   const resolution =
-    resolveAppliedDecision(
-      recommendation,
+    resolveTacticDecision(
+      tacticRecommendation,
       context
     );
+
+  const toPhaseId =
+    resolution.terminal
+      ? null
+      : resolution.tacticDecision ===
+          TACTIC_RUNTIME_DECISIONS.ADVANCE
+        ? resolution.nextPhaseId
+        : fromPhaseId;
+
+  const phaseExecutionsAfter =
+    resolution.tacticDecision ===
+    TACTIC_RUNTIME_DECISIONS.ADVANCE
+      ? 0
+      : runtime.phaseExecutions;
 
   const assessmentRecord = {
     cycle:
@@ -686,10 +779,10 @@ function applyOneTacticRuntimeTransition(
     phaseId:
       fromPhaseId,
 
-    recommendation,
+    tacticRecommendation,
 
-    appliedDecision:
-      resolution.appliedDecision,
+    tacticDecision:
+      resolution.tacticDecision,
 
     explanation:
       String(
@@ -703,11 +796,147 @@ function applyOneTacticRuntimeTransition(
         : null
   };
 
+  const transition = {
+    cycle:
+      G.cycle,
+
+    targetId,
+
+    tacticPath:
+      runtime.path,
+
+    tacticRecommendation,
+
+    tacticDecision:
+      resolution.tacticDecision,
+
+    reason:
+      resolution.reason,
+
+    terminal:
+      resolution.terminal,
+
+    fromPhaseId,
+
+    toPhaseId,
+
+    tacticExecutions:
+      runtime.tacticExecutions,
+
+    phaseExecutionsAfter,
+
+    timestamp:
+      Date.now()
+  };
+
+  let archiveRecord =
+    null;
+
+  if (resolution.terminal) {
+    const existingArchive =
+      G.amTacticRuntime.archive[
+        targetId
+      ];
+
+    if (
+      existingArchive !== undefined &&
+      !Array.isArray(
+        existingArchive
+      )
+    ) {
+      throw new Error(
+        `Cannot archive tactic runtime for ${targetId}: archive bucket is invalid.`
+      );
+    }
+
+    const priorHistory =
+      Array.isArray(
+        runtime.transitionHistory
+      )
+        ? runtime.transitionHistory
+        : [];
+
+    archiveRecord = {
+      targetId,
+
+      tacticPath:
+        runtime.path,
+
+      startedCycle:
+        runtime.startedCycle,
+
+      endedCycle:
+        G.cycle,
+
+      phaseStartedCycle:
+        runtime.phaseStartedCycle,
+
+      finalPhaseId:
+        fromPhaseId,
+
+      tacticExecutions:
+        runtime.tacticExecutions,
+
+      phaseExecutions:
+        runtime.phaseExecutions,
+
+      lastAppliedCycle:
+        runtime.lastAppliedCycle,
+
+      terminalDecision:
+        resolution.tacticDecision,
+
+      terminalReason:
+        resolution.reason,
+
+      lastAssessment:
+        assessmentRecord,
+
+      lastTransition:
+        transition,
+
+      transitionHistory:
+        [
+          ...priorHistory,
+          transition
+        ].slice(-50),
+
+      endedTimestamp:
+        transition.timestamp
+    };
+  }
+
+  return {
+    targetId,
+    runtime,
+    resolution,
+    assessmentRecord,
+    transition,
+    archiveRecord
+  };
+}
+
+/* ============================================================
+   TRANSITION COMMIT
+============================================================ */
+
+function commitTacticRuntimeTransition(
+  prepared
+) {
+  const {
+    targetId,
+    runtime,
+    resolution,
+    assessmentRecord,
+    transition,
+    archiveRecord
+  } = prepared;
+
   runtime.lastAssessment =
     assessmentRecord;
 
   if (
-    resolution.appliedDecision ===
+    resolution.tacticDecision ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE
   ) {
     runtime.phaseId =
@@ -724,72 +953,97 @@ function applyOneTacticRuntimeTransition(
       0;
   }
 
-  const transition = {
-    cycle:
-      G.cycle,
-
-    targetId,
-
-    tacticPath:
-      runtime.path,
-
-    recommendedDecision:
-      recommendation,
-
-    appliedDecision:
-      resolution.appliedDecision,
-
-    reason:
-      resolution.reason,
-
-    fromPhaseId,
-
-    toPhaseId:
-      runtime.phaseId,
-
-    tacticExecutions:
-      runtime.tacticExecutions,
-
-    phaseExecutionsAfter:
-      runtime.phaseExecutions,
-
-    timestamp:
-      Date.now()
-  };
-
   appendTransitionHistory(
     runtime,
     transition
   );
 
+  if (resolution.terminal) {
+    G.amTacticRuntime.archive[
+      targetId
+    ] ??= [];
+
+    G.amTacticRuntime.archive[
+      targetId
+    ].push(
+      archiveRecord
+    );
+
+    delete G.amTacticRuntime.targets[
+      targetId
+    ];
+  }
+
   return transition;
 }
 
+/* ============================================================
+   BATCH TRANSITION APPLICATION
+============================================================ */
+
 export function applyTacticRuntimeTransitions(
-  assessmentResults
+  tacticAssessments
 ) {
   if (
     !Array.isArray(
-      assessmentResults
+      tacticAssessments
     )
   ) {
     throw new TypeError(
-      "assessmentResults must be an array."
+      "tacticAssessments must be an array."
     );
   }
 
-  const transitions = [];
+  ensureTacticRuntimeRoot();
 
+  const preparedTransitions =
+    [];
+
+  const preparedTargetIds =
+    new Set();
+
+  /*
+   * Validate and prepare the entire batch before mutating any
+   * runtime. A later invalid assessment must not leave earlier
+   * targets partially advanced, archived, or deleted.
+   */
   for (
-    const assessment
-    of assessmentResults
+    const tacticAssessment
+    of tacticAssessments
   ) {
-    transitions.push(
-      applyOneTacticRuntimeTransition(
-        assessment
+    const targetId =
+      normalizeTargetId(
+        tacticAssessment?.targetId
+      );
+
+    if (!targetId) {
+      throw new Error(
+        `Cannot prepare tactic runtime transition: invalid target ID ${tacticAssessment?.targetId}.`
+      );
+    }
+
+    if (
+      preparedTargetIds.has(
+        targetId
+      )
+    ) {
+      throw new Error(
+        `Cannot apply tactic runtime transitions: duplicate assessment for ${targetId}.`
+      );
+    }
+
+    preparedTargetIds.add(
+      targetId
+    );
+
+    preparedTransitions.push(
+      prepareOneTacticRuntimeTransition(
+        tacticAssessment
       )
     );
   }
 
-  return transitions;
+  return preparedTransitions.map(
+    commitTacticRuntimeTransition
+  );
 }

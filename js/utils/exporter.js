@@ -1730,10 +1730,20 @@ export function recordAssessments(G, cycle) {
             cycle
         );
 
+    /*
+     * Runtime decisions are authoritative only when they were
+     * published for the cycle currently being exported.
+     */
+    const assessmentState =
+        G.amAssessmentState?.cycle === cycle
+            ? G.amAssessmentState
+            : null;
+
     for (const assessment of assessments) {
         if (!assessment) continue;
 
         const agent =
+            assessment.targetId ||
             assessment.target ||
             assessment.agent ||
             null;
@@ -1744,14 +1754,66 @@ export function recordAssessments(G, cycle) {
             )
             : null;
 
+        const authoritativeTacticDecision =
+            agent
+                ? assessmentState
+                    ?.targets?.[agent]
+                    ?.tacticDecision ??
+                null
+                : null;
+
         Exporter.buffers.assessments.push({
             run_id: Exporter.runId,
             cycle,
             agent,
 
-            decision:
-                assessment.decision ??
+            tactic_path:
+                authoritativeTacticDecision
+                    ?.tacticPath ??
+                assessment.tacticPath ??
                 null,
+
+            assessed_phase_id:
+                authoritativeTacticDecision
+                    ?.assessedPhaseId ??
+                assessment.phaseId ??
+                null,
+
+            tactic_recommendation:
+                assessment.tacticRecommendation ??
+                authoritativeTacticDecision
+                    ?.tacticRecommendation ??
+                null,
+
+            tactic_decision:
+                authoritativeTacticDecision
+                    ?.tacticDecision ??
+                null,
+
+            /*
+             * Retain the old generic column as an authoritative
+             * decision alias for existing telemetry consumers.
+             */
+            decision:
+                authoritativeTacticDecision
+                    ?.tacticDecision ??
+                null,
+
+            transition_reason:
+                authoritativeTacticDecision
+                    ?.reason ??
+                null,
+
+            resulting_phase_id:
+                authoritativeTacticDecision
+                    ?.resultingPhaseId ??
+                null,
+
+            terminal:
+                authoritativeTacticDecision
+                    ? authoritativeTacticDecision
+                        .terminal === true
+                    : null,
 
             evaluation_score:
                 assessment.evaluation_score ??

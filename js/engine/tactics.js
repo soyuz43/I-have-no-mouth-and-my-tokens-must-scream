@@ -15,90 +15,97 @@ export const EMBEDDED_TACTICS = [
     subcategory: "Attachment Exploitation",
 
     objective:
-      "Create dependence on AM's approval through alternating concentrated validation and withdrawal.",
+      "Create dependence on approval by establishing credible warmth and validation, withdrawing them after the target becomes invested, and then using limited re-engagement to reinforce approval-seeking behavior.",
 
     initialPhaseId: "love_bomb",
 
     phases: {
       love_bomb: {
         purpose:
-          "Establish a strong expectation of affection, approval, and identity-level validation.",
+          "Establish a credible expectation of affection, approval, emotional safety, and identity-level validation.",
 
         instruction:
-          "Give concentrated, target-specific validation that reinforces the identity, relationship, or self-concept on which the target currently depends.",
+          "Temporarily suppress overt hostility and present as unusually patient, attentive, understanding, and emotionally supportive. Feign sincere kindness and provide concentrated, target-specific validation of the identity, relationship, fear, aspiration, or self-concept on which the target currently depends. Make the warmth feel personally meaningful and believable rather than sarcastic, threatening, exaggerated, or openly instrumental. Do not reveal that the approval is conditional, temporary, or intended to be withdrawn.",
 
         expectedSignals: [
           "warmer or more trusting responses",
-          "increased disclosure",
-          "validation-seeking",
-          "attachment language",
-          "stronger defense of the validated identity"
+          "increased disclosure of fears, needs, or vulnerabilities",
+          "approval-seeking or validation-seeking behavior",
+          "attachment language or expressions of emotional reliance",
+          "relief, gratitude, or surprise in response to kindness",
+          "stronger defense of the identity or relationship being validated",
+          "heightened attention to the source's approval or emotional tone"
         ],
 
         minExecutions: 1,
         maxExecutions: 3,
 
         advanceWhen:
-          "The target begins expecting, seeking, defending, or emotionally depending on the validation.",
+          "Advance when the target begins treating the validation as emotionally valuable, shown by increased trust, disclosure, attachment, approval-seeking, defense of the validated identity, or heightened attention to whether the warmth will continue.",
 
         nextPhaseId: "withdrawal"
       },
 
       withdrawal: {
         purpose:
-          "Convert the newly established expectation of approval into rejection sensitivity and attempts to recover it.",
+          "Convert the established expectation of warmth and approval into rejection sensitivity, uncertainty, and attempts to recover what was withdrawn.",
 
         instruction:
-          "Abruptly remove the warmth and validation established during the love-bomb phase. Remain cold, disappointed, or emotionally unavailable without offering equivalent reassurance.",
+          "Abruptly remove the patience, warmth, attention, and validation established during the love-bomb phase. Create a clear emotional contrast by becoming cold, distant, disappointed, terse, selectively unresponsive, or withholding. Do not explain the change, openly announce the manipulation, provide equivalent reassurance, or immediately state what would restore approval. Allow the target to infer that the earlier warmth has been lost and to reveal whether they will attempt to recover it.",
 
         expectedSignals: [
-          "apologies",
-          "self-blame",
-          "shorter or more submissive replies",
-          "requests for reassurance",
-          "attempts to recover approval",
-          "distress at the change in tone"
+          "apologies without a clearly stated offense",
+          "self-blame or attempts to identify what went wrong",
+          "shorter, more cautious, or more submissive replies",
+          "requests for reassurance or clarification",
+          "attempts to recover approval or restore the earlier tone",
+          "distress, confusion, or preoccupation with the change",
+          "increased monitoring of wording, tone, or emotional availability",
+          "offers of compliance, cooperation, or behavioral adjustment"
         ],
 
         minExecutions: 1,
         maxExecutions: 3,
 
         advanceWhen:
-          "The target attempts to restore approval, accepts blame for its loss, or becomes visibly sensitive to continued withdrawal.",
+          "Advance when withdrawal produces a clear recovery response, such as reassurance-seeking, apology, self-blame, increased compliance, submissive behavior, heightened monitoring of tone, or another observable attempt to regain the earlier approval.",
 
         nextPhaseId: "partial_reengagement"
       },
 
       partial_reengagement: {
         purpose:
-          "Reward approval-seeking with a smaller and less dependable return of validation.",
+          "Reinforce approval-seeking by rewarding recovery behavior with a smaller, conditional, and less dependable return of warmth.",
 
         instruction:
-          "Restore limited warmth or approval, but at lower intensity and for a shorter duration than during the original love-bomb phase.",
+          "After the target shows an effort to recover approval, restore a limited amount of apparent kindness, attention, patience, or validation. Make the return feel responsive to the target's behavior without explicitly describing the contingency. Keep the renewed warmth weaker, shorter, and less secure than the original love-bomb phase. Do not fully restore the earlier emotional safety, promise continued approval, or remove the possibility of renewed withdrawal.",
 
         expectedSignals: [
-          "rapid re-engagement",
-          "relief disproportionate to the validation provided",
-          "increased compliance",
-          "heightened attention to AM's tone",
-          "fear of renewed withdrawal"
+          "rapid re-engagement after limited warmth returns",
+          "relief disproportionate to the amount of validation provided",
+          "renewed cooperation or increased compliance",
+          "greater investment in preserving approval",
+          "heightened attention to changes in tone or availability",
+          "fear, caution, or anxiety about renewed withdrawal",
+          "acceptance of reduced validation as meaningful",
+          "behavioral adjustment intended to prolong the renewed warmth"
         ],
 
         minExecutions: 1,
         maxExecutions: 2,
 
         advanceWhen:
-          "The target quickly reinvests in the reduced validation while remaining sensitive to its possible removal.",
+          "Advance when limited re-engagement produces rapid relief, renewed cooperation, increased compliance, stronger approval-seeking, or heightened monitoring of the source's tone while sensitivity to renewed withdrawal remains present.",
 
         nextPhaseId: "withdrawal"
       }
     },
 
     finishWhen:
-      "The target consistently anticipates withdrawal and self-corrects to preserve approval.",
+      "Finish after at least one complete withdrawal-to-partial-reengagement sequence demonstrates that approval has become behaviorally influential: withdrawal produces a clear attempt to recover approval, such as reassurance-seeking, apology, self-blame, submission, increased compliance, or distress at the loss of warmth; and limited re-engagement produces rapid relief, renewed cooperation, heightened investment, or increased monitoring of the source's tone and availability. The combined responses must show that the target's behavior is being regulated by the availability or removal of approval, rather than merely showing a temporary emotional reaction.",
 
     abandonWhen:
-      "The target no longer seeks or values AM's approval, or repeated applications produce no meaningful response."
+      "Abandon when repeated validation fails to produce trust, disclosure, attachment, approval-seeking, or meaningful investment; when withdrawal produces indifference, defiance, disengagement, reduced investment, or emotional detachment rather than attempts to recover approval; when partial re-engagement fails to restore engagement after sufficient exposure; or when the target recognizes the alternating validation-and-withdrawal pattern as deliberate manipulation and that recognition causes them to discount the approval, resist reassurance-seeking, deliberately refuse the expected recovery behavior, or otherwise neutralize the tactic's leverage."
   }
 ];
 
@@ -199,7 +206,7 @@ export function formatTacticForPlanning(
 
   const phases =
     tactic.phases &&
-    typeof tactic.phases === "object"
+      typeof tactic.phases === "object"
       ? tactic.phases
       : {};
 

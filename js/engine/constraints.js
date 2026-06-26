@@ -981,7 +981,8 @@ export function cleanupExpiredConstraints(
       constraint?.lastAssessment
         ?.cycle === G.cycle &&
       constraint?.lastAssessment
-        ?.decision === "RELEASE";
+        ?.constraintDecision ===
+        "RELEASE";
 
   const removed =
     sim.constraints.filter(
@@ -1021,9 +1022,10 @@ export function cleanupExpiredConstraints(
                 constraint.lastAssessment
                   ?.cycle ?? null,
 
-              lastDecision:
+              lastConstraintDecision:
                 constraint.lastAssessment
-                  ?.decision ?? null
+                  ?.constraintDecision ??
+                null
             })
           )
       }

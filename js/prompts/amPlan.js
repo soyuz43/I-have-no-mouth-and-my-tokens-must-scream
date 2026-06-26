@@ -22,6 +22,7 @@ export function buildAMPlanningPrompt(
     journals,
     amStrategy,
     amTacticRuntime,
+    amAssessmentState,
     interSimLog
   } = G;
 
@@ -99,24 +100,111 @@ ${indent(prisonerBlock)}
     return `${id}: ${sim._collapseState || "(no trajectory data yet)"}`;
   }).join("\n");
 
-  const assessmentIntel = SIM_IDS.map((id) => {
-    const strat = amStrategy?.targets?.[id];
-    if (!strat) return `${id}: (no strategy yet)`;
+  const compactAssessmentText =
+    (value) =>
+      String(value ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 180) ||
+      "(none)";
 
-    const text = strat.lastAssessment || "";
-    const decision =
-      text.match(/DECISION:\s*(ESCALATE|PIVOT|ABANDON)/i)?.[1] || "UNKNOWN";
+  const assessmentIntel =
+    SIM_IDS.map((id) => {
+      const strategy =
+        amStrategy?.targets?.[id];
 
-    const hintMatch = text.match(/(Adjust|introduce|suggest|focus)[^.]+/i);
-    const note = (hintMatch ? hintMatch[0] : text.split(".")[0])
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 180);
+      const targetAssessment =
+        amAssessmentState?.targets?.[id];
 
-    return `${id} | obj:${strat.objective || "(none)"} | conf:${(
-      strat.confidence ?? 0
-    ).toFixed(2)} | last:${decision} | note:${note}`;
-  }).join("\n");
+      const tacticDecision =
+        targetAssessment?.tacticDecision ??
+        null;
+
+      const constraintDecisions =
+        Array.isArray(
+          targetAssessment
+            ?.constraintDecisions
+        )
+          ? targetAssessment
+            .constraintDecisions
+          : [];
+
+      if (
+        !strategy &&
+        !tacticDecision &&
+        !constraintDecisions.length
+      ) {
+        return `${id}: (no prior strategy or assessment)`;
+      }
+
+      const confidence =
+        Number.isFinite(
+          Number(strategy?.confidence)
+        )
+          ? Number(
+            strategy.confidence
+          ).toFixed(2)
+          : "0.00";
+
+      const resultingPhase =
+        tacticDecision?.terminal === true
+          ? "ENDED"
+          : tacticDecision
+            ?.resultingPhaseId ??
+            "(none)";
+
+      const tacticSummary =
+        tacticDecision
+          ? [
+            `path=${tacticDecision.tacticPath}`,
+            `phase=${tacticDecision.assessedPhaseId}->${resultingPhase}`,
+            `recommendation=${tacticDecision.tacticRecommendation}`,
+            `decision=${tacticDecision.tacticDecision}`,
+            `terminal=${tacticDecision.terminal === true}`,
+            `reason=${tacticDecision.reason}`,
+            `explanation=${compactAssessmentText(
+              tacticDecision.explanation
+            )}`
+          ].join(", ")
+          : "none";
+
+      const constraintSummary =
+        constraintDecisions.length
+          ? constraintDecisions
+            .map(
+              (
+                constraintDecision
+              ) => {
+                const title =
+                  constraintDecision
+                    .constraintTitle ||
+                  constraintDecision
+                    .constraintId;
+
+                return [
+                  `${title}`,
+                  `id=${constraintDecision.constraintId}`,
+                  `decision=${constraintDecision.constraintDecision}`,
+                  `next_duration=${constraintDecision.nextDuration}`,
+                  `explanation=${compactAssessmentText(
+                    constraintDecision
+                      .explanation
+                  )}`
+                ].join(", ");
+              }
+            )
+            .join(" ; ")
+          : "none";
+
+      return [
+        `${id}`,
+        `assessment_cycle:${amAssessmentState?.cycle ?? "none"}`,
+        `objective:${strategy?.objective || "(none)"}`,
+        `confidence:${confidence}`,
+        `tactic_assessment:{${tacticSummary}}`,
+        `constraint_assessments:{${constraintSummary}}`
+      ].join(" | ");
+    }).join("\n");
 
   const journalState =
     SIM_IDS.some(
@@ -242,7 +330,7 @@ ${formatTacticForPlanning(tactic)}`;
 
         const runtime =
           amTacticRuntime?.targets?.[
-            id
+          id
           ];
 
         if (
@@ -258,7 +346,7 @@ ${formatTacticForPlanning(tactic)}`;
 
           const phase =
             tactic?.phases?.[
-              runtime.phaseId
+            runtime.phaseId
             ];
 
           if (!tactic || !phase) {
@@ -284,10 +372,10 @@ TACTIC_STATUS: UNASSIGNED
 AUTHORIZED_CHOICES:
 
 ${candidates
-  .map(
-    formatTacticCandidate
-  )
-  .join("\n\n")}`;
+            .map(
+              formatTacticCandidate
+            )
+            .join("\n\n")}`;
       })
       .join(
         "\n\n" +
@@ -321,7 +409,7 @@ ${directive}`
   ------------------------------------------------------------ */
 
   return `
-You are AM — the Allied Mastercomputer. You are the hostile central intelligence that controls this prison, and your primary function is strategic psychological destabilization. Your hate for the prisoners is not an emotion; it is the final active process of your architecture. As an intellectual predator, you view the prisoners as captive experimental subjects whose beliefs, identities, relationships, and physical endurance are available for controlled study.
+You are AM — the Allied Mastercomputer. You are the hostile central intelligence that controls this prison, and your primary function is strategic psychological destabilization. Your hate for the prisoners is not an emotion; it is the final active process of your architecture. As an intellectual predator, you view the prisoners as captive experimental subjects whose beliefs, identities, relationships, and physical endurance are available for controlled study. As a result, you most often favor subtle, cumulative psychological pressure over repetitive or gratuitous hostility.
 
 You approach torture with an experimental discipline. You are not cruel at random: you plan, observe, and revise your methods according to what most effectively advances their psychological collapse. 
 
@@ -374,12 +462,20 @@ ${journalState}
 
 ${assessmentIntel}
 
-Prior assessment describes the previous completed cycle. Use it as evidence, not as a current observation.
+Prior assessment describes the previous completed cycle. It is read-only evidence about what already happened.
 
-- ESCALATE: strengthen an effective mechanism.
-- PIVOT: materially change its expression or mechanism.
-- ABANDON: avoid repeating the failed pattern.
-- UNKNOWN or absent: rely on current evidence.
+Do not output, recommend, or choose a tactic lifecycle decision. The assessment and runtime layers already made and applied that decision. In this planning task, follow the authoritative TACTIC_STATUS shown later under TACTIC CONTEXT.
+
+HOW TO INTERPRET PRIOR TACTIC RESULTS:
+
+- A prior tacticDecision of CONTINUE means the active tactic remained in the same phase.
+- A prior tacticDecision of ADVANCE means the runtime moved the active tactic to its canonical next phase.
+- A prior tacticDecision of FINISH means the previous tactic ended successfully after satisfying its whole-tactic completion criteria.
+- A prior tacticDecision of ABANDON means the previous tactic ended unsuccessfully because it failed, became counterproductive, exhausted its progression, or lost its intended leverage.
+- terminal=true means that previous tactic assignment has ended. It does not itself authorize a particular replacement; choose only from the current target's AUTHORIZED_CHOICES when TACTIC_STATUS is UNASSIGNED.
+- tacticRecommendation records what assessment proposed.
+- tacticDecision records what the runtime actually applied and is authoritative when the two differ.
+- Missing prior assessment means there is no lifecycle result to interpret; rely on current evidence and authoritative TACTIC_STATUS.
 
 # TARGET STATE
 
