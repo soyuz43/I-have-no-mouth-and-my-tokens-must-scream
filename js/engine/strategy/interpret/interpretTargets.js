@@ -53,7 +53,7 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
 
     const normalizedTarget = normalizeTargetKeys(target);
 
-    let {
+    const {
       id,
       objective,
       hypothesis,
@@ -61,21 +61,6 @@ export function interpretTargets(rawTargets, { DEBUG = false } = {}) {
       evidence,
       tactic_path
     } = normalizedTarget;
-
-    /*
-     * Preserve the raw extracted field if the legacy key
-     * normalizer did not explicitly retain it.
-     */
-    if (
-      tactic_path === undefined &&
-      Object.prototype.hasOwnProperty.call(
-        target,
-        "tactic_path"
-      )
-    ) {
-      tactic_path =
-        target.tactic_path;
-    }
 
     if (!id || typeof id !== "string") {
       if (DEBUG) console.warn(`[INTERPRET] missing id at ${index}`);

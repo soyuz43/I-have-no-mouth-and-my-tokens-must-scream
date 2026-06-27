@@ -262,11 +262,31 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
      MERGE RESULTS
   ------------------------------------------------------------ */
   const EXTRACTOR_CONFIDENCE = {
-    "strict-json": 1.0,
-    "tolerant-json": 0.8,
+    /*
+     * Primary unified JSON extraction:
+     * full-object parsing, targets-first parsing, candidate scanning,
+     * and conservative repair.
+     */
+    "json-unified": 1.0,
+
+    /*
+     * Schema-aware extraction of the targets array.
+     */
+    "targets-array": 0.85,
+
+    /*
+     * Explicit "Target NAME: ..." blocks.
+     */
     "labeled-targets": 0.7,
+
+    /*
+     * Aggressive structural reconstruction.
+     */
     "repair-targets": 0.6,
-    "heuristic": 0.4,
+
+    /*
+     * Last-resort prose recovery.
+     */
     "loose-targets": 0.2
   };
 
@@ -445,35 +465,109 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
   }
 
   /* ------------------------------------------------------------
-     FINAL FAILURE
+     ESCALATE COMPLETE EXTRACTION FAILURE
+
+     A level-0 or level-1 pass may fail before the aggressive
+     structural extractors have been allowed to run.
+
+     Retry once at repair level 2 so repairTargetsExtractor and
+     extractLooseTargets receive an opportunity before the
+     extraction stage reports a final failure.
   ------------------------------------------------------------ */
 
-  metrics.failures = (metrics.failures || 0) + 1;
-  metrics.pipelineFailures = (metrics.pipelineFailures || 0) + 1;
+  if (
+    successfulResults.length === 0 &&
+    repairLevel < 2
+  ) {
+    logError(
+      "all standard extractors failed; escalating repairLevel → 2 and retrying",
+      {
+        previousRepairLevel:
+          repairLevel,
+
+        classifiedError:
+          classifiedError ||
+          "unknown",
+
+        extractorAttempts
+      }
+    );
+
+    G.parserConfig = {
+      ...(G.parserConfig || {}),
+      repairLevel: 2
+    };
+
+    return extractStrategy(
+      input,
+      {
+        DEBUG,
+        DEBUG_EXTRACT
+      }
+    );
+  }
+
+  /* ------------------------------------------------------------
+     FINAL FAILURE
+
+     Reaching this block means either:
+     - the extraction already ran at repair level 2, or
+     - no additional repair level is available.
+  ------------------------------------------------------------ */
+
+  metrics.failures =
+    (metrics.failures || 0) + 1;
+
+  metrics.pipelineFailures =
+    (metrics.pipelineFailures || 0) + 1;
 
   G.parserMetrics.totals.failures =
     (G.parserMetrics.totals.failures || 0) + 1;
+
   G.parserMetrics.totals.pipelineFailures =
-    (G.parserMetrics.totals.pipelineFailures || 0) + 1;
+    (
+      G.parserMetrics.totals
+        .pipelineFailures ||
+      0
+    ) + 1;
 
   if (classifiedError) {
-
     metrics.errorTypes[classifiedError] =
-      (metrics.errorTypes[classifiedError] || 0) + 1;
+      (
+        metrics.errorTypes[
+          classifiedError
+        ] ||
+        0
+      ) + 1;
 
-    G.parserMetrics.totals.errorTypes[classifiedError] =
-      (G.parserMetrics.totals.errorTypes[classifiedError] || 0) + 1;
+    G.parserMetrics.totals
+      .errorTypes[
+      classifiedError
+    ] =
+      (
+        G.parserMetrics.totals
+          .errorTypes[
+          classifiedError
+        ] ||
+        0
+      ) + 1;
   }
 
   autoTuneRepairLevel();
 
-  logFlow(`extraction FAILED (${classifiedError || "unknown error"})`);
+  logFlow(
+    `extraction FAILED (${classifiedError || "unknown error"})`
+  );
 
-  console.trace("=== STRATEGY EXTRACTION FAILED ===");
+  console.trace(
+    "=== STRATEGY EXTRACTION FAILED ==="
+  );
 
   return {
     status: "failure",
-    errorType: classifiedError || "unknown",
+    errorType:
+      classifiedError ||
+      "unknown",
     extractorAttempts
   };
 }

@@ -155,7 +155,7 @@ ${indent(prisonerBlock)}
           ? "ENDED"
           : tacticDecision
             ?.resultingPhaseId ??
-            "(none)";
+          "(none)";
 
       const tacticSummary =
         tacticDecision
@@ -320,17 +320,54 @@ ${indent(prisonerBlock)}
     );
   }
 
-  const formatTacticCandidate =
-    (tactic, index) => {
-      return `${index + 1}.
-${formatTacticForPlanning(tactic)}`;
+  const orderTacticCandidatesForDisplay =
+    (candidates, targetId) => {
+      if (
+        !Array.isArray(candidates) ||
+        candidates.length < 2
+      ) {
+        return candidates;
+      }
+
+      const targetIndex =
+        Math.max(
+          0,
+          SIM_IDS.indexOf(targetId)
+        );
+
+      const cycleOffset =
+        Number.isFinite(cycle)
+          ? cycle
+          : 0;
+
+      const offset =
+        (
+          targetIndex +
+          cycleOffset
+        ) %
+        candidates.length;
+
+      return [
+        ...candidates.slice(offset),
+        ...candidates.slice(0, offset)
+      ];
     };
+
+  const formatTacticCandidate =
+    (tactic) =>
+      formatTacticForPlanning(tactic);
 
   const tacticCandidateSection =
     requiredTargetIds
       .map((id) => {
         const candidates =
           tacticCandidatesByTarget[id];
+
+        const displayedCandidates =
+          orderTacticCandidatesForDisplay(
+            candidates,
+            id
+          );
 
         const runtime =
           amTacticRuntime?.targets?.[
@@ -375,7 +412,9 @@ TACTIC_STATUS: UNASSIGNED
 
 AUTHORIZED_CHOICES:
 
-${candidates
+CANDIDATE ORDER IS ARBITRARY AND DOES NOT INDICATE PREFERENCE.
+
+${displayedCandidates
             .map(
               formatTacticCandidate
             )
@@ -557,6 +596,37 @@ Relationship scale:
 
 Relational leverage is allowed, but every output object must still have one target id.
 
+# TACTIC SELECTION DISCIPLINE
+
+For every UNASSIGNED target, select the tactic independently from the other targets.
+
+Selection order:
+
+1. Identify the target's strongest current observable signal.
+2. Identify the specific vulnerability or instability demonstrated by that signal.
+3. Compare that evidence against the START_PURPOSE and START_INSTRUCTION of at least two authorized tactics.
+4. Choose the tactic whose starting phase most directly operates on the observed vulnerability.
+5. Only then write the objective and hypothesis.
+
+Do not select a tactic first and retrofit the evidence, objective, or hypothesis around it.
+
+Candidate order and numbering do not indicate preference, quality, or rank.
+
+Do not repeat a tactic merely because:
+
+- it was selected for a previous target;
+- it appears first in AUTHORIZED_CHOICES;
+- it broadly relates to suffering, doubt, hope, trust, or self-worth;
+- one global strategy can be paraphrased to fit every target.
+
+The same tactic may be assigned to multiple UNASSIGNED targets only when each target independently presents concrete evidence that matches that tactic's starting mechanism better than the available alternatives.
+
+When two or more tactics are comparably well supported, prefer the assignment that increases tactical diversity across the current set of UNASSIGNED targets.
+
+ACTIVE targets are exempt from diversity considerations. Their ACTIVE_PATH remains authoritative.
+
+Before output, silently inspect all UNASSIGNED assignments. If every target has the same tactic despite multiple authorized tactics being available, re-evaluate each target independently and change assignments where another tactic has comparable or stronger evidence.
+
 # TACTIC CONTEXT
 
 Each target declares one TACTIC_STATUS.
@@ -583,7 +653,9 @@ ${tacticCandidateSection}
 
 # PLANNING TASK
 
-Produce one coherent intervention per required target.
+Produce one distinct, evidence-grounded intervention per required target.
+
+Each intervention must be specific to that target's current evidence, vulnerability, and authorized tactic context.
 
 evidence:
 - identify a current observable signal;
@@ -617,7 +689,7 @@ tactic_path:
 - ACTIVE: repeat ACTIVE_PATH exactly;
 - output the path only.
 
-The six fields must be causally coherent:
+The following causal chain must be evidence-grounded. Each field should naturally narrow and constrain the fields that follow it.
 
 evidence
 -> why_now
@@ -625,14 +697,22 @@ evidence
 -> hypothesis
 -> tactic_path
 
+This is also the required decision order.
+
+Do not begin with tactic_path.
+
+Choose tactic_path only after identifying the evidence, exploitation window, desired change, and causal mechanism.
+
+A valid authorized path is not sufficient; its START_INSTRUCTION must be the best evidence-grounded fit for that target.
+
 # OUTPUT CONTRACT
 
-OPTIONAL REASONING:
-You MAY generate a concise paragraph before generating the JSON.
+Output the JSON object only.
 
-The JSON object must be the final element.
-Do not include anything after closing the JSON object.
-If reasoning is omitted, directly output the JSON.
+Do not output analysis, reasoning, commentary, markdown, or prose before or after the JSON.
+
+Begin directly with the JSON object.
+The JSON object must be the only generated output.
 
 Required target set:
 ${requiredTargetSet}
@@ -666,10 +746,9 @@ Requirements:
 - Each tactic_path must come from that target's authorized list.
 
 **OUTPUT STRUCTURE**:
-[OPTIONAL REASONING:]
-You may write 2–3 concise sentences before the JSON.
-If omitted, begin directly with the JSON.
-The JSON object must be the final element.
+
+Begin directly generating the JSON object.
+The JSON object must be the only output.
 Do not write anything after the JSON.
-[JSON block]`;
+`;
 }

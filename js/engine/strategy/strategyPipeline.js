@@ -10,8 +10,6 @@ import { enforceStrategy } from "./enforceStrategy.js";
 import { commitStrategy } from "./commitStrategy.js";
 
 import { visualizeParserCycle } from "./analysis/parserMetricsVisualizer.js";
-import { classifyJsonError } from "./extractors/classifyJsonError.js";
-import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
 import {
   startStrategyRun,
   setCleanedInput,
@@ -133,64 +131,121 @@ export function runStrategyPipeline(rawText, { DEBUG = true } = {}) {
     logPipelineStage("extract", "start");
 
 
-    let extracted = extractStrategy(cleaned, {
+    const extracted = extractStrategy(cleaned, {
       DEBUG,
       DEBUG_EXTRACT: true
     });
 
-    if (!extracted || !extracted.targets) {
+    const extractionSucceeded =
+      extracted?.status === "success" &&
+      Array.isArray(extracted.targets) &&
+      extracted.targets.length > 0;
 
-      logFallback("extract failed, attempting loose target extraction");
-      logPipelineStage("extract", "fallback_attempt");
+    if (!extractionSucceeded) {
+      const errorType =
+        extracted?.errorType ||
+        "unknown";
 
-      const fallback = extractLooseTargets(cleaned, { DEBUG_EXTRACT: DEBUG });
+      const extractorAttempts =
+        Array.isArray(
+          extracted?.extractorAttempts
+        )
+          ? extracted.extractorAttempts
+          : [];
 
-      if (!fallback || !fallback.targets || fallback.targets.length === 0) {
+      logError(
+        "extract",
+        {
+          errorType,
+          reason:
+            "all configured extraction and repair passes failed",
+          extractorAttempts
+        }
+      );
 
-        const errorType = classifyJsonError(cleaned);
-        logError("extract", { errorType, reason: "loose extraction also failed" });
-        logPipelineStage("extract", "failure", { errorType });
+      logPipelineStage(
+        "extract",
+        "failure",
+        {
+          errorType
+        }
+      );
 
-        G.lastExtractedTargets = extracted?.targets || [];
+      G.lastExtractedTargets = [];
 
-        logStrategyStage("extract", {
+      logStrategyStage(
+        "extract",
+        {
           error: true,
           errorType,
-          output: { targetsFound: G.lastExtractedTargets.length }
-        });
+          output: {
+            targetsFound: 0
+          },
+          extractorAttempts
+        }
+      );
 
-        finalizeStrategyRun({
-          status: "failure",
-          stage: "extract",
-          errorType
-        });
+      finalizeStrategyRun({
+        status: "failure",
+        stage: "extract",
+        errorType
+      });
 
-        G.lastStrategyFailure = {
-          type: "extract_failure",
-          stage: "extract",
-          recovered: G.lastExtractedTargets?.length || 0
-        };
+      G.lastStrategyFailure = {
+        type: "extract_failure",
+        stage: "extract",
+        recovered: 0
+      };
 
-        return {
-          status: "failure",
-          stage: "extract",
-          errorType
-        };
-      }
+      return {
+        status: "failure",
+        stage: "extract",
+        errorType,
+        extractorAttempts
+      };
+    }
 
-      extracted = fallback;
-      logFallback("loose extraction succeeded", { targetCount: fallback.targets.length });
+    /*
+     * extractStrategy() owns every extraction and repair fallback.
+     *
+     * Record degraded execution only when loose-targets was the
+     * sole successful extractor. If stronger extractors also
+     * succeeded, their higher-confidence output remains available
+     * through the merge process.
+     */
+    const extractorsUsed =
+      Array.isArray(
+        extracted.meta?.extractorsUsed
+      )
+        ? extracted.meta.extractorsUsed
+        : [];
+
+    const usedOnlyLooseExtraction =
+      extractorsUsed.length === 1 &&
+      extractorsUsed[0] ===
+      "loose-targets";
+
+    if (usedOnlyLooseExtraction) {
+      logFallback(
+        "extractStrategy recovered targets using loose extraction",
+        {
+          targetCount:
+            extracted.targets.length
+        }
+      );
 
       G.lastStrategyFailure = {
         type: "degraded_execution",
         stage: "extract",
-        recovered: fallback.targets.length
+        recovered:
+          extracted.targets.length
       };
 
       G.executionMeta = {
         ...(G.executionMeta || {}),
         degraded: true,
-        fallback: "loose-extractor"
+        fallback:
+          "loose-extractor"
       };
     }
 

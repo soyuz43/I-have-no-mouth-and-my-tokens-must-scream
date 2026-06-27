@@ -1,6 +1,7 @@
 // js/engine/strategy/extractors/extractLabeledTargets.js
 
 import { normalizeTargetKeys } from "./normalizeKeys.js";
+import { normalizeUnicode } from "./normalizeUnicode.js";
 
 export function extractLabeledTargets(input) {
   if (!input || typeof input !== "string") return null;
@@ -16,7 +17,15 @@ export function extractLabeledTargets(input) {
 
   while ((match = jsonRegex.exec(input)) !== null) {
     const id = match[1].trim().toUpperCase();
-    let jsonStr = match[2].trim();
+
+    /*
+     * Repair structurally used Unicode quotation marks before
+     * applying the remaining conservative JSON repairs.
+     */
+    let jsonStr =
+      normalizeUnicode(
+        match[2].trim()
+      );
 
     // Conservative repair only
     jsonStr = jsonStr
@@ -97,6 +106,21 @@ function extractStructuredBlock(text) {
       result.hypothesis = value;
     } else if (rawKey.includes("evidence")) {
       result.evidence = value;
+    } else if (
+      rawKey.includes("tactic") &&
+      (
+        rawKey.includes("path") ||
+        rawKey.trim() === "tactic"
+      )
+    ) {
+      /*
+       * Preserve the planner's raw tactic selection.
+       *
+       * Canonicalization, authorization, aliases, and guarded
+       * Levenshtein recovery happen later in
+       * resolveTacticAssignments().
+       */
+      result.tactic_path = value;
     } else if (rawKey.includes("why")) {
       result.why_now = value;
     }

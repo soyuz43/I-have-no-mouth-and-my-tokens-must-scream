@@ -152,30 +152,12 @@ export function extractTargetsArray(input, { DEBUG_EXTRACT = false } = {}) {
       }
 
       return {
-        targets: parsedArray.map((target) => {
-          const normalized =
-            normalizeTargetKeys(target);
-
-          /*
-           * tactic_path is an opaque identifier selected by the
-           * planning model. Preserve the exact extracted value even
-           * if normalizeTargetKeys() does not know about this field.
-           */
-          if (
-            target &&
-            typeof target === "object" &&
-            Object.prototype.hasOwnProperty.call(
-              target,
-              "tactic_path"
-            )
-          ) {
-            normalized.tactic_path =
-              target.tactic_path;
-          }
-
-          return normalized;
-        }),
+        targets: parsedArray.map(
+          (target) =>
+            normalizeTargetKeys(target)
+        ),
       };
+
     } catch (err) {
       if (DEBUG_EXTRACT) {
         console.debug(
