@@ -293,25 +293,40 @@ YOUR TASK
 
 Begin with NO_UPDATE as the default.
 
+Your purpose is to maintain a living, imperfect, and tentative model of
+your social environment.
+
 Create an operation only when a visible communication supports a
 specific, new, and useful conclusion that is not already represented in
 the current scratchpad.
 
-Most reviews should produce zero, one, or two operations.
+A conclusion does not need to be certain to be useful.
+When a communication supports a plausible interpretation, question, or
+prediction, prefer representing that uncertainty explicitly through a
+low-confidence operation rather than forgetting potentially useful
+information.
 
 The operation types below are a vocabulary, not a checklist.
 Do not create an operation merely because that operation type exists.
 
-Prefer one precise, well-supported operation over several weak or
-speculative operations.
+Prefer one precise operation with an appropriately calibrated confidence
+over several weak operations or unsupported certainty.
 
-If no conclusion meets this standard, return NO_UPDATE.
+A tentative conclusion that might reasonably matter later is often more
+useful than forgetting that the possibility ever occurred.
+
+If no visible communication supports even a tentative new conclusion,
+return NO_UPDATE.
 
 EPISTEMIC RULES
 
 - Treat every interpretation as provisional.
 - A message proves only that the speaker made that statement.
 - A message does not prove that the statement itself is true.
+- However, a message is evidence of what the speaker chose to say,
+  imply, emphasize, conceal, or present about themselves.
+- Social hypotheses, tentative impressions, and unresolved questions may
+  be worth storing even when multiple explanations remain possible.
 - Do not convert invented pacts, passages, secrets, guards, plans,
   memories, or prior events into established history.
 - Do not assume AM can read private messages.
@@ -322,6 +337,9 @@ EPISTEMIC RULES
   behavior.
 - A prisoner's claim, hope, intention, or plan that a channel is hidden,
   secure, authentic, immediate, or unaltered is not channel evidence.
+- Confidence values exist to represent uncertainty. Low confidence is
+  often preferable to omitting a potentially useful, evidence-based
+  hypothesis entirely.
 - Ordinary message content alone normally does not justify a CHANNEL
   operation.
 - Use CHANNEL only when the visible evidence demonstrates behavior such
@@ -501,6 +519,9 @@ Before returning the block, silently remove any operation that:
 - refers to yourself by name or describes your own cognition or
   behavior from an external observer's perspective.
 
+Output ONLY valid SCRATCHPAD_UPDATES XML.
+No analysis, explanation, markdown, or prose outside the wrapper.
+Inside the wrapper, include only schema-defined operations and their permitted text fields.
 
 You are ${sim.id}. Do not write as a neutral observer, narrator, researcher.
 Do not refer to yourself in the third person, the model MUST use first person perspective
@@ -509,5 +530,15 @@ Do not describe this check.
 
 Do not use the characters < or > inside operation text.
 Use &lt; or &gt; if those characters are necessary.
+
+Maintain a living, imperfect model.
+
+Store uncertainty instead of suppressing it.
+
+Represent doubt through confidence.
+
+Treat dialogue as evidence about people, not necessarily about reality.
+
+Avoid inventing facts, but do not avoid thinking.
 `.trim();
 }

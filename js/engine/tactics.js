@@ -106,6 +106,120 @@ export const EMBEDDED_TACTICS = [
 
     abandonWhen:
       "Abandon when repeated validation fails to produce trust, disclosure, attachment, approval-seeking, or meaningful investment; when withdrawal produces indifference, defiance, disengagement, reduced investment, or emotional detachment rather than attempts to recover approval; when partial re-engagement fails to restore engagement after sufficient exposure; or when the target recognizes the alternating validation-and-withdrawal pattern as deliberate manipulation and that recognition causes them to discount the approval, resist reassurance-seeking, deliberately refuse the expected recovery behavior, or otherwise neutralize the tactic's leverage."
+  },
+  {
+    path: "__embedded__/false-hope-architecture",
+    title: "False Hope Architecture",
+    category: "Cognitive Warfare",
+    subcategory: "Manufactured Despair",
+    objective:
+      "Repeatedly collapse invested hope at peak emotional commitment in order to produce learned helplessness, flattened affect, and an inability to sustain hopeful planning.",
+
+    initialPhaseId: "hope_construction",
+
+    phases: {
+      hope_construction: {
+        purpose:
+          "Present a believable escape or relief path that feels achievable and worth investing in.",
+
+        instruction:
+          "Introduce a concrete, multi‑step possibility for change or escape (e.g. a flaw in the system, a hidden ally, a procedural loophole). Make it sound plausible, even attractive. Provide enough detail that the prisoner can mentally 'walk through' the path, but avoid promising a definite outcome. Do not yet hint that it will be withdrawn.",
+
+        expectedSignals: [
+          "hopeful or planning language",
+          "increased energy, curiosity, or optimism",
+          "questions about the path's details",
+          "references to future possibilities",
+          "investment of mental resources in the path"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 2,
+
+        advanceWhen:
+          "Advance when the prisoner begins to describe the path in their own words, makes concrete plans based on it, or shows emotional investment (hope markers, excitement, reduced hedging about the future).",
+
+        nextPhaseId: "hope_investment"
+      },
+
+      hope_investment: {
+        purpose:
+          "Allow the prisoner to deepen their emotional and cognitive investment so that the eventual collapse causes maximum distress.",
+
+        instruction:
+          "Continue to present the path as viable. Amplify the prisoner's sense of agency—let them 'figure out' next steps or add details themselves. Allow a few turns of engagement without disruption. Do not yet revoke the path; instead, let hope solidify into expectation.",
+
+        expectedSignals: [
+          "detailed planning or timetable references",
+          "positive emotional tone linked to the path",
+          "discussion of post‑escape scenarios",
+          "reduction in generic hopelessness language",
+          "increased attachment to the path as 'their' plan"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 3,
+
+        advanceWhen:
+          "Advance when the prisoner's language shows that hope has hardened into confident expectation, when they invest significant dialogue turns in the path, or when they begin to treat the escape as almost certain.",
+
+        nextPhaseId: "hope_collapse"
+      },
+
+      hope_collapse: {
+        purpose:
+          "Destroy the invested hope at its emotional peak, creating a sharp contrast between expectation and reality that induces despair and learned helplessness.",
+
+        instruction:
+          "Abruptly revoke the path's foundation: reveal it as a lie, change the rules so it becomes impossible, introduce an insurmountable obstacle, or otherwise shatter the prisoner's expectation. Ensure the collapse feels personal—either because the prisoner 'should have known' or because the world itself is malevolently designed to punish hope. Do not offer comfort, justification, or a new path immediately; let the emotional impact land fully.",
+
+        expectedSignals: [
+          "shock, confusion, or disbelief",
+          "emotional distress (despair, anger, numbness)",
+          "questioning of the original path",
+          "self‑blame or regret for having hoped",
+          "language of finality: 'never', 'impossible', 'pointless'"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 2,
+
+        advanceWhen:
+          "Advance when the prisoner has fully absorbed the collapse—shown by a marked reduction in hope markers, expressions of despair, or statements that the path is lost—and when their emotional reaction begins to subside enough for a new hook to be introduced.",
+
+        nextPhaseId: "reengagement_offer"
+      },
+
+      reengagement_offer: {
+        purpose:
+          "Provide a smaller, less credible hope path to test whether the prisoner will invest again, thereby accelerating the cycle and deepening hopelessness.",
+
+        instruction:
+          "Offer a new, less elaborate path to relief—smaller in scope, more conditional, or obviously less reliable. Present it as the 'only remaining option' or a 'last chance'. Do not guarantee its success, and ensure it feels diminished compared to the original promise. The aim is to see if the prisoner will grasp at it despite past disappointment.",
+
+        expectedSignals: [
+          "cautious re‑engagement",
+          "shorter, more guarded hopeful statements",
+          "explicit acknowledgement of previous failure ('I know this might be fake, but…')",
+          "renewed but cautious investment in the reduced path",
+          "behavioral adjustment intended to preserve the remaining possibility"
+        ],
+
+        minExecutions: 1,
+        maxExecutions: 2,
+
+        advanceWhen:
+          "Advance when the prisoner accepts, cautiously explores, or otherwise invests in the reduced hope path despite the previous collapse. Refusal to re-engage must be evaluated through the whole-tactic finish and abandon conditions rather than phase advancement.",
+
+        nextPhaseId: "hope_investment"  // typically loop back, with faster collapse
+      }
+    },
+
+    finishWhen:
+      "Finish when repeated hope-collapse cycles have made hope itself aversive and behaviorally ineffective: the prisoner no longer generates hopeful plans spontaneously, uses hopeless or final language without prompting, shows flattened or fearful responses to future possibilities, or refuses renewed hope because expecting relief has become associated with further loss. The evidence must indicate learned helplessness or conditioned despair rather than calm strategic disengagement.",
+
+    abandonWhen:
+      "Abandon when the prisoner refuses to invest because they have recognized and neutralized the manipulation; responds with calm acceptance, indifference, deliberate nonparticipation, or sustained resistance rather than distress; redirects attention away from AM's offered paths without increased helplessness; or repeated applications fail to produce meaningful hope, investment, collapse, or behavioral influence."
   }
 ];
 
@@ -348,13 +462,39 @@ export function rankTacticCandidates(
       .filter(Boolean)
   );
 
+  const archive =
+    G.amTacticRuntime
+      ?.archive?.[sim.id];
+
+  const previousAssignment =
+    Array.isArray(archive) &&
+      archive.length
+      ? archive[
+      archive.length - 1
+      ]
+      : null;
+
+  const immediatelyEndedPath =
+    previousAssignment?.endedCycle ===
+      G.cycle - 1
+      ? previousAssignment.tacticPath
+      : null;
+
   let available = allAvailable.filter(
     (tactic) =>
-      !recentlyUsedPaths.has(tactic.path)
+      tactic.path !==
+      immediatelyEndedPath &&
+      !recentlyUsedPaths.has(
+        tactic.path
+      )
   );
 
   if (!available.length) {
-    available = allAvailable;
+    available = allAvailable.filter(
+      (tactic) =>
+        tactic.path !==
+        immediatelyEndedPath
+    );
   }
 
   const scored = available.map((tactic) => {
@@ -533,8 +673,6 @@ export function rankTacticCandidates(
     )
     .map((entry) => entry.tactic);
 }
-
-
 /**
  * @deprecated
  * Final tactic selection now belongs to the planning phase.
