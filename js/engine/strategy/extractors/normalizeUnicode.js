@@ -115,15 +115,27 @@ function normalizeUnicodeStringValues(input) {
 
           const nextSignificant = input[nextIndex];
 
+          const followedByProperty =
+            nextIndex < input.length &&
+            /^"[^"\r\n]+"\s*:/.test(
+              input.slice(nextIndex)
+            );
+
           /*
-           * Treat the quote as the closing delimiter only when it is
-           * followed by a legal JSON value boundary.
+           * Treat the quote as the closing delimiter when it is
+           * followed by either:
+           * - a legal JSON value boundary; or
+           * - another property key whose separating comma is missing.
+           *
+           * Property-key delimiters were normalized before this pass,
+           * so the missing-comma form can be recognized conservatively.
            */
           if (
             nextIndex >= input.length ||
             nextSignificant === "," ||
             nextSignificant === "}" ||
-            nextSignificant === "]"
+            nextSignificant === "]" ||
+            followedByProperty
           ) {
             closingIndex = j;
             break;
