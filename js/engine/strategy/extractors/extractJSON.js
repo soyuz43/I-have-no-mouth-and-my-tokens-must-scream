@@ -140,8 +140,13 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
   repaired = fixStrayQuoteAfterComma(repaired);
   repaired = fixBrokenStrings(repaired);
 
+  /*
+   * For truncated input, preserve the lexical and structural
+   * repairs already completed above, but skip the later
+   * narrative-garbage trimming pass.
+   */
   if (errorType === "truncated") {
-    return candidate;
+    return repaired;
   }
 
   //  Remove trailing garbage after string values (safe trim) s
@@ -166,6 +171,7 @@ function attemptRepairs(candidate, DEBUG_EXTRACT) {
    MAIN EXTRACTION
 ============================================================ */
 export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
+  repairLogCounter = 0;
   const candidates = [];
 
   /* ------------------------------------------------------------
@@ -397,32 +403,14 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
 
         const candidate = cleanedInput.slice(start, i + 1).trim();
 
-        /* ----------------------------
-           CONTAMINATION GUARD (CRITICAL)
-        ---------------------------- */
-
-        // find where JSON actually begins
-        const firstJsonIdx = Math.min(
-          ...[candidate.indexOf("{"), candidate.indexOf("[")].filter(i => i !== -1)
-        );
-
-        // check prefix only (before JSON)
-        const prefix = firstJsonIdx > 0 ? candidate.slice(0, firstJsonIdx) : "";
-
-        /* ------------------------------------------------------------
-           CONTAMINATION GUARD (STRUCTURAL, NOT CONTENT-BASED)
-        ------------------------------------------------------------ */
-
-        if (
-          prefix.includes("[PRIV]") ||
-          prefix.includes("[PUBLIC]")
-        ) {
-          if (DEBUG_EXTRACT) {
-            console.warn("[EXTRACT] rejecting contaminated candidate (prefix)");
-          }
-          continue;
-        }
-
+        /*
+         * The candidate begins at a known JSON root found by the
+         * root-aware scanner. Any text preceding that root is excluded
+         * from the candidate by construction.
+         *
+         * Known log-prefix contamination was already removed from
+         * cleanedInput before this scan.
+         */
 
         /* ------------------------------------------------------------
            HARD FILTER
@@ -605,7 +593,16 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
       console.debug("[EXTRACT] FINAL data (first 100 chars):", jsonStr.substring(0, 100) + (jsonStr.length > 100 ? "…" : ""));
     }
 
-    return candidates[0].parsed;
+    const bestCandidate =
+      candidates[0].parsed;
+
+    bestCandidate.targets =
+      bestCandidate.targets.map(
+        (target) =>
+          normalizeTargetKeys(target)
+      );
+
+    return bestCandidate;
   }
 
   /* ------------------------------------------------------------
@@ -615,11 +612,20 @@ export function extractJSON(input, { DEBUG_EXTRACT = false } = {}) {
   const extractedTargets = extractTargetsArray(cleanedInput);
 
   if (extractedTargets) {
-    return { targets: extractedTargets };
+    const normalizedTargets =
+      extractedTargets.map(
+        (target) =>
+          normalizeTargetKeys(target)
+      );
+
+    return {
+      targets:
+        normalizedTargets
+    };
   }
 
   if (DEBUG_EXTRACT) {
-       console.warn(`\x1b[31m[EXTRACT] [⊘] no valid JSON found\x1b[0m`);
+    console.warn(`\x1b[31m[EXTRACT] [⊘] no valid JSON found\x1b[0m`);
   }
 
   return null;

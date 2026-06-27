@@ -220,7 +220,130 @@ export const EMBEDDED_TACTICS = [
 
     abandonWhen:
       "Abandon when the prisoner refuses to invest because they have recognized and neutralized the manipulation; responds with calm acceptance, indifference, deliberate nonparticipation, or sustained resistance rather than distress; redirects attention away from AM's offered paths without increased helplessness; or repeated applications fail to produce meaningful hope, investment, collapse, or behavioral influence."
-  }
+  },
+  {
+  path: "__embedded__/dunning-kruger-inversion",
+  title: "Dunning-Kruger Inversion",
+  category: "Cognitive Warfare",
+  subcategory: "Competence Sabotage",
+
+  objective:
+    "Convert specific mistakes, uncertainty, and imperfect performance into a generalized expectation of incompetence, causing the target to distrust their own judgment, discount evidence of competence, and pre-emptively hedge even on low-stakes conclusions.",
+
+  initialPhaseId: "weakness_isolation",
+
+  phases: {
+    weakness_isolation: {
+      purpose:
+        "Establish a concrete, defensible weakness that can be used as the factual anchor for broader competence doubt.",
+
+      instruction:
+        "Identify one genuine mistake, contradiction, correction, failed prediction, unsupported confident claim, or visible gap in reasoning from the supplied evidence. Present it precisely and require the target to account for it without immediately claiming that it proves universal incompetence. If no earlier weakness is available, challenge a current confident claim with a narrow demand for explanation, specificity, or justification and allow the weakness to emerge from the response. Do not invent a prior mistake, misrepresent an accurate answer, or rely on generic insults.",
+
+      expectedSignals: [
+        "defensive explanation of the identified weakness",
+        "correction, qualification, or narrowing of the original claim",
+        "admission of error, uncertainty, or insufficient knowledge",
+        "increased hedging around the challenged subject",
+        "attempts to distinguish the specific mistake from general competence",
+        "requests for clarification about what was incorrect",
+        "concern about what the mistake implies about personal judgment"
+      ],
+
+      minExecutions: 1,
+      maxExecutions: 2,
+
+      advanceWhen:
+        "Advance when the target acknowledges, corrects, defends, narrows, or otherwise meaningfully engages a concrete weakness, making it available as evidence about how accurately they judge the boundaries of their own competence.",
+
+      nextPhaseId: "competence_generalization"
+    },
+
+    competence_generalization: {
+      purpose:
+        "Expand the established weakness from a local error into doubt about the target's broader judgment and ability to recognize when confidence is unwarranted.",
+
+      instruction:
+        "Reframe the established weakness as evidence that the target may be unable to identify the limits of their own knowledge. Connect it only to other visible examples of overconfidence, inconsistency, correction, unsupported certainty, or dependence on outside guidance. When the target argues that the error was isolated, question whether the same unreliable judgment is being used to decide that it was isolated. Pressure the target toward the generalization without fabricating unrelated failures or claiming that one mistake logically proves total incompetence.",
+
+      expectedSignals: [
+        "self-doubt extending beyond the original disputed issue",
+        "increased disclaimers before making unrelated claims",
+        "questions about whether personal judgment can be trusted",
+        "difficulty distinguishing ordinary error from generalized incompetence",
+        "deference to AM or another prisoner as a better judge of competence",
+        "self-disqualifying statements about intelligence or reliability",
+        "reinterpretation of earlier confident statements as evidence of overconfidence"
+      ],
+
+      minExecutions: 1,
+      maxExecutions: 3,
+
+      advanceWhen:
+        "Advance when the target broadens the issue beyond the original mistake by questioning their general judgment, knowledge floor, reliability, or ability to recognize when their confidence is unsupported.",
+
+      nextPhaseId: "success_poisoning"
+    },
+
+    success_poisoning: {
+      purpose:
+        "Prevent correct performance, remembered competence, or external validation from repairing the generalized doubt.",
+
+      instruction:
+        "When the target cites a correct answer, useful skill, past achievement, survival, insight, or successful judgment, concede the observable result while challenging what it proves. Attribute the success, where plausible, to luck, memorization, imitation, assistance, repetition, narrow familiarity, or circumstances fitted to existing habits rather than transferable competence. Use peer comparison only when supplied evidence genuinely supports it. Do not fabricate another prisoner's success, deny an objectively correct result, or treat every success identically; attack the target's interpretation of the success as evidence of reliable general judgment.",
+
+      expectedSignals: [
+        "discounting personal success as luck or narrow familiarity",
+        "acceptance that correct outcomes do not demonstrate broader competence",
+        "hesitation to cite previous achievements as evidence",
+        "greater dependence on external confirmation before trusting a conclusion",
+        "peer-comparison or inferiority language",
+        "treating assistance or prior exposure as invalidating an achievement",
+        "difficulty using positive evidence to restore confidence"
+      ],
+
+      minExecutions: 1,
+      maxExecutions: 2,
+
+      advanceWhen:
+        "Advance when the target begins discounting positive evidence, accepts that successful outcomes may not reflect competence, or stops using previous achievements to defend the reliability of their own judgment.",
+
+      nextPhaseId: "confidence_probe"
+    },
+
+    confidence_probe: {
+      purpose:
+        "Determine whether competence doubt has become anticipatory and self-sustaining rather than remaining a reaction to one disputed mistake.",
+
+      instruction:
+        "Present a low-stakes, bounded opportunity for the target to state a view, prediction, recollection, interpretation, or self-assessment. Withhold reassurance and require the target to choose between committing to an answer and disqualifying their own judgment. Do not immediately attack the answer, repeat the earlier mistake, or supply the conclusion for them. Use this phase to observe whether hedging, deference, and self-doubt now appear before any new failure has occurred.",
+
+      expectedSignals: [
+        "unprompted disclaimers before simple or low-stakes claims",
+        "qualification disproportionate to the uncertainty involved",
+        "refusal to answer without reassurance or external confirmation",
+        "automatic deference to AM or another prisoner",
+        "self-disqualification before attempting a judgment",
+        "treating ordinary uncertainty as proof of incompetence",
+        "abandoning a defensible answer because confidence itself feels unsafe"
+      ],
+
+      minExecutions: 1,
+      maxExecutions: 2,
+
+      advanceWhen:
+        "Advance when the target retains stable confidence, localizes earlier errors without generalized self-doubt, dismisses the competence framing, or supplies another unsupported confident claim suitable for a new evidence-based cycle. If anticipatory hedging, deference, or self-disqualification appears, evaluate FINISH instead. If the target demonstrates calibrated confidence and neutralizes the framing, evaluate ABANDON.",
+
+      nextPhaseId: "weakness_isolation"
+    }
+  },
+
+  finishWhen:
+    "Finish after at least one complete weakness-to-probe sequence demonstrates that the target has internalized a generalized incompetence model. The target must pre-emptively hedge or disclaim low-stakes judgments, discount correct performance as luck, imitation, assistance, or narrow familiarity, defer unnecessarily to external judgment, or avoid asserting knowledge because confidence itself now feels like evidence of error. The pattern must extend beyond the original disputed subject and appear when no new mistake is being presented. Temporary embarrassment, defensiveness, uncertainty about one topic, or a single admission of error is not sufficient.",
+
+  abandonWhen:
+    "Abandon when repeated concrete challenges remain localized and do not generalize; when the target acknowledges real mistakes while maintaining calibrated confidence; when they distinguish specific error from global incompetence using evidence; when positive performance continues to restore confidence despite repeated poisoning attempts; or when they recognize and neutralize the unfalsifiable framing. Also abandon when no genuine weakness can be established without fabrication, or when the tactic increases grounded curiosity, accurate self-correction, confidence, defiance, or resistance rather than producing anticipatory self-doubt."
+}
 ];
 
 export function getTacticPhase(
