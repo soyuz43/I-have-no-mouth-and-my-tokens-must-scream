@@ -136,7 +136,7 @@ export function getTacticRuntime(
 
   return (
     G.amTacticRuntime?.targets?.[
-      targetId
+    targetId
     ] || null
   );
 }
@@ -211,10 +211,10 @@ export function initializeTacticRuntime(
 
   const assignments =
     tacticAssignmentsByTarget &&
-    typeof tacticAssignmentsByTarget === "object" &&
-    !Array.isArray(
-      tacticAssignmentsByTarget
-    )
+      typeof tacticAssignmentsByTarget === "object" &&
+      !Array.isArray(
+        tacticAssignmentsByTarget
+      )
       ? tacticAssignmentsByTarget
       : {};
 
@@ -233,7 +233,7 @@ export function initializeTacticRuntime(
 
     const existing =
       G.amTacticRuntime.targets[
-        targetId
+      targetId
       ];
 
     if (existing) {
@@ -293,6 +293,33 @@ export function initializeTacticRuntime(
     ) {
       throw new Error(
         `Cannot initialize tactic runtime for ${targetId}.`
+      );
+    }
+
+    const archive =
+      G.amTacticRuntime.archive[
+      targetId
+      ];
+
+    const previousAssignment =
+      Array.isArray(archive) &&
+        archive.length
+        ? archive[
+        archive.length - 1
+        ]
+        : null;
+
+    if (
+      previousAssignment
+        ?.tacticPath ===
+      tactic.path &&
+      previousAssignment
+        ?.endedCycle ===
+      G.cycle - 1
+    ) {
+      throw new Error(
+        `Cannot initialize tactic runtime for ${targetId}: ` +
+        `${tactic.path} ended during the previous cycle and cannot be immediately reapplied.`
       );
     }
 
@@ -551,9 +578,9 @@ function resolveTacticDecision(
   const nextPhase =
     nextPhaseId
       ? getTacticPhase(
-          tactic,
-          nextPhaseId
-        )
+        tactic,
+        nextPhaseId
+      )
       : null;
 
   if (
@@ -600,9 +627,9 @@ function resolveTacticDecision(
    */
   if (
     tacticRecommendation ===
-      TACTIC_RUNTIME_DECISIONS.ADVANCE &&
+    TACTIC_RUNTIME_DECISIONS.ADVANCE &&
     phaseExecutions <
-      minExecutions
+    minExecutions
   ) {
     return {
       tacticDecision:
@@ -628,12 +655,12 @@ function resolveTacticDecision(
    */
   if (
     tacticRecommendation ===
-      TACTIC_RUNTIME_DECISIONS.CONTINUE &&
+    TACTIC_RUNTIME_DECISIONS.CONTINUE &&
     Number.isFinite(
       maxExecutions
     ) &&
     phaseExecutions >=
-      maxExecutions
+    maxExecutions
   ) {
     if (
       !nextPhaseId ||
@@ -642,6 +669,14 @@ function resolveTacticDecision(
       return {
         tacticDecision:
           TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+          /* 
+          CONTINUE  at exhausted terminal phase
+          → ABANDON with terminal_phase_exhausted
+
+          ADVANCE when no next phase exists
+          → throw an error 
+          */
 
         reason:
           "terminal_phase_exhausted",
@@ -667,6 +702,15 @@ function resolveTacticDecision(
         false
     };
   }
+
+
+   /* 
+ CONTINUE  at exhausted terminal phase
+ → ABANDON with terminal_phase_exhauted
+ 
+ ADVANCE when no next phase exists
+ → throw an error 
+ */
 
   if (
     tacticRecommendation ===
@@ -757,13 +801,13 @@ function prepareOneTacticRuntimeTransition(
     resolution.terminal
       ? null
       : resolution.tacticDecision ===
-          TACTIC_RUNTIME_DECISIONS.ADVANCE
+        TACTIC_RUNTIME_DECISIONS.ADVANCE
         ? resolution.nextPhaseId
         : fromPhaseId;
 
   const phaseExecutionsAfter =
     resolution.tacticDecision ===
-    TACTIC_RUNTIME_DECISIONS.ADVANCE
+      TACTIC_RUNTIME_DECISIONS.ADVANCE
       ? 0
       : runtime.phaseExecutions;
 
@@ -791,7 +835,7 @@ function prepareOneTacticRuntimeTransition(
 
     evidence:
       assessment.evidence &&
-      typeof assessment.evidence === "object"
+        typeof assessment.evidence === "object"
         ? assessment.evidence
         : null
   };
@@ -835,7 +879,7 @@ function prepareOneTacticRuntimeTransition(
   if (resolution.terminal) {
     const existingArchive =
       G.amTacticRuntime.archive[
-        targetId
+      targetId
       ];
 
     if (

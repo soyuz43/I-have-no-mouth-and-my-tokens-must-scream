@@ -234,7 +234,9 @@ function logOverhearReaction(data) {
   }
 }
 
-const MAX_MESSAGE_LENGTH = 800;
+// TODO(comms):
+// MAX_MESSAGE_LENGTH is currently declared in js/engine/comms/parsing/parsers.js as well, ivestigate and fix
+const MAX_MESSAGE_LENGTH = 2000;
 
 export async function step({ fromId, state, queue }) {
   const {

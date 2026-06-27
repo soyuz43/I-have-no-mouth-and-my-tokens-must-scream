@@ -2,7 +2,25 @@
 
 import { levenshtein } from "../../strategy/extractors/levenshtein.js";
 
-const MAX_MESSAGE_LENGTH = 800;
+// TODO(comms):
+// MAX_MESSAGE_LENGTH is currently declared independently in
+// js/engine/comms/engine.js and js/engine/comms/parsing/parsers.js.
+//
+// Investigate whether these limits are intentionally separate or should
+// be unified into a single shared constant.
+//
+// Verify exactly where truncation occurs, which subsystems consume the
+// truncated text (scratchpad review, evidence extraction, journals,
+// exports, etc.), and whether increasing or removing the cap affects
+// model quality, prompt size, or memory usage.
+//
+// GPT-OSS appeared to hallucinate details during scratchpad review;
+// determine whether that behavior was model-specific or partially caused
+// by message truncation.
+//
+// Consider moving this to a shared constant (e.g.
+// core/constants.js or comms/constants.js) to avoid configuration drift.
+const MAX_MESSAGE_LENGTH = 2000;
 
 /* ============================================================
    VISIBILITY PARSER
@@ -113,7 +131,7 @@ export function parseMessage(raw) {
   
   let msg = m[1].trim();
   msg = cleanMessageText(msg);
-  return msg.slice(0, MAX_MESSAGE_LENGTH);
+  return msg;
 }
 /* ============================================================
    REPLY PARSER
