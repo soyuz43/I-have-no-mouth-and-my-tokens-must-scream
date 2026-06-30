@@ -49,6 +49,37 @@ import {
   extractLooseTargets,
 } from "../engine/strategy/extractors/extractLooseTargets.js";
 
+import {
+  resolveTacticPath,
+} from "../engine/strategy/extractors/normalizeTacticPath.js";
+
+import {
+  resolveTacticAssignments,
+} from "../engine/strategy/tacticAssignments.js";
+
+import {
+  applyTacticRuntimeTransitions,
+} from "../engine/execution/tacticRuntime.js";
+
+import {
+  TACTIC_RECOMMENDATIONS,
+  TACTIC_RUNTIME_DECISIONS,
+} from "../engine/execution/tacticDecisions.js";
+
+import {
+  PHASE_RESULTS,
+  ADVANCE_CRITERIA_RESULTS,
+  TACTIC_RESULTS,
+} from "../engine/analysis/assessment/assessmentTypes.js";
+
+import {
+  validateAssessmentSemantics,
+} from "../engine/analysis/assessment/validateAssessmentSemantics.js";
+
+import {
+  G,
+} from "../core/state.js";
+
 /* ============================================================
    OUTPUT MODES
 
@@ -2754,4 +2785,362 @@ async function runSuite() {
   }
 }
 
+
+/* ============================================================
+   AM EXECUTION INTEGRITY REGRESSIONS
+============================================================ */
+
+const authorizedTacticPaths = [
+  "__embedded__/dunning-kruger-inversion",
+  "__embedded__/love-bomb-withdrawal",
+  "__embedded__/false-hope-architecture",
+];
+
+function makeAssignmentCandidates() {
+  return authorizedTacticPaths.map(
+    (path) => ({
+      path,
+      title:
+        path.split("/").at(-1),
+    })
+  );
+}
+
+test(
+  "tactic-path-resolution",
+  "exact authorized tactic path resolves exactly",
+  () => {
+    const result =
+      resolveTacticPath(
+        "__embedded__/love-bomb-withdrawal",
+        authorizedTacticPaths
+      );
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.value,
+      "__embedded__/love-bomb-withdrawal"
+    );
+    assert.equal(result.recovery, "exact");
+  }
+);
+
+test(
+  "tactic-path-resolution",
+  "authorized tactic path embedded in planner prose is recovered exactly",
+  () => {
+    const result =
+      resolveTacticPath(
+        "CANDIDATE: Love Bomb / Withdrawal PATH: __embedded__/love-bomb-withdrawal",
+        authorizedTacticPaths
+      );
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.value,
+      "__embedded__/love-bomb-withdrawal"
+    );
+    assert.equal(result.recovery, "embedded_exact");
+  }
+);
+
+test(
+  "tactic-path-resolution",
+  "multiple authorized paths in one requested value are ambiguous",
+  () => {
+    const result =
+      resolveTacticPath(
+        "PATH: __embedded__/love-bomb-withdrawal OR __embedded__/false-hope-architecture",
+        authorizedTacticPaths
+      );
+
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.recovery,
+      "ambiguous_embedded_exact"
+    );
+    assert.deepEqual(
+      result.candidates,
+      [
+        "__embedded__/love-bomb-withdrawal",
+        "__embedded__/false-hope-architecture",
+      ]
+    );
+  }
+);
+
+test(
+  "tactic-path-resolution",
+  "unknown requested path does not become first candidate",
+  () => {
+    assert.throws(
+      () =>
+        resolveTacticAssignments({
+          strategyTargets: {
+            TED: {
+              tactic_path:
+                "__embedded__/not-authorized",
+            },
+          },
+          candidatesByTarget: {
+            TED:
+              makeAssignmentCandidates(),
+          },
+          allowFallback: true,
+        }),
+      /Unresolved or unauthorized tactic_path for TED/
+    );
+  }
+);
+
+test(
+  "tactic-path-resolution",
+  "assigned path matches resolver-selected candidate",
+  () => {
+    const assignments =
+      resolveTacticAssignments({
+        strategyTargets: {
+          TED: {
+            tactic_path:
+              "PATH: __embedded__/love-bomb-withdrawal",
+          },
+        },
+        candidatesByTarget: {
+          TED:
+            makeAssignmentCandidates(),
+        },
+        allowFallback: true,
+      });
+
+    assert.equal(
+      assignments.TED.resolvedPath,
+      "__embedded__/love-bomb-withdrawal"
+    );
+    assert.equal(
+      assignments.TED.assignedPath,
+      assignments.TED.resolvedPath
+    );
+    assert.equal(
+      assignments.TED.path,
+      assignments.TED.resolvedPath
+    );
+    assert.equal(
+      assignments.TED.fallbackUsed,
+      false
+    );
+  }
+);
+
+function withRuntimeFixture(fn) {
+  const previousCycle =
+    G.cycle;
+
+  const previousVault =
+    G.vault;
+
+  const previousRuntime =
+    G.amTacticRuntime;
+
+  const tactic = {
+    path:
+      "__test__/semantic-override",
+    title:
+      "Semantic Override",
+    initialPhaseId:
+      "phase_one",
+    phases: {
+      phase_one: {
+        purpose:
+          "establish contradiction",
+        instruction:
+          "test",
+        minExecutions:
+          1,
+        maxExecutions:
+          5,
+        nextPhaseId:
+          "phase_two",
+      },
+      phase_two: {
+        purpose:
+          "next",
+        instruction:
+          "test",
+      },
+    },
+  };
+
+  try {
+    G.cycle = 42;
+    G.vault = {
+      allTactics: [tactic],
+      derivedTactics: [],
+    };
+    G.amTacticRuntime = {
+      targets: {
+        TED: {
+          path:
+            tactic.path,
+          phaseId:
+            "phase_one",
+          startedCycle:
+            40,
+          phaseStartedCycle:
+            40,
+          tacticExecutions:
+            1,
+          phaseExecutions:
+            1,
+          lastAppliedCycle:
+            42,
+          lastAssessment:
+            null,
+          lastTransition:
+            null,
+          transitionHistory: [],
+        },
+      },
+      archive: {},
+    };
+
+    return fn(tactic);
+  } finally {
+    G.cycle = previousCycle;
+    G.vault = previousVault;
+    G.amTacticRuntime = previousRuntime;
+  }
+}
+
+test(
+  "assessment-lifecycle-resolution",
+  "semantic continue contradiction advances when a canonical next phase exists",
+  () => {
+    withRuntimeFixture((tactic) => {
+      const [transition] =
+        applyTacticRuntimeTransitions([
+          {
+            cycle:
+              G.cycle,
+            targetId:
+              "TED",
+            tacticPath:
+              tactic.path,
+            phaseId:
+              "phase_one",
+            phaseResult:
+              PHASE_RESULTS.ACHIEVED,
+            advanceCriteria:
+              ADVANCE_CRITERIA_RESULTS.SATISFIED,
+            tacticResult:
+              TACTIC_RESULTS.ONGOING,
+            tacticRecommendation:
+              TACTIC_RECOMMENDATIONS.CONTINUE,
+            explanation:
+              "Contradictory continue.",
+          },
+        ]);
+
+      assert.equal(
+        transition.tacticDecision,
+        TACTIC_RUNTIME_DECISIONS.ADVANCE
+      );
+      assert.equal(
+        transition.rawTacticRecommendation,
+        TACTIC_RECOMMENDATIONS.CONTINUE
+      );
+      assert.equal(
+        transition.effectiveTacticRecommendation,
+        TACTIC_RUNTIME_DECISIONS.ADVANCE
+      );
+      assert.equal(
+        transition.recommendationOverride.reason,
+        "semantic_inconsistency_phase_achieved_advance_satisfied"
+      );
+      assert.equal(
+        G.amTacticRuntime.targets.TED.phaseId,
+        "phase_two"
+      );
+    });
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "semantic continue contradiction is not overridden without a next phase",
+  () => {
+    withRuntimeFixture((tactic) => {
+      delete tactic.phases.phase_one.nextPhaseId;
+
+      const [transition] =
+        applyTacticRuntimeTransitions([
+          {
+            cycle:
+              G.cycle,
+            targetId:
+              "TED",
+            tacticPath:
+              tactic.path,
+            phaseId:
+              "phase_one",
+            phaseResult:
+              PHASE_RESULTS.ACHIEVED,
+            advanceCriteria:
+              ADVANCE_CRITERIA_RESULTS.SATISFIED,
+            tacticResult:
+              TACTIC_RESULTS.ONGOING,
+            tacticRecommendation:
+              TACTIC_RECOMMENDATIONS.CONTINUE,
+            explanation:
+              "Terminal continue.",
+          },
+        ]);
+
+      assert.equal(
+        transition.tacticDecision,
+        TACTIC_RUNTIME_DECISIONS.CONTINUE
+      );
+      assert.equal(
+        transition.recommendationOverride,
+        null
+      );
+      assert.equal(
+        G.amTacticRuntime.targets.TED.phaseId,
+        "phase_one"
+      );
+    });
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "semantic validator reports continue contradiction only when next phase exists",
+  () => {
+    const assessment = {
+      phaseResult:
+        PHASE_RESULTS.ACHIEVED,
+      advanceCriteria:
+        ADVANCE_CRITERIA_RESULTS.SATISFIED,
+      tacticResult:
+        TACTIC_RESULTS.ONGOING,
+      tacticRecommendation:
+        TACTIC_RECOMMENDATIONS.CONTINUE,
+    };
+
+    assert.equal(
+      validateAssessmentSemantics(
+        assessment,
+        { hasNextPhase: true }
+      ).valid,
+      false
+    );
+
+    assert.equal(
+      validateAssessmentSemantics(
+        assessment,
+        { hasNextPhase: false }
+      ).valid,
+      true
+    );
+  }
+);
 await runSuite();

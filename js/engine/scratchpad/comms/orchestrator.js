@@ -2,7 +2,7 @@
 
 import { G } from "../../../core/state.js";
 import { SIM_IDS } from "../../../core/constants.js";
-
+import { timelineEvent } from "../../../ui/timeline.js";
 import { callModel } from "../../../models/callModel.js";
 import {
   buildScratchpadCommsPrompt,
@@ -1484,6 +1484,28 @@ function buildPhaseSummary({
   };
 }
 
+function formatScratchpadReviewTimelineResult(
+  result
+) {
+  if (!result) {
+    return "failed";
+  }
+
+  if (result.status === "skipped") {
+    return "skipped";
+  }
+
+  if (result.status === "failure") {
+    return `failed at ${result.stage ?? "unknown stage"}`;
+  }
+
+  return (
+    `${result.status} · ` +
+    `${result.acceptedOperationCount ?? 0} accepted · ` +
+    `${result.rejectedOperationCount ?? 0} rejected`
+  );
+}
+
 /* ============================================================
    FULL SCRATCHPAD COMMUNICATION CYCLE
 ============================================================ */
@@ -1527,51 +1549,71 @@ export async function runScratchpadCommsCycle({
   let summary = null;
 
   try {
-    for (const simId of simIds) {
-      try {
-        const result =
-          await runScratchpadCommsReviewForSim(
-            simId,
-            {
-              messages:
-                history,
+for (const simId of simIds) {
+  timelineEvent(
+    `scratchpad review ${simId} start`
+  );
 
-              cycle:
-                normalizedCycle,
+  try {
+    const result =
+      await runScratchpadCommsReviewForSim(
+        simId,
+        {
+          messages:
+            history,
 
-              maxTokens:
-                normalizedMaxTokens,
-            }
-          );
+          cycle:
+            normalizedCycle,
 
-        results.push(result);
-      } catch (error) {
-        /*
-         * runScratchpadCommsReviewForSim already converts normal
-         * prisoner-level failures into result objects. This outer
-         * catch is a final isolation boundary for unexpected defects.
-         */
-        logScratchpadReviewError({
-          simId,
-          stage:
-            "unhandled_review",
-          error,
-        });
+          maxTokens:
+            normalizedMaxTokens,
+        }
+      );
 
-        results.push(
-          makeFailureResult({
-            simId,
-            cycle:
-              normalizedCycle,
-            startTime:
-              getClockMilliseconds(),
-            stage:
-              "unhandled_review",
-            error,
-          })
-        );
-      }
-    }
+    results.push(result);
+
+    timelineEvent(
+      `scratchpad review ${simId} complete · ` +
+      formatScratchpadReviewTimelineResult(
+        result
+      )
+    );
+  } catch (error) {
+    /*
+     * runScratchpadCommsReviewForSim already converts normal
+     * prisoner-level failures into result objects. This outer
+     * catch is a final isolation boundary for unexpected defects.
+     */
+    logScratchpadReviewError({
+      simId,
+      stage:
+        "unhandled_review",
+      error,
+    });
+
+    const result =
+      makeFailureResult({
+        simId,
+        cycle:
+          normalizedCycle,
+        startTime:
+          getClockMilliseconds(),
+        stage:
+          "unhandled_review",
+        error,
+      });
+
+    results.push(result);
+
+    timelineEvent(
+      `scratchpad review ${simId} complete · ` +
+      formatScratchpadReviewTimelineResult(
+        result
+      )
+    );
+  }
+}
+
   } finally {
     summary =
       buildPhaseSummary({

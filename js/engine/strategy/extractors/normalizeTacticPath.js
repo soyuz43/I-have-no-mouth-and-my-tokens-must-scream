@@ -82,6 +82,25 @@ function getMaximumDistance(candidateLength) {
   );
 }
 
+function findExactAuthorizedOccurrences(
+  rawPath,
+  validTacticPaths
+) {
+  const text =
+    String(rawPath ?? "");
+
+  if (!text) {
+    return [];
+  }
+
+  return validTacticPaths.filter(
+    (path) =>
+      typeof path === "string" &&
+      path.trim() &&
+      text.includes(path)
+  );
+}
+
 /**
  * Recover a tactic path against the authoritative list of embedded
  * tactic paths.
@@ -134,7 +153,41 @@ export function resolveTacticPath(
   }
 
   /* ============================================================
-     1. EXACT CANONICAL MATCH
+     1. EXACT AUTHORIZED PATH OCCURRENCE
+  ============================================================ */
+
+  const exactOccurrences =
+    findExactAuthorizedOccurrences(
+      rawPath,
+      validTacticPaths
+    );
+
+  if (exactOccurrences.length === 1) {
+    return {
+      ok: true,
+      value: exactOccurrences[0],
+      original: rawPath,
+      recovery:
+        validTacticPaths.includes(rawPath)
+          ? "exact"
+          : "embedded_exact",
+      confidence: 1,
+    };
+  }
+
+  if (exactOccurrences.length > 1) {
+    return {
+      ok: false,
+      value: null,
+      original: rawPath,
+      recovery: "ambiguous_embedded_exact",
+      confidence: 0,
+      candidates: exactOccurrences,
+    };
+  }
+
+  /* ============================================================
+     2. EXACT CANONICAL MATCH
   ============================================================ */
 
   if (validTacticPaths.includes(rawPath)) {
@@ -148,7 +201,7 @@ export function resolveTacticPath(
   }
 
   /* ============================================================
-     2. MECHANICAL NORMALIZATION MATCH
+     3. MECHANICAL NORMALIZATION MATCH
   ============================================================ */
 
   const mechanicallyMatched =
@@ -172,7 +225,7 @@ export function resolveTacticPath(
   }
 
   /* ============================================================
-     3. EXPLICIT ALIAS MATCH
+     4. EXPLICIT ALIAS MATCH
   ============================================================ */
 
   const aliasTarget =
@@ -198,7 +251,7 @@ export function resolveTacticPath(
   }
 
   /* ============================================================
-     4. LEVENSHTEIN TYPO RECOVERY
+     5. LEVENSHTEIN TYPO RECOVERY
   ============================================================ */
 
   const scored = [];

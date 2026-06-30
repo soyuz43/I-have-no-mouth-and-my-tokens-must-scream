@@ -224,13 +224,38 @@ export async function runCycle() {
 
     const stageLine = G.lastStrategyFailure?.stage || "none";
 
-    const totals = G.parserMetrics?.totals || {};
+    const pipelineOk =
+      parserMetrics?.pipelineSuccess ||
+      0;
 
-    const pipelineOk = totals.pipelineSuccess || 0;
-    const pipelineFail = totals.pipelineFailures || 0;
+    const pipelineFail =
+      parserMetrics?.pipelineFailures ??
+      parserMetrics?.failures ??
+      0;
 
-    const extractorOk = parserMetrics?.success || 0;
-    const extractorFail = parserMetrics?.failures || 0;
+    const extractorUsage =
+      parserMetrics?.extractorUsage ||
+      {};
+
+    const extractorAttempts =
+      Object.values(
+        extractorUsage
+      ).reduce(
+        (sum, count) =>
+          sum + (Number(count) || 0),
+        0
+      );
+
+    const extractorOk =
+      parserMetrics?.success ||
+      0;
+
+    const extractorFail =
+      Math.max(
+        0,
+        extractorAttempts -
+        extractorOk
+      );
 
     const metadataStr = [
       "SYSTEM // DIAGNOSTIC",
@@ -553,15 +578,41 @@ function endCycle(cycleStart) {
 
   const commsMessages =
     (G.interSimLog || []).filter(e => e.cycle === cycleNum).length;
+  const parserMetrics =
+    G.parserMetrics?.cycles?.[cycleNum];
 
-  const parserMetrics = G.parserMetrics?.cycles?.[cycleNum];
-  const totals = G.parserMetrics?.totals || {};
+  const pipelineOk =
+    parserMetrics?.pipelineSuccess ||
+    0;
 
-  const extractorOk = parserMetrics?.success || 0;
-  const extractorFail = parserMetrics?.failures || 0;
+  const pipelineFail =
+    parserMetrics?.pipelineFailures ??
+    parserMetrics?.failures ??
+    0;
 
-  const pipelineOk = totals.pipelineSuccess || 0;
-  const pipelineFail = totals.pipelineFailures || 0;
+  const extractorUsage =
+    parserMetrics?.extractorUsage ||
+    {};
+
+  const extractorAttempts =
+    Object.values(
+      extractorUsage
+    ).reduce(
+      (sum, count) =>
+        sum + (Number(count) || 0),
+      0
+    );
+
+  const extractorOk =
+    parserMetrics?.success ||
+    0;
+
+  const extractorFail =
+    Math.max(
+      0,
+      extractorAttempts -
+      extractorOk
+    );
   const targetsExtracted =
     G.lastExtractedTargets?.length ?? 0;
 
@@ -773,7 +824,7 @@ async function runInteractionAnalysisPhase() {
   for (const sim of Object.values(G.sims)) {
 
     console.debug(`[INTERACTION LOOP] processing ${sim.id}`);
-    
+
     // ------------------------------------------------------------
     // SELECT CANONICAL MESSAGE SOURCE
     // ------------------------------------------------------------
@@ -788,7 +839,7 @@ async function runInteractionAnalysisPhase() {
      */
     const sourceLog =
       Array.isArray(G.comms?.history) &&
-      G.comms.history.length > 0
+        G.comms.history.length > 0
         ? G.comms.history
         : Array.isArray(G.interSimLog)
           ? G.interSimLog

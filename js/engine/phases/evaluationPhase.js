@@ -174,11 +174,23 @@ function publishAssessmentState(
         resultingPhaseId:
           transition.toPhaseId,
 
+        phaseResult:
+          tacticAssessment.phaseResult,
+
+        advanceCriteria:
+          tacticAssessment.advanceCriteria,
+
+        tacticResult:
+          tacticAssessment.tacticResult,
+
         tacticRecommendation:
           transition.tacticRecommendation,
 
         tacticDecision:
           transition.tacticDecision,
+
+        semanticValidation:
+          tacticAssessment.semanticValidation,
 
         terminal:
           transition.terminal === true,
@@ -467,7 +479,7 @@ export async function runEvaluationPhase() {
         assessmentState
       )
     );
-    
+
   } catch (error) {
 
     console.error(

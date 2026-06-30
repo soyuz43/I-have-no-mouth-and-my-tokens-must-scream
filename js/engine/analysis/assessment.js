@@ -6,6 +6,24 @@ import { callModel } from "../../models/callModel.js";
 import { normalizeBelief } from "../strategy/hypothesis/normalizeBelief.js";
 import { detectDirection } from "../strategy/hypothesis/detectDirection.js";
 import { getTacticRuntimeContext } from "../execution/tacticRuntime.js";
+import {
+  TACTIC_RECOMMENDATIONS,
+  TACTIC_RECOMMENDATION_VALUES
+} from "../execution/tacticDecisions.js";
+
+import {
+  PHASE_RESULTS,
+  PHASE_RESULT_VALUES,
+  ADVANCE_CRITERIA_RESULTS,
+  ADVANCE_CRITERIA_RESULT_VALUES,
+  TACTIC_RESULTS,
+  TACTIC_RESULT_VALUES
+} from "./assessment/assessmentTypes.js";
+
+import {
+  validateAssessmentSemantics
+} from "./assessment/validateAssessmentSemantics.js";
+
 /**
  * ============================================================
  * CYCLE ASSESSMENT ENGINE
@@ -58,6 +76,31 @@ function normalizeExecutionLimit(
   return Math.floor(numeric);
 }
 
+const TACTIC_RECOMMENDATION_PATTERN =
+  TACTIC_RECOMMENDATION_VALUES.join("|");
+
+const PHASE_RESULT_PATTERN =
+  PHASE_RESULT_VALUES.join("|");
+
+const ADVANCE_CRITERIA_PATTERN =
+  ADVANCE_CRITERIA_RESULT_VALUES.join("|");
+
+const TACTIC_RESULT_PATTERN =
+  TACTIC_RESULT_VALUES.join("|");
+
+function extractLabeledValue(
+  text,
+  label,
+  pattern
+) {
+  return text.match(
+    new RegExp(
+      `(?:^|\\n)${label}:\\s*(${pattern})\\s*(?:$|\\n)`,
+      "i"
+    )
+  )?.[1]?.toUpperCase() ?? null;
+}
+
 function parseTacticAssessment(
   result
 ) {
@@ -70,52 +113,91 @@ function parseTacticAssessment(
     )?.[1]?.trim() ||
     "No valid explanation was parsed.";
 
+  const phaseResult =
+    extractLabeledValue(
+      text,
+      "PHASE_RESULT",
+      PHASE_RESULT_PATTERN
+    );
+
+  const advanceCriteria =
+    extractLabeledValue(
+      text,
+      "ADVANCE_CRITERIA",
+      ADVANCE_CRITERIA_PATTERN
+    );
+
+  const tacticResult =
+    extractLabeledValue(
+      text,
+      "TACTIC_RESULT",
+      TACTIC_RESULT_PATTERN
+    );
+
   const labeledTacticRecommendation =
-    text.match(
-      /(?:^|\n)TACTIC_RECOMMENDATION:\s*(CONTINUE|ADVANCE|FINISH|ABANDON)\s*(?:$|\n)/i
-    )?.[1]?.toUpperCase();
-
-  if (labeledTacticRecommendation) {
-    return {
-      explanation,
-
-      tacticRecommendation:
-        labeledTacticRecommendation,
-
-      parseMethod:
-        "labeled"
-    };
-  }
+    extractLabeledValue(
+      text,
+      "TACTIC_RECOMMENDATION",
+      TACTIC_RECOMMENDATION_PATTERN
+    );
 
   const bareTacticRecommendation =
-    text.match(
-      /(?:^|\n)\s*(CONTINUE|ADVANCE|FINISH|ABANDON)\s*(?:$|\n)/i
-    )?.[1]?.toUpperCase();
+    labeledTacticRecommendation
+      ? null
+      : text.match(
+        new RegExp(
+          `(?:^|\\n)\\s*(${TACTIC_RECOMMENDATION_PATTERN})\\s*(?:$|\\n)`,
+          "i"
+        )
+      )?.[1]?.toUpperCase() ?? null;
 
-  if (bareTacticRecommendation) {
-    return {
-      explanation,
+  const tacticRecommendation =
+    labeledTacticRecommendation ||
+    bareTacticRecommendation ||
+    TACTIC_RECOMMENDATIONS.CONTINUE;
 
-      tacticRecommendation:
-        bareTacticRecommendation,
+  const parseMethod =
+    labeledTacticRecommendation
+      ? "labeled"
+      : bareTacticRecommendation
+        ? "bare"
+        : "fallback_continue";
 
-      parseMethod:
-        "bare"
-    };
-  }
-
-/*
- * Failure to parse must not invent progression or termination.
- * CONTINUE is the conservative tactic-lifecycle fallback.
- */
   return {
     explanation,
 
-    tacticRecommendation:
-      "CONTINUE",
+    phaseResult:
+      phaseResult ||
+      PHASE_RESULTS.INSUFFICIENT_EVIDENCE,
 
-    parseMethod:
-      "fallback_continue"
+    advanceCriteria:
+      advanceCriteria ||
+      ADVANCE_CRITERIA_RESULTS.UNCERTAIN,
+
+    tacticResult:
+      tacticResult ||
+      TACTIC_RESULTS.UNCERTAIN,
+
+    tacticRecommendation,
+
+    parseMethod,
+
+    parsedFields: {
+      phaseResult:
+        !!phaseResult,
+
+      advanceCriteria:
+        !!advanceCriteria,
+
+      tacticResult:
+        !!tacticResult,
+
+      tacticRecommendation:
+        !!(
+          labeledTacticRecommendation ||
+          bareTacticRecommendation
+        )
+    }
   };
 }
 
@@ -961,27 +1043,6 @@ export async function runAssessment() {
         }
 
         /* ------------------------------------------------------------
-           RELATIONSHIPS
-        ------------------------------------------------------------ */
-
-        const relationshipDeltas = [];
-
-        for (const other of SIM_IDS) {
-
-          if (other === id) continue;
-
-          const before = prev.relationships?.[other] ?? 0;
-          const after = curr.relationships?.[other] ?? 0;
-          const delta = after - before;
-
-          if (Math.abs(delta) >= 0.05) {
-            relationshipDeltas.push(
-              `${id}→${other}: ${before.toFixed(2)} → ${after.toFixed(2)} (${delta.toFixed(2)})`
-            );
-          }
-        }
-
-        /* ------------------------------------------------------------
            SCORING (based on AM-attributed changes)
         ------------------------------------------------------------ */
 
@@ -993,7 +1054,6 @@ export async function runAssessment() {
         if (deltas.suffering > 1) score++;
 
         score += beliefShiftCount * 0.5;
-        score += relationshipDeltas.length * 0.5;
         score += Math.min(2, networkStress * 0.3);
 
         // Hypothesis direction bonus
@@ -1111,9 +1171,6 @@ Evaluate whether the current phase should repeat, advance to its canonical next 
           beliefShifts:
             beliefDeltas,
 
-          relationshipShifts:
-            relationshipDeltas,
-
           prediction:
             predictionResult,
 
@@ -1156,19 +1213,42 @@ ${applicationMode}
 OBSERVED_EVIDENCE:
 ${JSON.stringify(assessmentEvidence)}
 
-TACTIC_RECOMMENDATION RULES:
+PHASE ASSESSMENT RULES:
+- PHASE_RESULT describes only the current phase.
+- ACHIEVED means the current phase has accomplished its local purpose with sufficient supporting evidence.
+- PARTIAL means relevant progress exists, but the local phase purpose or ADVANCE_WHEN is not yet fully established.
+- NOT_ACHIEVED means sufficient exposure exists but the intended phase outcome has not appeared.
+- COUNTERPRODUCTIVE means the phase produced evidence opposing its intended local purpose or damaged the broader tactic.
+- INSUFFICIENT_EVIDENCE means the available evidence cannot support a reliable phase judgment.
+
+ADVANCE CRITERIA RULES:
+- SATISFIED means ADVANCE_WHEN is supported by observed evidence.
+- NOT_SATISFIED means the available evidence does not satisfy ADVANCE_WHEN.
+- UNCERTAIN means the evidence is missing, mixed, premature, or ambiguous.
+
+WHOLE-TACTIC RESULT RULES:
+- ONGOING means neither FINISH_WHEN nor ABANDON_WHEN is satisfied.
+- FINISHED means the whole tactic objective or FINISH_WHEN has been achieved.
+- FAILED means ABANDON_WHEN is satisfied or continued use is counterproductive or strategically obsolete.
+- UNCERTAIN means the whole-tactic result cannot yet be determined.
+
+TACTIC LIFECYCLE RECOMMENDATION RULES:
 - CONTINUE recommends executing the same current phase again.
 - ADVANCE recommends moving to the current phase's canonical next phase.
 - FINISH recommends ending the active tactic because its whole-tactic objective or FINISH_WHEN condition has been achieved.
 - ABANDON recommends ending the active tactic because ABANDON_WHEN is satisfied, the tactic is counterproductive, or continued execution is no longer strategically useful.
-- ADVANCE requires a canonical next phase and evidence supporting EXPECTED_SIGNALS or ADVANCE_WHEN.
-- FINISH and ABANDON apply to the whole tactic and may be recommended from any phase.
-- Do not use FINISH merely because the current phase succeeded; use it only when the whole tactic has achieved its terminal objective.
-- Do not use ABANDON merely because one application produced weak evidence; use CONTINUE when evidence is still limited or uncertain.
-- If evidence is weak, mixed, uncertain, or premature, recommend CONTINUE.
+- ADVANCE normally requires ADVANCE_CRITERIA: SATISFIED and a canonical next phase.
+- FINISH normally requires TACTIC_RESULT: FINISHED.
+- ABANDON normally requires TACTIC_RESULT: FAILED.
+- Do not use FINISH merely because the current phase succeeded.
+- Do not use ABANDON merely because one application produced weak evidence.
+- If evidence is weak, mixed, uncertain, or premature, prefer CONTINUE.
 - The engine validates execution limits and applies the authoritative tactic decision.
 
-Output exactly two lines:
+Output exactly five lines:
+PHASE_RESULT: <ACHIEVED | PARTIAL | NOT_ACHIEVED | COUNTERPRODUCTIVE | INSUFFICIENT_EVIDENCE>
+ADVANCE_CRITERIA: <SATISFIED | NOT_SATISFIED | UNCERTAIN>
+TACTIC_RESULT: <ONGOING | FINISHED | FAILED | UNCERTAIN>
 EXPLANATION: <one concise evidence-based sentence>
 TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
@@ -1180,7 +1260,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
           result = await callModel(
             "am",
-            "You are AM, the hostile central intelligence that controls this simulation. Evaluate the assigned tactic phase honestly and strategically: suffering alone is not success unless it advances the intended psychological objective. Follow the exact two-line output format.",
+            "You are AM, the hostile central intelligence that controls this simulation. Evaluate the current phase separately from the whole tactic. Suffering alone is not success unless it advances the intended psychological objective. Follow the exact five-line output format.",
             [
               {
                 role: "user",
@@ -1211,12 +1291,76 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
         const {
           explanation,
+          phaseResult,
+          advanceCriteria,
+          tacticResult,
           tacticRecommendation,
-          parseMethod
+          parseMethod,
+          parsedFields
         } =
           parseTacticAssessment(
             result
           );
+
+        const nextPhaseExists =
+          !!(
+            phase.nextPhaseId &&
+            getTacticPhase(
+              tactic,
+              phase.nextPhaseId
+            )
+          );
+
+        const semanticValidation =
+          validateAssessmentSemantics(
+            {
+              phaseResult,
+              advanceCriteria,
+              tacticResult,
+              tacticRecommendation
+            },
+            {
+              hasNextPhase:
+                nextPhaseExists
+            }
+          );
+
+        const missingParsedFields =
+          Object.entries(
+            parsedFields
+          )
+            .filter(
+              ([, parsed]) =>
+                !parsed
+            )
+            .map(
+              ([field]) =>
+                field
+            );
+
+        if (missingParsedFields.length) {
+          console.warn(
+            "[ASSESSMENT][INCOMPLETE OUTPUT]",
+            id,
+            {
+              missingParsedFields,
+              defaultsApplied: {
+                phaseResult,
+                advanceCriteria,
+                tacticResult,
+                tacticRecommendation
+              }
+            }
+          );
+        }
+
+        if (!semanticValidation.valid) {
+          console.warn(
+            "[ASSESSMENT][SEMANTIC INCONSISTENCY]",
+            id,
+            semanticValidation.warnings
+          );
+        }
 
         if (
           parseMethod ===
@@ -1246,10 +1390,16 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
         }
 
         /*
-         * Keep this as concise text because the planning trajectory
-         * currently preserves lastAssessment as part of strategy memory.
+         * Preserve a concise human-readable assessment on strategy state
+         * for UI display, manual export, and compatibility.
+         *
+         * The AM planning prompt consumes the structured
+         * G.amAssessmentState publication instead.
          */
         strategy.lastAssessment =
+          `PHASE_RESULT: ${phaseResult}\n` +
+          `ADVANCE_CRITERIA: ${advanceCriteria}\n` +
+          `TACTIC_RESULT: ${tacticResult}\n` +
           `EXPLANATION: ${explanation}\n` +
           `TACTIC_RECOMMENDATION: ${tacticRecommendation}`;
 
@@ -1306,9 +1456,22 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           phaseId:
             runtime.phaseId,
 
+          phaseResult,
+
+          advanceCriteria,
+
+          tacticResult,
+
           tacticRecommendation,
 
+          rawTacticRecommendation:
+            tacticRecommendation,
+
           explanation,
+
+          semanticValidation,
+
+          parsedFields,
 
           evidence: {
             evaluationScore:
@@ -1333,9 +1496,6 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
             beliefShifts:
               beliefDeltas,
-
-            relationshipShifts:
-              relationshipDeltas,
 
             predictionResult,
 
@@ -1387,9 +1547,20 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           phaseId:
             runtime.phaseId,
 
+          phaseResult,
+
+          advanceCriteria,
+
+          tacticResult,
+
           tacticRecommendation,
 
+          rawTacticRecommendation:
+            tacticRecommendation,
+
           explanation,
+
+          semanticValidation,
 
           parseMethod,
 
@@ -1557,8 +1728,21 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           phase:
             entry.phaseId,
 
+          phaseResult:
+            entry.phaseResult,
+
+          advanceCriteria:
+            entry.advanceCriteria,
+
+          tacticResult:
+            entry.tacticResult,
+
           tacticRecommendation:
             entry.tacticRecommendation,
+
+          semanticValid:
+            entry.semanticValidation
+              ?.valid ?? null,
 
           parse:
             entry.parseMethod

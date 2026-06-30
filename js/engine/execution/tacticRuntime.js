@@ -9,17 +9,24 @@ import {
   getTacticPhase
 } from "../tactics.js";
 
-/* ============================================================
-   TACTIC RUNTIME DECISIONS
-============================================================ */
+import {
+  TACTIC_RUNTIME_DECISIONS,
+  isTacticRuntimeDecision
+} from "./tacticDecisions.js";
 
-export const TACTIC_RUNTIME_DECISIONS =
-  Object.freeze({
-    CONTINUE: "CONTINUE",
-    ADVANCE: "ADVANCE",
-    FINISH: "FINISH",
-    ABANDON: "ABANDON"
-  });
+import {
+  PHASE_RESULTS,
+  ADVANCE_CRITERIA_RESULTS,
+  TACTIC_RESULTS
+} from "../analysis/assessment/assessmentTypes.js";
+
+/*
+ * Preserve the existing public export so any current consumer importing
+ * this constant from tacticRuntime.js does not break during migration.
+ */
+export {
+  TACTIC_RUNTIME_DECISIONS
+} from "./tacticDecisions.js";
 
 /* ============================================================
    RUNTIME ROOT
@@ -78,9 +85,9 @@ function normalizeDecision(rawDecision) {
       .trim()
       .toUpperCase();
 
-  return Object.values(
-    TACTIC_RUNTIME_DECISIONS
-  ).includes(normalized)
+  return isTacticRuntimeDecision(
+    normalized
+  )
     ? normalized
     : null;
 }
@@ -544,7 +551,8 @@ function validateAssessmentContext(
 
 function resolveTacticDecision(
   tacticRecommendation,
-  context
+  context,
+  assessment = null
 ) {
   const {
     runtime,
@@ -583,11 +591,56 @@ function resolveTacticDecision(
       )
       : null;
 
+  let effectiveTacticRecommendation =
+    tacticRecommendation;
+
+  let recommendationOverride =
+    null;
+
   if (
+    nextPhaseId &&
+    nextPhase &&
     tacticRecommendation ===
+    TACTIC_RUNTIME_DECISIONS.CONTINUE &&
+    assessment?.phaseResult ===
+    PHASE_RESULTS.ACHIEVED &&
+    assessment?.advanceCriteria ===
+    ADVANCE_CRITERIA_RESULTS.SATISFIED &&
+    assessment?.tacticResult ===
+    TACTIC_RESULTS.ONGOING
+  ) {
+    effectiveTacticRecommendation =
+      TACTIC_RUNTIME_DECISIONS.ADVANCE;
+
+    recommendationOverride = {
+      from:
+        tacticRecommendation,
+
+      to:
+        effectiveTacticRecommendation,
+
+      reason:
+        "semantic_inconsistency_phase_achieved_advance_satisfied"
+    };
+  }
+
+  const withRecommendationMetadata =
+    (resolution) => ({
+      ...resolution,
+
+      rawTacticRecommendation:
+        tacticRecommendation,
+
+      effectiveTacticRecommendation,
+
+      recommendationOverride
+    });
+
+  if (
+    effectiveTacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.FINISH
   ) {
-    return {
+    return withRecommendationMetadata({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.FINISH,
 
@@ -599,14 +652,14 @@ function resolveTacticDecision(
 
       terminal:
         true
-    };
+    });
   }
 
   if (
-    tacticRecommendation ===
+    effectiveTacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.ABANDON
   ) {
-    return {
+    return withRecommendationMetadata({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ABANDON,
 
@@ -618,7 +671,7 @@ function resolveTacticDecision(
 
       terminal:
         true
-    };
+    });
   }
 
   /*
@@ -626,12 +679,12 @@ function resolveTacticDecision(
    * minimum-execution gate.
    */
   if (
-    tacticRecommendation ===
+    effectiveTacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE &&
     phaseExecutions <
     minExecutions
   ) {
-    return {
+    return withRecommendationMetadata({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
@@ -643,7 +696,7 @@ function resolveTacticDecision(
 
       terminal:
         false
-    };
+    });
   }
 
   /*
@@ -654,7 +707,7 @@ function resolveTacticDecision(
    * tactic rather than inventing successful completion.
    */
   if (
-    tacticRecommendation ===
+    effectiveTacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.CONTINUE &&
     Number.isFinite(
       maxExecutions
@@ -666,17 +719,9 @@ function resolveTacticDecision(
       !nextPhaseId ||
       !nextPhase
     ) {
-      return {
+      return withRecommendationMetadata({
         tacticDecision:
           TACTIC_RUNTIME_DECISIONS.ABANDON,
-
-          /* 
-          CONTINUE  at exhausted terminal phase
-          → ABANDON with terminal_phase_exhausted
-
-          ADVANCE when no next phase exists
-          → throw an error 
-          */
 
         reason:
           "terminal_phase_exhausted",
@@ -686,10 +731,10 @@ function resolveTacticDecision(
 
         terminal:
           true
-      };
+      });
     }
 
-    return {
+    return withRecommendationMetadata({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
@@ -700,20 +745,11 @@ function resolveTacticDecision(
 
       terminal:
         false
-    };
+    });
   }
 
-
-   /* 
- CONTINUE  at exhausted terminal phase
- → ABANDON with terminal_phase_exhauted
- 
- ADVANCE when no next phase exists
- → throw an error 
- */
-
   if (
-    tacticRecommendation ===
+    effectiveTacticRecommendation ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE
   ) {
     if (
@@ -726,21 +762,23 @@ function resolveTacticDecision(
       );
     }
 
-    return {
+    return withRecommendationMetadata({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
       reason:
-        "assessment_recommended_advance",
+        recommendationOverride
+          ? recommendationOverride.reason
+          : "assessment_recommended_advance",
 
       nextPhaseId,
 
       terminal:
         false
-    };
+    });
   }
 
-  return {
+  return withRecommendationMetadata({
     tacticDecision:
       TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
@@ -752,9 +790,8 @@ function resolveTacticDecision(
 
     terminal:
       false
-  };
+  });
 }
-
 /* ============================================================
    TRANSITION PREPARATION
 ============================================================ */
@@ -794,7 +831,8 @@ function prepareOneTacticRuntimeTransition(
   const resolution =
     resolveTacticDecision(
       tacticRecommendation,
-      context
+      context,
+      assessment
     );
 
   const toPhaseId =
@@ -823,10 +861,39 @@ function prepareOneTacticRuntimeTransition(
     phaseId:
       fromPhaseId,
 
+    phaseResult:
+      assessment.phaseResult ??
+      null,
+
+    advanceCriteria:
+      assessment.advanceCriteria ??
+      null,
+
+    tacticResult:
+      assessment.tacticResult ??
+      null,
+
     tacticRecommendation,
+
+    rawTacticRecommendation:
+      resolution.rawTacticRecommendation,
+
+    effectiveTacticRecommendation:
+      resolution.effectiveTacticRecommendation,
+
+    recommendationOverride:
+      resolution.recommendationOverride,
 
     tacticDecision:
       resolution.tacticDecision,
+
+    semanticValidation:
+      assessment.semanticValidation ??
+      null,
+
+    parsedFields:
+      assessment.parsedFields ??
+      null,
 
     explanation:
       String(
@@ -850,6 +917,15 @@ function prepareOneTacticRuntimeTransition(
       runtime.path,
 
     tacticRecommendation,
+
+    rawTacticRecommendation:
+      resolution.rawTacticRecommendation,
+
+    effectiveTacticRecommendation:
+      resolution.effectiveTacticRecommendation,
+
+    recommendationOverride:
+      resolution.recommendationOverride,
 
     tacticDecision:
       resolution.tacticDecision,

@@ -113,6 +113,135 @@ function normalizeMessageContent(content) {
   return String(content);
 }
 
+function createModelOutputError(message, details = {}) {
+  const error = new Error(message);
+
+  error.name = "ModelOutputError";
+  error.code =
+    details.code ||
+    "model_response_unusable";
+
+  error.details = details;
+
+  return error;
+}
+
+function validateModelTextResult({
+  raw,
+  cleaned,
+  result,
+  route,
+  callContext,
+}) {
+  const rawText =
+    typeof raw === "string"
+      ? raw
+      : "";
+
+  const cleanedText =
+    typeof cleaned === "string"
+      ? cleaned
+      : "";
+
+  const providerResponse =
+    result?.providerResponse &&
+      typeof result.providerResponse === "object"
+      ? result.providerResponse
+      : {};
+
+  const doneReason =
+    providerResponse.done_reason ??
+    providerResponse.doneReason ??
+    providerResponse.stop_reason ??
+    providerResponse.choices?.[0]?.finish_reason ??
+    null;
+
+  const outputTokenCount =
+    Number(
+      providerResponse.eval_count ??
+      providerResponse.usage?.completion_tokens ??
+      providerResponse.completion_tokens
+    );
+
+  const promptTokenCount =
+    Number(
+      providerResponse.prompt_eval_count ??
+      providerResponse.usage?.prompt_tokens ??
+      providerResponse.prompt_tokens
+    );
+
+  if (!rawText.trim()) {
+    throw createModelOutputError(
+      `${route.provider} returned an empty model response.`,
+      {
+        code: "model_response_empty",
+        call_id: callContext.id,
+        provider: route.provider,
+        backend: route.backend,
+        adapter: route.adapter,
+        model: route.model,
+        doneReason,
+        promptTokenCount,
+        outputTokenCount,
+      }
+    );
+  }
+
+  if (!cleanedText.trim()) {
+    throw createModelOutputError(
+      `${route.provider} returned no usable text after cleaning.`,
+      {
+        code: "model_response_empty_after_cleaning",
+        call_id: callContext.id,
+        provider: route.provider,
+        backend: route.backend,
+        adapter: route.adapter,
+        model: route.model,
+        doneReason,
+        promptTokenCount,
+        outputTokenCount,
+        rawPreview:
+          rawText.slice(0, 200),
+      }
+    );
+  }
+
+  const stoppedForLength =
+    doneReason === "length" ||
+    doneReason === "max_tokens";
+
+  const generatedAlmostNothing =
+    Number.isFinite(outputTokenCount) &&
+    outputTokenCount <= 2;
+
+  if (
+    stoppedForLength &&
+    (
+      generatedAlmostNothing ||
+      cleanedText.trim().length <= 8
+    )
+  ) {
+    throw createModelOutputError(
+      `${route.provider} stopped for length after producing almost no usable output.`,
+      {
+        code: "model_response_truncated",
+        call_id: callContext.id,
+        provider: route.provider,
+        backend: route.backend,
+        adapter: route.adapter,
+        model: route.model,
+        doneReason,
+        promptTokenCount,
+        outputTokenCount,
+        rawPreview:
+          rawText.slice(0, 200),
+        cleanedPreview:
+          cleanedText.slice(0, 200),
+      }
+    );
+  }
+}
+
 /**
  * Snapshot messages when callModel() is invoked.
  *
@@ -531,11 +660,10 @@ function formatTimeout(timeoutMs) {
         timeoutMs / 60_000
       );
 
-    return `${minutes} minute${
-      minutes === 1
+    return `${minutes} minute${minutes === 1
         ? ""
         : "s"
-    }`;
+      }`;
   }
 
   const seconds =
@@ -544,11 +672,10 @@ function formatTimeout(timeoutMs) {
       Math.round(timeoutMs / 1000)
     );
 
-  return `${seconds} second${
-    seconds === 1
+  return `${seconds} second${seconds === 1
       ? ""
       : "s"
-  }`;
+    }`;
 }
 
 /**
@@ -767,9 +894,8 @@ async function postJson({
     }
 
     throw new Error(
-      `${requestLabel} could not be completed: ${
-        error?.message ||
-        String(error)
+      `${requestLabel} could not be completed: ${error?.message ||
+      String(error)
       }`
     );
   } finally {
@@ -840,7 +966,7 @@ function resolveModel(role) {
     if (
       candidate &&
       typeof models[candidate] ===
-        "string" &&
+      "string" &&
       models[candidate].trim()
     ) {
       return models[candidate].trim();
@@ -921,7 +1047,7 @@ function resolveBackendRoute(role) {
       (
         G.ollamaOptions &&
         typeof G.ollamaOptions ===
-          "object" &&
+        "object" &&
         !Array.isArray(G.ollamaOptions)
       )
         ? { ...G.ollamaOptions }
@@ -972,7 +1098,7 @@ function resolveBackendRoute(role) {
     configuredBackend === "colab" ||
     configuredBackend === "openai" ||
     configuredBackend ===
-      "openai-compatible"
+    "openai-compatible"
   ) {
     const isColab =
       configuredBackend === "colab";
@@ -1014,10 +1140,9 @@ function resolveBackendRoute(role) {
       !apiKey
     ) {
       throw new Error(
-        `${
-          isColab
-            ? "Colab bearer token"
-            : "OpenAI-compatible API key"
+        `${isColab
+          ? "Colab bearer token"
+          : "OpenAI-compatible API key"
         } is not configured.`
       );
     }
@@ -1389,6 +1514,14 @@ export async function callModel(
 
           console.groupEnd();
         }
+
+        validateModelTextResult({
+          raw,
+          cleaned,
+          result,
+          route,
+          callContext,
+        });
 
         return cleaned;
       } catch (error) {

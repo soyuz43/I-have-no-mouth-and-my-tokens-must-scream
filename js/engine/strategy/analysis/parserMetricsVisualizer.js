@@ -1,72 +1,166 @@
 // filepath: js/engine/strategy/analysis/parserMetricsVisualizer.js
 
-export function visualizeParserCycle(cycle, G) {
+function safeRate(numerator, denominator) {
+  if (
+    !Number.isFinite(numerator) ||
+    !Number.isFinite(denominator) ||
+    denominator <= 0
+  ) {
+    return "0.00";
+  }
 
-  const metrics = G.parserMetrics?.cycles?.[cycle];
-  const totals = G.parserMetrics?.totals || {};
-  const repairLevel = G.parserConfig?.repairLevel ?? 1;
+  return (numerator / denominator).toFixed(2);
+}
+
+export function visualizeParserCycle(cycle, G) {
+  const metrics =
+    G.parserMetrics?.cycles?.[cycle];
+
+  const repairLevel =
+    G.parserConfig?.repairLevel ?? 1;
 
   if (!metrics) {
-    console.warn("[VISUALIZER] No metrics for cycle", cycle);
+    console.warn(
+      "[VISUALIZER] No metrics for cycle",
+      cycle
+    );
     return;
   }
 
-  const attempts = metrics.attempts || 1;
-  const success = metrics.success || 0;
-  const failures = metrics.failures || 0;
-  const repairs = metrics.repairs || 0;
+  /*
+   * attempts counts extractStrategy() passes.
+   *
+   * success counts successful individual extractor outputs,
+   * not successful strategy-pipeline runs.
+   *
+   * pipelineSuccess and pipelineFailures describe the terminal
+   * result of the extraction operation for this cycle.
+   */
+  const extractionPasses =
+    metrics.attempts || 0;
 
-  const successRate = (success / attempts).toFixed(2);
-  const failureRate = (failures / attempts).toFixed(2);
-  const repairRate = (repairs / attempts).toFixed(2);
+  const pipelineSuccesses =
+    metrics.pipelineSuccess || 0;
 
-  // -----------------------------
-  // dominant error
-  // -----------------------------
+  const pipelineFailures =
+    metrics.pipelineFailures ??
+    metrics.failures ??
+    0;
+
+  const pipelineRuns =
+    pipelineSuccesses +
+    pipelineFailures;
+
+  const extractorUsage =
+    metrics.extractorUsage || {};
+
+  const extractorAttempts =
+    Object.values(extractorUsage).reduce(
+      (sum, count) =>
+        sum + (Number(count) || 0),
+      0
+    );
+
+  const extractorSuccesses =
+    metrics.success || 0;
+
+  const extractorFailures =
+    Math.max(
+      0,
+      extractorAttempts -
+        extractorSuccesses
+    );
+
+  const repairs =
+    metrics.repairs || 0;
+
+  const pipelineSuccessRate =
+    safeRate(
+      pipelineSuccesses,
+      pipelineRuns
+    );
+
+  const pipelineFailureRate =
+    safeRate(
+      pipelineFailures,
+      pipelineRuns
+    );
+
+  const extractorSuccessRate =
+    safeRate(
+      extractorSuccesses,
+      extractorAttempts
+    );
+
+  const repairRate =
+    safeRate(
+      repairs,
+      pipelineRuns
+    );
+
   let dominantError = "none";
   let maxError = 0;
 
-  for (const [type, count] of Object.entries(metrics.errorTypes || {})) {
+  for (const [type, count] of Object.entries(
+    metrics.errorTypes || {}
+  )) {
     if (count > maxError) {
       dominantError = type;
       maxError = count;
     }
   }
 
-  // -----------------------------
-  // most used extractor
-  // -----------------------------
   let topExtractor = "none";
   let maxUsage = 0;
 
-  for (const [name, count] of Object.entries(metrics.extractorUsage || {})) {
+  for (const [name, count] of Object.entries(
+    extractorUsage
+  )) {
     if (count > maxUsage) {
       topExtractor = name;
       maxUsage = count;
     }
   }
 
-  // -----------------------------
-  // OUTPUT
-  // -----------------------------
-  console.group(` [PARSER][CYCLE ${cycle}]`);
+  console.group(
+    `[PARSER][CYCLE ${cycle}]`
+  );
 
   console.table({
-    attempts,
-    success,
-    failures,
+    pipelineRuns,
+    extractionPasses,
+    pipelineSuccesses,
+    pipelineFailures,
+    extractorAttempts,
+    extractorSuccesses,
+    extractorFailures,
     repairs,
-    successRate,
-    failureRate,
+    pipelineSuccessRate,
+    pipelineFailureRate,
+    extractorSuccessRate,
     repairRate,
     repairLevel
   });
 
-  console.log("Dominant Error:", dominantError);
-  console.log("Top Extractor:", topExtractor);
+  console.log(
+    "Dominant Error:",
+    dominantError
+  );
 
-  console.log("Error Breakdown:", metrics.errorTypes);
-  console.log("Extractor Usage:", metrics.extractorUsage);
+  console.log(
+    "Top Extractor:",
+    topExtractor
+  );
+
+  console.log(
+    "Error Breakdown:",
+    metrics.errorTypes
+  );
+
+  console.log(
+    "Extractor Usage:",
+    extractorUsage
+  );
 
   console.groupEnd();
 }

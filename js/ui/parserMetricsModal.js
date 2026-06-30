@@ -29,19 +29,43 @@ export function renderParserMetricsModal() {
     return;
   }
 
-  const cycles = Object.entries(G.parserMetrics.cycles || {})
-    .map(([cycle, m]) => {
+const cycles = Object.entries(
+  G.parserMetrics.cycles || {}
+)
+  .map(([cycle, m]) => {
+    const pipelineSuccesses =
+      m.pipelineSuccess || 0;
 
-      const attempts = m.attempts || 1;
+    const pipelineFailures =
+      m.pipelineFailures ??
+      m.failures ??
+      0;
 
-      return {
-        cycle: Number(cycle),
-        failureRate: m.failures / attempts,
-        repairRate: m.repairs / attempts
-      };
-    })
-    .sort((a, b) => a.cycle - b.cycle)
-    .slice(-20);
+    const pipelineRuns =
+      pipelineSuccesses +
+      pipelineFailures;
+
+    return {
+      cycle: Number(cycle),
+
+      failureRate:
+        pipelineRuns > 0
+          ? pipelineFailures /
+            pipelineRuns
+          : 0,
+
+      repairRate:
+        pipelineRuns > 0
+          ? (m.repairs || 0) /
+            pipelineRuns
+          : 0
+    };
+  })
+  .sort(
+    (a, b) =>
+      a.cycle - b.cycle
+  )
+  .slice(-20);
 
   // -------------------------------
   // GUARD: no cycle data yet
