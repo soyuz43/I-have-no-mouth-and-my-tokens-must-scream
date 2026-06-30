@@ -91,66 +91,41 @@ export function resolveTacticAssignments({
           ) || null
         : null;
 
-    if (
-      !selectedDefinition &&
-      !allowFallback
-    ) {
-      throw new Error(
-        `Unresolved or unauthorized tactic_path for ${targetId}: ` +
-          `${requestedPath || "(missing)"}`
-      );
-    }
+    const resolutionMethod =
+      pathResolution.recovery ||
+      "unresolved_path";
 
-    /*
-     * Preserve the existing rollout behavior: an unresolved path
-     * falls back to the target's highest-ranked authorized candidate.
-     */
-    const tactic =
-      selectedDefinition ||
-      candidates[0];
+    const fallbackUsed = false;
 
-    const selectionStatus =
-      selectedDefinition
-        ? pathResolution.recovery ===
-          "exact"
-          ? "selected"
-          : "recovered"
-        : "fallback";
-
-    let fallbackReason = null;
-
-    if (!selectedDefinition) {
-      if (!requestedPath) {
-        fallbackReason =
-          "missing_path";
-      } else {
-        fallbackReason =
-          pathResolution.recovery ||
-          "unresolved_path";
-      }
-    }
+    const fallbackReason = null;
 
     if (!selectedDefinition) {
       console.warn(
-        "[TACTIC ASSIGNMENT][FALLBACK]",
+        "[TACTIC ASSIGNMENT][UNRESOLVED]",
         {
           targetId,
 
-          requestedPath:
+          rawRequestedValue:
             requestedPath ||
             null,
+
+          normalizedOrRecoveredPath:
+            resolvedPath,
+
+          resolutionMethod,
+
+          assignedPath:
+            null,
+
+          fallbackUsed,
 
           closestCandidate:
             pathResolution.candidate ||
             null,
 
-          assignedPath:
-            tactic.path,
-
-          fallbackReason,
-
-          resolution:
-            pathResolution.recovery,
+          candidatePaths:
+            pathResolution.candidates ||
+            null,
 
           confidence:
             pathResolution.confidence,
@@ -160,7 +135,34 @@ export function resolveTacticAssignments({
             null,
         }
       );
-    } else if (
+
+      throw new Error(
+        `Unresolved or unauthorized tactic_path for ${targetId}: ` +
+          `${requestedPath || "(missing)"} ` +
+          `(resolution=${resolutionMethod})`
+      );
+    }
+
+    const tactic =
+      selectedDefinition;
+
+    if (
+      resolvedPath !==
+      tactic.path
+    ) {
+      throw new Error(
+        `Resolved tactic assignment mismatch for ${targetId}: ` +
+          `${resolvedPath} !== ${tactic.path}`
+      );
+    }
+
+    const selectionStatus =
+      pathResolution.recovery ===
+        "exact"
+        ? "selected"
+        : "recovered";
+
+    if (
       pathResolution.recovery !==
       "exact"
     ) {
@@ -169,15 +171,19 @@ export function resolveTacticAssignments({
         {
           targetId,
 
-          requestedPath:
+          rawRequestedValue:
             requestedPath ||
             null,
 
-          resolvedPath:
+          normalizedOrRecoveredPath:
             selectedDefinition.path,
 
-          recovery:
-            pathResolution.recovery,
+          resolutionMethod,
+
+          assignedPath:
+            tactic.path,
+
+          fallbackUsed,
 
           confidence:
             pathResolution.confidence,
@@ -215,10 +221,16 @@ export function resolveTacticAssignments({
        * null when the assignment fell back to candidates[0].
        */
       resolvedPath:
-        selectedDefinition?.path ||
-        null,
+        selectedDefinition.path,
+
+      assignedPath:
+        tactic.path,
+
+      resolutionMethod,
 
       selectionStatus,
+
+      fallbackUsed,
 
       fallbackReason,
 

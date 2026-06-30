@@ -177,12 +177,11 @@ export async function runStrategyPhase(directive) {
           tacticCandidatesByTarget,
 
         /*
-         * Keep fallback enabled during the first rollout.
-         *
-         * Missing or malformed planner paths remain visible through
-         * selectionStatus and fallbackReason but do not abort a cycle.
+         * Planner paths must resolve to one authorized target-scoped
+         * candidate. Unresolved or ambiguous paths fail planning rather
+         * than substituting an unrelated tactic.
          */
-        allowFallback: true
+        allowFallback: false
       });
 
     initializeTacticRuntime(
@@ -210,8 +209,11 @@ export async function runStrategyPhase(directive) {
         status:
           assignment.selectionStatus,
 
-        fallback:
-          assignment.fallbackReason ||
+        fallbackUsed:
+          assignment.fallbackUsed,
+
+        resolution:
+          assignment.resolutionMethod ||
           "(none)"
       }))
     );
@@ -317,8 +319,24 @@ async function stepPlanAM(
       3200
     );
   } catch (error) {
-    planText =
-      `[Plan error: ${error.message}]`;
+    G.lastStrategyFailure = {
+      type:
+        error?.code ||
+        "model_call_failure",
+
+      stage:
+        "planning",
+
+      error:
+        error?.message ||
+        String(error),
+
+      details:
+        error?.details ||
+        null
+    };
+
+    throw error;
   } finally {
     removeThinking(thinkingPlan);
   }

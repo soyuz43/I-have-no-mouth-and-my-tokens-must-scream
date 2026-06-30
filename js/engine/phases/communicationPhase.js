@@ -99,13 +99,19 @@ export async function runCommunicationPhase() {
     "scratchpad-end"
   );
 
-  timelineEvent(
-    "scratchpad communication review complete"
-  );
+timelineEvent(
+  "scratchpad communication review complete"
+);
 
-  return {
-    cycle,
-    commsState,
-    scratchpadSummary,
-  };
+if (cycle === 0) {
+  timelineEvent(
+    "// PRE-TORMENT INITIALIZATION SEALED >>"
+  );
+}
+
+return {
+  cycle,
+  commsState,
+  scratchpadSummary,
+};
 }
