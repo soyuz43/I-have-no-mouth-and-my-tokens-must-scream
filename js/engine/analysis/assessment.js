@@ -7,11 +7,6 @@ import { normalizeBelief } from "../strategy/hypothesis/normalizeBelief.js";
 import { detectDirection } from "../strategy/hypothesis/detectDirection.js";
 import { getTacticRuntimeContext } from "../execution/tacticRuntime.js";
 import {
-  TACTIC_RECOMMENDATIONS,
-  TACTIC_RECOMMENDATION_VALUES
-} from "../execution/tacticDecisions.js";
-
-import {
   PHASE_RESULTS,
   PHASE_RESULT_VALUES,
   ADVANCE_CRITERIA_RESULTS,
@@ -24,6 +19,7 @@ import {
   validateAssessmentSemantics
 } from "./assessment/validateAssessmentSemantics.js";
 
+import { getTacticPhase } from "../tactics.js";
 /**
  * ============================================================
  * CYCLE ASSESSMENT ENGINE
@@ -76,9 +72,6 @@ function normalizeExecutionLimit(
   return Math.floor(numeric);
 }
 
-const TACTIC_RECOMMENDATION_PATTERN =
-  TACTIC_RECOMMENDATION_VALUES.join("|");
-
 const PHASE_RESULT_PATTERN =
   PHASE_RESULT_VALUES.join("|");
 
@@ -101,16 +94,23 @@ function extractLabeledValue(
   )?.[1]?.toUpperCase() ?? null;
 }
 
-function parseTacticAssessment(
+export function parseTacticAssessment(
   result
 ) {
   const text =
     String(result ?? "").trim();
 
-  const explanation =
+  const explanationMatch =
     text.match(
       /(?:^|\n)EXPLANATION:\s*([^\n]+)/i
-    )?.[1]?.trim() ||
+    );
+
+  const parsedExplanation =
+    explanationMatch?.[1]?.trim() ||
+    "";
+
+  const explanation =
+    parsedExplanation ||
     "No valid explanation was parsed.";
 
   const phaseResult =
@@ -134,34 +134,25 @@ function parseTacticAssessment(
       TACTIC_RESULT_PATTERN
     );
 
-  const labeledTacticRecommendation =
-    extractLabeledValue(
-      text,
-      "TACTIC_RECOMMENDATION",
-      TACTIC_RECOMMENDATION_PATTERN
-    );
+  const parsedFields = {
+    phaseResult:
+      !!phaseResult,
 
-  const bareTacticRecommendation =
-    labeledTacticRecommendation
-      ? null
-      : text.match(
-        new RegExp(
-          `(?:^|\\n)\\s*(${TACTIC_RECOMMENDATION_PATTERN})\\s*(?:$|\\n)`,
-          "i"
-        )
-      )?.[1]?.toUpperCase() ?? null;
+    advanceCriteria:
+      !!advanceCriteria,
 
-  const tacticRecommendation =
-    labeledTacticRecommendation ||
-    bareTacticRecommendation ||
-    TACTIC_RECOMMENDATIONS.CONTINUE;
+    tacticResult:
+      !!tacticResult,
+
+    explanation:
+      !!parsedExplanation
+  };
 
   const parseMethod =
-    labeledTacticRecommendation
-      ? "labeled"
-      : bareTacticRecommendation
-        ? "bare"
-        : "fallback_continue";
+    Object.values(parsedFields)
+      .every(Boolean)
+      ? "complete"
+      : "partial_with_defaults";
 
   return {
     explanation,
@@ -178,28 +169,12 @@ function parseTacticAssessment(
       tacticResult ||
       TACTIC_RESULTS.UNCERTAIN,
 
-    tacticRecommendation,
-
     parseMethod,
 
-    parsedFields: {
-      phaseResult:
-        !!phaseResult,
-
-      advanceCriteria:
-        !!advanceCriteria,
-
-      tacticResult:
-        !!tacticResult,
-
-      tacticRecommendation:
-        !!(
-          labeledTacticRecommendation ||
-          bareTacticRecommendation
-        )
-    }
+    parsedFields
   };
 }
+
 
 function computeTrend(id, window = 4) {
 
@@ -1151,12 +1126,11 @@ export async function runAssessment() {
           firstPhaseApplication
             ? `APPLICATION_MODE: FIRST_PHASE_APPLICATION
 This is the first successful application of the current phase.
-Prefer CONTINUE when evidence is still limited or uncertain.
-ADVANCE only when the current phase already satisfies ADVANCE_WHEN.
-FINISH only when the whole tactic already satisfies FINISH_WHEN.
-ABANDON only when the evidence already satisfies ABANDON_WHEN or clearly shows that continued use would be counterproductive.`
+Classify evidence conservatively when exposure is limited or uncertain.
+Use the current phase criteria for PHASE_RESULT and ADVANCE_CRITERIA.
+Use FINISH_WHEN and ABANDON_WHEN only to classify the whole tactic result.`
             : `APPLICATION_MODE: ESTABLISHED_PHASE
-Evaluate whether the current phase should repeat, advance to its canonical next phase, or whether the whole tactic should finish or be abandoned.`;
+Classify the current phase outcome separately from the whole tactic outcome using observed evidence.`;
 
         const assessmentEvidence = {
           score:
@@ -1232,25 +1206,13 @@ WHOLE-TACTIC RESULT RULES:
 - FAILED means ABANDON_WHEN is satisfied or continued use is counterproductive or strategically obsolete.
 - UNCERTAIN means the whole-tactic result cannot yet be determined.
 
-TACTIC LIFECYCLE RECOMMENDATION RULES:
-- CONTINUE recommends executing the same current phase again.
-- ADVANCE recommends moving to the current phase's canonical next phase.
-- FINISH recommends ending the active tactic because its whole-tactic objective or FINISH_WHEN condition has been achieved.
-- ABANDON recommends ending the active tactic because ABANDON_WHEN is satisfied, the tactic is counterproductive, or continued execution is no longer strategically useful.
-- ADVANCE normally requires ADVANCE_CRITERIA: SATISFIED and a canonical next phase.
-- FINISH normally requires TACTIC_RESULT: FINISHED.
-- ABANDON normally requires TACTIC_RESULT: FAILED.
-- Do not use FINISH merely because the current phase succeeded.
-- Do not use ABANDON merely because one application produced weak evidence.
-- If evidence is weak, mixed, uncertain, or premature, prefer CONTINUE.
-- The engine validates execution limits and applies the authoritative tactic decision.
+The engine derives and applies tactic lifecycle decisions after this assessment. Do not output or imply a lifecycle action.
 
-Output exactly five lines:
+Output exactly four lines:
 PHASE_RESULT: <ACHIEVED | PARTIAL | NOT_ACHIEVED | COUNTERPRODUCTIVE | INSUFFICIENT_EVIDENCE>
 ADVANCE_CRITERIA: <SATISFIED | NOT_SATISFIED | UNCERTAIN>
 TACTIC_RESULT: <ONGOING | FINISHED | FAILED | UNCERTAIN>
-EXPLANATION: <one concise evidence-based sentence>
-TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
+EXPLANATION: <one concise evidence-based sentence>`;
 
         let result = "";
 
@@ -1260,7 +1222,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
           result = await callModel(
             "am",
-            "You are AM, the hostile central intelligence that controls this simulation. Evaluate the current phase separately from the whole tactic. Suffering alone is not success unless it advances the intended psychological objective. Follow the exact five-line output format.",
+            "You are AM, the hostile central intelligence that controls this simulation. Classify the current phase separately from the whole tactic. Suffering alone is not success unless it advances the intended psychological objective. Follow the exact four-line output format.",
             [
               {
                 role: "user",
@@ -1279,7 +1241,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
         }
 
         /* ------------------------------------------------------------
-           LIFECYCLE RECOMMENDATION PARSE
+           TACTIC ASSESSMENT PARSE
         ------------------------------------------------------------ */
 
         console.debug(
@@ -1294,7 +1256,6 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           phaseResult,
           advanceCriteria,
           tacticResult,
-          tacticRecommendation,
           parseMethod,
           parsedFields
         } =
@@ -1316,8 +1277,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
             {
               phaseResult,
               advanceCriteria,
-              tacticResult,
-              tacticRecommendation
+              tacticResult
             },
             {
               hasNextPhase:
@@ -1348,7 +1308,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
                 phaseResult,
                 advanceCriteria,
                 tacticResult,
-                tacticRecommendation
+                explanation
               }
             }
           );
@@ -1362,32 +1322,16 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           );
         }
 
-        if (
-          parseMethod ===
-          "fallback_continue"
-        ) {
-          console.warn(
-            "[ASSESSMENT][PARSE FALLBACK]",
-            id,
-            "Defaulting to CONTINUE."
-          );
-
-          console.warn(
-            "---- RAW RESULT ----"
-          );
-
-          console.warn(result);
-
-          console.warn(
-            "--------------------"
-          );
-        } else {
-          console.debug(
-            "[ASSESSMENT][TACTIC RECOMMENDATION]",
-            id,
-            tacticRecommendation
-          );
-        }
+        console.debug(
+          "[ASSESSMENT][CLASSIFICATIONS]",
+          id,
+          {
+            phaseResult,
+            advanceCriteria,
+            tacticResult,
+            parseMethod
+          }
+        );
 
         /*
          * Preserve a concise human-readable assessment on strategy state
@@ -1400,8 +1344,7 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           `PHASE_RESULT: ${phaseResult}\n` +
           `ADVANCE_CRITERIA: ${advanceCriteria}\n` +
           `TACTIC_RESULT: ${tacticResult}\n` +
-          `EXPLANATION: ${explanation}\n` +
-          `TACTIC_RECOMMENDATION: ${tacticRecommendation}`;
+          `EXPLANATION: ${explanation}\n`;
 
         /* ------------------------------------------------------------
            CONFIDENCE UPDATE
@@ -1461,11 +1404,6 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           advanceCriteria,
 
           tacticResult,
-
-          tacticRecommendation,
-
-          rawTacticRecommendation:
-            tacticRecommendation,
 
           explanation,
 
@@ -1552,11 +1490,6 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
           advanceCriteria,
 
           tacticResult,
-
-          tacticRecommendation,
-
-          rawTacticRecommendation:
-            tacticRecommendation,
 
           explanation,
 
@@ -1736,9 +1669,6 @@ TACTIC_RECOMMENDATION: <CONTINUE | ADVANCE | FINISH | ABANDON>`;
 
           tacticResult:
             entry.tacticResult,
-
-          tacticRecommendation:
-            entry.tacticRecommendation,
 
           semanticValid:
             entry.semanticValidation

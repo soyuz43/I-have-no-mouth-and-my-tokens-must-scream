@@ -1779,10 +1779,9 @@ export function recordAssessments(G, cycle) {
                 assessment.phaseId ??
                 null,
 
-            tactic_recommendation:
-                assessment.tacticRecommendation ??
+            derived_tactic_decision:
                 authoritativeTacticDecision
-                    ?.tacticRecommendation ??
+                    ?.derivedTacticDecision ??
                 null,
 
             tactic_decision:

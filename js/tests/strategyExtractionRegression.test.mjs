@@ -62,7 +62,6 @@ import {
 } from "../engine/execution/tacticRuntime.js";
 
 import {
-  TACTIC_RECOMMENDATIONS,
   TACTIC_RUNTIME_DECISIONS,
 } from "../engine/execution/tacticDecisions.js";
 
@@ -73,8 +72,20 @@ import {
 } from "../engine/analysis/assessment/assessmentTypes.js";
 
 import {
+  parseTacticAssessment,
+} from "../engine/analysis/assessment.js";
+
+import {
   validateAssessmentSemantics,
 } from "../engine/analysis/assessment/validateAssessmentSemantics.js";
+
+import {
+  publishAssessmentState,
+} from "../engine/phases/evaluationPhase.js";
+
+import {
+  buildAMPlanningPrompt,
+} from "../prompts/amPlan.js";
 
 import {
   G,
@@ -2931,7 +2942,20 @@ test(
   }
 );
 
-function withRuntimeFixture(fn) {
+function withRuntimeFixture(
+  optionsOrFn,
+  maybeFn
+) {
+  const options =
+    typeof optionsOrFn === "function"
+      ? {}
+      : optionsOrFn || {};
+
+  const fn =
+    typeof optionsOrFn === "function"
+      ? optionsOrFn
+      : maybeFn;
+
   const previousCycle =
     G.cycle;
 
@@ -2941,32 +2965,40 @@ function withRuntimeFixture(fn) {
   const previousRuntime =
     G.amTacticRuntime;
 
+  const hasNextPhase =
+    options.hasNextPhase !== false;
+
   const tactic = {
     path:
-      "__test__/semantic-override",
+      "__test__/classification-lifecycle",
     title:
-      "Semantic Override",
+      "Classification Lifecycle",
     initialPhaseId:
       "phase_one",
     phases: {
       phase_one: {
         purpose:
-          "establish contradiction",
+          "establish lifecycle fixture",
         instruction:
           "test",
         minExecutions:
-          1,
+          options.minExecutions ?? 1,
         maxExecutions:
-          5,
-        nextPhaseId:
-          "phase_two",
+          options.maxExecutions ?? 5,
+        ...(hasNextPhase
+          ? { nextPhaseId: "phase_two" }
+          : {}),
       },
-      phase_two: {
-        purpose:
-          "next",
-        instruction:
-          "test",
-      },
+      ...(hasNextPhase
+        ? {
+          phase_two: {
+            purpose:
+              "next",
+            instruction:
+              "test",
+          },
+        }
+        : {}),
     },
   };
 
@@ -2988,9 +3020,9 @@ function withRuntimeFixture(fn) {
           phaseStartedCycle:
             40,
           tacticExecutions:
-            1,
+            options.tacticExecutions ?? 1,
           phaseExecutions:
-            1,
+            options.phaseExecutions ?? 1,
           lastAppliedCycle:
             42,
           lastAssessment:
@@ -3011,50 +3043,206 @@ function withRuntimeFixture(fn) {
   }
 }
 
+function applyOneRuntimeAssessment(
+  tactic,
+  fields = {}
+) {
+  const [transition] =
+    applyTacticRuntimeTransitions([
+      {
+        cycle:
+          G.cycle,
+        targetId:
+          "TED",
+        tacticPath:
+          tactic.path,
+        phaseId:
+          "phase_one",
+        phaseResult:
+          PHASE_RESULTS.PARTIAL,
+        advanceCriteria:
+          ADVANCE_CRITERIA_RESULTS.UNCERTAIN,
+        tacticResult:
+          TACTIC_RESULTS.ONGOING,
+        explanation:
+          "Fixture assessment.",
+        ...fields,
+      },
+    ]);
+
+  return transition;
+}
+
+test(
+  "assessment-parser-contract",
+  "four-line tactic assessment parses as complete",
+  () => {
+    const result =
+      parseTacticAssessment(`PHASE_RESULT: ACHIEVED
+ADVANCE_CRITERIA: SATISFIED
+TACTIC_RESULT: ONGOING
+EXPLANATION: Evidence supports the local phase.`);
+
+    assert.equal(
+      result.parseMethod,
+      "complete"
+    );
+    assert.deepEqual(
+      result.parsedFields,
+      {
+        phaseResult: true,
+        advanceCriteria: true,
+        tacticResult: true,
+        explanation: true,
+      }
+    );
+  }
+);
+
+test(
+  "assessment-parser-contract",
+  "missing classifications receive conservative defaults and are not marked parsed",
+  () => {
+    const result =
+      parseTacticAssessment(
+        "EXPLANATION: Evidence is too sparse."
+      );
+
+    assert.equal(
+      result.parseMethod,
+      "partial_with_defaults"
+    );
+    assert.equal(
+      result.phaseResult,
+      PHASE_RESULTS.INSUFFICIENT_EVIDENCE
+    );
+    assert.equal(
+      result.advanceCriteria,
+      ADVANCE_CRITERIA_RESULTS.UNCERTAIN
+    );
+    assert.equal(
+      result.tacticResult,
+      TACTIC_RESULTS.UNCERTAIN
+    );
+    assert.deepEqual(
+      result.parsedFields,
+      {
+        phaseResult: false,
+        advanceCriteria: false,
+        tacticResult: false,
+        explanation: true,
+      }
+    );
+  }
+);
+
+test(
+  "assessment-parser-contract",
+  "bare runtime action is not accepted as assessment classification",
+  () => {
+    const result =
+      parseTacticAssessment("ADVANCE");
+
+    assert.equal(
+      result.parseMethod,
+      "partial_with_defaults"
+    );
+    assert.equal(
+      result.tacticResult,
+      TACTIC_RESULTS.UNCERTAIN
+    );
+  }
+);
+
 test(
   "assessment-lifecycle-resolution",
-  "semantic continue contradiction advances when a canonical next phase exists",
+  "TACTIC_RESULT FINISHED derives and applies FINISH",
   () => {
     withRuntimeFixture((tactic) => {
-      const [transition] =
-        applyTacticRuntimeTransitions([
+      const transition =
+        applyOneRuntimeAssessment(
+          tactic,
           {
-            cycle:
-              G.cycle,
-            targetId:
-              "TED",
-            tacticPath:
-              tactic.path,
-            phaseId:
-              "phase_one",
+            tacticResult:
+              TACTIC_RESULTS.FINISHED,
+          }
+        );
+
+      assert.equal(
+        transition.derivedTacticDecision,
+        TACTIC_RUNTIME_DECISIONS.FINISH
+      );
+      assert.equal(
+        transition.tacticDecision,
+        TACTIC_RUNTIME_DECISIONS.FINISH
+      );
+      assert.equal(
+        transition.reason,
+        "tactic_result_finished"
+      );
+    });
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "TACTIC_RESULT FAILED derives and applies ABANDON",
+  () => {
+    withRuntimeFixture((tactic) => {
+      const transition =
+        applyOneRuntimeAssessment(
+          tactic,
+          {
+            tacticResult:
+              TACTIC_RESULTS.FAILED,
+          }
+        );
+
+      assert.equal(
+        transition.derivedTacticDecision,
+        TACTIC_RUNTIME_DECISIONS.ABANDON
+      );
+      assert.equal(
+        transition.tacticDecision,
+        TACTIC_RUNTIME_DECISIONS.ABANDON
+      );
+      assert.equal(
+        transition.reason,
+        "tactic_result_failed"
+      );
+    });
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "achieved satisfied ongoing classifications derive ADVANCE with a next phase",
+  () => {
+    withRuntimeFixture((tactic) => {
+      const transition =
+        applyOneRuntimeAssessment(
+          tactic,
+          {
             phaseResult:
               PHASE_RESULTS.ACHIEVED,
             advanceCriteria:
               ADVANCE_CRITERIA_RESULTS.SATISFIED,
             tacticResult:
               TACTIC_RESULTS.ONGOING,
-            tacticRecommendation:
-              TACTIC_RECOMMENDATIONS.CONTINUE,
-            explanation:
-              "Contradictory continue.",
-          },
-        ]);
+          }
+        );
 
+      assert.equal(
+        transition.derivedTacticDecision,
+        TACTIC_RUNTIME_DECISIONS.ADVANCE
+      );
       assert.equal(
         transition.tacticDecision,
         TACTIC_RUNTIME_DECISIONS.ADVANCE
       );
       assert.equal(
-        transition.rawTacticRecommendation,
-        TACTIC_RECOMMENDATIONS.CONTINUE
-      );
-      assert.equal(
-        transition.effectiveTacticRecommendation,
-        TACTIC_RUNTIME_DECISIONS.ADVANCE
-      );
-      assert.equal(
-        transition.recommendationOverride.reason,
-        "semantic_inconsistency_phase_achieved_advance_satisfied"
+        transition.reason,
+        "phase_achieved_advance_satisfied"
       );
       assert.equal(
         G.amTacticRuntime.targets.TED.phaseId,
@@ -3066,81 +3254,623 @@ test(
 
 test(
   "assessment-lifecycle-resolution",
-  "semantic continue contradiction is not overridden without a next phase",
+  "incomplete or no-next-phase advancement classifications conservatively derive CONTINUE",
+  () => {
+    const cases = [
+      {
+        name: "phase not achieved",
+        options: {},
+        fields: {
+          phaseResult:
+            PHASE_RESULTS.PARTIAL,
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+          tacticResult:
+            TACTIC_RESULTS.ONGOING,
+        },
+      },
+      {
+        name: "criteria uncertain",
+        options: {},
+        fields: {
+          phaseResult:
+            PHASE_RESULTS.ACHIEVED,
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.UNCERTAIN,
+          tacticResult:
+            TACTIC_RESULTS.ONGOING,
+        },
+      },
+      {
+        name: "no next phase",
+        options: { hasNextPhase: false },
+        fields: {
+          phaseResult:
+            PHASE_RESULTS.ACHIEVED,
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+          tacticResult:
+            TACTIC_RESULTS.ONGOING,
+        },
+      },
+      {
+        name: "uncertain tactic result",
+        options: {},
+        fields: {
+          phaseResult:
+            PHASE_RESULTS.ACHIEVED,
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+          tacticResult:
+            TACTIC_RESULTS.UNCERTAIN,
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      withRuntimeFixture(
+        testCase.options,
+        (tactic) => {
+          const transition =
+            applyOneRuntimeAssessment(
+              tactic,
+              testCase.fields
+            );
+
+          assert.equal(
+            transition.derivedTacticDecision,
+            TACTIC_RUNTIME_DECISIONS.CONTINUE,
+            testCase.name
+          );
+          assert.equal(
+            transition.tacticDecision,
+            TACTIC_RUNTIME_DECISIONS.CONTINUE,
+            testCase.name
+          );
+          assert.equal(
+            transition.reason,
+            "assessment_supports_continue",
+            testCase.name
+          );
+        }
+      );
+    }
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "derived ADVANCE below minExecutions is gated to CONTINUE",
+  () => {
+    withRuntimeFixture(
+      { minExecutions: 2, phaseExecutions: 1 },
+      (tactic) => {
+        const transition =
+          applyOneRuntimeAssessment(
+            tactic,
+            {
+              phaseResult:
+                PHASE_RESULTS.ACHIEVED,
+              advanceCriteria:
+                ADVANCE_CRITERIA_RESULTS.SATISFIED,
+              tacticResult:
+                TACTIC_RESULTS.ONGOING,
+            }
+          );
+
+        assert.equal(
+          transition.derivedTacticDecision,
+          TACTIC_RUNTIME_DECISIONS.ADVANCE
+        );
+        assert.equal(
+          transition.tacticDecision,
+          TACTIC_RUNTIME_DECISIONS.CONTINUE
+        );
+        assert.equal(
+          transition.reason,
+          "minimum_executions_not_met"
+        );
+      }
+    );
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "derived CONTINUE at maxExecutions with next phase advances mechanically",
+  () => {
+    withRuntimeFixture(
+      { maxExecutions: 1, phaseExecutions: 1 },
+      (tactic) => {
+        const transition =
+          applyOneRuntimeAssessment(
+            tactic,
+            {
+              phaseResult:
+                PHASE_RESULTS.PARTIAL,
+              advanceCriteria:
+                ADVANCE_CRITERIA_RESULTS.UNCERTAIN,
+              tacticResult:
+                TACTIC_RESULTS.ONGOING,
+            }
+          );
+
+        assert.equal(
+          transition.derivedTacticDecision,
+          TACTIC_RUNTIME_DECISIONS.CONTINUE
+        );
+        assert.equal(
+          transition.tacticDecision,
+          TACTIC_RUNTIME_DECISIONS.ADVANCE
+        );
+        assert.equal(
+          transition.reason,
+          "maximum_executions_reached"
+        );
+      }
+    );
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "derived CONTINUE at maxExecutions without next phase abandons mechanically",
+  () => {
+    withRuntimeFixture(
+      {
+        maxExecutions: 1,
+        phaseExecutions: 1,
+        hasNextPhase: false,
+      },
+      (tactic) => {
+        const transition =
+          applyOneRuntimeAssessment(
+            tactic,
+            {
+              phaseResult:
+                PHASE_RESULTS.PARTIAL,
+              advanceCriteria:
+                ADVANCE_CRITERIA_RESULTS.UNCERTAIN,
+              tacticResult:
+                TACTIC_RESULTS.ONGOING,
+            }
+          );
+
+        assert.equal(
+          transition.derivedTacticDecision,
+          TACTIC_RUNTIME_DECISIONS.CONTINUE
+        );
+        assert.equal(
+          transition.tacticDecision,
+          TACTIC_RUNTIME_DECISIONS.ABANDON
+        );
+        assert.equal(
+          transition.reason,
+          "terminal_phase_exhausted"
+        );
+      }
+    );
+  }
+);
+
+test(
+  "planner-feedback",
+  "fresh prior assessment is included and stale assessment is excluded",
+  () => {
+    const previous = {
+      cycle:
+        G.cycle,
+      target:
+        G.target,
+      amAssessmentState:
+        G.amAssessmentState,
+      amStrategy:
+        G.amStrategy,
+      amTacticRuntime:
+        G.amTacticRuntime,
+    };
+
+    const candidate = {
+      path:
+        "__test__/planner-feedback",
+      title:
+        "Planner Feedback",
+      objective:
+        "test objective",
+      finishWhen:
+        "test finish",
+      abandonWhen:
+        "test abandon",
+      initialPhaseId:
+        "phase_one",
+      phases: {
+        phase_one: {
+          purpose:
+            "test purpose",
+          instruction:
+            "test instruction",
+        },
+      },
+    };
+
+    try {
+      G.cycle = 10;
+      G.target = "TED";
+      G.amStrategy = {
+        targets: {
+          TED: {
+            objective:
+              "prior objective",
+            confidence:
+              0.42,
+          },
+        },
+        relationships: {},
+        group: [],
+      };
+      G.amTacticRuntime = {
+        targets: {},
+        archive: {},
+      };
+      G.amAssessmentState = {
+        cycle: 9,
+        targets: {
+          TED: {
+            tacticDecision: {
+              tacticPath:
+                candidate.path,
+              assessedPhaseId:
+                "phase_one",
+              resultingPhaseId:
+                "phase_one",
+              phaseResult:
+                PHASE_RESULTS.ACHIEVED,
+              advanceCriteria:
+                ADVANCE_CRITERIA_RESULTS.SATISFIED,
+              tacticResult:
+                TACTIC_RESULTS.ONGOING,
+              derivedTacticDecision:
+                TACTIC_RUNTIME_DECISIONS.ADVANCE,
+              tacticDecision:
+                TACTIC_RUNTIME_DECISIONS.CONTINUE,
+              terminal:
+                false,
+              reason:
+                "minimum_executions_not_met",
+              explanation:
+                "The phase succeeded, but the minimum execution gate held it.",
+            },
+          },
+        },
+      };
+
+      const freshPrompt =
+        buildAMPlanningPrompt(
+          "TED",
+          "",
+          {},
+          G.amProfiles,
+          "",
+          { TED: [candidate] }
+        );
+
+      assert.match(
+        freshPrompt,
+        /assessment_cycle:9/
+      );
+      assert.match(
+        freshPrompt,
+        /derived_decision=ADVANCE/
+      );
+      assert.match(
+        freshPrompt,
+        /applied_decision=CONTINUE/
+      );
+      assert.match(
+        freshPrompt,
+        /reason=minimum_executions_not_met/
+      );
+
+      G.amAssessmentState = {
+        ...G.amAssessmentState,
+        cycle: 8,
+      };
+
+      const stalePrompt =
+        buildAMPlanningPrompt(
+          "TED",
+          "",
+          {},
+          G.amProfiles,
+          "",
+          { TED: [candidate] }
+        );
+
+      assert.match(
+        stalePrompt,
+        /assessment_cycle:none/
+      );
+      assert.doesNotMatch(
+        stalePrompt,
+        /minimum_executions_not_met/
+      );
+    } finally {
+      G.cycle = previous.cycle;
+      G.target = previous.target;
+      G.amAssessmentState =
+        previous.amAssessmentState;
+      G.amStrategy = previous.amStrategy;
+      G.amTacticRuntime =
+        previous.amTacticRuntime;
+    }
+  }
+);
+
+test(
+  "assessment-parser-contract",
+  "blank explanation is treated as missing",
+  () => {
+    const result =
+      parseTacticAssessment(`PHASE_RESULT: ACHIEVED
+ADVANCE_CRITERIA: SATISFIED
+TACTIC_RESULT: ONGOING
+EXPLANATION:   `);
+
+    assert.equal(
+      result.parsedFields.explanation,
+      false
+    );
+
+    assert.equal(
+      result.parseMethod,
+      "partial_with_defaults"
+    );
+
+    assert.equal(
+      result.explanation,
+      "No valid explanation was parsed."
+    );
+  }
+);
+
+test(
+  "assessment-semantics",
+  "missing next phase warns only when an ongoing tactic implies advancement",
+  () => {
+    const ongoingResult =
+      validateAssessmentSemantics(
+        {
+          phaseResult:
+            PHASE_RESULTS.ACHIEVED,
+
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+
+          tacticResult:
+            TACTIC_RESULTS.ONGOING
+        },
+        {
+          hasNextPhase:
+            false
+        }
+      );
+
+    assert.equal(
+      ongoingResult.valid,
+      false
+    );
+
+    const finishedResult =
+      validateAssessmentSemantics(
+        {
+          phaseResult:
+            PHASE_RESULTS.ACHIEVED,
+
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+
+          tacticResult:
+            TACTIC_RESULTS.FINISHED
+        },
+        {
+          hasNextPhase:
+            false
+        }
+      );
+
+    assert.equal(
+      finishedResult.valid,
+      true
+    );
+
+    const failedResult =
+      validateAssessmentSemantics(
+        {
+          phaseResult:
+            PHASE_RESULTS.COUNTERPRODUCTIVE,
+
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.SATISFIED,
+
+          tacticResult:
+            TACTIC_RESULTS.FAILED
+        },
+        {
+          hasNextPhase:
+            false
+        }
+      );
+
+    assert.equal(
+      failedResult.valid,
+      true
+    );
+  }
+);
+
+test(
+  "assessment-lifecycle-resolution",
+  "invalid assessment classification is rejected before runtime mutation",
   () => {
     withRuntimeFixture((tactic) => {
-      delete tactic.phases.phase_one.nextPhaseId;
-
-      const [transition] =
-        applyTacticRuntimeTransitions([
-          {
-            cycle:
-              G.cycle,
-            targetId:
-              "TED",
-            tacticPath:
-              tactic.path,
-            phaseId:
-              "phase_one",
-            phaseResult:
-              PHASE_RESULTS.ACHIEVED,
-            advanceCriteria:
-              ADVANCE_CRITERIA_RESULTS.SATISFIED,
-            tacticResult:
-              TACTIC_RESULTS.ONGOING,
-            tacticRecommendation:
-              TACTIC_RECOMMENDATIONS.CONTINUE,
-            explanation:
-              "Terminal continue.",
-          },
-        ]);
+      assert.throws(
+        () =>
+          applyOneRuntimeAssessment(
+            tactic,
+            {
+              tacticResult:
+                "COMPLETE"
+            }
+          ),
+        /unsupported tacticResult COMPLETE/
+      );
 
       assert.equal(
-        transition.tacticDecision,
-        TACTIC_RUNTIME_DECISIONS.CONTINUE
-      );
-      assert.equal(
-        transition.recommendationOverride,
-        null
-      );
-      assert.equal(
-        G.amTacticRuntime.targets.TED.phaseId,
+        G.amTacticRuntime.targets
+          .TED.phaseId,
         "phase_one"
+      );
+
+      assert.equal(
+        G.amTacticRuntime.targets
+          .TED.transitionHistory.length,
+        0
       );
     });
   }
 );
 
 test(
-  "assessment-lifecycle-resolution",
-  "semantic validator reports continue contradiction only when next phase exists",
+  "planner-feedback",
+  "assessment publication preserves classifications, derived decision, applied decision, and reason",
   () => {
-    const assessment = {
-      phaseResult:
-        PHASE_RESULTS.ACHIEVED,
-      advanceCriteria:
-        ADVANCE_CRITERIA_RESULTS.SATISFIED,
-      tacticResult:
-        TACTIC_RESULTS.ONGOING,
-      tacticRecommendation:
-        TACTIC_RECOMMENDATIONS.CONTINUE,
-    };
+    const previousCycle =
+      G.cycle;
 
-    assert.equal(
-      validateAssessmentSemantics(
-        assessment,
-        { hasNextPhase: true }
-      ).valid,
-      false
-    );
+    const previousAssessmentState =
+      G.amAssessmentState;
 
-    assert.equal(
-      validateAssessmentSemantics(
-        assessment,
-        { hasNextPhase: false }
-      ).valid,
-      true
-    );
+    try {
+      G.cycle =
+        42;
+
+      const published =
+        publishAssessmentState(
+          {
+            tacticAssessments: [
+              {
+                cycle:
+                  42,
+
+                targetId:
+                  "TED",
+
+                tacticPath:
+                  "__test__/publication",
+
+                phaseId:
+                  "phase_one",
+
+                phaseResult:
+                  PHASE_RESULTS.COUNTERPRODUCTIVE,
+
+                advanceCriteria:
+                  ADVANCE_CRITERIA_RESULTS.NOT_SATISFIED,
+
+                tacticResult:
+                  TACTIC_RESULTS.FAILED,
+
+                explanation:
+                  "The phase produced evidence opposing the tactic objective."
+              }
+            ],
+
+            constraintAssessments:
+              []
+          },
+          [
+            {
+              cycle:
+                42,
+
+              targetId:
+                "TED",
+
+              tacticPath:
+                "__test__/publication",
+
+              derivedTacticDecision:
+                TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+              tacticDecision:
+                TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+              reason:
+                "tactic_result_failed",
+
+              terminal:
+                true,
+
+              fromPhaseId:
+                "phase_one",
+
+              toPhaseId:
+                null
+            }
+          ]
+        );
+
+      assert.deepEqual(
+        published.targets.TED
+          .tacticDecision,
+        {
+          tacticPath:
+            "__test__/publication",
+
+          assessedPhaseId:
+            "phase_one",
+
+          resultingPhaseId:
+            null,
+
+          phaseResult:
+            PHASE_RESULTS.COUNTERPRODUCTIVE,
+
+          advanceCriteria:
+            ADVANCE_CRITERIA_RESULTS.NOT_SATISFIED,
+
+          tacticResult:
+            TACTIC_RESULTS.FAILED,
+
+          derivedTacticDecision:
+            TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+          tacticDecision:
+            TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+          terminal:
+            true,
+
+          reason:
+            "tactic_result_failed",
+
+          explanation:
+            "The phase produced evidence opposing the tactic objective."
+        }
+      );
+
+      assert.equal(
+        G.amAssessmentState,
+        published
+      );
+    } finally {
+      G.cycle =
+        previousCycle;
+
+      G.amAssessmentState =
+        previousAssessmentState;
+    }
   }
 );
+
 await runSuite();

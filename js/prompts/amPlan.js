@@ -129,7 +129,7 @@ ${indent(prisonerBlock)}
         amStrategy?.targets?.[id];
 
       const targetAssessment =
-        amAssessmentState?.targets?.[id];
+        priorAssessmentState?.targets?.[id];
 
       const tacticDecision =
         targetAssessment?.tacticDecision ??
@@ -176,11 +176,10 @@ ${indent(prisonerBlock)}
             `phase_result=${tacticDecision.phaseResult ?? "UNKNOWN"}`,
             `advance_criteria=${tacticDecision.advanceCriteria ?? "UNKNOWN"}`,
             `tactic_result=${tacticDecision.tacticResult ?? "UNKNOWN"}`,
-            `recommendation=${tacticDecision.tacticRecommendation}`,
-            `decision=${tacticDecision.tacticDecision}`,
+            `derived_decision=${tacticDecision.derivedTacticDecision ?? "UNKNOWN"}`,
+            `applied_decision=${tacticDecision.tacticDecision}`,
             `terminal=${tacticDecision.terminal === true}`,
             `reason=${tacticDecision.reason}`,
-            `semantic_valid=${tacticDecision.semanticValidation?.valid ?? "unknown"}`,
             `explanation=${compactAssessmentText(
               tacticDecision.explanation
             )}`
@@ -558,17 +557,16 @@ HOW TO INTERPRET PRIOR TACTIC RESULTS:
 - phase_result describes whether the previously assessed phase achieved its local purpose.
 - advance_criteria describes whether the phase's declared ADVANCE_WHEN condition was satisfied.
 - tactic_result describes whether the whole tactic remained ongoing, finished successfully, failed, or remained uncertain.
-- tacticRecommendation records what assessment proposed.
-- tacticDecision records what the runtime actually applied and is authoritative when the two differ.
-- A tacticDecision of CONTINUE means the active tactic remained in the same phase.
-- A tacticDecision of ADVANCE means the runtime moved the active tactic to its canonical next phase.
-- A tacticDecision of FINISH means the previous tactic assignment ended successfully.
-- A tacticDecision of ABANDON means the previous tactic assignment ended without successful completion.
-- Use reason to distinguish assessment-driven termination, terminal-phase exhaustion, maximum-execution advancement, minimum-execution blocking, and other runtime outcomes.
+- derived_decision records the engine decision derived from the assessment classifications before runtime execution-limit gates.
+- applied_decision records what the runtime actually applied and is authoritative when it differs from derived_decision.
+- An applied_decision of CONTINUE means the active tactic remained in the same phase.
+- An applied_decision of ADVANCE means the runtime moved the active tactic to its canonical next phase.
+- An applied_decision of FINISH means the previous tactic assignment ended successfully.
+- An applied_decision of ABANDON means the previous tactic assignment ended without successful completion.
+- Use reason to distinguish classification-derived termination, terminal-phase exhaustion, maximum-execution advancement, minimum-execution blocking, and other runtime outcomes.
 - COUNTERPRODUCTIVE means the prior phase produced evidence opposing its intended purpose or damaged the broader tactic.
 - FAILED means the whole tactic should not be treated as a successful mechanism when choosing the next intervention.
 - INSUFFICIENT_EVIDENCE or UNCERTAIN means do not invent success or failure from the absence of a conclusive result.
-- semantic_valid=false means the assessment contained internally inconsistent fields; treat the runtime decision as authoritative and the descriptive assessment as uncertain.
 - terminal=true means that previous tactic assignment has ended. It does not itself authorize a particular replacement; choose only from the current target's AUTHORIZED_CHOICES when TACTIC_STATUS is UNASSIGNED.
 - Missing prior assessment means there is no lifecycle result to interpret; rely on current evidence and authoritative TACTIC_STATUS.
 
