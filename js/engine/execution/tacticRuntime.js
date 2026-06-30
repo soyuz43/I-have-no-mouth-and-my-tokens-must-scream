@@ -22,14 +22,6 @@ import {
   TACTIC_RESULT_VALUES
 } from "../analysis/assessment/assessmentTypes.js";
 
-/*
- * Preserve the existing public export so any current consumer importing
- * this constant from tacticRuntime.js does not break during migration.
- */
-export {
-  TACTIC_RUNTIME_DECISIONS
-} from "./tacticDecisions.js";
-
 /* ============================================================
    RUNTIME ROOT
 ============================================================ */

@@ -14,17 +14,3 @@ export const TACTIC_RUNTIME_DECISIONS =
     ABANDON:
       "ABANDON"
   });
-
-export const TACTIC_RUNTIME_DECISION_VALUES =
-  Object.freeze(
-    Object.values(
-      TACTIC_RUNTIME_DECISIONS
-    )
-  );
-
-export function isTacticRuntimeDecision(
-  value
-) {
-  return TACTIC_RUNTIME_DECISION_VALUES
-    .includes(value);
-}
