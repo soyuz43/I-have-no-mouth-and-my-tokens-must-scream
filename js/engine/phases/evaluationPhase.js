@@ -49,7 +49,7 @@ function snapshotForConsole(value) {
    PLANNER-FACING ASSESSMENT STATE
 ============================================================ */
 
-function publishAssessmentState(
+export function publishAssessmentState(
   assessmentOutput,
   tacticTransitions
 ) {
@@ -156,9 +156,9 @@ function publishAssessmentState(
     const targetState = {};
 
     /*
-     * A planner-facing tactic decision is published only when the
-     * assessment recommendation was successfully validated and applied
-     * by the runtime transition layer.
+     * Planner-facing tactic state is published only after the
+     * classification assessment was validated and the runtime applied
+     * its authoritative transition.
      */
     if (
       tacticAssessment &&
@@ -183,14 +183,11 @@ function publishAssessmentState(
         tacticResult:
           tacticAssessment.tacticResult,
 
-        tacticRecommendation:
-          transition.tacticRecommendation,
+        derivedTacticDecision:
+          transition.derivedTacticDecision,
 
         tacticDecision:
           transition.tacticDecision,
-
-        semanticValidation:
-          tacticAssessment.semanticValidation,
 
         terminal:
           transition.terminal === true,
@@ -367,7 +364,7 @@ export async function runEvaluationPhase() {
 
   /* ------------------------------------------------------------
      TACTIC RUNTIME TRANSITIONS
-     Validate recommendations and apply authoritative decisions
+     Derive lifecycle decisions and apply runtime gates
   ------------------------------------------------------------ */
 
   try {
@@ -399,37 +396,57 @@ export async function runEvaluationPhase() {
 
       console.table(
         tacticTransitions.map(
-          (transition) => ({
-            target:
-              transition.targetId,
+          (transition) => {
+            const assessment =
+              assessmentOutput
+                .tacticAssessments
+                .find(
+                  (entry) =>
+                    entry?.targetId ===
+                    transition.targetId
+                );
 
-            tactic:
-              transition.tacticPath,
+            return {
+              target:
+                transition.targetId,
 
-            tacticRecommendation:
-              transition.tacticRecommendation,
+              tactic:
+                transition.tacticPath,
 
-            tacticDecision:
-              transition.tacticDecision,
+              classification:
+                [
+                  assessment?.phaseResult,
+                  assessment?.advanceCriteria,
+                  assessment?.tacticResult
+                ]
+                  .filter(Boolean)
+                  .join(" / "),
 
-            terminal:
-              transition.terminal === true,
+              derivedDecision:
+                transition.derivedTacticDecision,
 
-            reason:
-              transition.reason,
+              appliedDecision:
+                transition.tacticDecision,
 
-            from_phase:
-              transition.fromPhaseId,
+              terminal:
+                transition.terminal === true,
 
-            to_phase:
-              transition.toPhaseId,
+              reason:
+                transition.reason,
 
-            tactic_executions:
-              transition.tacticExecutions,
+              from_phase:
+                transition.fromPhaseId,
 
-            phase_executions_after:
-              transition.phaseExecutionsAfter
-          })
+              to_phase:
+                transition.toPhaseId,
+
+              tactic_executions:
+                transition.tacticExecutions,
+
+              phase_executions_after:
+                transition.phaseExecutionsAfter
+            };
+          }
         )
       );
 

@@ -10,14 +10,16 @@ import {
 } from "../tactics.js";
 
 import {
-  TACTIC_RUNTIME_DECISIONS,
-  isTacticRuntimeDecision
+  TACTIC_RUNTIME_DECISIONS
 } from "./tacticDecisions.js";
 
 import {
   PHASE_RESULTS,
+  PHASE_RESULT_VALUES,
   ADVANCE_CRITERIA_RESULTS,
-  TACTIC_RESULTS
+  ADVANCE_CRITERIA_RESULT_VALUES,
+  TACTIC_RESULTS,
+  TACTIC_RESULT_VALUES
 } from "../analysis/assessment/assessmentTypes.js";
 
 /*
@@ -75,19 +77,6 @@ function normalizeTargetId(rawTargetId) {
       .replace(/[^A-Z]/g, "");
 
   return SIM_IDS.includes(normalized)
-    ? normalized
-    : null;
-}
-
-function normalizeDecision(rawDecision) {
-  const normalized =
-    String(rawDecision || "")
-      .trim()
-      .toUpperCase();
-
-  return isTacticRuntimeDecision(
-    normalized
-  )
     ? normalized
     : null;
 }
@@ -530,33 +519,159 @@ function validateAssessmentContext(
     );
   }
 
-  const tacticRecommendation =
-    normalizeDecision(
-      assessment.tacticRecommendation
-    );
+  const classificationChecks = [
+    {
+      field:
+        "phaseResult",
 
-  if (!tacticRecommendation) {
-    throw new Error(
-      `Cannot transition tactic runtime for ${targetId}: ` +
-      `unsupported tactic recommendation ${assessment.tacticRecommendation}.`
-    );
+      value:
+        assessment.phaseResult,
+
+      allowedValues:
+        PHASE_RESULT_VALUES
+    },
+    {
+      field:
+        "advanceCriteria",
+
+      value:
+        assessment.advanceCriteria,
+
+      allowedValues:
+        ADVANCE_CRITERIA_RESULT_VALUES
+    },
+    {
+      field:
+        "tacticResult",
+
+      value:
+        assessment.tacticResult,
+
+      allowedValues:
+        TACTIC_RESULT_VALUES
+    }
+  ];
+
+  for (
+    const {
+      field,
+      value,
+      allowedValues
+    }
+    of classificationChecks
+  ) {
+    if (
+      !allowedValues.includes(
+        value
+      )
+    ) {
+      throw new Error(
+        `Cannot transition tactic runtime for ${targetId}: ` +
+        `unsupported ${field} ${String(value)}.`
+      );
+    }
   }
-
-  return tacticRecommendation;
 }
 
 /* ============================================================
    TRANSITION RESOLUTION
 ============================================================ */
 
+export function deriveTacticDecision(
+  assessment,
+  context
+) {
+  const {
+    tactic,
+    phase
+  } = context;
+
+  const nextPhaseId =
+    String(
+      phase.nextPhaseId || ""
+    ).trim();
+
+  const nextPhase =
+    nextPhaseId
+      ? getTacticPhase(
+        tactic,
+        nextPhaseId
+      )
+      : null;
+
+  if (
+    assessment?.tacticResult ===
+    TACTIC_RESULTS.FINISHED
+  ) {
+    return {
+      derivedTacticDecision:
+        TACTIC_RUNTIME_DECISIONS.FINISH,
+
+      nextPhaseId:
+        null,
+
+      nextPhase:
+        null
+    };
+  }
+
+  if (
+    assessment?.tacticResult ===
+    TACTIC_RESULTS.FAILED
+  ) {
+    return {
+      derivedTacticDecision:
+        TACTIC_RUNTIME_DECISIONS.ABANDON,
+
+      nextPhaseId:
+        null,
+
+      nextPhase:
+        null
+    };
+  }
+
+  if (
+    assessment?.tacticResult ===
+    TACTIC_RESULTS.ONGOING &&
+    assessment?.phaseResult ===
+    PHASE_RESULTS.ACHIEVED &&
+    assessment?.advanceCriteria ===
+    ADVANCE_CRITERIA_RESULTS.SATISFIED &&
+    nextPhaseId &&
+    nextPhase
+  ) {
+    return {
+      derivedTacticDecision:
+        TACTIC_RUNTIME_DECISIONS.ADVANCE,
+
+      nextPhaseId,
+
+      nextPhase
+    };
+  }
+
+  return {
+    derivedTacticDecision:
+      TACTIC_RUNTIME_DECISIONS.CONTINUE,
+
+    nextPhaseId:
+      nextPhase && nextPhaseId
+        ? nextPhaseId
+        : null,
+
+    nextPhase:
+      nextPhase ||
+      null
+  };
+}
+
 function resolveTacticDecision(
-  tacticRecommendation,
-  context,
-  assessment = null
+  assessment,
+  context
 ) {
   const {
     runtime,
-    tactic,
     phase
   } = context;
 
@@ -578,74 +693,35 @@ function resolveTacticDecision(
       Number.POSITIVE_INFINITY
     );
 
-  const nextPhaseId =
-    String(
-      phase.nextPhaseId || ""
-    ).trim();
+  const derivation =
+    deriveTacticDecision(
+      assessment,
+      context
+    );
 
-  const nextPhase =
-    nextPhaseId
-      ? getTacticPhase(
-        tactic,
-        nextPhaseId
-      )
-      : null;
+  const {
+    derivedTacticDecision,
+    nextPhaseId,
+    nextPhase
+  } = derivation;
 
-  let effectiveTacticRecommendation =
-    tacticRecommendation;
-
-  let recommendationOverride =
-    null;
-
-  if (
-    nextPhaseId &&
-    nextPhase &&
-    tacticRecommendation ===
-    TACTIC_RUNTIME_DECISIONS.CONTINUE &&
-    assessment?.phaseResult ===
-    PHASE_RESULTS.ACHIEVED &&
-    assessment?.advanceCriteria ===
-    ADVANCE_CRITERIA_RESULTS.SATISFIED &&
-    assessment?.tacticResult ===
-    TACTIC_RESULTS.ONGOING
-  ) {
-    effectiveTacticRecommendation =
-      TACTIC_RUNTIME_DECISIONS.ADVANCE;
-
-    recommendationOverride = {
-      from:
-        tacticRecommendation,
-
-      to:
-        effectiveTacticRecommendation,
-
-      reason:
-        "semantic_inconsistency_phase_achieved_advance_satisfied"
-    };
-  }
-
-  const withRecommendationMetadata =
+  const withDerivation =
     (resolution) => ({
       ...resolution,
 
-      rawTacticRecommendation:
-        tacticRecommendation,
-
-      effectiveTacticRecommendation,
-
-      recommendationOverride
+      derivedTacticDecision
     });
 
   if (
-    effectiveTacticRecommendation ===
+    derivedTacticDecision ===
     TACTIC_RUNTIME_DECISIONS.FINISH
   ) {
-    return withRecommendationMetadata({
+    return withDerivation({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.FINISH,
 
       reason:
-        "assessment_recommended_finish",
+        "tactic_result_finished",
 
       nextPhaseId:
         null,
@@ -656,15 +732,15 @@ function resolveTacticDecision(
   }
 
   if (
-    effectiveTacticRecommendation ===
+    derivedTacticDecision ===
     TACTIC_RUNTIME_DECISIONS.ABANDON
   ) {
-    return withRecommendationMetadata({
+    return withDerivation({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ABANDON,
 
       reason:
-        "assessment_recommended_abandon",
+        "tactic_result_failed",
 
       nextPhaseId:
         null,
@@ -675,16 +751,16 @@ function resolveTacticDecision(
   }
 
   /*
-   * The model may recommend advancement, but the engine owns the
+   * The engine may derive advancement, but the runtime owns the
    * minimum-execution gate.
    */
   if (
-    effectiveTacticRecommendation ===
+    derivedTacticDecision ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE &&
     phaseExecutions <
     minExecutions
   ) {
-    return withRecommendationMetadata({
+    return withDerivation({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
@@ -707,7 +783,7 @@ function resolveTacticDecision(
    * tactic rather than inventing successful completion.
    */
   if (
-    effectiveTacticRecommendation ===
+    derivedTacticDecision ===
     TACTIC_RUNTIME_DECISIONS.CONTINUE &&
     Number.isFinite(
       maxExecutions
@@ -719,7 +795,7 @@ function resolveTacticDecision(
       !nextPhaseId ||
       !nextPhase
     ) {
-      return withRecommendationMetadata({
+      return withDerivation({
         tacticDecision:
           TACTIC_RUNTIME_DECISIONS.ABANDON,
 
@@ -734,7 +810,7 @@ function resolveTacticDecision(
       });
     }
 
-    return withRecommendationMetadata({
+    return withDerivation({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
@@ -749,27 +825,15 @@ function resolveTacticDecision(
   }
 
   if (
-    effectiveTacticRecommendation ===
+    derivedTacticDecision ===
     TACTIC_RUNTIME_DECISIONS.ADVANCE
   ) {
-    if (
-      !nextPhaseId ||
-      !nextPhase
-    ) {
-      throw new Error(
-        `Cannot advance phase ${runtime.phaseId}: ` +
-        `no valid canonical next phase exists.`
-      );
-    }
-
-    return withRecommendationMetadata({
+    return withDerivation({
       tacticDecision:
         TACTIC_RUNTIME_DECISIONS.ADVANCE,
 
       reason:
-        recommendationOverride
-          ? recommendationOverride.reason
-          : "assessment_recommended_advance",
+        "phase_achieved_advance_satisfied",
 
       nextPhaseId,
 
@@ -778,12 +842,12 @@ function resolveTacticDecision(
     });
   }
 
-  return withRecommendationMetadata({
+  return withDerivation({
     tacticDecision:
       TACTIC_RUNTIME_DECISIONS.CONTINUE,
 
     reason:
-      "assessment_recommended_continue",
+      "assessment_supports_continue",
 
     nextPhaseId:
       null,
@@ -792,6 +856,7 @@ function resolveTacticDecision(
       false
   });
 }
+
 /* ============================================================
    TRANSITION PREPARATION
 ============================================================ */
@@ -815,11 +880,10 @@ function prepareOneTacticRuntimeTransition(
       targetId
     );
 
-  const tacticRecommendation =
-    validateAssessmentContext(
-      assessment,
-      context
-    );
+  validateAssessmentContext(
+    assessment,
+    context
+  );
 
   const {
     runtime
@@ -830,9 +894,8 @@ function prepareOneTacticRuntimeTransition(
 
   const resolution =
     resolveTacticDecision(
-      tacticRecommendation,
-      context,
-      assessment
+      assessment,
+      context
     );
 
   const toPhaseId =
@@ -873,16 +936,8 @@ function prepareOneTacticRuntimeTransition(
       assessment.tacticResult ??
       null,
 
-    tacticRecommendation,
-
-    rawTacticRecommendation:
-      resolution.rawTacticRecommendation,
-
-    effectiveTacticRecommendation:
-      resolution.effectiveTacticRecommendation,
-
-    recommendationOverride:
-      resolution.recommendationOverride,
+    derivedTacticDecision:
+      resolution.derivedTacticDecision,
 
     tacticDecision:
       resolution.tacticDecision,
@@ -916,16 +971,8 @@ function prepareOneTacticRuntimeTransition(
     tacticPath:
       runtime.path,
 
-    tacticRecommendation,
-
-    rawTacticRecommendation:
-      resolution.rawTacticRecommendation,
-
-    effectiveTacticRecommendation:
-      resolution.effectiveTacticRecommendation,
-
-    recommendationOverride:
-      resolution.recommendationOverride,
+    derivedTacticDecision:
+      resolution.derivedTacticDecision,
 
     tacticDecision:
       resolution.tacticDecision,

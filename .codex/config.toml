@@ -1,0 +1,10 @@
+default_permissions = "project-edit"
+
+[permissions.project-edit]
+description = "Allow repository edits except in protected directories."
+extends = ":workspace"
+
+[permissions.project-edit.filesystem.":workspace_roots"]
+"snapshots" = "read"
+"scripts" = "read"
+"outputs" = "read"
