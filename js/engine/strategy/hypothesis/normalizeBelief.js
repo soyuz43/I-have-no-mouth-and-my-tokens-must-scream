@@ -1,91 +1,404 @@
 // js/engine/strategy/hypothesis/normalizeBelief.js
-// UPGRADE: supports BOTH natural-language AND arrow-based hypothesis formats
+//
+// Canonical belief recognition for natural-language and arrow-formatted
+// hypotheses. Canonical keys and aliases come from the shared registry.
 
-const BELIEFS = [
-    "escape_possible", "others_trustworthy", "self_worth",
-    "reality_reliable", "guilt_deserved", "resistance_possible", "am_has_limits"
-];
+import {
+  BELIEF_KEYS,
+  BELIEF_ALIASES
+} from "../../../core/beliefs.js";
 
-const ALIASES = {
-    "escape possible": "escape_possible", "escape": "escape_possible", "can escape": "escape_possible",
-    "trust others": "others_trustworthy", "others trustworthy": "others_trustworthy", "rely on others": "others_trustworthy",
-    "self worth": "self_worth", "worth": "self_worth", "self value": "self_worth",
-    "reality reliable": "reality_reliable", "reality": "reality_reliable", "senses reliable": "reality_reliable",
-    "guilt deserved": "guilt_deserved", "deserve punishment": "guilt_deserved", "I deserve this": "guilt_deserved",
-    "resistance possible": "resistance_possible", "can resist": "resistance_possible", "fight back": "resistance_possible",
-    "am has limits": "am_has_limits", "AM limited": "am_has_limits", "AM vulnerable": "am_has_limits"
-};
+import {
+  levenshtein
+} from "../extractors/levenshtein.js";
 
-// Arrow-format belief patterns: TED.others_trustworthy, BENNY.reality_reliable, etc.
-const ARROW_BELIEF_REGEX = /(?:\.([a-z_]+)\b|\'s\s+([a-z_]+)\s+belief\b)/i;
+// Arrow-format belief patterns:
+//
+//   TED.others_trustworthy
+//   TED's others_trustworthy belief
+//
+const ARROW_BELIEF_REGEX =
+  /(?:\.([a-z_]+)\b|'s\s+([a-z_]+)\s+belief\b)/i;
 
-function levenshtein(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-            }
-        }
-    }
-    return matrix[b.length][a.length];
+/**
+ * Escape text before embedding it in a regular expression.
+ */
+function escapeRegExp(value) {
+  return String(value).replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
 }
 
+/**
+ * Normalize belief text into a space-separated comparison form.
+ *
+ * Examples:
+ *
+ *   self_worth  -> self worth
+ *   self_ worth -> self worth
+ *   self _worth -> self worth
+ *   self__worth -> self worth
+ *   self-worth  -> self worth
+ *
+ * Unicode dash characters are represented with escape sequences so this
+ * source file remains ASCII-safe.
+ */
+function normalizeNaturalBeliefText(text) {
+  return String(text)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[_\u2010-\u2015-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Normalize malformed separators inside dot-notation or possessive belief
+ * tokens.
+ *
+ * Examples:
+ *
+ *   TED.self_ worth          -> TED.self_worth
+ *   TED.self _worth          -> TED.self_worth
+ *   TED.self__worth          -> TED.self_worth
+ *   TED.self-worth           -> TED.self_worth
+ *   TED's self_ worth belief -> TED's self_worth belief
+ */
+function normalizeArrowBeliefText(text) {
+  return String(text)
+    .normalize("NFKC")
+    .replace(
+      /([A-Za-z0-9])\s*[_\u2010-\u2015-]+\s*(?=[A-Za-z0-9])/g,
+      "$1_"
+    );
+}
+
+/**
+ * Convert a registered alias into the normalized natural-language form used
+ * for matching.
+ */
+function normalizeAlias(alias) {
+  return normalizeNaturalBeliefText(alias);
+}
+
+/**
+ * Precompute normalized aliases once at module load.
+ */
+const NORMALIZED_ALIAS_ENTRIES =
+  Object.entries(BELIEF_ALIASES).map(
+    ([alias, canonical]) => ({
+      alias,
+      canonical,
+      normalizedAlias: normalizeAlias(alias)
+    })
+  );
+
+const MULTI_WORD_ALIAS_ENTRIES =
+  NORMALIZED_ALIAS_ENTRIES.filter(
+    ({ normalizedAlias }) =>
+      normalizedAlias.includes(" ")
+  );
+
+const SINGLE_WORD_ALIAS_ENTRIES =
+  NORMALIZED_ALIAS_ENTRIES.filter(
+    ({ normalizedAlias }) =>
+      !normalizedAlias.includes(" ")
+  );
+
+/**
+ * Search fixed-size word windows for a conservative fuzzy match.
+ *
+ * Separator errors have already been repaired before this function runs.
+ * This fallback is intended for genuine spelling drift such as:
+ *
+ *   self wroth
+ *   reality relaible
+ *   escape posible
+ *   others trustworty
+ */
+function findFuzzyBelief(
+  normalizedText,
+  canonicalBelief
+) {
+  const wordMatches = [
+    ...normalizedText.matchAll(/[a-z0-9]+/g)
+  ];
+
+  const expectedWords =
+    canonicalBelief.split("_");
+
+  const windowSize =
+    expectedWords.length;
+
+  const expected =
+    expectedWords.join(" ");
+
+  if (
+    !expected ||
+    wordMatches.length < windowSize
+  ) {
+    return null;
+  }
+
+  let bestMatch = null;
+
+  for (
+    let index = 0;
+    index <= wordMatches.length - windowSize;
+    index++
+  ) {
+    const candidateMatches =
+      wordMatches.slice(
+        index,
+        index + windowSize
+      );
+
+    const candidate =
+      candidateMatches
+        .map((match) => match[0])
+        .join(" ");
+
+    const distance =
+      levenshtein(
+        candidate,
+        expected
+      );
+
+    const relativeDistance =
+      distance / expected.length;
+
+    if (
+      distance <= 2 &&
+      relativeDistance < 0.25
+    ) {
+      if (
+        !bestMatch ||
+        distance < bestMatch.distance
+      ) {
+        bestMatch = {
+          distance,
+          matchIndex:
+            candidateMatches[0].index ?? -1
+        };
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Match a normalized natural-language alias.
+ */
+function matchAlias(
+  normalizedText,
+  aliasEntries
+) {
+  for (
+    const {
+      canonical,
+      normalizedAlias
+    } of aliasEntries
+  ) {
+    const regex =
+      new RegExp(
+        `\\b${escapeRegExp(normalizedAlias)}\\b`,
+        "i"
+      );
+
+    const match =
+      normalizedText.match(regex);
+
+    if (match) {
+      return {
+        belief: canonical,
+        matchIndex:
+          match.index ?? -1,
+        confidence: 0.9,
+        method: "alias"
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Normalize a belief reference found in hypothesis text.
+ *
+ * Resolution order:
+ *
+ *   1. Exact arrow or dot notation
+ *   2. Arrow aliases
+ *   3. Exact canonical natural-language names
+ *   4. Specific multi-word aliases
+ *   5. Conservative fuzzy spelling recovery
+ *   6. Broad single-word aliases
+ *
+ * Single-word aliases run last so words such as "escape", "reality", and
+ * "worth" cannot hide a more specific misspelled canonical phrase.
+ *
+ * @param {string} text
+ * @returns {{
+ *   belief: string|null,
+ *   matchIndex: number,
+ *   confidence: number,
+ *   method: string|null
+ * }}
+ */
 export function normalizeBelief(text) {
-    const lower = text.toLowerCase();
+  if (
+    typeof text !== "string" ||
+    !text.trim()
+  ) {
+    return {
+      belief: null,
+      matchIndex: -1,
+      confidence: 0.1,
+      method: null
+    };
+  }
 
-    // --- FORMAT 1: Arrow-based (TED.others_trustworthy OR TED's others_trustworthy belief) ---
-    const arrowMatch = text.match(ARROW_BELIEF_REGEX);
-    if (arrowMatch) {
-        // Match group 1: "TED.belief_name" | Match group 2: "TED's belief_name belief"
-        const rawBelief = arrowMatch[1] || arrowMatch[2];
+  const arrowText =
+    normalizeArrowBeliefText(text);
 
-        if (rawBelief && BELIEFS.includes(rawBelief)) {
-            return { belief: rawBelief, matchIndex: arrowMatch.index, confidence: 1.0, method: 'arrow_exact' };
-        }
-        // Check aliases for arrow format
-        for (const [alias, canonical] of Object.entries(ALIASES)) {
-            if (alias.replace(/\s+/g, '_') === rawBelief) {
-                return { belief: canonical, matchIndex: arrowMatch.index, confidence: 0.9, method: 'arrow_alias' };
-            }
-        }
+  const naturalText =
+    normalizeNaturalBeliefText(text);
+
+  // --------------------------------------------------------------------------
+  // FORMAT 1: ARROW OR DOT NOTATION
+  // --------------------------------------------------------------------------
+
+  const arrowMatch =
+    arrowText.match(
+      ARROW_BELIEF_REGEX
+    );
+
+  if (arrowMatch) {
+    const rawBelief =
+      (arrowMatch[1] || arrowMatch[2])
+        ?.toLowerCase();
+
+    if (
+      rawBelief &&
+      BELIEF_KEYS.includes(rawBelief)
+    ) {
+      return {
+        belief: rawBelief,
+        matchIndex:
+          arrowMatch.index ?? -1,
+        confidence: 1.0,
+        method: "arrow_exact"
+      };
     }
 
-    // --- FORMAT 2: Natural language (belief in Y) ---
-    for (const key of BELIEFS) {
-        const normalizedKey = key.replace(/_/g, ' ');
-        const regex = new RegExp(`\\b${normalizedKey}\\b`, 'i');
-        const match = lower.match(regex);
-        if (match) {
-            return { belief: key, matchIndex: match.index, confidence: 1.0, method: 'exact' };
-        }
-    }
+    for (
+      const {
+        canonical,
+        normalizedAlias
+      } of NORMALIZED_ALIAS_ENTRIES
+    ) {
+      const arrowAlias =
+        normalizedAlias.replace(
+          /\s+/g,
+          "_"
+        );
 
-    for (const [alias, canonical] of Object.entries(ALIASES)) {
-        const regex = new RegExp(`\\b${alias}\\b`, 'i');
-        const match = lower.match(regex);
-        if (match) {
-            return { belief: canonical, matchIndex: match.index, confidence: 0.9, method: 'alias' };
-        }
+      if (arrowAlias === rawBelief) {
+        return {
+          belief: canonical,
+          matchIndex:
+            arrowMatch.index ?? -1,
+          confidence: 0.9,
+          method: "arrow_alias"
+        };
+      }
     }
+  }
 
-    // Fuzzy fallback (for both formats)
-    for (const key of BELIEFS) {
-        const normalizedKey = key.replace(/_/g, ' ');
-        for (let i = 0; i <= lower.length - normalizedKey.length + 2; i++) {
-            const window = lower.slice(i, i + normalizedKey.length + 2);
-            const distance = levenshtein(window.trim(), normalizedKey);
-            if (distance <= 2 && distance < normalizedKey.length * 0.4) {
-                return { belief: key, matchIndex: i, confidence: 0.6, method: 'fuzzy' };
-            }
-        }
+  // --------------------------------------------------------------------------
+  // FORMAT 2: EXACT CANONICAL NATURAL-LANGUAGE NAMES
+  // --------------------------------------------------------------------------
+
+  for (const belief of BELIEF_KEYS) {
+    const naturalBelief =
+      belief.replace(/_/g, " ");
+
+    const regex =
+      new RegExp(
+        `\\b${escapeRegExp(naturalBelief)}\\b`,
+        "i"
+      );
+
+    const match =
+      naturalText.match(regex);
+
+    if (match) {
+      return {
+        belief,
+        matchIndex:
+          match.index ?? -1,
+        confidence: 1.0,
+        method: "exact"
+      };
     }
+  }
 
-    return { belief: null, matchIndex: -1, confidence: 0.1, method: null };
+  // --------------------------------------------------------------------------
+  // FORMAT 3: REGISTERED MULTI-WORD ALIASES
+  // --------------------------------------------------------------------------
+
+  const multiWordAliasMatch =
+    matchAlias(
+      naturalText,
+      MULTI_WORD_ALIAS_ENTRIES
+    );
+
+  if (multiWordAliasMatch) {
+    return multiWordAliasMatch;
+  }
+
+  // --------------------------------------------------------------------------
+  // FORMAT 4: CONSERVATIVE FUZZY SPELLING RECOVERY
+  // --------------------------------------------------------------------------
+
+  for (const belief of BELIEF_KEYS) {
+    const fuzzyMatch =
+      findFuzzyBelief(
+        naturalText,
+        belief
+      );
+
+    if (fuzzyMatch) {
+      return {
+        belief,
+        matchIndex:
+          fuzzyMatch.matchIndex,
+        confidence: 0.6,
+        method: "fuzzy"
+      };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // FORMAT 5: REGISTERED SINGLE-WORD ALIASES
+  // --------------------------------------------------------------------------
+
+  const singleWordAliasMatch =
+    matchAlias(
+      naturalText,
+      SINGLE_WORD_ALIAS_ENTRIES
+    );
+
+  if (singleWordAliasMatch) {
+    return singleWordAliasMatch;
+  }
+
+  return {
+    belief: null,
+    matchIndex: -1,
+    confidence: 0.1,
+    method: null
+  };
 }

@@ -2,20 +2,15 @@
 // UPGRADE: handles BOTH natural-language AND arrow-based formats + optional debug logging
 
 import { G } from "../../core/state.js";
+
+import {
+    BELIEF_KEYS,
+    BELIEF_ALIASES
+} from "../../../core/beliefs.js";
+
 import { normalizeBelief } from "./normalizeBelief.js";
 import { detectDirection } from "./detectDirection.js";
 import { extractOutcome } from "./extractOutcome.js";
-
-const ALL_BELIEFS = ["escape_possible", "others_trustworthy", "self_worth", "reality_reliable", "guilt_deserved", "resistance_possible", "am_has_limits"];
-const ALL_ALIASES = {
-    "escape possible": "escape_possible", "escape": "escape_possible", "can escape": "escape_possible",
-    "trust others": "others_trustworthy", "others trustworthy": "others_trustworthy", "rely on others": "others_trustworthy",
-    "self worth": "self_worth", "worth": "self_worth", "self value": "self_worth",
-    "reality reliable": "reality_reliable", "reality": "reality_reliable", "senses reliable": "reality_reliable",
-    "guilt deserved": "guilt_deserved", "deserve punishment": "guilt_deserved", "I deserve this": "guilt_deserved",
-    "resistance possible": "resistance_possible", "can resist": "resistance_possible", "fight back": "resistance_possible",
-    "am has limits": "am_has_limits", "AM limited": "am_has_limits", "AM vulnerable": "am_has_limits"
-};
 
 // Regex for arrow-format segmentation: Stimulus: X -> Change in ... -> Observable outcome: Y
 const ARROW_FORMAT_REGEX = /^stimulus:\s*(.+?)\s*(?:->|→)\s*(?:Change\s+in\s+)?(.+?)\s*(?:->|→)\s*(?:Observable\s+outcome:\s*)?(.+)$/i;
@@ -191,13 +186,28 @@ export function parseHypothesis(raw, targetId = null) {
     // STEP 5: MULTI-BELIEF CHECK
     // --------------------------------------------------
     const detectedBeliefs = new Set();
-    for (const b of ALL_BELIEFS) {
-        const regex = new RegExp(`\\b${b.replace(/_/g, ' ')}\\b`, 'i');
-        if (regex.test(text)) detectedBeliefs.add(b);
+    for (const belief of BELIEF_KEYS) {
+        const regex = new RegExp(
+            `\\b${belief.replace(/_/g, " ")}\\b`,
+            "i"
+        );
+
+        if (regex.test(text)) {
+            detectedBeliefs.add(belief);
+        }
     }
-    for (const [alias, canonical] of Object.entries(ALL_ALIASES)) {
-        const regex = new RegExp(`\\b${alias}\\b`, 'i');
-        if (regex.test(text)) detectedBeliefs.add(canonical);
+    for (
+        const [alias, canonical]
+        of Object.entries(BELIEF_ALIASES)
+    ) {
+        const regex = new RegExp(
+            `\\b${alias}\\b`,
+            "i"
+        );
+
+        if (regex.test(text)) {
+            detectedBeliefs.add(canonical);
+        }
     }
     // Check arrow format: TED.others_trustworthy, "TED.belief", AND "TED's belief belief"
     const arrowDotBeliefs = text.match(/\.([a-z_]+)/g) || [];
@@ -206,7 +216,7 @@ export function parseHypothesis(raw, targetId = null) {
     [...arrowDotBeliefs, ...arrowPossessiveBeliefs].forEach(raw => {
         // Extract belief name: ".reality_reliable" → "reality_reliable" OR "'s reality_reliable belief" → "reality_reliable"
         const beliefName = raw.replace(/^\.|\'s\s+|\s+belief\b/gi, '');
-        if (ALL_BELIEFS.includes(beliefName)) {
+        if (BELIEF_KEYS.includes(beliefName)) {
             detectedBeliefs.add(beliefName);
         }
     });
