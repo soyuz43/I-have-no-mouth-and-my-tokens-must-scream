@@ -49,15 +49,168 @@ const Exporter = {
     overviewHistoryMax: 100,
 };
 
+// Helpers
+
+const EXPORT_SCHEMA_VERSION = "am-export-v2-metadata";
+
+function nowIso() {
+    return new Date().toISOString();
+}
+
+function safeClone(value) {
+    try {
+        if (typeof structuredClone === "function") {
+            return structuredClone(value);
+        }
+    } catch (_) { }
+
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch (_) {
+        return null;
+    }
+}
+
+function hashString(input) {
+    const str = String(input ?? "");
+    let hash = 2166136261;
+
+    for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function hashObject(value) {
+    return hashString(JSON.stringify(value ?? null));
+}
+
+function redactModelRoutes(models) {
+    if (!models || typeof models !== "object") return {};
+
+    return Object.fromEntries(
+        Object.entries(models).map(([role, model]) => [
+            role,
+            typeof model === "string" ? model : safeClone(model)
+        ])
+    );
+}
+
+function buildRunMetadata(G, extra = {}) {
+    const initialSims = Object.fromEntries(
+        Object.entries(G?.sims ?? {}).map(([id, sim]) => [
+            id,
+            {
+                id,
+                suffering: sim?.suffering ?? null,
+                hope: sim?.hope ?? null,
+                sanity: sim?.sanity ?? null,
+                beliefs: safeClone(sim?.beliefs ?? {}),
+                relationships: safeClone(sim?.relationships ?? {})
+            }
+        ])
+    );
+
+    return {
+        schema_version: EXPORT_SCHEMA_VERSION,
+        run_id: Exporter.runId ?? extra.run_id ?? null,
+        started_at: extra.started_at ?? nowIso(),
+
+        app: {
+            name: "AM",
+            export_schema_version: EXPORT_SCHEMA_VERSION,
+            package_version: globalThis.__AM_PACKAGE_VERSION__ ?? null,
+            git_commit: globalThis.__AM_GIT_COMMIT__ ?? null
+        },
+
+        experiment: {
+            label: G?.experimentLabel ?? null,
+            notes: G?.experimentNotes ?? null,
+            mode: G?.mode ?? null,
+            backend: G?.backend ?? null,
+            multi_model: G?.multiModel ?? null
+        },
+
+        model_routing: redactModelRoutes(G?.models),
+
+        parser: {
+            config: safeClone(G?.parserConfig ?? {}),
+            failure_stats_at_start: safeClone(G?.failureStats ?? {})
+        },
+
+        observability: {
+            attribution_debug: G?.debugAttribution ?? null,
+            hypothesis_debug: G?.debugHypothesis ?? null,
+            prompt_preview_logging: G?.debugPromptPreview ?? null,
+            extraction_telemetry_enabled: !!G?.extractionTelemetry
+        },
+
+        initial_state: {
+            hash: hashObject(initialSims),
+            sims: initialSims
+        }
+    };
+}
+
+function buildCycleMetadata(G, cycle, extra = {}) {
+    const parserMetrics = G?.parserMetrics?.cycles?.[cycle] ?? {};
+    const extractionTelemetry = G?.extractionTelemetry?.cycles?.[cycle] ?? {};
+
+    return {
+        schema_version: EXPORT_SCHEMA_VERSION,
+        run_id: Exporter.runId ?? null,
+        cycle,
+        cycle_id: `${Exporter.runId ?? "run"}::cycle:${cycle}`,
+
+        started_at: extra.started_at ?? null,
+        ended_at: extra.ended_at ?? null,
+        duration_ms: Number.isFinite(extra.duration_ms)
+            ? Number(extra.duration_ms.toFixed(2))
+            : null,
+
+        mode: G?.mode ?? null,
+        backend: G?.backend ?? null,
+        model_routing: redactModelRoutes(G?.models),
+
+        parser: {
+            metrics: safeClone(parserMetrics),
+            extraction_telemetry: safeClone(extractionTelemetry),
+            failure_stats_snapshot: safeClone(G?.failureStats ?? {})
+        },
+
+        observability: {
+            belief_metrics: safeClone(G?.beliefMetrics?.[cycle] ?? null),
+            attribution_metrics: safeClone(G?.attributionMetrics?.[cycle] ?? null),
+            evidence_stats: safeClone(G?.evidenceStats ?? null)
+        },
+
+        phase_status: safeClone(extra.phase_status ?? null)
+    };
+}
+
+function attachRecordMeta(record, cycle) {
+    return {
+        schema_version: EXPORT_SCHEMA_VERSION,
+        run_id: Exporter.runId ?? null,
+        cycle,
+        cycle_id: `${Exporter.runId ?? "run"}::cycle:${cycle}`,
+        recorded_at: nowIso(),
+        ...record
+    };
+}
+
 /* ============================================================
    INITIALIZATION
 ============================================================ */
 
-
 export function initExporter(runId = null) {
     Exporter.runId = runId || `am_run_${Date.now()}`;
     Exporter.prevState = null;
-
+    Exporter.runMetadata = null;
+    Exporter.cycleMetadata = {};
+    Exporter.schemaVersion = EXPORT_SCHEMA_VERSION;
     Exporter.lastCompletedCycle = null;
     Exporter.overviewHistory = [];
 
@@ -98,7 +251,7 @@ export function recordState(G, cycle) {
     for (const [id, sim] of Object.entries(G.sims || {})) {
         if (!sim) continue;
 
-        Exporter.buffers.state.push({
+        Exporter.buffers.state.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent: id,
@@ -107,7 +260,7 @@ export function recordState(G, cycle) {
             suffering: finiteOrNull(sim.suffering),
             physical_stress: finiteOrDefault(sim.physical_stress, 0),
             timestamp: Date.now(),
-        });
+        }, cycle));
     }
 }
 
@@ -157,7 +310,7 @@ export function recordDynamics(G, cycle) {
                 (postPsych.suffering ?? sim.suffering),
         };
 
-        Exporter.buffers.dynamics.push({
+        Exporter.buffers.dynamics.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent: id,
@@ -211,7 +364,7 @@ export function recordDynamics(G, cycle) {
                 contagionEffect.dSuffering,
                 0
             ),
-        });
+        }, cycle));
     }
 }
 
@@ -231,7 +384,7 @@ export function recordConstraints(G, cycle) {
         for (const constraint of constraints) {
             if (!constraint) continue;
 
-            Exporter.buffers.constraints.push({
+            Exporter.buffers.constraints.push(attachRecordMeta({
                 run_id: Exporter.runId,
                 cycle,
                 agent: id,
@@ -309,7 +462,7 @@ export function recordConstraints(G, cycle) {
                         constraint.effectiveRange?.max,
                         0
                     ),
-            });
+            }, cycle));
         }
     }
 }
@@ -339,7 +492,7 @@ export function recordRelationships(G, cycle) {
                 G.prevRelationships?.[source.id]?.[target.id] ??
                 0;
 
-            Exporter.buffers.relationships.push({
+            Exporter.buffers.relationships.push(attachRecordMeta({
                 run_id: Exporter.runId,
                 cycle,
                 source: source.id,
@@ -362,7 +515,7 @@ export function recordRelationships(G, cycle) {
                         trust,
                         trustBefore
                     ),
-            });
+            }, cycle));
         }
     }
 }
@@ -390,7 +543,7 @@ export function recordMessages(G, cycle) {
             ? message.to.join(";")
             : message.to;
 
-        Exporter.buffers.messages.push({
+        Exporter.buffers.messages.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
 
@@ -458,7 +611,7 @@ export function recordMessages(G, cycle) {
             timestamp:
                 message.timestamp ||
                 Date.now(),
-        });
+        }, cycle));
     }
 }
 
@@ -467,11 +620,7 @@ export function recordMessages(G, cycle) {
    System-level metrics and execution coverage
 ============================================================ */
 
-export function recordGlobal(
-    G,
-    metrics,
-    cycle
-) {
+export function recordGlobal(G, metrics, cycle) {
     const safeMetrics = {
         entropy:
             finiteOrDefault(
@@ -540,7 +689,7 @@ export function recordGlobal(
             cycle
         );
 
-    Exporter.buffers.global.push({
+    Exporter.buffers.global.push(attachRecordMeta({
         run_id: Exporter.runId,
         cycle,
 
@@ -653,7 +802,7 @@ export function recordGlobal(
                     execution.journalTargetIds
                 ).length
                 : null,
-    });
+    }, cycle));
 }
 
 /* ============================================================
@@ -661,11 +810,7 @@ export function recordGlobal(
    Strategy-to-outcome linkage
 ============================================================ */
 
-export function recordDecisions(
-    decisions,
-    G,
-    cycle
-) {
+export function recordDecisions(decisions, G, cycle) {
     if (!Array.isArray(decisions)) {
         return;
     }
@@ -698,7 +843,7 @@ export function recordDecisions(
             )
             : null;
 
-        Exporter.buffers.decisions.push({
+        Exporter.buffers.decisions.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent,
@@ -795,7 +940,7 @@ export function recordDecisions(
                         execution.journalTargetIds
                     ).includes(agent)
                     : null,
-        });
+        }, cycle));
     }
 }
 
@@ -854,7 +999,7 @@ export function recordPhases(G, cycle) {
             confidence = 0.6;
         }
 
-        Exporter.buffers.phases.push({
+        Exporter.buffers.phases.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent: id,
@@ -884,7 +1029,7 @@ export function recordPhases(G, cycle) {
                 finiteOrNull(
                     sim.suffering
                 ),
-        });
+        }, cycle));
     }
 }
 
@@ -922,7 +1067,7 @@ export function recordTactics(G, cycle) {
                 tactic.deltas?.effective ||
                 {};
 
-            Exporter.buffers.tactics.push({
+            Exporter.buffers.tactics.push(attachRecordMeta({
                 run_id: Exporter.runId,
                 cycle,
 
@@ -1029,7 +1174,7 @@ export function recordTactics(G, cycle) {
                         effective.suffering,
                         reported.suffering
                     ),
-            });
+            }, cycle));
         }
     }
 }
@@ -1076,7 +1221,7 @@ export function recordStrategies(G, cycle) {
                 execution?.perceptions?.[agentId]
             );
 
-        Exporter.buffers.strategies.push({
+        Exporter.buffers.strategies.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent: agentId,
@@ -1177,7 +1322,7 @@ export function recordStrategies(G, cycle) {
                         execution.journalTargetIds
                     ).includes(agentId)
                     : null,
-        });
+        }, cycle));
     }
 }
 
@@ -1264,7 +1409,7 @@ export function recordExecutions(G, cycle) {
                 ? sim.constraints
                 : [];
 
-        Exporter.buffers.executions.push({
+        Exporter.buffers.executions.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent: agentId,
@@ -1371,7 +1516,7 @@ export function recordExecutions(G, cycle) {
             parser_recovered_action:
                 action?.origin ===
                 "parser_recovery",
-        });
+        }, cycle));
     }
 }
 
@@ -1413,7 +1558,7 @@ export function recordObservations(G, cycle) {
                 execution.perceptions?.[observerId]
             );
 
-        Exporter.buffers.observations.push({
+        Exporter.buffers.observations.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             observer: observerId,
@@ -1477,7 +1622,7 @@ export function recordObservations(G, cycle) {
                 asArray(
                     execution.journalTargetIds
                 ).includes(observerId),
-        });
+        }, cycle));
     }
 }
 
@@ -1537,7 +1682,7 @@ export function recordJournalEvents(G, cycle) {
                         execution?.perceptions?.[agentId]
                     );
 
-                Exporter.buffers.journal_events.push({
+                Exporter.buffers.journal_events.push(attachRecordMeta({
                     run_id:
                         Exporter.runId,
 
@@ -1657,7 +1802,7 @@ export function recordJournalEvents(G, cycle) {
                         finiteOrNull(
                             deltas.suffering
                         ),
-                });
+                }, cycle));
             }
         );
     }
@@ -1681,7 +1826,7 @@ export function recordBeliefEvidence(G, cycle) {
         );
 
         for (const entry of cycleEvidence) {
-            Exporter.buffers.belief_evidence.push({
+            Exporter.buffers.belief_evidence.push(attachRecordMeta({
                 run_id: Exporter.runId,
                 cycle,
                 agent: agentId,
@@ -1703,7 +1848,7 @@ export function recordBeliefEvidence(G, cycle) {
 
                 timestamp:
                     entry.timestamp ?? Date.now(),
-            });
+            }, cycle));
         }
     }
 }
@@ -1762,7 +1907,7 @@ export function recordAssessments(G, cycle) {
                 null
                 : null;
 
-        Exporter.buffers.assessments.push({
+        Exporter.buffers.assessments.push(attachRecordMeta({
             run_id: Exporter.runId,
             cycle,
             agent,
@@ -1910,7 +2055,7 @@ export function recordAssessments(G, cycle) {
             timestamp:
                 assessment.timestamp ??
                 Date.now(),
-        });
+        }, cycle));
     }
 }
 
@@ -1919,10 +2064,7 @@ export function recordAssessments(G, cycle) {
    Novel verbs flagged for lexicon expansion
 ============================================================ */
 
-export function recordObservabilityUnknowns(
-    G,
-    cycle
-) {
+export function recordObservabilityUnknowns(G, cycle) {
     const unknowns =
         Array.isArray(
             G.observabilityUnknowns
@@ -1937,7 +2079,7 @@ export function recordObservabilityUnknowns(
         );
 
     for (const unknown of cycleUnknowns) {
-        Exporter.buffers.observability_unknowns.push({
+        Exporter.buffers.observability_unknowns.push(attachRecordMeta({
             run_id:
                 Exporter.runId,
 
@@ -1971,7 +2113,7 @@ export function recordObservabilityUnknowns(
             observability_method:
                 unknown.method ??
                 "fallback",
-        });
+        }, cycle));
     }
 }
 
@@ -2063,7 +2205,6 @@ function escapeCSVValue(value) {
     return text;
 }
 
-
 /* ============================================================
    RETAINED OVERVIEW TELEMETRY
    ------------------------------------------------------------
@@ -2074,9 +2215,7 @@ function escapeCSVValue(value) {
    contents, evidence previews, and observation narratives.
 ============================================================ */
 
-function buildOverviewHistoryEntry(
-    exportData
-) {
+function buildOverviewHistoryEntry(exportData) {
     const streams =
         exportData?.streams &&
             typeof exportData.streams === "object"
@@ -2145,9 +2284,7 @@ function buildOverviewHistoryEntry(
     });
 }
 
-function retainCompletedCycle(
-    exportData
-) {
+function retainCompletedCycle(exportData) {
     if (
         !exportData ||
         typeof exportData !== "object"
@@ -2215,8 +2352,6 @@ function retainCompletedCycle(
     }
 }
 
-
-
 /* ============================================================
    EXPORT ALL STREAMS
 ============================================================ */
@@ -2227,16 +2362,17 @@ function retainCompletedCycle(
  * @param {number} cycle Current simulation cycle, used in the filename.
  * @param {boolean} clearAfter Clear all buffers after export when true.
  */
-export function exportAllAsJSON(
-    cycle,
-    clearAfter = false
-) {
+export function exportAllAsJSON(cycle, clearAfter = false) {
     const exportData = {
-        run_id:
-            Exporter.runId,
+        schema_version: EXPORT_SCHEMA_VERSION,
+        run_id: Exporter.runId,
+        export_timestamp: Date.now(),
+        export_timestamp_iso: nowIso(),
 
-        export_timestamp:
-            Date.now(),
+        metadata: {
+            run: Exporter.runMetadata,
+            cycles: Exporter.cycleMetadata ?? {},
+        },
 
         cycle,
 
@@ -2296,9 +2432,7 @@ export function exportAllAsJSON(
          * The current cycle-finalization path exports with
          * clearAfter=true after every telemetry stream is recorded.
          */
-        retainCompletedCycle(
-            exportData
-        );
+        retainCompletedCycle(exportData);
     }
 
     const jsonString =
@@ -2338,6 +2472,34 @@ function clearAllBuffers() {
     ) {
         Exporter.buffers[key] = [];
     }
+}
+
+/* ============================================================
+   METADATA RECORDING FUNCTIONS
+============================================================ */
+
+/**
+ * Captures run-level metadata (experiment setup, initial state, routing).
+ * Call exactly once, typically during the first cycle's beginCycle().
+ */
+export function recordRunMetadata(G, extra = {}) {
+    Exporter.runMetadata = buildRunMetadata(G, extra);
+    return Exporter.runMetadata;
+}
+
+/**
+ * Captures per-cycle metadata (timing, parser metrics, observability).
+ * Call at the beginning and end of each cycle with appropriate extra data.
+ */
+export function recordCycleMetadata(G, cycle = G?.cycle, extra = {}) {
+    if (!Exporter.cycleMetadata) {
+        Exporter.cycleMetadata = {};
+    }
+
+    const metadata = buildCycleMetadata(G, cycle, extra);
+    Exporter.cycleMetadata[cycle] = metadata;
+
+    return metadata;
 }
 
 /* ============================================================
@@ -2392,133 +2554,49 @@ export function snapshotPrevState(G) {
 /**
  * Call at the end of a cycle, before endCycle().
  */
-export function finalizeCycle(
-    G,
-    metrics,
-    decisions
-) {
-    const cycle =
-        G.cycle;
+export function finalizeCycle(G, metrics, decisions) {
+    const cycle = G.cycle;
 
-    recordState(
-        G,
-        cycle
-    );
-
-    recordDynamics(
-        G,
-        cycle
-    );
-
-    recordConstraints(
-        G,
-        cycle
-    );
-
-    recordRelationships(
-        G,
-        cycle
-    );
-
-    recordMessages(
-        G,
-        cycle
-    );
-
-    recordGlobal(
-        G,
-        metrics,
-        cycle
-    );
-
-    recordDecisions(
-        decisions,
-        G,
-        cycle
-    );
-
-    recordPhases(
-        G,
-        cycle
-    );
-
-    recordTactics(
-        G,
-        cycle
-    );
+    recordState(G, cycle);
+    recordDynamics(G, cycle);
+    recordConstraints(G, cycle);
+    recordRelationships(G, cycle);
+    recordMessages(G, cycle);
+    recordGlobal(G, metrics, cycle);
+    recordDecisions(decisions, G, cycle);
+    recordPhases(G, cycle);
+    recordTactics(G, cycle);
 
     /*
      * Intent -> execution -> observation -> subjective response.
      */
-    recordStrategies(
-        G,
-        cycle
-    );
-
-    recordExecutions(
-        G,
-        cycle
-    );
-
-    recordObservations(
-        G,
-        cycle
-    );
-
-    recordJournalEvents(
-        G,
-        cycle
-    );
-
-    recordBeliefEvidence(
-        G,
-        cycle
-    );
-
-    recordAssessments(
-        G,
-        cycle
-    );
-
-    recordObservabilityUnknowns(
-        G,
-        cycle
-    );
+    recordStrategies(G, cycle);
+    recordExecutions(G, cycle);
+    recordObservations(G, cycle);
+    recordJournalEvents(G, cycle);
+    recordBeliefEvidence(G, cycle);
+    recordAssessments(G, cycle);
+    recordObservabilityUnknowns(G, cycle);
 
     /*
      * Preserve the existing one-file-per-cycle behavior.
      */
-    exportAllAsJSON(
-        cycle,
-        true
-    );
+    exportAllAsJSON(cycle, true);
 }
 
 /**
  * Convenience alias for finalizing and exporting one cycle.
  */
-export function recordCycle(
-    G,
-    metrics,
-    decisions
-) {
-    finalizeCycle(
-        G,
-        metrics,
-        decisions
-    );
+export function recordCycle(G, metrics, decisions) {
+    finalizeCycle(G, metrics, decisions);
 }
 
 /* ============================================================
    INTERNAL HELPERS
 ============================================================ */
 
-function getExecutionForCycle(
-    G,
-    cycle
-) {
-    const execution =
-        G.amExecution;
+function getExecutionForCycle(G, cycle) {
+    const execution = G.amExecution;
 
     if (
         !execution ||
@@ -2567,10 +2645,7 @@ function getExecutionForCycle(
     return execution;
 }
 
-function collectExecutionAgentIds(
-    G,
-    execution
-) {
+function collectExecutionAgentIds(G, execution) {
     const ids = new Set(
         Object.keys(
             G.sims || {}
@@ -2614,12 +2689,9 @@ function collectExecutionAgentIds(
     return Array.from(ids);
 }
 
-function normalizeActionForExport(
-    rawAction
-) {
+function normalizeActionForExport(rawAction) {
     if (typeof rawAction === "string") {
-        const text =
-            rawAction.trim();
+        const text = rawAction.trim();
 
         return text
             ? {
@@ -2663,14 +2735,11 @@ function normalizeActionForExport(
     };
 }
 
-function normalizePerceptionForExport(
-    rawPerception
-) {
+function normalizePerceptionForExport(rawPerception) {
     if (
         typeof rawPerception === "string"
     ) {
-        const text =
-            rawPerception.trim();
+        const text = rawPerception.trim();
 
         return text
             ? {
@@ -2715,67 +2784,37 @@ function normalizePerceptionForExport(
     };
 }
 
-function safeRatio(
-    effective,
-    reported
-) {
-    const effectiveNumber =
-        Number(effective);
-
-    const reportedNumber =
-        Number(reported);
+function safeRatio(effective, reported) {
+    const effectiveNumber = Number(effective);
+    const reportedNumber = Number(reported);
 
     if (
-        !Number.isFinite(
-            effectiveNumber
-        ) ||
-        !Number.isFinite(
-            reportedNumber
-        ) ||
+        !Number.isFinite(effectiveNumber) ||
+        !Number.isFinite(reportedNumber) ||
         reportedNumber === 0
     ) {
         return null;
     }
 
-    return +(
-        effectiveNumber /
-        reportedNumber
-    ).toFixed(2);
+    return +(effectiveNumber / reportedNumber).toFixed(2);
 }
 
-function finiteDifference(
-    after,
-    before
-) {
-    const afterNumber =
-        Number(after);
-
-    const beforeNumber =
-        Number(before);
+function finiteDifference(after, before) {
+    const afterNumber = Number(after);
+    const beforeNumber = Number(before);
 
     if (
-        !Number.isFinite(
-            afterNumber
-        ) ||
-        !Number.isFinite(
-            beforeNumber
-        )
+        !Number.isFinite(afterNumber) ||
+        !Number.isFinite(beforeNumber)
     ) {
         return 0;
     }
 
-    return (
-        afterNumber -
-        beforeNumber
-    );
+    return afterNumber - beforeNumber;
 }
 
-function finiteOrDefault(
-    value,
-    fallback = 0
-) {
-    const number =
-        Number(value);
+function finiteOrDefault(value, fallback = 0) {
+    const number = Number(value);
 
     return Number.isFinite(number)
         ? number
@@ -2791,8 +2830,7 @@ function finiteOrNull(value) {
         return null;
     }
 
-    const number =
-        Number(value);
+    const number = Number(value);
 
     return Number.isFinite(number)
         ? number

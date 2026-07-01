@@ -11,25 +11,18 @@
 // It validates and normalizes values after extraction.
 
 import {
+  isBeliefKey
+} from "../../core/beliefs.js";
+
+import {
   clipBeliefDelta
 } from "../../core/utils.js";
+
 import { G } from "../../core/state.js";
 
 /* ============================================================
    CONSTANTS
    ============================================================ */
-
-const ALLOWED_BELIEF_KEYS = Object.freeze([
-  "escape_possible",
-  "others_trustworthy",
-  "self_worth",
-  "reality_reliable",
-  "guilt_deserved",
-  "resistance_possible",
-  "am_has_limits"
-]);
-
-const ALLOWED_BELIEF_KEY_SET = new Set(ALLOWED_BELIEF_KEYS);
 
 const ZERO_VALUE_STRINGS = new Set([
   "unchanged",
@@ -100,7 +93,7 @@ function normalizeBeliefKeyShape(rawKey) {
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_");
 
-  return ALLOWED_BELIEF_KEY_SET.has(normalized)
+  return isBeliefKey(normalized)
     ? normalized
     : null;
 }

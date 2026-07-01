@@ -1,6 +1,6 @@
 {
   "type": "module",
   "scripts": {
-    "test": "node js/tests/strategyExtractionRegression.test.mjs --json && node js/tests/scratchpadCommsRepair.test.js --json"
+    "test": "node --test js/tests/beliefRegistryInvariant.test.mjs && node js/tests/strategyExtractionRegression.test.mjs --json && node js/tests/scratchpadCommsRepair.test.js --json"
   }
 }
