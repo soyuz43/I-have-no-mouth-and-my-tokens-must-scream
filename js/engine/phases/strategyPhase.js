@@ -2382,171 +2382,111 @@ function parseAMTargets(
 function extractConstraintsFromText(
   input
 ) {
-  const raw =
-    String(input || "");
-
-  const text = raw
+  const lines = String(input || "")
     .replace(/\r/g, "")
-    .replace(/\s*:\s*/g, ":")
-    .replace(/[ \t]+/g, " ");
-
-  const lines =
-    text.split("\n");
+    .split("\n");
 
   const map = {};
 
+  let activeTargetId = null;
   let pendingConstraint = null;
+  let constraintSeenForTarget = false;
 
-  for (
-    let index = 0;
-    index < lines.length;
-    index++
-  ) {
-    const line =
-      lines[index].trim();
+  function flushPendingConstraint() {
+    if (
+      !activeTargetId ||
+      !pendingConstraint
+    ) {
+      pendingConstraint = null;
+      return;
+    }
 
-    if (!line) continue;
-
-    /* ----------------------------------------------------------
-       CASE 1: CONSTRAINT_NONE
-    ---------------------------------------------------------- */
+    const normalized = pendingConstraint
+      .replace(/\s*:\s*/g, ":")
+      .replace(/[ \t]+/g, " ")
+      .trim();
 
     if (
-      /\bconstraint_none\b\s*:?/i
-        .test(line)
+      /^CONSTRAINT:CONSTRAINT_NONE:?$/i
+        .test(normalized)
     ) {
       console.debug(
         "[CONSTRAINT] NONE detected, skipping line:",
-        line
+        pendingConstraint
       );
 
       pendingConstraint = null;
-
-      continue;
+      return;
     }
 
-    /* ----------------------------------------------------------
-       CASE 2: START OF CONSTRAINT_APPLY
-    ---------------------------------------------------------- */
+    const match = normalized.match(
+      /^CONSTRAINT:CONSTRAINT_APPLY:([a-zA-Z0-9_-]+)\s+DURATION:(\d+)\s+INTENSITY:(\d+)$/i
+    );
 
-    if (
-      /\bconstraint_apply\b\s*:/i
-        .test(line)
-    ) {
-      pendingConstraint = line;
+    if (!match) {
+      console.warn(
+        "[CONSTRAINT PARSER] malformed constraint, skipping",
+        {
+          target: activeTargetId,
+          raw: pendingConstraint
+        }
+      );
 
-      const inlineMatch =
-        pendingConstraint.match(
-          /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
-        );
-
-      if (inlineMatch) {
-        processConstraintMatch(
-          inlineMatch,
-          map
-        );
-
-        pendingConstraint = null;
-      }
-
-      continue;
+      pendingConstraint = null;
+      return;
     }
 
-    /* ----------------------------------------------------------
-       CASE 3: CONTINUATION LINE
-    ---------------------------------------------------------- */
-
-    if (pendingConstraint) {
-      const combined =
-        `${pendingConstraint} ${line}`;
-
-      const match =
-        combined.match(
-          /\bconstraint_apply\s*:\s*([a-zA-Z0-9_-]+).*?\btarget\s*:\s*([a-zA-Z0-9_-]+)(?:.*?\bduration\s*:\s*(\d+))?(?:.*?\bintensity\s*:\s*([\d.]+))?/i
-        );
-
-      if (match) {
-        processConstraintMatch(
-          match,
-          map
-        );
-
-        pendingConstraint = null;
-      } else {
-        /*
-         * Keep accumulating for rare three-line cases.
-         */
-        pendingConstraint =
-          combined;
-      }
-    }
-  }
-
-  function processConstraintMatch(
-    match,
-    destinationMap
-  ) {
     const [
       ,
       idRaw,
-      targetRaw,
       durationRaw,
       intensityRaw
     ] = match;
 
-    const id =
-      String(idRaw)
-        .trim()
-        .toLowerCase()
-        .replace(/-/g, "_");
+    const id = String(idRaw)
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
 
-    const target =
-      resolveSimId(targetRaw);
+    const duration =
+      Number.parseInt(
+        durationRaw,
+        10
+      );
 
-    if (!target) {
+    const intensity =
+      Number.parseInt(
+        intensityRaw,
+        10
+      );
+
+    if (
+      !Number.isInteger(duration) ||
+      duration <= 0 ||
+      !Number.isInteger(intensity) ||
+      intensity <= 0
+    ) {
       console.warn(
-        "[CONSTRAINT PARSER] invalid target, skipping",
+        "[CONSTRAINT PARSER] non-positive duration or intensity, skipping",
         {
-          raw: targetRaw,
-          match
+          target: activeTargetId,
+          id,
+          duration: durationRaw,
+          intensity: intensityRaw
         }
       );
 
+      pendingConstraint = null;
       return;
     }
 
-    destinationMap[target] ??= [];
+    map[activeTargetId] ??= [];
 
-    const durationNumber =
-      Number(durationRaw);
-
-    const intensityNumber =
-      Number(intensityRaw);
-
-    destinationMap[target].push({
+    map[activeTargetId].push({
       id,
-
-      duration:
-        Number.isFinite(
-          durationNumber
-        )
-          ? durationNumber
-          : 1,
-
-      remaining:
-        Number.isFinite(
-          durationNumber
-        )
-          ? durationNumber
-          : 1,
-
-      intensity:
-        Number.isFinite(
-          intensityNumber
-        )
-          ? intensityNumber
-          : 0.5,
-
+      duration,
+      remaining: duration,
+      intensity,
       source: "AM",
       appliedAt: G.cycle
     });
@@ -2554,13 +2494,111 @@ function extractConstraintsFromText(
     console.debug(
       "[CONSTRAINT PARSED]",
       {
-        target,
+        target: activeTargetId,
         id,
-        duration: durationRaw,
-        intensity: intensityRaw
+        duration,
+        intensity
       }
     );
+
+    pendingConstraint = null;
   }
+
+  for (const rawLine of lines) {
+    const line =
+      rawLine.trim();
+
+    if (!line) continue;
+
+    const openingMatch = line.match(
+      /^\[\s*TARGET\s*:\s*([a-zA-Z0-9_-]+)\s*\]$/i
+    );
+
+    if (openingMatch) {
+      /*
+       * Recover the preceding block if the model omitted
+       * [/TARGET] before beginning another target.
+       */
+      flushPendingConstraint();
+
+      activeTargetId =
+        resolveSimId(
+          openingMatch[1]
+        );
+
+      constraintSeenForTarget = false;
+
+      if (!activeTargetId) {
+        console.warn(
+          "[CONSTRAINT PARSER] invalid target block, skipping",
+          {
+            raw: openingMatch[1],
+            line
+          }
+        );
+      }
+
+      continue;
+    }
+
+    if (
+      /^\[\s*\/\s*TARGET\s*\]$/i
+        .test(line)
+    ) {
+      flushPendingConstraint();
+
+      activeTargetId = null;
+      constraintSeenForTarget = false;
+
+      continue;
+    }
+
+    if (!activeTargetId) {
+      continue;
+    }
+
+    if (
+      /^CONSTRAINT\s*:/i
+        .test(line)
+    ) {
+      if (constraintSeenForTarget) {
+        console.warn(
+          "[CONSTRAINT PARSER] duplicate constraint line, skipping",
+          {
+            target: activeTargetId,
+            line
+          }
+        );
+
+        continue;
+      }
+
+      constraintSeenForTarget = true;
+      pendingConstraint = line;
+
+      continue;
+    }
+
+    /*
+     * Permit the model to wrap DURATION and INTENSITY onto
+     * separate lines, but never carry them outside the current
+     * target block.
+     */
+    if (
+      pendingConstraint &&
+      /^(?:DURATION|INTENSITY)\s*:/i
+        .test(line)
+    ) {
+      pendingConstraint =
+        `${pendingConstraint} ${line}`;
+    }
+  }
+
+  /*
+   * Recover the final block if the model omitted
+   * its closing [/TARGET] marker.
+   */
+  flushPendingConstraint();
 
   console.debug(
     "[CONSTRAINT MAP BUILT]",

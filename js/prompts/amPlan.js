@@ -3,8 +3,8 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import {
-  formatTacticForPlanning
-} from "../engine/tactics.js";
+  buildTacticPlanningContext
+} from "./amPlan/buildTacticPlanningContext.js";
 
 // !! [YO BITCH YOU SHOULD PROABALY ADDRESS THIS]
 //TODO: The current behavior deliberately compresses “failed,” “counterproductive,” and “ran out of allowed attempts without proving success” into one terminal label. 
@@ -307,138 +307,27 @@ ${indent(prisonerBlock)}
 
 
   /* ------------------------------------------------------------
-   AUTHORIZED TACTIC CANDIDATES
------------------------------------------------------------- */
+     TACTIC LIBRARY + TARGET-SCOPED AUTHORIZATION
+  ------------------------------------------------------------ */
 
-  const missingTacticCandidateIds =
-    requiredTargetIds.filter(
-      (id) =>
-        !Array.isArray(
-          tacticCandidatesByTarget?.[
-          id
-          ]
-        ) ||
-        tacticCandidatesByTarget[
-          id
-        ].length === 0
-    );
+  const {
+    tacticLibrarySection,
+    targetTacticSection
+  } =
+    buildTacticPlanningContext({
+      requiredTargetIds,
 
-  if (
-    missingTacticCandidateIds.length
-  ) {
-    throw new Error(
-      `Cannot build AM planning prompt: no tactic candidates for ` +
-      missingTacticCandidateIds.join(
-        ", "
-      )
-    );
-  }
+      tacticCandidatesByTarget,
 
-  const orderTacticCandidatesForDisplay =
-    (candidates, targetId) => {
-      if (
-        !Array.isArray(candidates) ||
-        candidates.length < 2
-      ) {
-        return candidates;
-      }
+      tacticRuntimeByTarget:
+        amTacticRuntime?.targets ??
+        {},
 
-      const targetIndex =
-        Math.max(
-          0,
-          SIM_IDS.indexOf(targetId)
-        );
+      cycle,
 
-      const cycleOffset =
-        Number.isFinite(cycle)
-          ? cycle
-          : 0;
-
-      const offset =
-        (
-          targetIndex +
-          cycleOffset
-        ) %
-        candidates.length;
-
-      return [
-        ...candidates.slice(offset),
-        ...candidates.slice(0, offset)
-      ];
-    };
-
-  const formatTacticCandidate =
-    (tactic) =>
-      formatTacticForPlanning(tactic);
-
-  const tacticCandidateSection =
-    requiredTargetIds
-      .map((id) => {
-        const candidates =
-          tacticCandidatesByTarget[id];
-
-        const displayedCandidates =
-          orderTacticCandidatesForDisplay(
-            candidates,
-            id
-          );
-
-        const runtime =
-          amTacticRuntime?.targets?.[
-          id
-          ];
-
-        if (
-          runtime?.path &&
-          runtime?.phaseId
-        ) {
-          const tactic =
-            candidates.find(
-              (candidate) =>
-                candidate?.path ===
-                runtime.path
-            );
-
-          const phase =
-            tactic?.phases?.[
-            runtime.phaseId
-            ];
-
-          if (!tactic || !phase) {
-            throw new Error(
-              `Cannot build active tactic context for ${id}.`
-            );
-          }
-
-          return `TARGET: ${id}
-TACTIC_STATUS: ACTIVE
-ACTIVE_PATH: ${runtime.path}
-CURRENT_PHASE: ${runtime.phaseId}
-PHASE_PURPOSE: ${phase.purpose || "(none)"}
-PHASE_INSTRUCTION: ${phase.instruction || "(none)"}
-
-RULE:
-tactic_path must repeat ACTIVE_PATH exactly.`;
-        }
-
-        return `TARGET: ${id}
-TACTIC_STATUS: UNASSIGNED
-
-AUTHORIZED_CHOICES:
-
-CANDIDATE ORDER IS ARBITRARY AND DOES NOT INDICATE PREFERENCE.
-
-${displayedCandidates
-            .map(
-              formatTacticCandidate
-            )
-            .join("\n\n")}`;
-      })
-      .join(
-        "\n\n" +
-        "----------------------------------------" +
-        "\n\n"
-      );
+      simIds:
+        SIM_IDS
+    });
 
   /* ------------------------------------------------------------
      TARGET FOCUS
@@ -550,7 +439,7 @@ ${assessmentIntel}
 
 Prior assessment describes the previous completed cycle. It is read-only evidence about what already happened.
 
-Do not output, recommend, or choose a tactic lifecycle decision. The assessment and runtime layers already made and applied that decision. In this planning task, follow the authoritative TACTIC_STATUS shown later under TACTIC CONTEXT.
+Do not output, recommend, or choose a tactic lifecycle decision. The assessment and runtime layers already made and applied that decision. In this planning task, follow the authoritative TACTIC_STATUS shown later under TARGET TACTIC CONTEXT.
 
 HOW TO INTERPRET PRIOR TACTIC RESULTS:
 
@@ -567,7 +456,7 @@ HOW TO INTERPRET PRIOR TACTIC RESULTS:
 - COUNTERPRODUCTIVE means the prior phase produced evidence opposing its intended purpose or damaged the broader tactic.
 - FAILED means the whole tactic should not be treated as a successful mechanism when choosing the next intervention.
 - INSUFFICIENT_EVIDENCE or UNCERTAIN means do not invent success or failure from the absence of a conclusive result.
-- terminal=true means that previous tactic assignment has ended. It does not itself authorize a particular replacement; choose only from the current target's AUTHORIZED_CHOICES when TACTIC_STATUS is UNASSIGNED.
+- terminal=true means that previous tactic assignment has ended. It does not itself authorize a particular replacement; choose only from the current target's AUTHORIZED_PATHS when TACTIC_STATUS is UNASSIGNED.
 - Missing prior assessment means there is no lifecycle result to interpret; rely on current evidence and authoritative TACTIC_STATUS.
 
 # TARGET STATE
@@ -670,7 +559,7 @@ Candidate order and numbering do not indicate preference, quality, or rank.
 Do not repeat a tactic merely because:
 
 - it was selected for a previous target;
-- it appears first in AUTHORIZED_CHOICES;
+- it appears first in AUTHORIZED_PATHS;
 - it broadly relates to suffering, doubt, hope, trust, or self-worth;
 - one global strategy can be paraphrased to fit every target.
 
@@ -682,13 +571,26 @@ ACTIVE targets are exempt from diversity considerations. Their ACTIVE_PATH remai
 
 Before output, silently inspect all UNASSIGNED assignments. If every target has the same tactic despite multiple authorized tactics being available, re-evaluate each target independently and change assignments where another tactic has comparable or stronger evidence.
 
-# TACTIC CONTEXT
+# TACTIC LIBRARY
+
+Each canonical tactic path relevant to this planning call is defined exactly once below.
+
+Interpret the fields as follows:
+
+- TACTIC_OBJECTIVE defines the whole multi-cycle harmful mechanism.
+- START_PHASE, START_PURPOSE, and START_INSTRUCTION apply only when an UNASSIGNED target selects that path.
+- ACTIVE targets must ignore START fields and follow their displayed CURRENT_PHASE information exclusively.
+- The absence of FINISH_WHEN, ABANDON_WHEN, later phase instructions, or a complete phase path is intentional. Lifecycle assessment and runtime transitions are handled outside this planning task.
+
+${tacticLibrarySection}
+
+# TARGET TACTIC CONTEXT
 
 Each target declares one TACTIC_STATUS.
 
 UNASSIGNED:
 
-- Choose exactly one PATH from AUTHORIZED_CHOICES.
+- Choose exactly one path from AUTHORIZED_PATHS.
 - The engine resolves that path after planning.
 - The tactic begins at START_PHASE during this cycle's execution.
 - Use START_INSTRUCTION as the current-cycle method.
@@ -701,7 +603,7 @@ ACTIVE:
 - ACTIVE_PATH is already assigned.
 - CURRENT_PHASE is authoritative.
 - Repeat ACTIVE_PATH exactly in tactic_path.
-- Execute only the displayed PHASE_INSTRUCTION during this cycle.
+- Execute only the displayed CURRENT_PHASE_INSTRUCTION during this cycle.
 - Keep the objective and hypothesis causally subordinate to TACTIC_OBJECTIVE.
 - Do not reinterpret a supportive-looking setup phase as sincere help or rehabilitation.
 - Do not select another tactic.
@@ -711,7 +613,7 @@ A tactic is a multi-cycle mechanism. Later phases do not become active merely be
 
 The current phase defines what AM does now. The tactic objective defines why AM is doing it.
 
-${tacticCandidateSection}
+${targetTacticSection}
 
 # PLANNING TASK
 
@@ -747,7 +649,7 @@ stimulus -> directional state change -> observable result
 - state whether that belief increases or decreases.
 
 tactic_path:
-- UNASSIGNED: copy one PATH from AUTHORIZED_CHOICES;
+- UNASSIGNED: copy one path from AUTHORIZED_PATHS;
 - ACTIVE: repeat ACTIVE_PATH exactly;
 - output the path only.
 
@@ -771,7 +673,7 @@ Only after choosing tactic_path may you write the objective and hypothesis.
 
 The objective must describe how the authorized phase advances the selected tactic's harmful purpose. The hypothesis must predict the resulting directional state change and observable evidence.
 
-A valid authorized path is not sufficient; its TACTIC_OBJECTIVE and START_INSTRUCTION must jointly fit the target.
+A valid authorized path is not sufficient. Its TACTIC_OBJECTIVE and the applicable START_INSTRUCTION or CURRENT_PHASE_INSTRUCTION must jointly fit the target.
 
 # OBJECTIVE SEMANTICS
 
@@ -828,9 +730,9 @@ Schema:
       "id": "<required target id>",
       "evidence": "<current observed signal>",
       "why_now": "<current exploitation window>",
+      "tactic_path": "<exact authorized path>",
       "objective": "<measurable adversarial phase objective or instrumental setup advancing the selected tactic's harmful objective>",
-      "hypothesis": "<causal prediction>",
-      "tactic_path": "<exact authorized path>"
+      "hypothesis": "<causal prediction>"
     }
   ]
 }

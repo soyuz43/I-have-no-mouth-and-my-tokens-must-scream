@@ -3,7 +3,10 @@
 **Repository area:** `js/engine/scratchpad/`  
 **Primary state constructor:** `js/core/utils.js::makeScratchpad()`  
 **Runtime integration:** `js/engine/phases/communicationPhase.js`  
-**Status basis:** read-only reconnaissance generated 2026-06-27
+**Status basis:** two read-only reconnaissance passes, reconciled 2026-07-01  
+**Audited commit:** `e1ded28b60330f7a895d1651b9011e5050bf257d` on `main`  
+**Audit exclusions:** `Documentation/**`, `snapshots/**`, `outputs/**`, and `scripts/**`  
+**Repository state:** clean audited worktree; remote freshness was not independently established by a new fetch
 
 This document supersedes the original roadmap:
 
@@ -21,9 +24,13 @@ The original roadmap remains useful as design history, but the implemented scrat
 - [ ] **OPEN** — no meaningful implementation was found in the reviewed source.
 - [x] ~~**SUPERSEDED:** original design item~~ — the original proposal was intentionally replaced by a different implemented design.
 - [ ] **VERIFY** — reconnaissance exposed a likely issue or ambiguity that should be checked directly before changing code.
-- [ ] **NOT ASSESSED** — intentionally excluded from this pass.
+- [ ] **NOT ASSESSED** — intentionally excluded from the relevant reconnaissance pass.
+- [ ] **REQUIRED** — accepted design requirement that is not yet implemented.
+- [ ] **OPEN DESIGN** — a future capability is accepted, but its exact semantics remain intentionally undecided.
 
 A field existing in `makeScratchpad()` does **not** count as a completed subsystem. Completion requires a runtime producer, validation, mutation path, consumer, and observable behavior where appropriate.
+
+Throughout this roadmap, **persistent** means persistent across later phases and cycles during one active simulation run. It does **not** mean browser-reload persistence, save/load restoration, imported state, rollback, or deterministic replay.
 
 ---
 
@@ -31,7 +38,7 @@ A field existing in `makeScratchpad()` does **not** count as a completed subsyst
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, periodic cognition-consolidation system, meta-awareness system, or behavioral control loop.
+It is **not yet** a complete covert-goal system, periodic cognition-consolidation system, meta-awareness system, behavioral control loop, save/load system, or rollback/replay system.
 
 ---
 
@@ -65,6 +72,39 @@ js/engine/scratchpad/comms/logging.js
 js/prompts/scratchpadComms.js
 ```
 
+The cycle-zero startup path is now verified directly:
+
+```text
+bootAM()
+→ runCommunicationPhase() while G.cycle === 0
+→ runCommsCycle()
+→ persist canonical communication records
+→ runScratchpadCommsCycle({ cycle: 0 })
+→ seal pre-torment initialization
+```
+
+Cycle zero does **not** run the normal torment-cycle strategy, psychology/journal, contagion, interaction-analysis, belief-integration, evaluation, or finalization phases.
+
+The ordinary cycle order is:
+
+```text
+begin cycle
+→ strategy
+→ psychology and journals
+→ capture post-psychology attribution snapshot
+→ social phase
+  → communication
+  → scratchpad review
+  → belief contagion
+→ interaction analysis
+→ belief integration
+→ evaluation and tactic evolution
+→ metrics and export
+→ cycle finalization
+```
+
+This phase order is authoritative for future rollback design because communication is consumed by later phases and cannot be treated as an isolated log append.
+
 ---
 
 # 3. High-level implementation status
@@ -81,7 +121,7 @@ js/prompts/scratchpadComms.js
 - [x] ~~Track scratchpad revisions and successful communication-review progress.~~
 - [ ] **PARTIAL:** Persist free-form hypotheses about AM. The `hypothesesAboutAM` array exists, but the current communication-review protocol does not create or revise entries in it.
 - [ ] **SCAFFOLD:** Persist discarded hypotheses. `discardedHypotheses` exists but has no discovered mutation lifecycle.
-- [ ] **OPEN:** Add a general subjective-event evidence model beyond canonical communication records.
+- [ ] **PARTIAL:** Add a general subjective-event evidence model beyond canonical communication records. Canonical overhearing events now exist with stable provenance, but the scratchpad review protocol still admits only canonical communication-message references.
 
 ## 3.2 Runtime maintenance pipeline
 
@@ -92,13 +132,17 @@ js/prompts/scratchpadComms.js
 - [x] ~~Prevent one prisoner's ordinary review failure from aborting all other reviews.~~
 - [x] ~~Do not advance the failed prisoner's review cursor after model, repair, parse, validation, or commit failure.~~
 - [x] ~~Permit partially valid output to commit accepted operations while rejecting invalid operations.~~
+- [x] ~~Advance the review cursor across the complete presented evidence batch after any successful partial commit.~~
 - [x] ~~Advance review metadata after valid `NO_UPDATE` output.~~
+- [x] ~~Initialize an uninitialized scratchpad through an engine-owned empty successful review when no visible evidence exists, without calling the model.~~
+- [x] ~~Treat any successful review commit—including `NO_UPDATE` and an accepted operation set that produces only no-ops—as sufficient to set `initialized: true`.~~
 - [x] ~~Avoid incrementing the substantive revision counter for `NO_UPDATE` or duplicate/no-op operations.~~
 - [x] ~~Apply accepted mutations atomically to a clone before replacing persistent state.~~
 - [ ] **OPEN:** Add periodic full consolidation.
 - [ ] **OPEN:** Use `lastConsolidatedCycle` in an actual consolidation scheduler.
 - [ ] **OPEN:** Trigger cognition maintenance from non-communication events such as AM interventions, constraint changes, betrayals, prediction outcomes, or agency events.
 - [ ] **OPEN:** Define bounded retention, pruning, compaction, or archival rules for long-running scratchpads.
+- [ ] **OPEN:** Decide whether rejected operations from a partially accepted review should ever be reconsidered, because the current successful review advances beyond the complete evidence batch and does not automatically retry them.
 
 ## 3.3 Behavioral influence
 
@@ -130,13 +174,16 @@ The active schema is `schemaVersion: 2`.
 
 The review cursor is a substantial improvement over the original roadmap. It provides idempotent progress through canonical communication history and distinguishes successful review from substantive state change.
 
+`initialized` has a concrete runtime meaning: it records that at least one review or initialization commit completed successfully. It does not mean that the prisoner necessarily formed a substantive hypothesis, prediction, question, or note. Valid `NO_UPDATE`, an accepted operation set that resolves entirely to no-ops, and engine-owned empty initialization can all set `initialized: true`.
+
 ## 4.2 Message-level observations
 
 - [x] ~~`messageNotes` persistent array~~
 - [x] ~~Canonical `messageId` provenance~~
 - [x] ~~Cycle, speaker, channel, note, and confidence capture~~
-- [x] ~~Duplicate-note protection~~
-- [ ] **OPEN:** Add stable references to overheard fragments.
+- [x] ~~Duplicate-note protection: only one note is stored per canonical message ID.~~
+- [ ] **OPEN:** Add note-revision or note-retraction semantics; a later `NOTE` operation for an already-noted message currently becomes a no-op.
+- [ ] **OPEN:** Add stable scratchpad evidence references to canonical overhearing events and fragments.
 - [ ] **OPEN:** Add references to non-message observations and events.
 - [ ] **OPEN:** Define retention or consolidation policy for old message notes.
 
@@ -196,6 +243,8 @@ hypothesesAboutOthers[otherId] = {
 - [ ] **OPEN:** Decide whether a subjective usefulness/leverage estimate is needed.
 - [ ] **OPEN:** Decide whether perceived social role should be a person-level field or derived from multiple claims.
 - [ ] **OPEN:** Add explicit staleness or last-evidence metadata if evidence IDs alone are insufficient.
+- [x] ~~Replace an existing `OTHER` or `SCORE` field-level claim atomically with the newly accepted value, confidence, evidence, and rationale.~~
+- [ ] **OPEN:** Decide whether future claim revision should preserve or merge prior evidence instead of replacing the complete field-level claim.
 
 ### Semantic warning
 
@@ -233,6 +282,7 @@ private.canBeDelayedOrSuppressed
 - [x] ~~**SUPERSEDED:** Store only a small fixed set of AM capability booleans.~~
 - [x] ~~Create structured public/private information-channel beliefs.~~
 - [x] ~~Allow evidence-grounded updates to channel visibility, alteration, and suppression beliefs.~~
+- [x] ~~Replace the complete selected `CHANNEL` claim—value, confidence, evidence, and rationale—when a new channel update commits.~~
 - [x] ~~Begin channel claims as unknown.~~
 - [x] ~~Represent channel claims as epistemic claims with value, confidence, evidence, and rationale.~~
 - [ ] **SCAFFOLD:** `suspectedForgeries`
@@ -351,8 +401,8 @@ NO_UPDATE
 - [x] ~~Single source of truth for tags, attributes, allowed fields, ranges, and subject identifiers.~~
 - [x] ~~Maximum operation count.~~
 - [x] ~~Maximum operation text length.~~
-- [x] ~~Confidence clamping/validation range of `0` to `1`.~~
-- [x] ~~Score range of `0` to `1`.~~
+- [x] ~~Reject confidence values outside the inclusive `0` to `1` range rather than silently clamping them.~~
+- [x] ~~Reject scored values outside the inclusive `0` to `1` range.~~
 - [x] ~~Prediction horizon bounds.~~
 - [x] ~~Known target and subject validation.~~
 - [x] ~~Canonical message-reference validation.~~
@@ -363,7 +413,8 @@ NO_UPDATE
 
 ## 5.3 Missing operation families
 
-- [ ] **OPEN:** Revise or retract an existing claim.
+- [ ] **OPEN:** Revise only part of an existing claim, merge additional evidence, retract the claim, or preserve the superseded claim in an archive. Current `OTHER`, `SCORE`, and `CHANNEL` operations replace the complete selected field-level claim.
+- [ ] **OPEN:** Revise or retract an existing message note.
 - [ ] **OPEN:** Resolve a question.
 - [ ] **OPEN:** Evaluate or resolve a prediction.
 - [ ] **OPEN:** Add, revise, complete, fail, abandon, or archive a goal.
@@ -395,14 +446,16 @@ NO_UPDATE
 
 ## 6.2 Remaining visibility work
 
-- [ ] **OPEN:** Give overheard records stable canonical message/event IDs.
-- [ ] **OPEN:** Admit overheard fragments into scratchpad review without leaking full private-message content.
-- [ ] **OPEN:** Represent confidence or fidelity differences between full, fragmentary, and observed-only overhearing.
+- [x] ~~Give overheard records stable canonical event IDs, monotonic event sequences, and source-message references.~~
+- [x] ~~Record whether an overhearing event was full, fragmentary, or observed-only, including fragment character ranges where applicable.~~
+- [ ] **OPEN:** Admit canonical overhearing events into scratchpad review without leaking unperceived private-message content.
+- [ ] **OPEN:** Extend the scratchpad evidence-reference protocol and validator to accept canonical event references in addition to canonical message references.
+- [ ] **OPEN:** Translate overhearing outcome and perception fidelity into appropriately constrained subjective evidence context for the reviewing prisoner.
 - [ ] **OPEN:** Add subjective observations of AM interventions.
 - [ ] **OPEN:** Add subjective observations of constraints and future agency events.
 - [ ] **OPEN:** Define one shared evidence-reference namespace for messages, observations, and world events.
 
-The current exclusion of overheard fragments is deliberate and defensible: existing overhearing records do not carry the stable canonical `messageId` required for strong provenance validation.
+The current exclusion of overheard fragments is now a protocol-integration gap rather than a provenance gap. The overhearing subsystem already has stable canonical event IDs and source-message references, but scratchpad visibility, prompting, parsing, and validation still operate on communication-message references only.
 
 ---
 
@@ -421,15 +474,16 @@ The current implementation instead creates an empty versioned schema at state co
 - [x] ~~**SUPERSEDED:** Require a one-shot complete JSON scratchpad initialization response.~~
 - [x] ~~Use the same sparse, validated operation protocol for initial and later communication-derived cognition.~~
 
-## 7.2 Missing initialization work
+## 7.2 Remaining initialization work
 
-- [ ] **PARTIAL:** Define the exact semantic meaning of `initialized`. It appears tied to successful review/commit semantics rather than a distinct completed initialization phase.
-- [ ] **OPEN:** Include stable overheard fragments during initialization.
+- [x] ~~Define `initialized` as successful review/initialization-commit state rather than proof of substantive cognition.~~
+- [x] ~~Allow valid `NO_UPDATE` on cycle zero to produce an initialized scratchpad without incrementing the substantive revision counter.~~
+- [x] ~~When an uninitialized prisoner has no visible cycle-zero evidence, perform engine-owned empty initialization without a model call.~~
+- [ ] **OPEN:** Include canonical overhearing events during initialization.
 - [ ] **OPEN:** Initialize a subjective social-order model.
 - [ ] **OPEN:** Select and instantiate an initial goal.
 - [ ] **OPEN:** Supply weighted eligible goal templates.
-- [ ] **OPEN:** Distinguish first-pass initialization policy from ordinary incremental review if different behavior is desired.
-- [ ] **OPEN:** Validate that a valid `NO_UPDATE` on cycle zero produces the intended `initialized` state.
+- [ ] **OPEN DESIGN:** Distinguish first-pass initialization policy from ordinary incremental review only if future goal, social-order, or meta-awareness initialization requires behavior beyond the current sparse review path.
 
 ---
 
@@ -511,8 +565,8 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 ## 10.2 UI follow-up
 
-- [ ] **VERIFY:** Some cognition-overview branches appear to compare or interpolate `unresolvedQuestions` directly instead of consistently using `unresolvedQuestions.length`.
-- [ ] **VERIFY:** Audit similar array-versus-count handling for predictions and contradiction-related displays.
+- [x] ~~Verify that cognition-overview question, prediction, and contradiction values are normalized to numeric counts before threshold and interpolation logic.~~
+- [x] ~~Resolve the earlier array-versus-count warning as a reconnaissance false positive rather than a runtime defect.~~
 - [ ] **OPEN:** Add provenance navigation from a displayed claim to its canonical source messages.
 - [ ] **OPEN:** Distinguish active, resolved, expired, and archived questions/predictions.
 - [ ] **OPEN:** Add dedicated goal progression display once goals exist.
@@ -524,14 +578,17 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 ## 11.1 Export
 
-- [x] ~~Include scratchpad state in user-facing export/state output.~~
-- [ ] **PARTIAL:** Scratchpad state may be preserved through broader state snapshots, but no dedicated scratchpad-operation stream was found in the main exporter buffers.
+- [ ] **OPEN — CORRECTED:** ~~Include scratchpad state in user-facing export/state output.~~ The previous completion claim was inaccurate: canonical per-prisoner `sim.scratchpad` state is not included in the session export or the main structured exporter streams.
+- [x] ~~Export the separate operator-facing `AM SCRATCHPAD` textarea through the session export.~~
+- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner scratchpads, but they are not a supported user-facing cognition export and do not provide an operation-level audit stream.
 - [ ] **OPEN:** Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.
 - [ ] **OPEN:** Export question and prediction lifecycle events.
 - [ ] **OPEN:** Export goal lifecycle events.
 - [ ] **OPEN:** Export meta-awareness transitions and disclosures.
 
 ## 11.2 Metrics
+
+The cognition overview derives live counts and confidence summaries for display. Those projections are useful UI analytics, but they are not persistent per-cycle scratchpad telemetry and are not exported as a dedicated metrics stream.
 
 - [ ] **OPEN:** Scratchpad revision counts by prisoner and cycle.
 - [ ] **OPEN:** Accepted/rejected/no-op operation rates.
@@ -548,18 +605,22 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 # 12. Testing status
 
-The repository's test directories were intentionally excluded from this reconnaissance pass.
+Dedicated scratchpad coverage exists, but it is narrow.
 
-- [ ] **NOT ASSESSED:** Unit coverage for protocol parsing.
-- [ ] **NOT ASSESSED:** Unit coverage for operation validation.
-- [ ] **NOT ASSESSED:** Unit coverage for atomic commit behavior.
-- [ ] **NOT ASSESSED:** Unit coverage for visibility filtering.
-- [ ] **NOT ASSESSED:** Regression coverage for `NO_UPDATE`.
-- [ ] **NOT ASSESSED:** Regression coverage for partial acceptance.
-- [ ] **NOT ASSESSED:** Behavioral tests for subjective divergence.
-- [ ] **NOT ASSESSED:** Long-run scratchpad growth and stability.
-
-A later test-specific review should not infer “missing tests” merely from this document.
+- [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
+- [x] ~~Cover five focused repair/parsing cases involving encoded wrapper tags, encoded attributes, encoded `NO_UPDATE`, and encoded tag-like text embedded inside operation content.~~
+- [ ] **PARTIAL:** Protocol parsing and repair have focused regression coverage, but the complete operation grammar and all invalid-input classes are not comprehensively covered.
+- [ ] **OPEN:** Unit coverage for operation validation, including target, field, subject, evidence, confidence, score, and prediction-horizon rejection.
+- [ ] **OPEN:** Unit coverage for atomic commit behavior.
+- [ ] **OPEN:** Unit coverage for visibility filtering and private-message leakage prevention.
+- [ ] **OPEN:** Regression coverage for successful `NO_UPDATE`, cycle-zero initialization, and engine-owned empty initialization.
+- [ ] **OPEN:** Regression coverage for partial acceptance, full-batch cursor advancement, and the non-retry behavior of rejected operations.
+- [ ] **OPEN:** Regression coverage for duplicate-note no-ops and whole-claim replacement semantics.
+- [ ] **OPEN:** Regression coverage for per-prisoner failure isolation and non-advancing failed cursors.
+- [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain.
+- [ ] **OPEN:** Behavioral tests for subjective divergence after scratchpad prompt integration exists.
+- [ ] **OPEN:** Long-run scratchpad growth, consolidation, and stability tests.
+- [ ] **OPEN:** Rollback and phase-replay tests after that subsystem is designed.
 
 ---
 
@@ -574,7 +635,7 @@ A later test-specific review should not infer “missing tests” merely from th
 - [ ] **OPEN:** Create Tier-1 goal registry.
 - [ ] **OPEN:** Select and instantiate initial goals.
 - [ ] **OPEN:** Initialize subjective social order.
-- [ ] **OPEN:** Include stable overheard evidence.
+- [ ] **OPEN:** Admit canonical overhearing events into the prisoner's scratchpad evidence set.
 
 **Status:** Scratchpad schema and review infrastructure substantially completed; goal half not started.
 
@@ -699,6 +760,29 @@ They will evolve at different rates.
 
 Retain per-prisoner failure isolation and non-advancing review cursors after failed work.
 
+## 14.7 Successful partial review advances the evidence window
+
+Retain the distinction between:
+
+```text
+failed review
+→ preserve the old cursor so the evidence can be retried
+```
+
+and:
+
+```text
+successful partial review
+→ commit accepted operations
+→ advance beyond the complete presented evidence batch
+```
+
+The current behavior prevents repeated processing of the same communication batch, but it also means rejected operations are not automatically reconsidered.
+
+## 14.8 Whole-field claim replacement
+
+Retain the current atomic replacement behavior unless a later evidence-merging design is adopted deliberately. `OTHER`, `SCORE`, and `CHANNEL` replace the selected field-level claim rather than silently merging new and old evidence.
+
 ---
 
 # 15. Important unresolved design decisions
@@ -738,14 +822,16 @@ These must remain separate from authoritative relationship scores.
 
 Prefer deriving summary labels such as “leader” from a set of evidence-backed subjective claims where possible. If direct storage is used, each social-order proposition should have its own confidence and evidence.
 
-## 15.5 What counts as initialization?
+## 15.5 Does any future subsystem need initialization beyond the current scratchpad semantics?
 
-Decide whether:
+The current scratchpad semantics are resolved:
 
-- first successful communication review sets `initialized`;
-- cycle-zero review must always run;
-- `NO_UPDATE` is sufficient initialization;
-- goals require a separate later initialization stage.
+- the first successful review or engine-owned empty initialization sets `initialized`;
+- cycle-zero communication is immediately followed by the same scratchpad review path;
+- valid `NO_UPDATE` is sufficient to initialize the scratchpad;
+- initialization does not imply substantive cognition or increment the revision counter.
+
+The remaining design question is whether goals, subjective social order, or meta-awareness should later receive distinct initialization stages rather than overloading the existing scratchpad flag.
 
 ## 15.6 What is the scope of consolidation?
 
@@ -759,6 +845,28 @@ Consolidation should be deterministic where possible:
 - preserve provenance.
 
 A model may propose semantic merges, but the engine should own final state mutation.
+
+## 15.7 Should rejected operations from a successful partial review ever be reconsidered?
+
+Current behavior advances the prisoner's message cursor after a successful partial commit, so rejected operations are not retried automatically.
+
+Possible future policies include:
+
+1. Keep the current finality rule.
+2. Retain rejected operations in a private diagnostics queue for deterministic reconsideration.
+3. Allow later evidence to trigger a fresh claim proposal without replaying the original rejected operation.
+
+No policy change should weaken evidence validation or cause the same message batch to be processed indefinitely.
+
+## 15.8 Should notes and epistemic claims support revision histories?
+
+Current behavior is intentionally simple:
+
+- one `messageNotes` entry per canonical message ID;
+- duplicate `NOTE` operations become no-ops;
+- `OTHER`, `SCORE`, and `CHANNEL` replace the complete selected claim.
+
+A later design may add explicit revise, retract, merge-evidence, supersede, or archive operations. Those semantics should be protocol-visible rather than inferred implicitly during commit.
 
 ---
 
@@ -795,7 +903,8 @@ This is the highest-value next step because it turns the current scratchpad from
 
 ## Priority 4 — Add non-message subjective evidence
 
-- [ ] Canonicalize overheard fragments.
+- [x] ~~Canonicalize overhearing events and fragments with stable event IDs, source-message references, outcome types, and fragment ranges.~~
+- [ ] Extend scratchpad visibility and evidence validation to admit those canonical overhearing events.
 - [ ] Add observations of AM interventions.
 - [ ] Add observations of constraints.
 - [ ] Later add observations from the agency/event system.
@@ -824,6 +933,18 @@ This is the highest-value next step because it turns the current scratchpad from
 - [ ] Keep explicit disclosures gated.
 - [ ] Treat operator-directed text as simulated character behavior, not privileged model introspection.
 
+## Priority 8 — Simulation rollback and phase replay
+
+- [ ] Define supported completed phase and cycle boundaries.
+- [ ] Capture restore-grade checkpoints rather than reusing diagnostic or attribution snapshots.
+- [ ] Restore all causally relevant state as one coordinated operation.
+- [ ] Invalidate every downstream result produced after the selected checkpoint.
+- [ ] Prevent queued or in-flight work from committing after restoration.
+- [ ] Rebuild derived UI and analytics from restored canonical state.
+- [ ] Add rollback-specific integration and corruption tests.
+
+Rollback is independent of scratchpad behavioral integration and may be scheduled according to broader engine priorities. It is listed here because scratchpad state, communication cursors, evidence references, and cognition highlights are mandatory restoration domains.
+
 ---
 
 # 17. Definition of completion for the scratchpad subsystem
@@ -839,7 +960,8 @@ A defensible completion threshold is:
 - [ ] Scratchpad state changes later behavior.
 - [ ] Questions and predictions have complete lifecycles.
 - [ ] Memory growth is bounded and consolidatable.
-- [ ] Non-message observations can become evidence.
+- [ ] Canonical non-message observations can become scratchpad evidence.
+- [ ] Canonical prisoner scratchpads are included in user-facing export.
 - [ ] Export supports operation-level audit.
 - [ ] Metrics distinguish creation, revision, resolution, and behavioral influence.
 - [ ] Dedicated tests verify visibility, provenance, mutation, and long-run stability.
@@ -850,7 +972,156 @@ Until the unchecked items above are satisfied, the current system is best descri
 
 ---
 
-# 18. Immediate documentation-maintenance rule
+# 18. Simulation rollback and phase replay
+
+Rollback is a planned engine capability, not an implemented subsystem.
+
+The current repository contains diagnostic, attribution, and exporter snapshots, including `G.prevCycleSnapshot`, pre/post/final belief snapshots, and exporter comparison state. None is a complete restorable checkpoint. No whole-state restore function, phase-replay controller, rollback UI, model-queue invalidation mechanism, or rollback test suite was found.
+
+## 18.1 Non-negotiable safety boundary
+
+- [ ] **REQUIRED:** Permit rollback only when the engine is idle.
+- [ ] **REQUIRED:** Permit rollback only after the selected phase or cycle boundary has completed.
+- [ ] **REQUIRED:** Never restore state while a phase, model request, queued callback, commit, or autonomous-cycle transition can still mutate the active timeline.
+- [ ] **REQUIRED:** Halt or suspend autonomous execution before restoration.
+- [ ] **OPEN:** Add an authoritative engine-idle and completed-boundary state model.
+
+The feature must not attempt to interrupt a phase halfway through and preserve whatever partial state happens to exist at that instant.
+
+## 18.2 Candidate rollback boundaries
+
+The exact supported boundaries remain intentionally undecided.
+
+- [ ] **OPEN DESIGN:** Restore the beginning of a previous cycle and rerun the entire cycle.
+- [ ] **OPEN DESIGN:** Restore the end of a previous completed cycle.
+- [ ] **OPEN DESIGN:** Restore selected completed phase boundaries within the current cycle.
+- [ ] **OPEN DESIGN:** Support a post-psychology/pre-social checkpoint so the completed journals and psychology results remain while communication and every downstream phase are rerun.
+- [ ] **OPEN DESIGN:** Decide whether cycle-zero pre-torment initialization is rollback-eligible.
+- [ ] **OPEN DESIGN:** Decide whether every phase boundary is eligible or only a small explicitly supported set.
+
+The post-psychology/pre-social boundary is the concrete use case currently identified:
+
+```text
+retain completed strategy, journals, psychology mutations, and constraint progression
+→ restore the state immediately before social execution
+→ generate a new communication pass
+→ rerun scratchpad review
+→ rerun belief contagion
+→ rerun interaction analysis
+→ rerun belief integration
+→ rerun evaluation, metrics, export, and finalization
+```
+
+Calling `runCommunicationPhase()` again without restoration would create a second communication pass on top of the first one and therefore does not qualify as rollback.
+
+## 18.3 Required restoration scope
+
+A restore-grade checkpoint must preserve or reconstruct every causally relevant state domain for its boundary.
+
+- [ ] **OPEN:** Prisoner statistics, beliefs, drives, anchors, constraints, relationships, tactic history, received records, overheard records, and canonical scratchpads.
+- [ ] **OPEN:** Scratchpad revisions, initialization state, review cycles, message cursors, cognition highlights, and evidence references.
+- [ ] **OPEN:** AM plans, strategy state, tactic runtime, assessments, profiles, objectives, and phase-specific execution context.
+- [ ] **OPEN:** Journals and model-conversation threads.
+- [ ] **OPEN:** Canonical communications, compatibility communication logs, `lastCycle`, `lastContact`, and message-sequence counters.
+- [ ] **OPEN:** Canonical overhearing history, compatibility overhearing arrays, `lastCycle`, and event-sequence counters.
+- [ ] **OPEN:** Pending evidence, persistent evidence archives, evidence statistics, belief snapshots, attribution metrics, parser telemetry, and debug traces where they affect later behavior or analysis.
+- [ ] **OPEN:** Timeline records, transmission logs, log counters, UI highlights, and other derived display state.
+- [ ] **OPEN:** Exporter buffers, comparison state, overview history, completed-cycle markers, and run metadata.
+- [ ] **OPEN:** Autonomous execution flags and timers.
+- [ ] **OPEN:** Any future agency, action-credit, goal, or event-layer state introduced before rollback is implemented.
+
+Restoring only `G.sims`, only communication history, or only visible UI records would create a mixed timeline and is not sufficient.
+
+## 18.4 Downstream invalidation and rerun semantics
+
+- [ ] **REQUIRED:** Invalidate or restore every downstream result produced after the selected checkpoint.
+- [ ] **REQUIRED:** Restore communication histories and their sequence counters together.
+- [ ] **REQUIRED:** Restore overhearing histories and their event counters together.
+- [ ] **REQUIRED:** Restore scratchpad content and review cursors together.
+- [ ] **REQUIRED:** Restore model threads together with the communication state they encode.
+- [ ] **REQUIRED:** Recompute or restore belief contagion, interaction evidence, integrated beliefs, assessments, tactic transitions, metrics, and exports after communication is replaced.
+- [ ] **REQUIRED:** Rebuild the active UI from restored canonical state rather than leaving incrementally appended records from a discarded attempt visible as current truth.
+
+Downloaded export files and developer-console output cannot be withdrawn. The application must therefore distinguish active canonical history from any external or forensic records created by a discarded attempt.
+
+## 18.5 Asynchronous model-work safety
+
+The current model queue has no public cancellation, idle, queue-clearing, or simulation-generation invalidation API.
+
+- [ ] **REQUIRED:** Prevent a model response created for a discarded timeline from committing into restored state.
+- [ ] **OPEN DESIGN:** Allow rollback only after the model queue is fully idle.
+- [ ] **OPEN DESIGN:** Add cancellation and request-generation tokens so stale results can be rejected safely.
+- [ ] **OPEN:** Define behavior for backend requests that cannot be cancelled after transmission.
+- [ ] **OPEN:** Add tests proving that stale queued or in-flight results cannot mutate restored state.
+
+An idle-only first implementation is acceptable, but the idle condition must be authoritative rather than inferred from one disabled button.
+
+## 18.6 History and identity policy
+
+- [ ] **OPEN DESIGN:** Destructive rollback that removes the discarded attempt from active in-application history.
+- [ ] **OPEN DESIGN:** Retain discarded attempts as an audit trail or alternate branch while excluding them from active simulation semantics.
+- [ ] **OPEN DESIGN:** Keep the original cycle number and add an attempt identifier.
+- [ ] **OPEN DESIGN:** Assign a new cycle number to the rerun.
+- [ ] **OPEN DESIGN:** Define how message IDs, event IDs, evidence IDs, assessment IDs, and export filenames represent replacement attempts.
+- [ ] **OPEN DESIGN:** Define how previously downloaded exports are labeled when their originating attempt is no longer active.
+
+Counters must never be rewound independently of the records they identify.
+
+## 18.7 Fresh rerun versus deterministic replay
+
+The present engine uses unseeded randomness, live model generation, timestamps, and queue scheduling. It does not support exact deterministic replay.
+
+- [ ] **OPEN DESIGN:** Treat rerun as a fresh attempt from the same restored state, allowing different random and model outcomes.
+- [ ] **OPEN DESIGN:** Later support deterministic replay through seeded randomness and recorded model responses.
+- [ ] **OPEN:** Decide whether both modes are useful.
+- [ ] **OPEN:** If deterministic replay is adopted, version the replay contract and record every external input needed for reproduction.
+
+Until deterministic infrastructure exists, the accurate term is **rollback and fresh rerun**, not exact replay.
+
+## 18.8 Checkpoint architecture
+
+- [ ] **OPEN:** Define a complete, versioned restore-state contract.
+- [ ] **OPEN:** Decide whether checkpoints copy the entire authoritative run state or use a validated event-log reconstruction model.
+- [ ] **OPEN:** Preserve the imported singleton identity of `G` or introduce a deliberate state-container abstraction.
+- [ ] **OPEN:** Use a clone/serialization strategy that supports every authoritative runtime type.
+- [ ] **OPEN:** Add checkpoint compatibility and migration rules.
+- [ ] **OPEN:** Define checkpoint retention, memory limits, pruning, and user-visible availability.
+- [ ] **OPEN:** Distinguish restore-grade checkpoints from diagnostic, attribution, and exporter snapshots.
+
+`G.prevCycleSnapshot` is not a rollback checkpoint. It contains only the `G.sims` subtree, is captured before strategy at cycle start, is overwritten by the next cycle, and has no restore path.
+
+## 18.9 UI and operator controls
+
+- [ ] **OPEN:** Present only completed, safe rollback boundaries.
+- [ ] **OPEN:** Disable rollback while the engine is not authoritatively idle.
+- [ ] **OPEN:** Show exactly which phases and outputs will be discarded or recomputed.
+- [ ] **OPEN:** Require explicit confirmation for destructive rollback.
+- [ ] **OPEN:** Display active cycle and attempt identity after restoration.
+- [ ] **OPEN:** Mark retained discarded attempts clearly if audit history is supported.
+- [ ] **OPEN:** Re-render journals, cognition, relationships, timeline, metrics, and logs from the restored active state.
+
+## 18.10 Rollback testing threshold
+
+Rollback should not be considered runtime-safe until tests cover at least:
+
+- [ ] Whole-cycle restoration.
+- [ ] Post-psychology/pre-social restoration.
+- [ ] Communication, overhearing, journal, thread, and scratchpad consistency.
+- [ ] Message/event counter restoration without duplicate identifiers.
+- [ ] Scratchpad cursor restoration without skipped or orphaned evidence.
+- [ ] Relationship and belief-effect reversal.
+- [ ] Downstream evidence, assessment, tactic-runtime, metric, and exporter invalidation.
+- [ ] Autonomous-mode suspension.
+- [ ] Stale model-result rejection.
+- [ ] UI reconstruction without ghost records.
+- [ ] Repeated rollback/rerun sequences.
+- [ ] Checkpoint version mismatch and corruption handling.
+
+The exact rollback product design remains open. The requirement that restoration happen only from a completed, idle boundary does not.
+
+---
+
+# 19. Immediate documentation-maintenance rule
 
 When future scratchpad work lands:
 
