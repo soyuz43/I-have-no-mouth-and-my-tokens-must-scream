@@ -6,10 +6,6 @@ import {
   buildTacticPlanningContext
 } from "./amPlan/buildTacticPlanningContext.js";
 
-// !! [YO BITCH YOU SHOULD PROABALY ADDRESS THIS]
-//TODO: The current behavior deliberately compresses “failed,” “counterproductive,” and “ran out of allowed attempts without proving success” into one terminal label. 
-// The real question is whether that semantic compression is acceptable downstream.
-//TODO: Investigate and disambiguate these state for observablity at the LEAST -WRS
 // ══════════════════════════════════════════════════════════
 
 export function buildAMPlanningPrompt(
