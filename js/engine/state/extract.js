@@ -1496,79 +1496,27 @@ export function parseAnchorUpdate(text) {
   return sanitizeAnchors(anchors);
 }
 
-/* ============================================================
-   EXTRACTION STATS ACCUMULATOR
-   ============================================================ */
-
-/**
- * Record a single extraction outcome for later analysis.
- *
- * @param {string} simId
- * @param {string} fieldType - e.g. "stats", "belief_deltas", "drives", "anchors"
- * @param {object} details
- * @param {string} details.parseMethod - "direct", "repair", "field_recovery", "fallback", "absolute", "none"
- * @param {number} details.durationMs  - wall‑clock time of the full extraction attempt
- * @param {number} details.keysRecovered - number of usable keys extracted
- * @param {number} details.cycle       - cycle number (default G.cycle)
- */
-export function recordExtractionOutcome(simId, fieldType, details = {}) {
-  if (!G || !G.extractionStats) return;
-
-  const cycle = details.cycle ?? (G.cycle ?? 0);
-
-  if (!G.extractionStats.cycles[cycle]) {
-    G.extractionStats.cycles[cycle] = [];
-  }
-
-  G.extractionStats.cycles[cycle].push({
-    simId,
-    fieldType,
-    parseMethod: details.parseMethod ?? "unknown",
-    durationMs: details.durationMs ?? 0,
-    keysRecovered: details.keysRecovered ?? 0,
-    timestamp: Date.now()
-  });
-}
+import { createExtractionTelemetry } from "./extractTelemetry.js";
 
 /* ============================================================
-   STATS‑RECORDING WRAPPERS
+   EXTRACTION TELEMETRY (factory-injected wrappers)
    ============================================================ */
 
-/**
- * Parse stat deltas and record extraction outcome.
- */
-export function parseStatDeltasWithStats(text, sim) {
-  const start = performance.now();
-  const result = parseStatDeltas(text, sim);
-  const duration = performance.now() - start;
+const {
+  recordExtractionOutcome,
+  parseStatDeltasWithStats,
+  parseBeliefUpdatesWithStats
+} = createExtractionTelemetry({
+  G,
+  parseStatDeltas,
+  parseBeliefUpdates,
+  getLastBeliefParseMethod: () => _lastBeliefParseMethod,
+  performanceNow: () => performance.now(),
+  dateNow: () => Date.now()
+});
 
-  const keysRecovered =
-    ["suffering", "hope", "sanity"].filter(
-      (key) => result._parseMethod !== "none"
-    ).length;
-
-  recordExtractionOutcome(sim.id, "stats", {
-    parseMethod: result._parseMethod ?? "direct",
-    durationMs: Math.round(duration),
-    keysRecovered
-  });
-  return result;
-}
-
-/**
- * Parse belief updates and record extraction outcome.
- * Uses the module‑level variable _lastBeliefParseMethod set by parseBeliefUpdates.
- */
-export function parseBeliefUpdatesWithStats(text, sim) {
-  const start = performance.now();
-  const updates = parseBeliefUpdates(text, sim);
-  const duration = performance.now() - start;
-
-  recordExtractionOutcome(sim.id, "belief_deltas", {
-    parseMethod: _lastBeliefParseMethod,
-    durationMs: Math.round(duration),
-    keysRecovered: Object.keys(updates).length
-  });
-
-  return updates;
-}
+export {
+  recordExtractionOutcome,
+  parseStatDeltasWithStats,
+  parseBeliefUpdatesWithStats
+};
