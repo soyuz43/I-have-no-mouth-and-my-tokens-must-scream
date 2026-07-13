@@ -38,6 +38,35 @@
 import { G } from "../core/state.js";
 import { stripThinkTags } from "../core/utils.js";
 import { enqueueModelCall } from "./modelQueue.js";
+// ============================================================================
+// PROVIDER-SPECIFIC BACKEND ADAPTERS
+//
+// Extracted from this module. Each factory receives the shared transport,
+// error, and message-normalization helpers explicitly so the backend modules
+// stay dependency-free. The original module remains the sole public dispatcher.
+// ============================================================================
+
+import {
+  createAnthropicSender
+} from "./backends/anthropic.js";
+
+import {
+  createOllamaSender
+} from "./backends/ollama.js";
+
+import {
+  createOpenAICompatibleSender
+} from "./backends/openaiCompatible.js";
+
+const SENDER_DEPS = {
+  postJson,
+  createProviderErrorDetail,
+  extractProviderError,
+  normalizeTextMessages,
+  normalizeMessageContent,
+  stripThinkTags
+};
+
 
 /* ============================================================
    CONSTANTS
@@ -1586,388 +1615,17 @@ export async function callModel(
 }
 
 /* ============================================================
-   ANTHROPIC MESSAGES ADAPTER
-   ============================================================ */
-
-async function callAnthropic({
-  route,
-  systemPrompt,
-  messages,
-  maxTokens
-}) {
-  const body = {
-    model:
-      route.model,
-
-    max_tokens:
-      maxTokens,
-
-    system:
-      systemPrompt,
-
-    messages:
-      Array.isArray(messages)
-        ? messages
-        : []
-  };
-
-  const {
-    response,
-    responseText,
-    data
-  } =
-    await postJson({
-      url:
-        route.endpoint,
-
-      headers: {
-        "Content-Type":
-          "application/json",
-
-        Accept:
-          "application/json",
-
-        "x-api-key":
-          route.apiKey,
-
-        "anthropic-version":
-          route.anthropicVersion
-      },
-
-      body,
-
-      timeoutMs:
-        route.timeoutMs,
-
-      requestLabel:
-        "Anthropic request"
-    });
-
-  if (
-    !response.ok ||
-    data?.error
-  ) {
-    throw new Error(
-      `Anthropic request failed with HTTP ${response.status}${createProviderErrorDetail(
-        data,
-        responseText
-      )}`
-    );
-  }
-
-  if (
-    !data ||
-    typeof data !== "object"
-  ) {
-    throw new Error(
-      `Anthropic returned non-JSON data with HTTP ${response.status}.`
-    );
-  }
-
-  if (!Array.isArray(data.content)) {
-    throw new Error(
-      "Anthropic returned an invalid Messages API response shape."
-    );
-  }
-
-  const raw =
-    data.content
-      .map((contentBlock) => {
-        if (
-          typeof contentBlock?.text ===
-          "string"
-        ) {
-          return contentBlock.text;
-        }
-
-        return "";
-      })
-      .join("");
-
-  return {
-    raw,
-    cleaned:
-      raw,
-
-    providerResponse:
-      data
-  };
-}
-
-/* ============================================================
-   OLLAMA NATIVE ADAPTER
-   ============================================================ */
-
-async function callOllama({
-  route,
-  systemPrompt,
-  messages,
-  maxTokens
-}) {
-  const ollamaMessages = [
-    {
-      role:
-        "system",
-
-      content:
-        systemPrompt
-    },
-
-    ...normalizeTextMessages(messages)
-  ];
-
-  const body = {
-    model:
-      route.model,
-
-    messages:
-      ollamaMessages,
-
-    stream:
-      false,
-
-    think:
-      route.think,
-
-    options: {
-      num_ctx:
-        10240,
-
-      ...route.options,
-
-      temperature:
-        route.temperature,
-
-      num_predict:
-        maxTokens
-    }
-  };
-
-  const {
-    response,
-    responseText,
-    data
-  } =
-    await postJson({
-      url:
-        route.endpoint,
-
-      headers: {
-        "Content-Type":
-          "application/json",
-
-        Accept:
-          "application/json"
-      },
-
-      body,
-
-      timeoutMs:
-        route.timeoutMs,
-
-      requestLabel:
-        "Ollama request"
-    });
-
-  if (
-    !response.ok ||
-    data?.error
-  ) {
-    throw new Error(
-      `Ollama request failed with HTTP ${response.status}${createProviderErrorDetail(
-        data,
-        responseText
-      )}`
-    );
-  }
-
-  if (
-    !data ||
-    typeof data !== "object"
-  ) {
-    throw new Error(
-      `Ollama returned non-JSON data with HTTP ${response.status}.`
-    );
-  }
-
-  if (
-    typeof data.message?.content !==
-    "string"
-  ) {
-    throw new Error(
-      "Ollama returned an invalid chat response shape."
-    );
-  }
-
-  const raw =
-    data.message.content;
-
-  return {
-    raw,
-
-    cleaned:
-      stripThinkTags(raw),
-
-    providerResponse:
-      data
-  };
-}
-
-/* ============================================================
-   OPENAI-COMPATIBLE CHAT COMPLETIONS ADAPTER
-   ============================================================ */
-
-async function callOpenAICompatible({
-  route,
-  systemPrompt,
-  messages,
-  maxTokens
-}) {
-  const chatMessages = [
-    {
-      role:
-        "system",
-
-      content:
-        systemPrompt
-    },
-
-    ...normalizeTextMessages(messages)
-  ];
-
-  const body = {
-    model:
-      route.model,
-
-    messages:
-      chatMessages,
-
-    max_tokens:
-      maxTokens,
-
-    temperature:
-      route.temperature,
-
-    stream:
-      false
-  };
-
-  const headers = {
-    "Content-Type":
-      "application/json",
-
-    Accept:
-      "application/json"
-  };
-
-  if (route.apiKey) {
-    headers.Authorization =
-      `Bearer ${route.apiKey}`;
-  }
-
-  const {
-    response,
-    responseText,
-    data
-  } =
-    await postJson({
-      url:
-        route.endpoint,
-
-      headers,
-      body,
-
-      timeoutMs:
-        route.timeoutMs,
-
-      requestLabel:
-        `${route.provider} inference request`
-    });
-
-  if (
-    response.status === 401 ||
-    response.status === 403
-  ) {
-    throw new Error(
-      `${route.provider} authentication failed with HTTP ${response.status}${createProviderErrorDetail(
-        data,
-        responseText
-      )}`
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `${route.provider} request failed with HTTP ${response.status}${createProviderErrorDetail(
-        data,
-        responseText
-      )}`
-    );
-  }
-
-  if (
-    !data ||
-    typeof data !== "object"
-  ) {
-    throw new Error(
-      `${route.provider} returned non-JSON data with HTTP ${response.status}.`
-    );
-  }
-
-  if (data.error) {
-    throw new Error(
-      extractProviderError(
-        data,
-        responseText
-      ) ||
-      `${route.provider} returned an unspecified provider error.`
-    );
-  }
-
-  const firstChoice =
-    data.choices?.[0];
-
-  const responseContent =
-    firstChoice?.message?.content ??
-    firstChoice?.text;
-
-  if (
-    responseContent === undefined ||
-    responseContent === null
-  ) {
-    throw new Error(
-      `${route.provider} returned an invalid Chat Completions response shape.`
-    );
-  }
-
-  const raw =
-    normalizeMessageContent(
-      responseContent
-    );
-
-  return {
-    raw,
-
-    cleaned:
-      stripThinkTags(raw),
-
-    providerResponse:
-      data
-  };
-}
-
-/* ============================================================
    ADAPTER REGISTRY
    ============================================================ */
 
 const MODEL_ADAPTERS =
   Object.freeze({
     "anthropic-messages":
-      callAnthropic,
+      createAnthropicSender(SENDER_DEPS),
 
     "ollama-native":
-      callOllama,
+      createOllamaSender(SENDER_DEPS),
 
     "openai-chat":
-      callOpenAICompatible
+      createOpenAICompatibleSender(SENDER_DEPS)
   });
