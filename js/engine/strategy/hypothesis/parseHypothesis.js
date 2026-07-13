@@ -1,7 +1,7 @@
 // js/engine/strategy/hypothesis/parseHypothesis.js
 // UPGRADE: handles BOTH natural-language AND arrow-based formats + optional debug logging
 
-import { G } from "../../core/state.js";
+import { G } from "../../../core/state.js";
 
 import {
     BELIEF_KEYS,
