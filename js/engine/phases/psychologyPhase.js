@@ -1,4 +1,4 @@
-// js/engine/phases/psychologyPhase.js
+﻿// js/engine/phases/psychologyPhase.js
 //
 // Psychology Phase
 //
@@ -1416,7 +1416,14 @@ async function processSimJournalCycle(
               "Write your private journal entry now.",
           },
         ],
-        850
+        850,
+        {
+          samplingContext: {
+            callType: "journal",
+            sanity: sim.sanity,
+            suffering: sim.suffering
+          }
+        }
       );
 
     const cleanJournal =

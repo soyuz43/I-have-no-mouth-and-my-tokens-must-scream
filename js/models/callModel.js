@@ -58,6 +58,8 @@ import {
   createOpenAICompatibleSender
 } from "./backends/openaiCompatible.js";
 
+import { resolveSampling } from "./sampling.js";
+
 const SENDER_DEPS = {
   postJson,
   createProviderErrorDetail,
@@ -600,6 +602,13 @@ function normalizePositiveNumber(
     ? value
     : fallback;
 }
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, value));
+}
 
 function normalizeMaxTokens(value) {
   return Math.max(
@@ -1014,7 +1023,7 @@ function resolveModel(role) {
  * This prevents a queued request from silently switching backend
  * if global application state changes while it is waiting.
  */
-function resolveBackendRoute(role) {
+function resolveBackendRoute(role, samplingOverride = null) {
   const configuredBackend =
     normalizeBackendName(
       G?.backend
@@ -1022,6 +1031,20 @@ function resolveBackendRoute(role) {
 
   const model =
     resolveModel(role);
+
+  const samplingTemperature =
+    samplingOverride &&
+    samplingOverride.policy ===
+      "state-conditioned" &&
+    Number.isFinite(
+      samplingOverride.temperature
+    )
+      ? clampNumber(
+          samplingOverride.temperature,
+          0,
+          1
+        )
+      : null;
 
   if (configuredBackend === "anthropic") {
     const apiKey =
@@ -1067,7 +1090,10 @@ function resolveBackendRoute(role) {
         normalizePositiveNumber(
           G.anthropicRequestTimeoutMs,
           DEFAULT_REMOTE_TIMEOUT_MS
-        )
+        ),
+
+      temperature:
+        samplingTemperature
     };
   }
 
@@ -1109,11 +1135,13 @@ function resolveBackendRoute(role) {
         ),
 
       temperature:
-        Number.isFinite(
-          G.ollamaTemperature
-        )
-          ? G.ollamaTemperature
-          : DEFAULT_TEMPERATURE,
+        samplingTemperature !== null
+          ? samplingTemperature
+          : Number.isFinite(
+              G.ollamaTemperature
+            )
+            ? G.ollamaTemperature
+            : DEFAULT_TEMPERATURE,
 
       think:
         Boolean(G.ollamaThink),
@@ -1212,10 +1240,12 @@ function resolveBackendRoute(role) {
         ),
 
       temperature:
-        Number.isFinite(
-          firstDefined(
-            G.openAICompatibleTemperature,
-            G.colabTemperature
+        samplingTemperature !== null
+          ? samplingTemperature
+          : Number.isFinite(
+              firstDefined(
+                G.openAICompatibleTemperature,
+                G.colabTemperature
           )
         )
           ? firstDefined(
@@ -1305,8 +1335,23 @@ export async function callModel(
       ? { ...metadata }
       : {};
 
+  const resolvedSampling =
+    resolveSampling(
+      requestMetadata?.samplingContext
+    );
+
+  if (
+    resolvedSampling &&
+    resolvedSampling.policy ===
+      "state-conditioned" &&
+    Number.isFinite(resolvedSampling.temperature)
+  ) {
+    requestMetadata.resolvedSampling =
+      resolvedSampling;
+  }
+
   const route =
-    resolveBackendRoute(role);
+    resolveBackendRoute(role, resolvedSampling);
 
   const adapter =
     MODEL_ADAPTERS[route.adapter];
