@@ -805,7 +805,51 @@ function confidence(value) {
   `;
 }
 
-function evidence(values) {
+let claimViewerSeq = 0;
+
+function nextClaimViewerId() {
+  claimViewerSeq += 1;
+  return claimViewerSeq;
+}
+
+function renderEvidenceRef(ref, options = {}) {
+  const id = normalizeText(ref);
+
+  if (!id) {
+    return "";
+  }
+
+  if (options.interactive) {
+    const viewerId = normalizeText(
+      options.viewerId
+    );
+
+    return `
+      <button
+        type="button"
+        class="cog-ref cog-evidence-ref"
+        data-cog-message-id="${escapeHtml(
+          id
+        )}"
+        ${viewerId ? `aria-controls="${escapeHtml(viewerId)}"` : ""}
+        aria-expanded="false"
+        aria-label="View message ${escapeHtml(
+          id
+        )}"
+        aria-pressed="false"
+      >${escapeHtml(id)}</button>`;
+  }
+
+  return `
+    <span class="cog-ref">${escapeHtml(
+      id
+    )}</span>`;
+}
+
+function evidence(
+  values,
+  options = {}
+) {
   if (!Array.isArray(values)) {
     return (
       '<span class="cog-null">' +
@@ -832,9 +876,10 @@ function evidence(values) {
       ${refs
         .map(
           (ref) =>
-            `<span class="cog-ref">${escapeHtml(
-              ref
-            )}</span>`
+            renderEvidenceRef(
+              ref,
+              options
+            )
         )
         .join("")}
     </div>
@@ -874,6 +919,11 @@ function renderClaim(
     )
       ? claim.evidence
       : [];
+
+  const viewerId =
+    `cog-evidence-viewer-${
+      nextClaimViewerId()
+    }`;
 
   const hasValue =
     claim.value !== null &&
@@ -959,7 +1009,10 @@ function renderClaim(
 
             ${field(
               "evidence",
-              evidence(refs),
+              evidence(refs, {
+                interactive: true,
+                viewerId,
+              }),
               true
             )}
 
@@ -988,6 +1041,14 @@ function renderClaim(
           }
         </div>
       </details>
+
+      <div
+        class="cog-evidence-viewer"
+        id="${escapeHtml(viewerId)}"
+        data-cog-evidence-viewer
+        aria-live="polite"
+        hidden
+      ></div>
 
       <div class="cog-entry-close cog-claim-close">
         ${xmlTag(
@@ -2070,6 +2131,90 @@ function buildContentSections(
         ),
     },
   ]);
+}
+
+/* ============================================================
+   EVIDENCE MESSAGE CARD (PURE MARKUP)
+============================================================ */
+
+function formatEvidenceRow(label, value) {
+  if (
+    value === null ||
+    value === undefined ||
+    normalizeText(value).length === 0
+  ) {
+    return "";
+  }
+
+  return (
+    '<div class="cog-evidence-row">' +
+      '<span class="cog-evidence-key">' +
+      escapeHtml(toSnakeCase(label)) +
+      "</span>" +
+      '<span class="cog-evidence-val">' +
+      escapeHtml(value) +
+      "</span>" +
+    "</div>"
+  );
+}
+
+/*
+ * Pure markup producer. Returns an escaped HTML string only.
+ * No DOM access, no mutation, no state lookup.
+ */
+export function formatEvidenceMessage(
+  messageId,
+  message
+) {
+  const id = normalizeText(messageId);
+
+  if (!message || typeof message !== "object") {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "MESSAGE " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  const recipients =
+    Array.isArray(message.to) &&
+    message.to.length
+      ? message.to.join(", ")
+      : (message.recipients ?? null);
+
+  const rows = [
+    formatEvidenceRow("message_id", id),
+    formatEvidenceRow("cycle", message.cycle),
+    formatEvidenceRow("visibility", message.visibility),
+    formatEvidenceRow("sender", message.from),
+    formatEvidenceRow("recipients", recipients),
+    formatEvidenceRow("intent", message.intent),
+    formatEvidenceRow("text", message.text),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  if (!rows) {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "MESSAGE " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  return (
+    '<div class="cog-evidence-card">' +
+      rows +
+    "</div>"
+  );
 }
 
 /* ============================================================
