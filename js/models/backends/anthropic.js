@@ -44,6 +44,12 @@ export function createAnthropicSender(deps) {
           : []
     };
 
+    if (
+      Number.isFinite(route.temperature)
+    ) {
+      body.temperature = route.temperature;
+    }
+
     const {
       response,
       responseText,
