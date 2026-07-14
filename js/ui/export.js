@@ -11,7 +11,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
-import { getTacticByPath } from "../engine/tactics.js";
+import { getAllTactics, getTacticByPath } from "../engine/tactics.js";
 
 /* ============================================================
    EXPORT MENU
@@ -44,7 +44,7 @@ export function openSessionModal() {
     <div class="sm-stat"><div class="sm-stat-val">${G.cycle}</div><div class="sm-stat-lbl">CYCLES</div></div>
     <div class="sm-stat"><div class="sm-stat-val">${totalEntries}</div><div class="sm-stat-lbl">JOURNAL ENTRIES</div></div>
     <div class="sm-stat"><div class="sm-stat-val">${G.transmissionLog.length}</div><div class="sm-stat-lbl">TRANSMISSIONS</div></div>
-    <div class="sm-stat"><div class="sm-stat-val">${G.vault.allTactics.length}</div><div class="sm-stat-lbl">VAULT TACTICS</div></div>
+    <div class="sm-stat"><div class="sm-stat-val">${getAllTactics().length}</div><div class="sm-stat-lbl">VAULT TACTICS</div></div>
     <div class="sm-stat"><div class="sm-stat-val">${G.interSimLog.length}</div><div class="sm-stat-lbl">INTER-SIM MSGS</div></div>
     <div class="sm-stat"><div class="sm-stat-val">${Object.values(tacticCounts).reduce((a,b)=>a+b,0)}</div><div class="sm-stat-lbl">TACTICS DEPLOYED</div></div>
   `;
@@ -109,8 +109,8 @@ export function downloadSession(fmt) {
         backend: G.backend,
         models: G.models,
         vault: {
-          repo: G.repo,
-          tacticCount: G.vault.allTactics.length
+          repo: "[embedded]",
+          tacticCount: getAllTactics().length
         }
       },
 
@@ -158,7 +158,7 @@ export function downloadSession(fmt) {
 
   out += `AM TORMENT ENGINE — SESSION REPORT\n${hr}\n`;
   out += `Date: ${new Date().toISOString()}\n`;
-  out += `Cycles: ${G.cycle} | Backend: ${G.backend.toUpperCase()} | Vault: ${G.repo}\n\n`;
+  out += `Cycles: ${G.cycle} | Backend: ${G.backend.toUpperCase()} | Vault: [embedded]\n\n`;
 
   /* --- Final sim states --- */
 

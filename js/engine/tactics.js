@@ -21,18 +21,16 @@ export { EMBEDDED_TACTICS };
 /**
  * Single canonical read boundary for all available tactics.
  *
- * Preserves the runtime source order exactly:
- *   1. ingested tactics   (G.vault.allTactics)
- *   2. derived tactics    (G.vault.derivedTactics)
- *   3. embedded tactics   (EMBEDDED_TACTICS)
+ * Canonical source order:
+ *   1. derived tactics   (G.tactics.derivedTactics)
+ *   2. embedded tactics   (EMBEDDED_TACTICS)
  *
  * Tolerates missing or malformed optional arrays so consumers
  * never special-case the presence of any single source.
  */
 export function getAllTactics() {
   return [
-    ...(G.vault?.allTactics || []),
-    ...(G.vault?.derivedTactics || []),
+    ...(G.tactics?.derivedTactics || []),
     ...EMBEDDED_TACTICS
   ];
 }

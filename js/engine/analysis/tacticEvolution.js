@@ -72,7 +72,7 @@ export async function runTacticEvolution() {
   }
 
   G.tacticHistory ??= {};
-  G.vault.derivedTactics ??= [];
+  G.tactics.derivedTactics ??= [];
 
   // Helper to get AM-attributed belief deltas for a sim.
   function getAmBeliefDeltas(simId) {
@@ -128,8 +128,8 @@ export async function runTacticEvolution() {
      Remove expired derived tactics
   ------------------------------------------------------------ */
 
-  G.vault.derivedTactics =
-    G.vault.derivedTactics.filter(
+  G.tactics.derivedTactics =
+    G.tactics.derivedTactics.filter(
       (tactic) =>
         tactic.expiresCycle >=
         G.cycle
@@ -831,7 +831,7 @@ OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
         .trim();
 
     if (
-      G.vault.derivedTactics.some(
+      G.tactics.derivedTactics.some(
         (tactic) =>
           tactic.title ===
           title
@@ -856,7 +856,7 @@ OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
           40
         );
 
-    G.vault.derivedTactics.push({
+    G.tactics.derivedTactics.push({
       path:
         `__derived__/cycle_` +
         `${G.cycle}_${slug}`,

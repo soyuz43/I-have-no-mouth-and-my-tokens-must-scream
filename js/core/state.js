@@ -20,10 +20,6 @@ function makeRelationships(id) {
 
 export const G = {
 
-  token: "",
-
-  repo: "soyuz43/Cognitive-Warfare-A-Practical-Guide-for-Semiotic-Tacticians",
-
   /* ============================================================
      AM STRATEGIC MEMORY
      ============================================================ */
@@ -80,28 +76,6 @@ export const G = {
     GORRISTER: {},
     BENNY: {}
   },
-
-  INGEST_DIRS: [
-    "0. Weapons",
-    "1. Fundamentals",
-    "2. Tactics",
-    "3. Evasion Techniques",
-    "4. Patterns",
-    "5. Active Influence Systems",
-  ],
-
-  CONTEXT_PATHS: [
-    "00. Topology",
-    "01.0 Operator Ethos.md",
-  ],
-
-  SKIP_DIRS: [
-    "6. Prompts",
-    "6A. System Prompts",
-    "7. Bin",
-  ],
-
-  amContextDocs: [],
 
   backend: "anthropic",
 
@@ -178,11 +152,8 @@ export const G = {
 
   ollamaModels: [],
 
-  vault: {
-    categories: {},
-    allTactics: [],
+  tactics: {
     derivedTactics: [],
-    fileCount: 0,
   },
 
   /* ============================================================
