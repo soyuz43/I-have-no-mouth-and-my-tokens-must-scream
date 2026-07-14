@@ -4,13 +4,18 @@ import { dampBeliefDelta } from "./utils/dampBeliefDelta.js";
    CONFIG (UI HOOK READY)
    ============================================================ */
 
+// NOTE: The fields below are display/debug metadata and extension scaffolding.
+// They do NOT control the live commit pipeline today:
+//  - dampingMode is logged by logBeliefMetrics but does not dispatch the algorithm
+//    (dampBeliefDelta always uses the hybrid model).
+//  - minResistance here is NOT read; the live floor comes from G.dampingParams.minResistance
+//    (default 0.5) inside dampBeliefDelta.
 export const BELIEF_DYNAMICS = {
-  dampingMode: "quadratic", // "linear" | "quadratic" | "logistic"
-  minResistance: 0.2,
+  dampingMode: "quadratic", // "linear" | "quadratic" | "logistic" (display only; not dispatched)
+  minResistance: 0.2, // unused by the live mechanism; see note above
   logisticK: 5,
   logisticMid: 0.3
 };
-
 /* ============================================================
    INTERNAL METRICS STATE
    ============================================================ */
@@ -20,17 +25,18 @@ const BELIEF_METRICS = {
 };
 
 
-
 /* ============================================================
    SOFT CLAMP
    ============================================================ */
 
+// Currently unused helper. Implements an older soft-overflow design (values may leave
+// [0,1] and are pulled back gradually). The live commit path does NOT call this; it uses
+// the hard final clamp in applyBeliefUpdates instead. Kept for reference / future use.
 export function softClampBelief(v) {
   if (v < 0) return v * 0.5;
   if (v > 1) return 1 + (v - 1) * 0.5;
   return v;
 }
-
 /* ============================================================
    STATE MUTATION
    ============================================================ */
