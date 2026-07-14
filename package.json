@@ -1,6 +1,6 @@
 ﻿{
   "type": "module",
   "scripts": {
-    "test": "node --test js/tests/beliefRegistryInvariant.test.mjs && node --test js/tests/tacticPlanningContext.test.mjs && node js/tests/strategyExtractionRegression.test.mjs --json && node js/tests/scratchpadCommsRepair.test.js --json && node --test js/tests/hypothesisParser.test.mjs && node --test js/tests/stateConditionedSampling.test.mjs"
+    "test": "node --test js/tests/beliefRegistryInvariant.test.mjs && node --test js/tests/tacticPlanningContext.test.mjs && node js/tests/strategyExtractionRegression.test.mjs --json && node js/tests/scratchpadCommsRepair.test.js --json && node --test js/tests/hypothesisParser.test.mjs && node --test js/tests/stateConditionedSampling.test.mjs && node --test js/tests/beliefDynamicsConfig.test.mjs"
   }
 }

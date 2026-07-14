@@ -1,5 +1,8 @@
 // js/engine/state/commit.js
+import { G } from "../../core/state.js";
 import { dampBeliefDelta } from "./utils/dampBeliefDelta.js";
+import { evaluateCommitDamping } from "./evaluateCommitDamping.js";
+import { DEFAULT_BELIEF_POLICY } from "./beliefConfig.js";
 /* ============================================================
    CONFIG (UI HOOK READY)
    ============================================================ */
@@ -41,7 +44,14 @@ export function softClampBelief(v) {
    STATE MUTATION
    ============================================================ */
 
+// Public production API. Preserves the historical signature (sim, updates, options).
+// Delegates to the explicit-policy implementation using the resolved baseline
+// current-production-v1 policy. This is the default production commit path.
 export function applyBeliefUpdates(sim, updates, options = {}) {
+  return applyBeliefUpdatesWithPolicy(DEFAULT_BELIEF_POLICY, sim, updates, options);
+}
+
+export function applyBeliefUpdatesWithPolicy(policy, sim, updates, options = {}) {
 
   for (const [k, v] of Object.entries(sim.beliefs)) {
     if (v < 0 || v > 1) {
@@ -128,9 +138,43 @@ export function applyBeliefUpdates(sim, updates, options = {}) {
     // --- damping ---
     const deltaBeforeDamping = delta;
 
-    if (!SKIP_DAMPING) {
+    const useNone = SKIP_DAMPING === true;
+    const useLegacyOverride =
+      !useNone &&
+      G.dampingParams &&
+      typeof G.dampingParams === "object" &&
+      Object.keys(G.dampingParams).length > 0;
+
+    if (!useNone) {
       try {
-        delta = dampBeliefDelta(sim, key, belief, delta);
+        if (useLegacyOverride) {
+          // Legacy live override channel (G.dampingParams): undeclared, unvalidated.
+          // Preserved for compatibility; dampBeliefDelta reads it directly and emits
+          // its own [DAMP] debug line, so we must NOT emit a second one here.
+          delta = dampBeliefDelta(sim, key, belief, delta);
+        } else {
+          // Explicit resolved commit-damping policy (default: current-production-v1).
+          const evalResult = evaluateCommitDamping(policy, sim, key, belief, delta);
+          delta = evalResult.outputDelta;
+
+          // Established damping observability contract: preserve the [DAMP] debug line
+          // that the historical helper emitted. This uses ONLY terms computed by the
+          // evaluator (single mathematical source of truth) so the debug output stays
+          // byte-equivalent to HEAD while commit.js performs no equation recomputation.
+          if (G.DEBUG_DAMPING) {
+            const c = evalResult.calculation;
+            console.debug(`[DAMP][${sim.id}] ${key}`, {
+              belief_before: belief,
+              delta_input: deltaBeforeDamping,
+              normalized_distance: c.normalizedDistance,
+              resistance: evalResult.coefficient,
+              delta_output: delta,
+              stress: c.stress,
+              trust: c.trust,
+              mode: evalResult.mode
+            });
+          }
+        }
       } catch (err) {
         errors.push({ key, reason: "damping_error", err });
         if (DEBUG) {
