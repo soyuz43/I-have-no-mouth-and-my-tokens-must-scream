@@ -3,7 +3,7 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
-import { EMBEDDED_TACTICS } from "../engine/tactics.js";
+import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
 
 import { crawlVault, fetchAMContext, ghGet } from "../core/github.js";
@@ -17,49 +17,25 @@ import { renderSims } from "./render.js";
 
 export function updateVaultDisplay() {
 
-  const cats = Object.keys(G.vault?.categories || {}).length;
-  const t = G.vault?.allTactics?.length || 0;
-  const total = t + EMBEDDED_TACTICS.length;
+  // Source-agnostic tactic count: canonical merge of ingested,
+  // derived, and embedded tactics (see getAllTactics()).
+  const all = getAllTactics();
+  const t = all.length;
 
   const setText = (id, value) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
   };
 
-  setText("v-cats", cats || "—");
   setText("v-tactics", t);
-  setText("v-files", G.vault.fileCount || 0);
-  setText("h-tactics", total);
-
-  const fillEl = document.getElementById("v-fill");
-
-  if (fillEl) {
-    const denom = (G.vault.fileCount || 0) + 2;
-    fillEl.style.width =
-      Math.min(100, (G.vault.fileCount / denom) * 100) + "%";
-  }
-
-  const treeLines = Object.entries(G.vault?.categories || {})
-    .slice(0, 4)
-    .map(([c, s]) =>
-      `▸ ${c}/ (${Object.values(s).reduce((a, b) => a + b.length, 0)})`
-    );
-
-  treeLines.push(
-    `▸ Cognitive Warfare/ (${EMBEDDED_TACTICS.length}) [embedded]`
-  );
-
-  setText("v-tree", treeLines.join("\n"));
+  setText("h-tactics", t);
 
   setText(
     "am-tactic-count",
-    `${total} tactics · ${cats + 1} categories · ${EMBEDDED_TACTICS.length} embedded`
+    `${t} tactics · ${EMBEDDED_TACTICS.length} embedded`
   );
 
-  setText(
-    "am-repo-disp",
-    G.repo ? G.repo.split("/")[1] : "[standalone]"
-  );
+  setText("am-repo-disp", "[standalone]");
 
   setText("am-model-disp", `AM: ${G.models.am}`);
   setText("h-backend", (G.backend || "").toUpperCase());
