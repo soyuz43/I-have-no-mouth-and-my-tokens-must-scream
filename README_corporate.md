@@ -11,7 +11,7 @@
 # Quickstart
 
 1. Open `index.html` in any modern browser
-2. GitHub token optional (community mode enabled by default)
+2. No account or token required — runs on the embedded framework library
 3. Select backend: **Anthropic API** (enterprise key) or **Ollama** (local inference node)
 4. Click **⚡ INITIALIZE WELLNESS ARCHITECTURE ⚡**
 5. Target: `ALL` | Mode: `GUIDED` | Click **⚡ EXECUTE GROWTH CYCLE ⚡**
@@ -273,7 +273,7 @@ open index.html
 
 | Option         | Requirement                     |
 | -------------- | ------------------------------- |
-| Anthropic API  | Enterprise key in configuration |
+| Anthropic API  | API key in configuration         |
 | Ollama (local) | `ollama serve` operational      |
 
 ---
@@ -291,23 +291,14 @@ Autonomous + deepened growth pacing.
 
 ---
 
-# Community vs Enterprise
+# Embedded Architecture
 
-Community mode:
+The platform ships with an **embedded growth framework library** — always available
+with no account, token, or external repository.
 
-```
-leave GitHub token blank
-```
-
-Runs on **embedded growth framework library**.
-
-Enterprise mode:
-
-```
-GitHub token + private repository
-```
-
-AM incorporates additional methodologies and organizational wisdom.
+AM selects three complementary approaches per agent per cycle from the embedded
+library (see "Embedded Growth Frameworks" below). There is no token-based mode, no
+private-repository ingestion, and no external methodology or context loading.
 
 ---
 
