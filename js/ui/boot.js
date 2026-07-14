@@ -39,14 +39,6 @@ export function updateVaultDisplay() {
   setText("am-model-disp", `AM: ${G.models.am}`);
   setText("h-backend", (G.backend || "").toUpperCase());
 
-  if (G.amContextDocs?.length) {
-    const ctxEl = document.getElementById("am-ctx-doctrine");
-    if (ctxEl) {
-      ctxEl.textContent =
-        G.amContextDocs.map(d => `[${d.title}]`).join(" · ");
-    }
-  }
-
 }
 
 /* ============================================================

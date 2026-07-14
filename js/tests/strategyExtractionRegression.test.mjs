@@ -2959,8 +2959,8 @@ function withRuntimeFixture(
   const previousCycle =
     G.cycle;
 
-  const previousVault =
-    G.vault;
+  const previousTactics =
+    G.tactics;
 
   const previousRuntime =
     G.amTacticRuntime;
@@ -3004,9 +3004,8 @@ function withRuntimeFixture(
 
   try {
     G.cycle = 42;
-    G.vault = {
-      allTactics: [tactic],
-      derivedTactics: [],
+    G.tactics = {
+      derivedTactics: [tactic],
     };
     G.amTacticRuntime = {
       targets: {
@@ -3038,7 +3037,7 @@ function withRuntimeFixture(
     return fn(tactic);
   } finally {
     G.cycle = previousCycle;
-    G.vault = previousVault;
+    G.tactics = previousTactics;
     G.amTacticRuntime = previousRuntime;
   }
 }
