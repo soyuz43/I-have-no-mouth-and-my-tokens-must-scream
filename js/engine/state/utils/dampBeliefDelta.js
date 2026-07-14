@@ -1,17 +1,34 @@
 // js/engine/state/utils/dampBeliefDelta.js
 
+
 import { G } from "../../../core/state.js";
 
 /*
-================================================================
+============================================================
 DAMP BELIEF DELTA
 
-Hybrid model:
-- Logistic → threshold / breaking point
-- Quadratic → post-belief rigidity
+PURE (no mutation). Multiplies the proposed delta by a
+transmission multiplier `finalResistance` in [minR, ~0.97] (defaults).
 
-This function is PURE (no mutation).
-================================================================
+NOTE on naming: the variable is called `resistance`, but it is a
+transmission coefficient, not a damping force. output = delta * finalResistance,
+so a LARGER value preserves MORE of the proposed delta (less damping),
+and a SMALLER value preserves LESS (more damping). Do not invert the
+semantics when reading this function.
+
+Override surface: the constants are read from G.dampingParams (currently
+unpopulated in production, so the ?? defaults below apply). Assigning
+G.dampingParams.{logisticK,logisticMid,hybridBlend,minResistance} would
+change the live equation.
+
+Hybrid model:
+- Logistic -> transition shape (threshold near the adjusted midpoint)
+- Quadratic -> stronger transmission near the center (0.5)
+
+Context modulation of the midpoint:
+- greater sim.suffering lowers transmission
+- greater sim.beliefs.others_trustworthy raises transmission
+============================================================
 */
 
 export function dampBeliefDelta(sim, beliefKey, currentValue, delta) {

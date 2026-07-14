@@ -359,30 +359,41 @@ They pass through a transformation system:
 ```mermaid
 flowchart LR
 
-DELTA[Raw Delta] --> DAMP[Damping Function]
-DAMP --> RESIST[Resistance]
-RESIST --> APPLY[Apply Update]
-APPLY --> SOFT[Soft Bounds]
+DELTA[Raw Delta] --> DAMP[Commit-Layer Damping]
+DAMP --> LIMIT[Boundary-Aware Delta Limiting]
+LIMIT --> CLAMP[Final Hard Clamp]
+CLAMP --> APPLY[Apply Update]
 ```
 
 ---
 
 ## Properties
 
-* **Nonlinear damping**
+Each source (psychology extraction, contagion, interaction integration) builds and
+constrains its *proposed delta* in its own way before commit. The shared commit layer
+then applies one transformation pipeline to every source:
 
-  * modes: linear / quadratic / logistic
-* **Position-dependent resistance**
+1. **Commit-layer damping.** `dampBeliefDelta` multiplies the proposed delta by a
+   state- and position-dependent *transmission multiplier* in `[0.5, ~0.97]` under the
+   current defaults. A larger multiplier preserves more of the proposed delta (less
+   damping); a smaller multiplier preserves less. The multiplier is floored at `0.5`, so
+   at least half of any proposed delta survives commit-layer damping. Transmission is
+   highest near `0.5` and lower toward `0`/`1`.
+2. **Boundary-aware delta limiting.** The damped delta is clamped into
+   `[-currentBelief, 1 - currentBelief]` so adding it cannot cross `[0,1]`.
+3. **Final hard clamp.** The resulting belief is hard-clamped into `[0,1]`. No live
+   production path writes a belief outside `[0,1]`.
 
-  * stronger near extremes
-* **Soft bounds (not clamping)**
+**Contagion special case.** Contagion additionally applies a *contagion-local* resistance
+factor before it enters the shared commit path, so contagion deltas are attenuated twice:
+once locally, then again by commit-layer damping.
 
-  * values can exceed [0,1]
-  * pulled back gradually
-
-This creates:
-
-> a smooth constraint field, not hard limits
+**Dormant surfaces.** The following are present in the code but are *not* part of the
+live mechanism today: `softClampBelief` (an older soft-overflow helper, currently unused);
+`BELIEF_DYNAMICS.dampingMode` (logged/displayed, but does not select the live algorithm);
+`BELIEF_DYNAMICS.minResistance` (not read by the live floor); `G.dampingParams` (a
+functional override surface that is currently unpopulated); `SKIP_DAMPING` (operational but
+no production caller currently passes `true`).
 
 ---
 
