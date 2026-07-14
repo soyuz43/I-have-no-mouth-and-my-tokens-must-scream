@@ -4,10 +4,20 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import {
   formatScratchpadForDisplay,
+  formatEvidenceMessage,
 } from "./cognitionFormatter.js";
 import {
   formatCognitionOverview,
 } from "./cognitionOverview.js";
+
+/* ============================================================
+   CANONICAL COMMUNICATION MESSAGE LOOKUP
+============================================================ */
+
+const findCommMsg = (id) =>
+  G.comms?.history?.find(
+    (message) => message.messageId === id
+  );
 
 /* ============================================================
    SIM SELECTION
@@ -372,6 +382,82 @@ function ensureCognitionHighlightEvents(
     },
     true
   );
+
+  /*
+   * Evidence reference clicks. Delegated, once-only, capture phase.
+   * Updates the claim's single inline viewer in place. Does not
+   * rerender the modal, reset scroll, or mutate state/history.
+   */
+  body.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target.closest(
+          "[data-cog-message-id]"
+        );
+
+      if (!button) {
+        return;
+      }
+
+      const claim =
+        button.closest(".cog-claim");
+
+      if (!claim) {
+        return;
+      }
+
+      const viewer =
+        claim.querySelector(
+          "[data-cog-evidence-viewer]"
+        );
+
+      if (!viewer) {
+        return;
+      }
+
+      const messageId =
+        button.dataset.cogMessageId;
+
+      viewer.innerHTML =
+        formatEvidenceMessage(
+          messageId,
+          findCommMsg(messageId)
+        );
+
+      viewer.hidden = false;
+
+      const claimRefs =
+        claim.querySelectorAll(
+          ".cog-evidence-ref"
+        );
+
+      claimRefs.forEach((ref) => {
+        const isSelected =
+          ref === button;
+
+        ref.classList.toggle(
+          "sel",
+          isSelected
+        );
+
+        ref.setAttribute(
+          "aria-pressed",
+          isSelected
+            ? "true"
+            : "false"
+        );
+
+        ref.setAttribute(
+          "aria-expanded",
+          isSelected
+            ? "true"
+            : "false"
+        );
+      });
+    },
+    true
+  );
 }
 
 /* ============================================================
@@ -384,7 +470,7 @@ function displayMetaValue(value) {
     value === undefined ||
     value === ""
   ) {
-    return "—";
+    return "?";
   }
 
   return String(value);
@@ -428,10 +514,10 @@ function formatCognitionMeta(scratchpad) {
 
   return (
     `${status}` +
-    ` · SCHEMA ${schema}` +
-    ` · REVISION ${revision}` +
-    ` · REVIEW CYCLE ${reviewCycle}` +
-    ` · MESSAGE CURSOR ${messageCursor}`
+    ` ? SCHEMA ${schema}` +
+    ` ? REVISION ${revision}` +
+    ` ? REVIEW CYCLE ${reviewCycle}` +
+    ` ? MESSAGE CURSOR ${messageCursor}`
   );
 }
 
@@ -547,8 +633,8 @@ export function renderCognitionModal(
 
       meta.textContent =
         `CYCLE ${G.cycle}` +
-        ` · ${SIM_IDS.length} PRISONERS` +
-        " · READ-ONLY TELEMETRY";
+        ` ? ${SIM_IDS.length} PRISONERS` +
+        " ? READ-ONLY TELEMETRY";
 
       body.innerHTML =
         formatCognitionOverview(G);
