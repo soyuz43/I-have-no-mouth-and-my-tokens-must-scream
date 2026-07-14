@@ -1,4 +1,4 @@
-# AM // ADVERSARIAL SIMULATION ENGINE
+﻿# AM // ADVERSARIAL SIMULATION ENGINE
 
 > persistent multi-agent inference loop  
 > five threads · one hatred · no exit  
@@ -91,7 +91,7 @@ subgraph GENERATION
 
   PLAN[Structured Plan]
 
-  VAULT[Tactic Vault]
+  TACTICS[Canonical Tactic Source]
   AM_EXEC[AM Execution Prompt]
 
   SIM_JOURNAL[Sim Journal]
@@ -100,7 +100,7 @@ subgraph GENERATION
   PLAN_PARSE --> PLAN_REPAIR --> PLAN_VALIDATE --> PLAN
 
   PLAN --> AM_EXEC
-  VAULT --> AM_EXEC
+  TACTICS --> AM_EXEC
 
   AM_EXEC --> SIM_JOURNAL
 
@@ -147,11 +147,26 @@ ASSESS --> AM_PLAN_RAW
 %% ========================
 
 COMMIT --> EVOLVE[Tactic Evolution]
-EVOLVE -.-> VAULT
+EVOLVE -.-> TACTICS
 ```
 
 ---
 
+# Tactic Sources
+
+Tactics are supplied through a single canonical accessor and require no external
+repository, token, or network crawl:
+
+- **Embedded tactics** — defined in `EMBEDDED_TACTICS` and shipped with the engine.
+- **Runtime-derived tactics** — produced during a run and stored in
+  `G.tactics.derivedTactics`.
+
+Canonical lookup and ranking flow through `js/engine/tactics.js`
+(`getAllTactics()`, `getTacticByPath()`, `rankTacticCandidates()`). There is no
+token-based mode, no external repository crawl, and no remote tactic or doctrine
+ingestion.
+
+---
 # Constraint System (Stress Positions)
 
 Constraints are **stateful pressure modifiers** applied by AM to individual agents.
