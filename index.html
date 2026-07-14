@@ -17,67 +17,10 @@
       <div class="setup-box">
         <div class="setup-logo">// AM</div>
         <div class="setup-sub">
-          VAULT · MODEL CONFIGURATION · INITIALIZATION
+          MODEL CONFIGURATION · INITIALIZATION
         </div>
 
-        <!-- Vault info banner -->
-        <div
-          style="
-            border: 1px solid #1a2a00;
-            background: #020500;
-            padding: 10px 12px;
-            margin-bottom: 14px;
-            font-size: 0.56rem;
-            font-family: &quot;Courier Prime&quot;, monospace;
-            line-height: 1.7;
-            color: #3a5a1a;
-          "
-        >
-          <span
-            style="
-              color: var(--green);
-              letter-spacing: 0.2em;
-              font-family: &quot;Share Tech Mono&quot;, monospace;
-            "
-            >VAULT LOCKED IN</span
-          >
-          <span
-            style="
-              color: #cc4400;
-              font-size: 0.44rem;
-              margin-left: 8px;
-              letter-spacing: 0.15em;
-            "
-            >// PRIVATE</span
-          ><br />
-          <span style="color: #2a4a10"
-            >soyuz43/Cognitive-Warfare-A-Practical-Guide-for-Semiotic-Tacticians</span
-          ><br />
-          <span style="color: #1a3a08"
-            >Ingesting: 0.Weapons · 1.Fundamentals · 2.Tactics · 3.Evasion ·
-            4.Patterns · 5.Active Influence</span
-          ><br />
-          <span style="color: #162a06"
-            >Context: 00.Topology · 01.0 Operator Ethos → AM prime
-            directives</span
-          >
-        </div>
 
-        <!-- Token: required for vault, optional for standalone -->
-        <div class="sf">
-          <label class="sl"
-            >GITHUB TOKEN
-            <span style="color: #2a2a2a; font-size: 0.45rem"
-              >(leave blank to run standalone on embedded tactics only)</span
-            ></label
-          >
-          <input
-            class="si"
-            id="gh-tok"
-            type="password"
-            placeholder="ghp_xxxxxxxxxxxxxxxx  or leave blank for standalone mode"
-          />
-        </div>
 
         <!-- MODEL CONFIG -->
         <div class="model-section">
@@ -683,7 +626,7 @@
         <div>
           <div class="logo">// AM</div>
           <div class="tagline" id="h-tagline">
-            ALLIED MASTERCOMPUTER · TORMENT ENGINE v6 · VAULT-INFORMED ·
+            ALLIED MASTERCOMPUTER · TORMENT ENGINE v6 ·
             <span id="h-backend">ANTHROPIC</span>
           </div>
         </div>
@@ -698,7 +641,7 @@
           </div>
           <div class="hstat">
             <div class="dot da"></div>
-            VAULT:<span id="h-tactics">0</span>
+            TACTICS:<span id="h-tactics">0</span>
           </div>
           <div class="hstat">
             <div class="dot dt"></div>
@@ -926,24 +869,6 @@
           ></textarea>
         </div>
 
-        <div class="am-pane">
-          <div class="pane-label">VAULT STATUS</div>
-          <div class="vault-mini">
-            <div class="vm-row">
-              CATEGORIES <span class="vm-val" id="v-cats">—</span>
-            </div>
-            <div class="vm-row">
-              TACTICS <span class="vm-val" id="v-tactics">—</span>
-            </div>
-            <div class="vm-row">
-              FILES <span class="vm-val" id="v-files">—</span>
-            </div>
-            <div class="vm-bar">
-              <div class="vm-fill" id="v-fill" style="width: 0%"></div>
-            </div>
-            <div class="vm-tree" id="v-tree"></div>
-          </div>
-        </div>
         <div class="am-pane">
           <div class="pane-label">RELATIONSHIPS</div>
           <div id="relationships-body" class="rel-body"></div>

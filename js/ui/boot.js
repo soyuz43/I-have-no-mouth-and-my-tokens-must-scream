@@ -6,7 +6,6 @@ import { SIM_IDS } from "../core/constants.js";
 import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
 
-import { crawlVault, fetchAMContext, ghGet } from "../core/github.js";
 
 import { addLog } from "./logs.js";
 import { renderSims } from "./render.js";
@@ -178,10 +177,6 @@ function collectModelConfig() {
 
 export async function bootAM() {
 
-  G.token = document.getElementById("gh-tok")?.value.trim();
-
-  const standalone = !G.token;
-
   collectModelConfig();
 
   const btn = document.getElementById("init-btn");
@@ -190,41 +185,14 @@ export async function bootAM() {
   document.getElementById("boot-log").innerHTML = "";
 
   /* ---------------------------------------------------------
-     STANDALONE MODE
+     EMBEDDED TACTICS
   --------------------------------------------------------- */
 
-  if (standalone) {
+  bootLog(
+    "▸ Loading embedded tactics (no external vault)..."
+  );
 
-    bootLog(
-      "▸ No token — running in STANDALONE MODE (embedded tactics only)."
-    );
-
-    bootLog(`✓ ${EMBEDDED_TACTICS.length} embedded tactics loaded.`);
-
-  }
-
-  else {
-
-    bootLog(`▸ Connecting to private vault (authenticated)...`);
-
-    try {
-
-      await ghGet("");
-
-      bootLog("✓ GitHub connection OK.");
-
-    }
-    catch (e) {
-
-      bootLog(`✗ Cannot reach repo: ${e.message}`, true);
-
-      btn.disabled = false;
-
-      return;
-
-    }
-
-  }
+  bootLog(`✓ ${EMBEDDED_TACTICS.length} embedded tactics loaded.`);
 
   /* ---------------------------------------------------------
      BACKEND CHECK
@@ -293,43 +261,6 @@ export async function bootAM() {
   }
 
   /* ---------------------------------------------------------
-     CONTEXT + VAULT
-  --------------------------------------------------------- */
-
-  if (!standalone) {
-
-    bootLog("▸ Fetching AM context docs...");
-
-    await fetchAMContext();
-
-    bootLog(
-      `✓ ${G.amContextDocs.length} context docs loaded.`
-    );
-
-    bootLog("▸ Crawling vault...");
-
-    try {
-
-      await crawlVault();
-
-    }
-    catch (e) {
-
-      bootLog(`✗ Crawl error: ${e.message}`, true);
-
-      btn.disabled = false;
-
-      return;
-
-    }
-
-    bootLog(
-      `✓ Vault: ${G.vault.allTactics.length} tactics · ${Object.keys(G.vault.categories).length} categories.`
-    );
-
-  }
-
-  /* ---------------------------------------------------------
      SIM THREAD INIT
   --------------------------------------------------------- */
 
@@ -345,9 +276,7 @@ export async function bootAM() {
   bootLog(`✓ Threads ready. Backend: ${G.backend.toUpperCase()}`);
 
   bootLog(
-    standalone
-      ? "✓ AM IS AWAKE. [STANDALONE MODE]"
-      : "✓ AM IS AWAKE. THE TAXONOMY IS LOADED."
+    `✓ AM IS AWAKE. ${EMBEDDED_TACTICS.length} embedded tactics · derived tactics accrue at runtime.`
   );
 
   await new Promise(r => setTimeout(r, 600));
@@ -367,17 +296,9 @@ export async function bootAM() {
      AM ONLINE MESSAGE
   --------------------------------------------------------- */
 
-  const totalTactics =
-    G.vault.allTactics.length + EMBEDDED_TACTICS.length;
-
-  const ctxSummary =
-    G.amContextDocs.map(d => d.title).join(", ");
-
   addLog(
     "AM // ONLINE",
-    standalone
-      ? `Standalone mode. ${EMBEDDED_TACTICS.length} embedded tactics. Backend: ${G.backend.toUpperCase()}.`
-      : `Vault consumed. ${totalTactics} tactics total. Context: ${ctxSummary}. Backend: ${G.backend.toUpperCase()}.`,
+    `Embedded mode. ${EMBEDDED_TACTICS.length} embedded tactics. Derived tactics accrue at runtime. Backend: ${G.backend.toUpperCase()}.`,
     "am"
   );
 
