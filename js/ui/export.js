@@ -11,6 +11,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { getTacticByPath } from "../engine/tactics.js";
 
 /* ============================================================
    EXPORT MENU
@@ -184,7 +185,7 @@ export function downloadSession(fmt) {
 
     sorted.forEach(([path,count]) => {
 
-      const t = G.vault.allTactics.find(x=>x.path===path);
+      const t = getTacticByPath(path);
 
       if (t)
         out += `x${count} [${t.category}/${t.subcategory}] ${t.title}\n`;
@@ -264,7 +265,7 @@ export function exportTacticHeatmap() {
 
   sorted.forEach(([path,count],i)=>{
 
-    const t = G.vault.allTactics.find(x=>x.path===path);
+    const t = getTacticByPath(path);
 
     if (t)
       out += `| ${i+1} | ×${count} | ${t.category} | ${t.subcategory} | ${t.title} | ${(tacticSimMap[path]||[]).join(", ")} |\n`;
@@ -317,7 +318,7 @@ function renderTopTactics(counts){
 
   el.innerHTML = sorted.map(([path,count]) => {
 
-    const tactic = G.vault.allTactics.find(t=>t.path===path);
+    const tactic = getTacticByPath(path);
 
     const label =
       tactic

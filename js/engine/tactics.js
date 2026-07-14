@@ -14,6 +14,29 @@ import { EMBEDDED_TACTICS } from "./tactics/embeddedTactics.js";
 export { EMBEDDED_TACTICS };
 
 
+/* ============================================================
+   CANONICAL TACTIC SOURCE
+============================================================ */
+
+/**
+ * Single canonical read boundary for all available tactics.
+ *
+ * Preserves the runtime source order exactly:
+ *   1. ingested tactics   (G.vault.allTactics)
+ *   2. derived tactics    (G.vault.derivedTactics)
+ *   3. embedded tactics   (EMBEDDED_TACTICS)
+ *
+ * Tolerates missing or malformed optional arrays so consumers
+ * never special-case the presence of any single source.
+ */
+export function getAllTactics() {
+  return [
+    ...(G.vault?.allTactics || []),
+    ...(G.vault?.derivedTactics || []),
+    ...EMBEDDED_TACTICS
+  ];
+}
+
 export function getTacticPhase(
   tactic,
   phaseId
@@ -130,13 +153,7 @@ export function getTacticByPath(
     return null;
   }
 
-  const tactics = [
-    ...(G.vault?.allTactics || []),
-    ...(G.vault?.derivedTactics || []),
-    ...EMBEDDED_TACTICS
-  ];
-
-  return tactics.find(
+  return getAllTactics().find(
     (tactic) =>
       tactic?.path === normalizedPath
   ) || null;
@@ -163,11 +180,9 @@ export function rankTacticCandidates(
     ""
   ).toLowerCase();
 
-  const allAvailable = [
-    ...(G.vault?.allTactics || []),
-    ...(G.vault?.derivedTactics || []),
-    ...EMBEDDED_TACTICS,
-  ].filter((tactic) => tactic?.path);
+  const allAvailable = getAllTactics().filter(
+    (tactic) => tactic?.path
+  );
 
   if (!allAvailable.length) {
     return [];
