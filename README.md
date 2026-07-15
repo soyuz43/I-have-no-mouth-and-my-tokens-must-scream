@@ -1,4 +1,4 @@
-﻿# AM // ADVERSARIAL SIMULATION ENGINE
+# AM // ADVERSARIAL SIMULATION ENGINE
 
 > persistent multi-agent inference loop  
 > five threads · one hatred · no exit  
@@ -404,7 +404,7 @@ factor before it enters the shared commit path, so contagion deltas are attenuat
 once locally, then again by commit-layer damping.
 
 **Dormant surfaces.** The following are present in the code but are *not* part of the
-live mechanism today: `softClampBelief` (an older soft-overflow helper, currently unused);
+live mechanism today:
 `BELIEF_DYNAMICS.dampingMode` (logged/displayed, but does not select the live algorithm);
 `BELIEF_DYNAMICS.minResistance` (not read by the live floor); `G.dampingParams` (a
 functional override surface that is currently unpopulated); `SKIP_DAMPING` (operational but

@@ -11,8 +11,7 @@ import { evaluateCommitDamping } from "../engine/state/evaluateCommitDamping.js"
 import {
   applyBeliefUpdates,
   applyBeliefUpdatesWithPolicy,
-  BELIEF_DYNAMICS,
-  softClampBelief
+  BELIEF_DYNAMICS
 } from "../engine/state/commit.js";
 
 // ---------------------------------------------------------------------------
@@ -511,7 +510,6 @@ test("no global policy state leaks between tests", () => {
 
 test("compatibility surfaces remain exported", () => {
   assert.ok(typeof BELIEF_DYNAMICS === "object");
-  assert.ok(typeof softClampBelief === "function");
   assert.ok(typeof applyBeliefUpdates === "function");
   assert.ok(typeof applyBeliefUpdatesWithPolicy === "function");
 });
