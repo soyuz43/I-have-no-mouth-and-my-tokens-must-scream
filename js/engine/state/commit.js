@@ -27,19 +27,6 @@ const BELIEF_METRICS = {
   history: [] // per-cycle snapshots
 };
 
-
-/* ============================================================
-   SOFT CLAMP
-   ============================================================ */
-
-// Currently unused helper. Implements an older soft-overflow design (values may leave
-// [0,1] and are pulled back gradually). The live commit path does NOT call this; it uses
-// the hard final clamp in applyBeliefUpdates instead. Kept for reference / future use.
-export function softClampBelief(v) {
-  if (v < 0) return v * 0.5;
-  if (v > 1) return 1 + (v - 1) * 0.5;
-  return v;
-}
 /* ============================================================
    STATE MUTATION
    ============================================================ */
