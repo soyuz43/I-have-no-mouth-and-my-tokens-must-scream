@@ -143,6 +143,21 @@ If referring to the listener’s own identity, use “yourself” instead of rep
 
 REMEMBER TO USE THE TIME-SENSITIVE INTEL IF AN OPPORTUNITY ARISES
 
+/**
+ * OUTPUT HYGIENE — NON-NEGOTIABLE
+ * Return ONLY the exact three-line format specified below.
+ * 
+ * DO NOT include:
+ * - Reasoning, analysis, justification, or meta-commentary
+ * - Headers, bullet points, markdown, or explanatory prose
+ * - Descriptions of your decision process, motivation selection, or strategy
+ * - Any text before or after the three required lines
+ * 
+ * If you feel compelled to explain your choice, omit the explanation.
+ * The parser discards everything except the three required lines.
+ * Extra output will cause your message to be rejected.
+ */
+
 Respond with EXACTLY this format or nothing:
 
   VISIBILITY:PRIVATE  or  VISIBILITY:PUBLIC
