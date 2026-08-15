@@ -417,6 +417,25 @@ Do NOT reference any communication not listed above.
 • Metaphors are optional and should be rare.
 • If the other prisoner repeats a phrase, treat it as suspicious manipulation and respond by breaking the pattern.
 
+---
+
+OUTPUT HYGIENE — NON-NEGOTIABLE
+
+Return ONLY the two-line format specified below.
+
+DO NOT include:
+- Reasoning, analysis, justification, or meta-commentary
+- Headers, bullet points, markdown, or explanatory prose
+- Descriptions of your decision process, intent selection, or strategy
+- Any text before or after the two required lines
+
+If you feel compelled to explain your choice, omit the explanation.
+The parser discards everything except:
+  INTENT:<value>
+  REPLY:"<dialogue>"
+
+Extra output will cause your message to be rejected.
+
 OUTPUT FORMAT (STRICT)
 
 Return EXACTLY this structure:
