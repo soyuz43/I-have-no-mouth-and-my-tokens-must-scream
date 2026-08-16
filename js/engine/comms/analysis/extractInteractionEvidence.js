@@ -370,17 +370,16 @@ function safeParse(raw, simId) {
   let cleaned = raw.trim();
 
   // -----------------------------
-  // PASS 1: Direct parse
+  // PASS 1: Direct parse (Happy Path)
   // -----------------------------
   try {
     return validate(JSON.parse(cleaned), simId);
   } catch { }
 
   // -----------------------------
-  // PASS 2: Extract JSON block
+  // PASS 2: Greedy Regex Extract (Fast Fallback)
   // -----------------------------
   const match = cleaned.match(/\{[\s\S]*\}/);
-
   if (match) {
     try {
       return validate(JSON.parse(match[0]), simId);
@@ -388,14 +387,52 @@ function safeParse(raw, simId) {
   }
 
   // -----------------------------
-  // PASS 3: Last-resort repair
+  // PASS 3: State-Machine Brace Counter (Deep Rescue)
+  // Ignores stray braces in trailing prose/comments.
   // -----------------------------
   try {
-    const repaired = cleaned
-      .replace(/^[^{]*/, "")     // strip leading junk
-      .replace(/[^}]*$/, "");    // strip trailing junk
+    const startIdx = cleaned.indexOf('{');
+    if (startIdx !== -1) {
+      let depth = 0;
+      let inString = false;
+      let escapeNext = false;
+      let endIdx = -1;
 
-    return validate(JSON.parse(repaired), simId);
+      for (let i = startIdx; i < cleaned.length; i++) {
+        const char = cleaned[i];
+
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (!inString) {
+          if (char === '{') depth++;
+          else if (char === '}') {
+            depth--;
+            if (depth === 0) {
+              endIdx = i;
+              break; // Found the exact closing brace of the root object
+            }
+          }
+        }
+      }
+
+      if (endIdx !== -1) {
+        const balancedJson = cleaned.substring(startIdx, endIdx + 1);
+        return validate(JSON.parse(balancedJson), simId);
+      }
+    }
   } catch { }
 
   console.warn(`[COMMS PARSE] ${simId} failed all parse attempts`);
@@ -403,6 +440,7 @@ function safeParse(raw, simId) {
 
   return [];
 }
+
 
 function validate(json, simId) {
   if (!Array.isArray(json?.perturbations)) {
