@@ -33,10 +33,10 @@ Runs once per cycle after journal updates.
    Configuration
 ========================================================= */
 
-const TRUST_THRESHOLD = 0.55;
+const TRUST_THRESHOLD = 0.15;
 const MAX_INFLUENCE = 0.04;
 const MIN_BELIEF_DIFF = 0.08;
-const MAX_TOTAL_SHIFT = 0.06;
+const MAX_TOTAL_SHIFT = 0.085;
 
 
 /* =========================================================

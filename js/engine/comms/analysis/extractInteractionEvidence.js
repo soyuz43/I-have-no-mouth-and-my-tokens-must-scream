@@ -323,6 +323,20 @@ You are NOT allowed to combine beliefs or say "all beliefs".
 If multiple beliefs are affected, list them as separate entries.
 
 ------------------------------------------------------------
+OUTPUT HYGIENE — NON-NEGOTIABLE
+------------------------------------------------------------
+Return ONLY the raw JSON object. 
+
+DO NOT include:
+- Reasoning, analysis, step-by-step evaluation, or meta-commentary
+- Headers like "**Analysis of Interaction Effects**" or "Step-by-step reasoning"
+- Markdown code fences
+- Explanatory prose before or after the JSON
+
+If you feel compelled to explain your causal attribution, omit the explanation. 
+The parser will reject and discard any text outside the JSON object.
+
+------------------------------------------------------------
 OUTPUT FORMAT (JSON ONLY)
 ------------------------------------------------------------
 
