@@ -7,6 +7,7 @@
 **Audited commit:** `e1ded28b60330f7a895d1651b9011e5050bf257d` on `main`  
 **Audit exclusions:** `Documentation/**`, `snapshots/**`, `outputs/**`, and `scripts/**`  
 **Repository state:** clean audited worktree; remote freshness was not independently established by a new fetch
+**Code changes since audit:** PR #120 (feat: scratchpad lifecycle - ids, prediction expiry, consolidation, merge commit `38d3a4c`) landed three engine-owned cinder blocks: deterministic collection-local IDs on committed questions/predictions (Candidate A), `expirePredictions` lifecycle maintenance (Candidate B), and `consolidate.js` dedup/archive/cadence consolidation activating `lastConsolidatedCycle` (Candidate C). The audit commit `e1ded28b` remains the historical baseline for the reconstituted architecture.
 
 This document supersedes the original roadmap:
 
@@ -38,7 +39,7 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, periodic cognition-consolidation system, meta-awareness system, behavioral control loop, save/load system, or rollback/replay system.
+It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, behavioral control loop, save/load system, or rollback/replay system. An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -138,8 +139,8 @@ This phase order is authoritative for future rollback design because communicati
 - [x] ~~Treat any successful review commit—including `NO_UPDATE` and an accepted operation set that produces only no-ops—as sufficient to set `initialized: true`.~~
 - [x] ~~Avoid incrementing the substantive revision counter for `NO_UPDATE` or duplicate/no-op operations.~~
 - [x] ~~Apply accepted mutations atomically to a clone before replacing persistent state.~~
-- [ ] **OPEN:** Add periodic full consolidation.
-- [ ] **OPEN:** Use `lastConsolidatedCycle` in an actual consolidation scheduler.
+- [x] ~~Add periodic full consolidation.~~ Engine-owned `consolidate.js` runs on a fixed modulo cadence (default every 5 cycles) after the social phase in `cycle.js`.
+- [x] ~~Use `lastConsolidatedCycle` in an actual consolidation scheduler.~~ `lastConsolidatedCycle` is set by the consolidation hook when it runs.
 - [ ] **OPEN:** Trigger cognition maintenance from non-communication events such as AM interventions, constraint changes, betrayals, prediction outcomes, or agency events.
 - [ ] **OPEN:** Define bounded retention, pruning, compaction, or archival rules for long-running scratchpads.
 - [ ] **OPEN:** Decide whether rejected operations from a partially accepted review should ever be reconsidered, because the current successful review advances beyond the complete evidence batch and does not automatically retry them.
@@ -168,7 +169,7 @@ The active schema is `schemaVersion: 2`.
 - [x] ~~`initialized`~~
 - [x] ~~`revision`~~
 - [x] ~~`lastUpdatedCycle`~~
-- [ ] **SCAFFOLD:** `lastConsolidatedCycle`
+- [x] ~~`lastConsolidatedCycle`~~ - written by the engine-owned consolidation hook on its cadence (was dormant/SCAFFOLD before PR #120).
 - [x] ~~`lastCommunicationReviewCycle`~~
 - [x] ~~`lastReviewedMessageSequence`~~
 
@@ -185,7 +186,7 @@ The review cursor is a substantial improvement over the original roadmap. It pro
 - [ ] **OPEN:** Add note-revision or note-retraction semantics; a later `NOTE` operation for an already-noted message currently becomes a no-op.
 - [ ] **OPEN:** Add stable scratchpad evidence references to canonical overhearing events and fragments.
 - [ ] **OPEN:** Add references to non-message observations and events.
-- [ ] **OPEN:** Define retention or consolidation policy for old message notes.
+- [ ] **OPEN:** Define retention or consolidation policy for old message notes. (Consolidation now *deduplicates* notes by `messageId`, but no retention limit or pruning is implemented yet.)
 
 ## 4.3 Models of other prisoners
 
@@ -298,15 +299,16 @@ private.canBeDelayedOrSuppressed
 - [x] ~~Persist unresolved questions.~~
 - [x] ~~Attach subject, priority, evidence references, and cycle metadata to new questions.~~
 - [x] ~~Persist testable predictions.~~
+- [x] ~~Assign deterministic, collection-local IDs to committed questions and predictions.~~ IDs are computed as max(existing id in that collection) + 1, start at 1, replay-safe (Candidate A).
 - [x] ~~Attach subject, confidence, evidence, creation cycle, and bounded time horizon to predictions.~~
 - [x] ~~Validate prediction horizons against protocol limits.~~
 - [x] ~~Prompt for predictions that are observable enough to evaluate later.~~
 - [ ] **PARTIAL:** Question objects contain resolution-oriented fields, but no complete question-resolution operation or evaluator was found.
 - [ ] **PARTIAL:** Prediction objects contain resolution-oriented fields, but no complete prediction-result evaluator or resolution operation was found.
-- [ ] **OPEN:** Expire predictions when their evaluation window closes.
+- [x] ~~Expire predictions when their evaluation window closes.~~ `expirePredictions` marks due, unresolved predictions `expired`/`expiredCycle`; it runs every cycle (Candidate B) and is also delegated by consolidation. Additive only.
 - [ ] **OPEN:** Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.
 - [ ] **OPEN:** Feed prediction outcomes back into confidence calibration.
-- [ ] **OPEN:** Resolve or archive answered questions.
+- [ ] **PARTIAL:** Archive answered questions - resolved questions are moved into `archivedQuestions` by consolidation, preserving provenance. No QUESTION-resolve **operation** exists yet; questions are currently superseded by the duplicate/`isSameOpenQuestion` no-op path rather than an explicit RESOLVE op.
 - [ ] **OPEN:** Convert persistent questions into communication or future agency priorities.
 - [ ] **OPEN:** Measure prediction accuracy and confidence calibration.
 
@@ -425,7 +427,7 @@ NO_UPDATE
 - [ ] **OPEN:** Discard or archive a hypothesis.
 - [ ] **OPEN:** Propose a meta-awareness transition.
 - [ ] **OPEN:** Record non-message evidence.
-- [ ] **OPEN:** Consolidate or prune stale cognition.
+- [ ] **PARTIAL:** Consolidate - `consolidate.js` deduplicates message notes, archives resolved questions, and expires predictions. *Prune* (retention-limit removal) and contradiction detection/flagging are not implemented.
 
 ---
 
@@ -568,7 +570,7 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 - [x] ~~Verify that cognition-overview question, prediction, and contradiction values are normalized to numeric counts before threshold and interpolation logic.~~
 - [x] ~~Resolve the earlier array-versus-count warning as a reconnaissance false positive rather than a runtime defect.~~
 - [ ] **OPEN:** Add provenance navigation from a displayed claim to its canonical source messages.
-- [ ] **OPEN:** Distinguish active, resolved, expired, and archived questions/predictions.
+- [ ] **PARTIAL:** `expired` (predictions) and `archived` (questions) states now exist; `resolved` was already present; active is implicit (not in a terminal state). No unified lifecycle-count UI yet.
 - [ ] **OPEN:** Add dedicated goal progression display once goals exist.
 - [ ] **OPEN:** Add dedicated meta-awareness transition history once transitions exist.
 
@@ -653,13 +655,13 @@ Dedicated scratchpad coverage exists, but it is narrow.
 - [x] ~~Implement frequent delta-style updates.~~
 - [x] ~~Prevent the model from rewriting the entire scratchpad during communication review.~~
 - [x] ~~Apply validated changes atomically.~~
-- [ ] **OPEN:** Schedule periodic consolidation.
-- [ ] **OPEN:** Merge duplicate claims.
+- [x] ~~Schedule periodic consolidation.~~ See `consolidate.js` (modulo cadence in `cycle.js`).
+- [x] ~~Merge duplicate claims.~~ Message-note deduplication by `messageId` is implemented.
 - [ ] **OPEN:** prune stale notes.
 - [ ] **OPEN:** archive discarded or superseded hypotheses.
-- [ ] **OPEN:** use `lastConsolidatedCycle`.
+- [x] ~~use `lastConsolidatedCycle`.~~
 
-**Status:** Incremental half completed; consolidation half absent.
+**Status:** Consolidation half now implemented (dedup + resolved-question archival + prediction expiry + cadence scheduling; `lastConsolidatedCycle` written). Retention-limit pruning and discarded/superseded-hypothesis archival remain open.
 
 ## Original Phase 4 — Goal progression
 
@@ -837,11 +839,11 @@ The remaining design question is whether goals, subjective social order, or meta
 
 Consolidation should be deterministic where possible:
 
-- deduplicate;
+- deduplicate; (IMPLEMENTED - message notes by `messageId` in `consolidate.js`)
 - merge evidence;
-- expire old predictions;
-- archive resolved questions;
-- flag contradictions;
+- expire old predictions; (IMPLEMENTED - `expirePredictions`)
+- archive resolved questions; (IMPLEMENTED - moved to `archivedQuestions`)
+- flag contradictions; (NOT implemented - no contradiction source/flag yet)
 - preserve provenance.
 
 A model may propose semantic merges, but the engine should own final state mutation.
@@ -885,7 +887,7 @@ This is the highest-value next step because it turns the current scratchpad from
 
 ## Priority 2 — Complete question and prediction lifecycles
 
-- [ ] Add stable IDs to questions and predictions.
+- [x] ~~Add stable IDs to questions and predictions.~~ (Candidate A, landed in PR #120)
 - [ ] Add resolve/expire operations.
 - [ ] Create deterministic deadline checks.
 - [ ] Add evidence-backed result evaluation.
@@ -896,10 +898,10 @@ This is the highest-value next step because it turns the current scratchpad from
 
 - [ ] Define retention limits.
 - [ ] Implement deterministic pruning.
-- [ ] Implement duplicate and contradiction detection.
-- [ ] Add periodic consolidation scheduling.
-- [ ] Update `lastConsolidatedCycle`.
-- [ ] Preserve an archive or event trail of removed material.
+- [ ] Implement duplicate and contradiction detection. (dedup of message notes done; contradiction detection not)
+- [x] ~~Add periodic consolidation scheduling.~~
+- [x] ~~Update `lastConsolidatedCycle`.~~
+- [ ] Preserve an archive or event trail of removed material. (resolved questions are archived to `archivedQuestions`; no general event trail)
 
 ## Priority 4 — Add non-message subjective evidence
 
@@ -958,8 +960,8 @@ A defensible completion threshold is:
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
 - [ ] Scratchpad state changes later behavior.
-- [ ] Questions and predictions have complete lifecycles.
-- [ ] Memory growth is bounded and consolidatable.
+- [ ] Questions and predictions have complete lifecycles. (IDs + expiry + archive exist; explicit RESOLVE operation still open)
+- [ ] Memory growth is bounded and consolidatable. (consolidation now bounds notes/questions/predictions via dedup+archive; no retention cap yet)
 - [ ] Canonical non-message observations can become scratchpad evidence.
 - [ ] Canonical prisoner scratchpads are included in user-facing export.
 - [ ] Export supports operation-level audit.
