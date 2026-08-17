@@ -1,4 +1,4 @@
-﻿// js/engine/phases/psychologyPhase.js
+// js/engine/phases/psychologyPhase.js
 //
 // Psychology Phase
 //
@@ -57,7 +57,7 @@ import {
 
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
 import { logBeliefDistance } from "../state/utils/beliefDistance.js";
-
+import { tickProbe } from "../../research/controllabilityProbe.js";
 
 
 // Constants & Logging helpers
@@ -1086,6 +1086,11 @@ export async function runPsychologyPhase(
         G.extractionStats.cycles[G.cycle]
       );
       console.groupEnd();
+    }    // Research probe tick — wrapped to prevent production disruption
+    try {
+      tickProbe();
+    } catch (probeError) {
+      console.warn("[RESEARCH PROBE] tickProbe failed:", probeError);
     }
   } finally {
     endPsychologyPhaseLog();
@@ -2915,3 +2920,6 @@ function clamp(
     )
   );
 }
+
+
+
