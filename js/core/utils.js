@@ -736,6 +736,7 @@ export function makeScratchpad(id) {
     goalHistory: [],
     predictions: [],
     unresolvedQuestions: [],
+    archivedQuestions: [],
     discardedHypotheses: [],
 
     /*

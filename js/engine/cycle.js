@@ -24,6 +24,8 @@ import { addLog } from "../ui/logs.js";
 import { runStrategyPhase } from "./phases/strategyPhase.js";
 import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
+import { expirePredictions } from "./scratchpad/expirePredictions.js";
+import { runScratchpadConsolidation } from "./scratchpad/consolidate.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
 import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
 import {
@@ -403,6 +405,99 @@ export async function runCycle() {
   console.warn("[PIPELINE] ENTER SOCIAL");
 
   await runSocialPhase();
+
+  /* ------------------------------------------------------------
+     SCRATCHPAD PREDICTION EXPIRY
+     Engine-owned lifecycle maintenance: mark predictions whose
+     evaluation deadline (evaluateByCycle) has passed and that remain
+     unresolved as expired. Pure maintenance, independent of any model
+     call. Runs once per cycle after review so expiry reflects the
+     just-reviewed state.
+  ------------------------------------------------------------ */
+
+  if (
+    Number.isInteger(G.cycle) &&
+    G.cycle >= 0
+  ) {
+    for (const [id, sim] of Object.entries(G.sims)) {
+      const scratchpad = sim?.scratchpad;
+
+      if (
+        !scratchpad ||
+        !Array.isArray(
+          scratchpad.predictions
+        )
+      ) {
+        continue;
+      }
+
+      try {
+        const expiredIds =
+          expirePredictions(
+            scratchpad,
+            G.cycle
+          );
+
+        if (expiredIds.length > 0) {
+          addLog(
+            "SYSTEM // SCRATCHPAD PREDICTION EXPIRY",
+            `Cycle ${G.cycle}: ${expiredIds.length} prediction(s) expired for ${id}.`,
+            "scratchpad-prediction-expiry"
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[SCRATCHPAD] prediction expiry failed for " + id + ":",
+          error
+        );
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------
+     SCRATCHPAD CONSOLIDATION
+     Engine-owned, deterministic cognition maintenance on a fixed
+     modulo cadence (see consolidate.js). Activates lastConsolidatedCycle
+     and performs bounded-memory bookkeeping: dedup message notes,
+     archive resolved questions, expire predictions. Model-independent.
+  ------------------------------------------------------------ */
+
+  if (
+    Number.isInteger(G.cycle) &&
+    G.cycle >= 0
+  ) {
+    for (const [id, sim] of Object.entries(G.sims)) {
+      const scratchpad = sim?.scratchpad;
+
+      if (!scratchpad) {
+        continue;
+      }
+
+      try {
+        const summary =
+          runScratchpadConsolidation(
+            scratchpad,
+            G.cycle
+          );
+
+        if (summary) {
+          addLog(
+            "SYSTEM // SCRATCHPAD CONSOLIDATION",
+            `Cycle ${G.cycle}: consolidated ${id} (` +
+              `dedup ${summary.dedupedMessageNotes}, ` +
+              `archive ${summary.archivedQuestions}, ` +
+              `expire ${summary.expiredPredictions}).`,
+            "scratchpad-consolidation"
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[SCRATCHPAD] consolidation failed for " + id + ":",
+          error
+        );
+      }
+    }
+  }
 
   // === NEW: Snapshot beliefs after contagion (final state) ===
   G.beliefSnapshots.final = {};
