@@ -84,6 +84,7 @@ const KNOWN_TOP_LEVEL_FIELDS = new Set([
   "goalHistory",
   "predictions",
   "unresolvedQuestions",
+  "archivedQuestions",
   "discardedHypotheses",
   "metaAwareness",
 ]);

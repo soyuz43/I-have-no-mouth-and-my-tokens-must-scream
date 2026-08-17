@@ -636,7 +636,26 @@ function applyQuestionOperation({
     };
   }
 
+  const currentQuestions =
+    scratchpad.unresolvedQuestions || [];
+
+  const maxQuestionId =
+    currentQuestions.reduce(
+      (max, entry) =>
+        Math.max(
+          max,
+          entry?.id || 0
+        ),
+      0
+    );
+
+  const nextQuestionId =
+    maxQuestionId + 1;
+
   const question = {
+    id:
+      nextQuestionId,
+
     about:
       operation.about,
 
@@ -740,7 +759,26 @@ function applyPredictionOperation({
     };
   }
 
+  const currentPredictions =
+    scratchpad.predictions || [];
+
+  const maxPredictionId =
+    currentPredictions.reduce(
+      (max, entry) =>
+        Math.max(
+          max,
+          entry?.id || 0
+        ),
+      0
+    );
+
+  const nextPredictionId =
+    maxPredictionId + 1;
+
   const prediction = {
+    id:
+      nextPredictionId,
+
     about:
       operation.about,
 
