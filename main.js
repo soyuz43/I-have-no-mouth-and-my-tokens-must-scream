@@ -18,6 +18,9 @@ import {
   runCommsCycle
 } from "./js/engine/comms/orchestrator.js";
 
+import { 
+  attachToWindow
+} from "./js/research/controllabilityProbe.js";
 
 // ============================================================
 // VALIDATORS
@@ -276,6 +279,11 @@ window.AM_DEBUG = {
   evidenceArchive: () => G.evidenceArchive,
   debugTrace: () => G.debugTrace.slice(-10),
 };
+
+// ===================
+// RESEARCH PROBE BRIDGE
+// ===================
+attachToWindow(); //  
 
 // ============================================================
 // DEBUG BOOT MESSAGE
