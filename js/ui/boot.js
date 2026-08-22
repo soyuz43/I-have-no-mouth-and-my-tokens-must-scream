@@ -4,6 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 
 import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
+import { purgeInvalidDerivedTactics } from "../engine/tactics/validateDerivedTactic.js";
 import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
 
 
@@ -185,6 +186,24 @@ export async function bootAM() {
   );
 
   bootLog(`✓ ${EMBEDDED_TACTICS.length} embedded tactics loaded.`);
+
+  /* ---------------------------------------------------------
+     DERIVED TACTIC SANITY PURGE
+     Drop any derived tactic that does not conform to the
+     canonical phased schema so a malformed (e.g. legacy
+     old-format) entry can never reach strategy-phase
+     ranking/selection and abort the cycle.
+  --------------------------------------------------------- */
+
+  const purgedDerived =
+    purgeInvalidDerivedTactics(G);
+
+  if (purgedDerived > 0) {
+    bootLog(
+      `⚠ Purged ${purgedDerived} malformed derived tactic(s).`,
+      true
+    );
+  }
 
   /* ---------------------------------------------------------
      BACKEND CHECK
