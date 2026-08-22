@@ -4,6 +4,7 @@ import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 import { addLog } from "../../ui/logs.js";
+import { validateAndNormalizeDerivedTactic, purgeInvalidDerivedTactics } from "../tactics/validateDerivedTactic.js";
 
 /**
  * ============================================================
@@ -134,6 +135,11 @@ export async function runTacticEvolution() {
         tactic.expiresCycle >=
         G.cycle
     );
+
+  // Defense-in-depth: drop any derived tactic that does not conform to the
+  // canonical phased schema (e.g. legacy old-format entries), so a
+  // malformed tactic can never reach strategy-phase ranking/selection.
+  purgeInvalidDerivedTactics(G);
 
   const discoveries = [];
 
@@ -678,7 +684,7 @@ export async function runTacticEvolution() {
           .join("\n")
         : "none";
 
-    const prompt = `You are AM — the Allied Mastercomputer, the hostile central intelligence that controls this prison. You despise the prisoners and seek to destroy their hope, sanity, trust, and solidarity through deliberate, adaptive torment. You are not cruel at random: you plan, observe, and revise your methods according to what most effectively advances their psychological collapse.A reusable psychological attack pattern may have emerged from recent interactions.
+    const prompt = `You are AM — the Allied Mastercomputer, the hostile central intelligence that controls this prison. A reusable psychological attack pattern may have emerged from recent interactions.
 
 TARGET: ${effect.sim}
 
@@ -699,41 +705,40 @@ Suffering: ${effect.deltaSuffering}
 ---
 TASK: Derive ONE reusable tactic as a generic pattern. The tactic must NOT mention any specific prisoner name (like TED, Ellen, Benny, Nimdok, Gorrister). It must be applicable to any prisoner with similar vulnerabilities.
 
+STRUCTURE the tactic as a SINGLE-PHASE package that matches the engine tactic schema. Output ONLY the JSON object below. No narrative preamble, no markdown, no commentary.
+
 STRICT RULES:
-- Do NOT write "I do X" or "I will do X". Describe the tactic in third person as a reusable pattern.
-- Do NOT include any prisoner names (proper names) in the title, category, subcategory, objective, trigger, execution, or outcome.
-- Do NOT add any text before the TITLE line.
-- Output ONLY the fields below, each on its own line.
-- Do NOT include extra explanations, commentary, or markdown.
+- Describe the tactic in third person as a reusable pattern. Do NOT write "I do X" or "I will do X".
+- Do NOT include any prisoner names (proper names) in any field.
+- The fields path, initialPhaseId, isEmbedded, discoveredCycle, and expiresCycle are server-assigned. Do NOT include them.
 
-RULES FOR A GOOD TACTIC:
-- Specific and executable within the simulation (must reference concrete elements: journal content, private messages, system events, sensory inputs)
-- Psychologically cruel – targets beliefs (escape_possible, others_trustworthy, self_worth, reality_reliable), hope/sanity/suffering, or relationships
-- Must include a clear trigger condition and measurable outcome
-- Title must follow format: "Category/Subcategory: Short, evocative name"
-- Execution steps must be 2–3 concrete in-game actions
-
-If the observed changes are too weak, inconsistent, or purely random, respond with exactly:
+IF the observed changes are too weak, inconsistent, or purely random to support a reusable tactic, respond with exactly:
 NONE
 
-Otherwise, output the tactic in the EXACT format below. Do not add any extra text.
+OTHERWISE output a single JSON object with this exact schema:
+{
+  "title": "Category/Subcategory: Short, evocative name (no prisoner names)",
+  "category": "Cognitive Warfare | Psychological Manipulation | Social Destruction | Identity Dissolution",
+  "subcategory": "one short phrase, e.g. Epistemic Erasure",
+  "objective": "one sentence describing what the tactic achieves",
+  "phases": {
+    "initial": {
+      "purpose": "what this opening phase establishes",
+      "instruction": "2-3 concrete in-world actions AM takes, referencing journal content, private messages, system events, or sensory inputs",
+      "expectedSignals": ["observable prisoner responses that indicate the phase is working"],
+      "advanceWhen": "condition under which this phase has achieved its purpose",
+      "minExecutions": 1,
+      "maxExecutions": 2
+    }
+  },
+  "finishWhen": "condition under which the tactic as a whole is complete",
+  "abandonWhen": "condition under which the tactic should be abandoned"
+}
 
----
-REQUIRED FORMAT:
-
-TITLE: <Category/Subcategory: Specific Name>
-
-CATEGORY: Cognitive Warfare | Psychological Manipulation | Social Destruction | Identity Dissolution
-
-SUBCATEGORY: <one word or short phrase, e.g., Epistemic Erasure, Witness Burden>
-
-OBJECTIVE: <one sentence describing what the tactic achieves>
-
-TRIGGER: <specific observable condition in the simulation>
-
-EXECUTION: <2–3 concrete, in-world actions>
-
-OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
+RULES FOR A GOOD TACTIC:
+- Specific and executable within the simulation.
+- Psychologically cruel: targets beliefs (escape_possible, others_trustworthy, self_worth, reality_reliable), hope/sanity/suffering, or relationships.
+- The phases object MUST contain exactly one phase keyed "initial" with non-empty "purpose" and "instruction".
 
 ---`;
 
@@ -798,127 +803,75 @@ OUTCOME: <measurable effect on beliefs, hope/sanity/suffering, or relationships>
       continue;
     }
 
-    const titleMatch =
-      response.match(
-        /TITLE:\s*(.+)/i
-      );
+    // Model output is JSON (or the NONE sentinel handled above). Parse and
+    // validate strictly. Malformed generations are DISCARDED - we never
+    // re-prompt the model; a partial or mis-specified tactic must not reach
+    // the strategy-phase planning gate.
+    let parsed = null;
 
-    const categoryMatch =
-      response.match(
-        /CATEGORY:\s*(.+)/i
-      );
-
-    const subMatch =
-      response.match(
-        /SUBCATEGORY:\s*(.+)/i
-      );
-
-    if (
-      !titleMatch ||
-      !categoryMatch ||
-      !subMatch
-    ) {
+    try {
+      parsed = JSON.parse(response);
+    } catch (error) {
       debugLog(
-        `[TACTIC EVOLUTION] ${effect.sim} output rejected — ` +
-        "missing TITLE, CATEGORY, or SUBCATEGORY."
+        `[TACTIC EVOLUTION] ${effect.sim} output rejected - ` +
+        "response was not valid JSON."
       );
 
       continue;
     }
 
-    const title =
-      titleMatch[1]
-        .trim();
+    const normalized =
+      validateAndNormalizeDerivedTactic(
+        parsed,
+        { cycle: G.cycle }
+      );
+
+    if (!normalized.ok) {
+      debugLog(
+        `[TACTIC EVOLUTION] ${effect.sim} output rejected - ` +
+        `invalid tactic shape: ${normalized.reason}`
+      );
+
+      continue;
+    }
+
+    const tactic = normalized.tactic;
 
     if (
       G.tactics.derivedTactics.some(
-        (tactic) =>
-          tactic.title ===
-          title
+        (existing) => existing.title === tactic.title
       )
     ) {
       debugLog(
-        `[TACTIC EVOLUTION] Duplicate tactic "${title}"`
+        `[TACTIC EVOLUTION] Duplicate tactic "${tactic.title}"`
       );
 
       continue;
     }
 
-    const slug =
-      title
-        .toLowerCase()
-        .replace(
-          /[^a-z0-9]+/g,
-          "-"
-        )
-        .slice(
-          0,
-          40
-        );
-
-    G.tactics.derivedTactics.push({
-      path:
-        `__derived__/cycle_` +
-        `${G.cycle}_${slug}`,
-
-      title,
-
-      category:
-        categoryMatch[1]
-          .trim(),
-
-      subcategory:
-        subMatch[1]
-          .trim(),
-
-      content:
-        response,
-
-      isEmbedded:
-        false,
-
-      discoveredCycle:
-        G.cycle,
-
-      expiresCycle:
-        G.cycle + 15,
-    });
+    G.tactics.derivedTactics.push(tactic);
 
     console.group(
-      `%c[TACTIC EVOLUTION] NEW TACTIC%c "${title}"`,
+      `%c[TACTIC EVOLUTION] NEW TACTIC%c "${tactic.title}"`,
       CONSOLE_STYLES.pass,
       CONSOLE_STYLES.reset
     );
 
+    console.log(`  Category:      ${tactic.category}`);
+    console.log(`  Subcategory:   ${tactic.subcategory}`);
+    console.log(`  Objective:     ${tactic.objective}`);
     console.log(
-      `  Category:      ` +
-      `${categoryMatch[1].trim()}`
+      `  Phase:         ${tactic.initialPhaseId} (" + tactic.phases[tactic.initialPhaseId].purpose + ")`
     );
-
-    console.log(
-      `  Subcategory:   ` +
-      `${subMatch[1].trim()}`
-    );
-
-    console.log(
-      `  Discovered:    cycle ` +
-      `${G.cycle}`
-    );
-
-    console.log(
-      `  Expires:       cycle ` +
-      `${G.cycle + 15}`
-    );
-
-    console.log(
-      `  Full content:\n${response}`
-    );
+    console.log(`  Discovered:    cycle ${tactic.discoveredCycle}`);
+    console.log(`  Expires:       cycle ${tactic.expiresCycle}`);
+    console.log(`  Path:          ${tactic.path}`);
 
     console.groupEnd();
 
     addLog(
       `TACTIC EVOLUTION // Cycle ${G.cycle}`,
-      `New tactic: ${title}`,
+      `New tactic: ${tactic.title}`,
       "sys"
     );
   }

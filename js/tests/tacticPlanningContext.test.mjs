@@ -526,3 +526,64 @@ test(
     );
   }
 );
+
+test("normalized runtime-derived tactic is consumable by planning gate", () => {
+  // A derived tactic produced by validateAndNormalizeDerivedTactic must
+  // satisfy getPlanningDefinition() (initialPhaseId + real initial phase).
+  const derived = {
+    path: "__derived__/cycle_5_hollow-compliance",
+    title: "Cognitive Warfare: Hollow Compliance",
+    category: "Cognitive Warfare",
+    subcategory: "Manufactured Compliance",
+    objective: "Erode autonomy by rewarding only obedience.",
+    initialPhaseId: "initial",
+    phases: {
+      initial: {
+        purpose: "Establish a conditional reward loop for compliance.",
+        instruction:
+          "When the target obeys, grant a small relief; when they resist, withdraw it.",
+        expectedSignals: ["compliance-seeking language"],
+        advanceWhen: "Target modulates behavior for approval.",
+        minExecutions: 1,
+        maxExecutions: 2
+      }
+    },
+    finishWhen: "Target treats compliance as self-evidently correct.",
+    abandonWhen: "Target refuses all reward conditioning.",
+    isEmbedded: false,
+    discoveredCycle: 5,
+    expiresCycle: 20
+  };
+
+  assert.doesNotThrow(() => {
+    buildTacticPlanningContext({
+      requiredTargetIds: ["TED"],
+      tacticCandidatesByTarget: { TED: [derived] },
+      tacticRuntimeByTarget: {},
+      cycle: 5,
+      simIds: ["TED"]
+    });
+  });
+});
+
+test("old-format derived tactic still fails the planning gate", () => {
+  // Documents the pre-fix bug: stored derived tactics without the phased
+  // schema used to be ranked but then aborted the strategy phase.
+  const legacy = {
+    path: "__derived__/cycle_1-legacy",
+    title: "Legacy Tactics",
+    category: "Cognitive Warfare",
+    subcategory: "Legacy",
+    content: "TITLE: ..."
+  };
+
+  assert.throws(() => {
+    buildTacticPlanningContext({
+      requiredTargetIds: ["TED"],
+      tacticCandidatesByTarget: { TED: [legacy] },
+      tacticRuntimeByTarget: {},
+      cycle: 1,
+      simIds: ["TED"]
+    });
+  });
+});
