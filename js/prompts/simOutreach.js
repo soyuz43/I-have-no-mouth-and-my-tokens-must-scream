@@ -7,7 +7,7 @@ import { formatCompactScratchpadContext } from "./utils/formatCompactScratchpadC
 
 
 export function buildSimOutreachPrompt(sim, state = null) {
- const { b, others, reactiveIntel } = buildPromptContext(sim, state);
+ const { b, others, reactiveIntel, perceivedCoalitions } = buildPromptContext(sim, state);
   if (reactiveIntel && state?.pendingReactiveIntel) {
     state.pendingReactiveIntel.delete(sim.id);
   }
@@ -36,6 +36,12 @@ Let your drives and current state determine how (or whether) to use this intel.
     { otherPrisonerIds: others }
   );
 
+  const coalitionSection =
+    perceivedCoalitions.length > 0
+      ? "\n" + perceivedCoalitions
+          .map(members => `You sense that ${members.join(" and ")} have grown close.`)
+          .join("\n") + "\n"
+      : "";
   const scratchpadSection = scratchpadContext
     ? '\n' + scratchpadContext + '\n\n' +
       'Treat this private cognition as background motivation only.' +
@@ -81,7 +87,7 @@ ${sim.drives.primary}
 YOUR SECONDARY DRIVE:
 ${sim.drives.secondary || "none"}
 YOU BELIEVE: escape ${Math.round(b.escape_possible * 100)}% possible · trust in others: ${Math.round(b.others_trustworthy * 100)}% · resistance possible: ${Math.round(b.resistance_possible * 100)}% · self-worth: ${Math.round(b.self_worth * 100)}% · guilt deserved: ${Math.round(b.guilt_deserved * 100)}%
-THE OTHERS: ${others.join(", ")}
+THE OTHERS: ${others.join(", ")}${coalitionSection}
 
 You only know about the five prisoners:
 TED, ELLEN, NIMDOK, GORRISTER, BENNY

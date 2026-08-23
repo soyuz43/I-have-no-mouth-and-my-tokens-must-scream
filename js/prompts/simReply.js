@@ -33,7 +33,7 @@ export function buildSimReplyPrompt(
 ) {
 
 
-  const { b } = buildPromptContext(sim);
+  const { b, perceivedCoalitions } = buildPromptContext(sim);
 
   const visLabel =
     visibility === "public"
@@ -191,6 +191,12 @@ Silence, refusal, blunt honesty, or ending the exchange may be stronger.
      PROMPT CONSTRUCTION
   --------------- */
 
+  const coalitionSection =
+    perceivedCoalitions.length > 0
+      ? "\n" + perceivedCoalitions
+          .map(members => `You sense that ${members.join(" and ")} have grown close.`)
+          .join("\n") + "\n"
+      : "";
   const scratchpadContext = formatCompactScratchpadContext(sim, { targetId: from });
 
   const scratchpadSection = scratchpadContext
@@ -221,7 +227,7 @@ Your secondary Drive: ${sim.drives.secondary || "none"}
 
 Beliefs:
 Escape possible → ${Math.round(b.escape_possible * 100)}%
-Others trustworthy → ${Math.round(b.others_trustworthy * 100)}%
+Others trustworthy → ${Math.round(b.others_trustworthy * 100)}%${coalitionSection}
 
 ---
 

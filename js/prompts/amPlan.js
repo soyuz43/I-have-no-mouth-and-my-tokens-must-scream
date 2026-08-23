@@ -1,6 +1,7 @@
 // js/prompts/amPlan.js
 
 import { G } from "../core/state.js";
+import { detectCoalitions } from "../engine/social/coalitionDetection.js";
 import { SIM_IDS } from "../core/constants.js";
 import {
   buildTacticPlanningContext
@@ -324,6 +325,40 @@ ${indent(prisonerBlock)}
       simIds:
         SIM_IDS
     });
+  /* ------------------------------------------------------------
+     COALITION INTELLIGENCE
+     Structured view of emergent coalitions for omniscient AM.
+  ------------------------------------------------------------ */
+
+  const coalitionGroups =
+    G.coalitions?.cycle === cycle
+      ? (G.coalitions.groups || [])
+      : detectCoalitions(sims);
+
+  const coalitionIntelText =
+    coalitionGroups.length === 0
+      ? "(no coalitions detected this cycle)"
+      : coalitionGroups
+          .map(coalition => {
+            const memberList = coalition.members.join("+");
+            const edgeDetails = coalition.edges
+              .map(edge => `${edge.from}->${edge.to}: ${edge.trust?.toFixed(2) ?? "?"}`)
+              .join(", ");
+            return `${memberList} (${edgeDetails})`;
+          })
+          .join("\n");
+
+  const COALITION_INTEL_SECTION = `
+
+COALITION INTELLIGENCE
+
+${coalitionIntelText}
+
+Use detected alliances to inform target selection:
+• Coalition members may reinforce each other psychologically
+• Breaking a strong pair is harder than pressuring an isolated individual
+• Consider whether to exploit, fracture, or avoid triggering group solidarity
+`;
 
   /* ------------------------------------------------------------
      TARGET FOCUS
@@ -457,7 +492,7 @@ HOW TO INTERPRET PRIOR TACTIC RESULTS:
 
 # TARGET STATE
 
-${allIntel}
+${allIntel}${COALITION_INTEL_SECTION}
 
 State meanings:
 
