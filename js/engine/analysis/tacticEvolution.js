@@ -5,6 +5,7 @@ import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 import { addLog } from "../../ui/logs.js";
 import { validateAndNormalizeDerivedTactic, purgeInvalidDerivedTactics } from "../tactics/validateDerivedTactic.js";
+import { preprocessJSONText } from "../../core/utils.js";
 
 /**
  * ============================================================
@@ -794,11 +795,14 @@ RULES FOR A GOOD TACTIC:
       response
     );
 
+    // Strip markdown code fences and think tags before checking NONE or parsing JSON.
+    // LLMs commonly wrap JSON in ```json ... ``` or ``` ... ``` fences despite
+    // prompts requesting raw JSON. The NONE sentinel may also be fenced.
+    const cleanedResponse = preprocessJSONText(response);
+
     if (
-      !response ||
-      response
-        .trim()
-        .startsWith("NONE")
+      !cleanedResponse ||
+      cleanedResponse.trim().startsWith("NONE")
     ) {
       continue;
     }
@@ -810,7 +814,7 @@ RULES FOR A GOOD TACTIC:
     let parsed = null;
 
     try {
-      parsed = JSON.parse(response);
+      parsed = JSON.parse(cleanedResponse);
     } catch (error) {
       debugLog(
         `[TACTIC EVOLUTION] ${effect.sim} output rejected - ` +
@@ -837,13 +841,16 @@ RULES FOR A GOOD TACTIC:
 
     const tactic = normalized.tactic;
 
+    // Compare full tactic fingerprint (path) for duplicate detection.
+    // Path includes cycle and slugified title, making it more robust than
+    // comparing only titles (which could match distinct tactics).
     if (
       G.tactics.derivedTactics.some(
-        (existing) => existing.title === tactic.title
+        (existing) => existing.path === tactic.path
       )
     ) {
       debugLog(
-        `[TACTIC EVOLUTION] Duplicate tactic "${tactic.title}"`
+        `[TACTIC EVOLUTION] Duplicate tactic "${tactic.title}" (path: ${tactic.path})`
       );
 
       continue;

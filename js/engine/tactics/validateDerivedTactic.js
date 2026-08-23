@@ -109,6 +109,17 @@ export function validateAndNormalizeDerivedTactic(parsed, opts = {}) {
     return { ok: false, reason: "missing or empty category" };
   }
 
+const VALID_CATEGORIES = Object.freeze([
+    "Cognitive Warfare",
+    "Psychological Manipulation",
+    "Social Destruction",
+    "Identity Dissolution"
+  ]);
+
+  if (!VALID_CATEGORIES.includes(parsed.category.trim())) {
+    return { ok: false, reason: "invalid category: " + parsed.category.trim() + " (valid: " + VALID_CATEGORIES.join(", ") + ")" };
+  }
+
   if (!isNonEmptyString(parsed.subcategory)) {
     return { ok: false, reason: "missing or empty subcategory" };
   }
