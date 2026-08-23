@@ -7,7 +7,7 @@
 **Audited commit:** `e1ded28b60330f7a895d1651b9011e5050bf257d` on `main`  
 **Audit exclusions:** `Documentation/**`, `snapshots/**`, `outputs/**`, and `scripts/**`  
 **Repository state:** clean audited worktree; remote freshness was not independently established by a new fetch
-**Code changes since audit:** PR #120 (feat: scratchpad lifecycle - ids, prediction expiry, consolidation, merge commit `38d3a4c`) landed three engine-owned cinder blocks: deterministic collection-local IDs on committed questions/predictions (Candidate A), `expirePredictions` lifecycle maintenance (Candidate B), and `consolidate.js` dedup/archive/cadence consolidation activating `lastConsolidatedCycle` (Candidate C). The audit commit `e1ded28b` remains the historical baseline for the reconstituted architecture.
+**Code changes since audit:** PR #120 (feat: scratchpad lifecycle - ids, prediction expiry, consolidation, merge commit `38d3a4c`) landed three engine-owned cinder blocks: deterministic collection-local IDs on committed questions/predictions (Candidate A), `expirePredictions` lifecycle maintenance (Candidate B), and `consolidate.js` dedup/archive/cadence consolidation activating `lastConsolidatedCycle` (Candidate C). The audit commit `e1ded28b` remains the historical baseline for the reconstituted architecture. A subsequent change wired `formatCompactScratchpadContext` into outreach and reply prompts, added formatter unit tests to `npm test`, and closed the two critical behavioral-injection roadmap items.
 
 This document supersedes the original roadmap:
 
@@ -39,7 +39,7 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, behavioral control loop, save/load system, or rollback/replay system. An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
+It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop now exists for communication: compact scratchpad context shapes outreach and reply prompts (see section 3.3), but journal injection, goal-driven behavior, and measured behavioral effects remain open. An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -147,8 +147,8 @@ This phase order is authoritative for future rollback design because communicati
 
 ## 3.3 Behavioral influence
 
-- [ ] **OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.
-- [ ] **OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.
+- [x] ~~**OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.~~ `formatCompactScratchpadContext` is called by `buildSimOutreachPrompt` with all other-prisoner IDs and its output is embedded in the outreach prompt when nonempty.
+- [x] ~~**OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.~~ `buildSimReplyPrompt` calls `formatCompactScratchpadContext({ targetId: from })`, so replies receive only the sender-specific person-model plus shared channel, prediction, and question sections.
 - [ ] **OPEN:** Inject operational scratchpad context into prisoner journals.
 - [ ] **OPEN:** Let unresolved questions alter information-seeking behavior.
 - [ ] **OPEN:** Let predictions alter future attention or action selection.
@@ -156,7 +156,7 @@ This phase order is authoritative for future rollback design because communicati
 - [ ] **OPEN:** Let person models alter recipient selection, disclosure, concealment, alliance, or testing behavior.
 - [ ] **OPEN:** Let goals produce observable multi-cycle behavior.
 
-At present, the scratchpad is updated **after** communication, but no reviewed source showed the canonical scratchpad being fed back into `simOutreach`, `simReply`, or `journal`. Therefore the implemented scratchpad is currently a persistent subjective record and UI-visible cognition model, but not yet a closed behavioral feedback loop.
+`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach and replies; journals, goals, and measured behavior change remain open.
 
 ---
 
@@ -526,16 +526,16 @@ Recommended design decision:
 
 ## 9.2 Outreach and reply prompts
 
-- [ ] **OPEN:** Format a compact behaviorally relevant scratchpad subset for outreach.
-- [ ] **OPEN:** Format a recipient-specific scratchpad subset for replies.
-- [ ] **OPEN:** Inject relevant person-model claims.
-- [ ] **OPEN:** Inject relevant unresolved questions.
-- [ ] **OPEN:** Inject active predictions concerning the recipient or channel.
-- [ ] **OPEN:** Inject information-channel beliefs where public/private selection is possible.
+- [x] ~~Format a compact behaviorally relevant scratchpad subset for outreach.~~ `formatCompactScratchpadContext` with all-prisoner person models plus shared sections.
+- [x] ~~Format a recipient-specific scratchpad subset for replies.~~ Reply builder uses `targetId: from`.
+- [x] ~~Inject relevant person-model claims.~~ Outreach includes all prisoner models; replies include the sender-specific model.
+- [x] ~~Inject relevant unresolved questions.~~ Included in both outreach and reply contexts.
+- [x] ~~Inject active predictions concerning the recipient or channel.~~ Active predictions included in both contexts; recipient/channel filtering not yet applied.
+- [x] ~~Inject information-channel beliefs where public/private selection is possible.~~ Public/private channel-belief claims included in both contexts.
 - [ ] **OPEN:** Inject an active goal and current step once goals exist.
-- [ ] **OPEN:** Add explicit non-disclosure rules so internal cognition shapes behavior without being dumped into dialogue.
+- [x] ~~Add explicit non-disclosure rules so internal cognition shapes behavior without being dumped into dialogue.~~ Both prompt builders append an anti-quotation instruction to the injected block.
 
-Existing outreach/reply prompt references to “goal” or “intent” should not be mistaken for integration with `scratchpad.activeGoal`. No reviewed call path showed the canonical scratchpad being passed into those prompts.
+Existing outreach/reply prompt references to “goal” or “intent” should not be mistaken for integration with `scratchpad.activeGoal`; that remains unimplemented. Scratchpad context injection itself is now live via `formatCompactScratchpadContext`.
 
 ## 9.3 Journal prompt
 
@@ -620,6 +620,7 @@ Dedicated scratchpad coverage exists, but it is narrow.
 - [ ] **OPEN:** Regression coverage for duplicate-note no-ops and whole-claim replacement semantics.
 - [ ] **OPEN:** Regression coverage for per-prisoner failure isolation and non-advancing failed cursors.
 - [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain.
+- [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ `js/tests/formatCompactScratchpadContext.test.mjs` covers uninitialized, populated/filtering, and targetId cases; wired into `npm test`. Behavioral divergence tests remain open.
 - [ ] **OPEN:** Behavioral tests for subjective divergence after scratchpad prompt integration exists.
 - [ ] **OPEN:** Long-run scratchpad growth, consolidation, and stability tests.
 - [ ] **OPEN:** Rollback and phase-replay tests after that subsystem is designed.
@@ -876,14 +877,14 @@ A later design may add explicit revise, retract, merge-evidence, supersede, or a
 
 ## Priority 1 — Close the cognition-to-behavior loop
 
-- [ ] Build a compact, recipient-specific scratchpad context formatter.
-- [ ] Inject relevant person-model claims into replies.
-- [ ] Inject relevant questions, predictions, and channel beliefs into outreach.
-- [ ] Prohibit direct scratchpad quotation.
+- [x] ~~Build a compact, recipient-specific scratchpad context formatter.~~ Implemented in `js/prompts/utils/formatCompactScratchpadContext.js`; runtime-wired into both outreach and reply prompt builders.
+- [x] ~~Inject relevant person-model claims into replies.~~ Sender-targeted person-model block is injected via `targetId: from`.
+- [x] ~~Inject relevant questions, predictions, and channel beliefs into outreach.~~ All three compact sections are included in the outreach context block.
+- [x] ~~Prohibit direct scratchpad quotation.~~ Anti-quotation instruction appended to the injected block in both prompt builders.
 - [ ] Log which scratchpad paths were supplied to each communication call.
 - [ ] Compare communication behavior before and after integration.
 
-This is the highest-value next step because it turns the current scratchpad from a passive record into persistent functional cognition.
+The core loop is closed; remaining items harden observability and measure behavioral effect.
 
 ## Priority 2 — Complete question and prediction lifecycles
 
@@ -959,7 +960,7 @@ A defensible completion threshold is:
 - [x] ~~Updates are sparse, validated, evidence-grounded, and atomic.~~
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
-- [ ] Scratchpad state changes later behavior.
+- [ ] Scratchpad state changes later behavior. (outreach/reply prompt injection now live; journal injection and measured effect still open)
 - [ ] Questions and predictions have complete lifecycles. (IDs + expiry + archive exist; explicit RESOLVE operation still open)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now bounds notes/questions/predictions via dedup+archive; no retention cap yet)
 - [ ] Canonical non-message observations can become scratchpad evidence.
@@ -970,7 +971,7 @@ A defensible completion threshold is:
 
 Until the unchecked items above are satisfied, the current system is best described as:
 
-> A robust communication-grounded subjective cognition recorder and inspector, with substantial scaffolding for goals and meta-awareness, but without a complete operational-goal or behavior-feedback loop.
+> A robust communication-grounded subjective cognition recorder and inspector with a first live cognition-to-behavior loop for outreach/reply prompts, but without complete operational goals, journal integration, or measured behavioral influence.
 
 ---
 
