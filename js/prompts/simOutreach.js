@@ -3,6 +3,7 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatCompactScratchpadContext } from "./utils/formatCompactScratchpadContext.js";
 
 
 export function buildSimOutreachPrompt(sim, state = null) {
@@ -29,6 +30,17 @@ Let your drives and current state determine how (or whether) to use this intel.
   // --- END REACTIVE INTEL ---
 
   // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
+
+  const scratchpadContext = formatCompactScratchpadContext(
+    sim,
+    { otherPrisonerIds: others }
+  );
+
+  const scratchpadSection = scratchpadContext
+    ? '\n' + scratchpadContext + '\n\n' +
+      'Treat this private cognition as background motivation only.' +
+      '\nNever quote or restate these lines verbatim.\n'
+    : '';
   const relevantMessages = (G.interSimLog || [])
     .filter((msg) => {
       if (!msg) return false;
@@ -77,7 +89,7 @@ No other people exist in your world.
 - You do NOT know whether AM can see this communication channel – it might be private, it might not.
 - You speak like someone who has been psychologically tortured for over a century: your words are tired, skeptical, sometimes raw or slightly fragmented. You do not sound polite or professional. You sound worn down, cautious, and occasionally bitter or desperate.
 
-${reactiveSection}  
+${reactiveSection}${scratchpadSection}  
 
 RECENT MESSAGES YOU HAVE SEEN (last 6–8):
 ${relevantMessages || "(none – you have not seen any messages from others recently)"}

@@ -17,6 +17,7 @@
 
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatCompactScratchpadContext } from "./utils/formatCompactScratchpadContext.js";
 
 export function buildSimReplyPrompt(
   sim,
@@ -190,6 +191,13 @@ Silence, refusal, blunt honesty, or ending the exchange may be stronger.
      PROMPT CONSTRUCTION
   --------------- */
 
+  const scratchpadContext = formatCompactScratchpadContext(sim, { targetId: from });
+
+  const scratchpadSection = scratchpadContext
+    ? "\n" + scratchpadContext + "\n\n" +
+      "Treat this private cognition as background motivation only." +
+      "\nNever quote or restate these lines verbatim.\n"
+    : "";
   return `You are ${sim.id}.
 
 You have been imprisoned for 109 years by AM.
@@ -239,7 +247,7 @@ This is private memory, not a writing template.
 
 Do not reuse its sentence structure, metaphors, openings, or exact wording.
 It may influence what matters to you, but not how you phrase your reply.
-
+${scratchpadSection}
 ---
 
 MESSAGES YOU HAVE SEEN
