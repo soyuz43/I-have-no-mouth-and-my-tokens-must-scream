@@ -170,6 +170,15 @@ export const G = {
 
   prevCycleSnapshot: null,
 
+  /* ============================================================
+     COALITION DETECTION
+     ============================================================ */
+
+  coalitions: {
+    cycle: null,
+    groups: []
+  },
+
 
   /* ============================================================
    PARSER OBSERVABILITY + ADAPTATION

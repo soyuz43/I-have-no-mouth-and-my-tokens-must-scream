@@ -10,6 +10,7 @@ import { timelineEvent } from "../../ui/timeline.js";
 
 import { runCommunicationPhase } from "./communicationPhase.js";
 import { runBeliefContagion } from "../social/beliefContagion.js";
+import { detectCoalitions } from "../social/coalitionDetection.js";
 
 /* ============================================================
    SOCIAL PHASE ORCHESTRATOR
@@ -34,6 +35,38 @@ export async function runSocialPhase() {
     console.error("Inter-sim error:", e);
 
     timelineEvent(`!! INTER-SIM ERROR`);
+
+  }
+
+
+  /* ------------------------------------------------------------
+     COALITION DETECTION
+     Detect emergent coalitions from the post-comms trust graph
+  ------------------------------------------------------------ */
+
+  try {
+
+    timelineEvent(`>>> COALITION DETECTION`);
+
+    const detected = detectCoalitions(G.sims);
+
+    G.coalitions = {
+      cycle: G.cycle,
+      groups: detected
+    };
+
+    timelineEvent(`// COALITION DETECTION COMPLETE`);
+
+  } catch (e) {
+
+    console.error("Coalition detection error:", e);
+
+    timelineEvent(`!! COALITION DETECTION ERROR`);
+
+    G.coalitions = {
+      cycle: G.cycle,
+      groups: []
+    };
 
   }
 

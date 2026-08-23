@@ -1,7 +1,9 @@
 // js/prompts/utils/buildPromptContext.js
 
+import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { clamp } from "../../core/utils.js";
+import { COALITION_CONFIG } from "../../engine/social/coalitionDetection.js";
 /*
 ===============================================================
 PROMPT CONTEXT BUILDER
@@ -42,10 +44,28 @@ export function buildPromptContext(sim, state = null) {
 
   const reactiveIntel = state?.pendingReactiveIntel?.get(sim.id) || null;
 
+  const currentCoalitions =
+    G.coalitions?.cycle === G.cycle
+      ? (G.coalitions.groups || [])
+      : [];
+
+  const perceivedCoalitions = currentCoalitions
+    .filter(coalition =>
+      coalition.members.some(memberId => {
+        if (memberId === sim.id) return false;
+        const trust = sim.relationships?.[memberId];
+        return Number.isFinite(trust) && trust >= COALITION_CONFIG.threshold;
+      })
+    )
+    .map(coalition =>
+      coalition.members.filter(memberId => memberId !== sim.id)
+    );
+
   return {
     sim,
     b,
     others,
-    reactiveIntel
+    reactiveIntel,
+    perceivedCoalitions
   };
 }
