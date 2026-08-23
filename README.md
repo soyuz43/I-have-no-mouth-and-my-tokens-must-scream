@@ -497,6 +497,30 @@ am_has_limits
 
 These are separate systems.
 
+## Attribution Tracking System
+
+The engine employs a rigorous attribution system to distinguish between direct AM influence and communication-mediated belief changes.
+
+This is achieved by taking belief snapshots at three key points in each cycle:
+
+  - **prePsychology**: beliefs before AM input (start of cycle)
+  - **postPsychology**: beliefs after AM journal input, before communication/contagion
+  - **final**: beliefs after contagion (end of social phase)
+
+From these snapshots, we compute two distinct effects:
+
+  - **amEffect** = postPsychology - prePsychology
+    * Represents the direct psychological impact of AM's inputs on each agent's beliefs
+  - **contagionEffect** = final - postPsychology
+    * Represents the belief changes resulting from inter-agent communication and belief contagion
+
+This separation allows the assessment system to evaluate:
+  * How effective AM's direct interventions are
+  * How beliefs spread through the agent network independently of AM
+  * Whether communication amplifies or dampens AM's intended effects
+
+The attribution metrics are logged per cycle and available for export to analyze the relative contributions of direct manipulation versus social diffusion in shaping agent beliefs over time.
+
 ---
 
 # Strategy System (AM)
@@ -653,4 +677,6 @@ What fails first:
 > You are an observer with write access.
 >
 > **Proceed.**
+
+
 
