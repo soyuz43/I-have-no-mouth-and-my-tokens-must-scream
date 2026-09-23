@@ -17,7 +17,10 @@
 
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
-import { formatCompactScratchpadContext } from "./utils/formatCompactScratchpadContext.js";
+import {
+  formatCompactScratchpadContextWithSections,
+} from "./utils/formatCompactScratchpadContext.js";
+import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 export function buildSimReplyPrompt(
   sim,
@@ -197,7 +200,17 @@ Silence, refusal, blunt honesty, or ending the exchange may be stronger.
           .map(members => `You sense that ${members.join(" and ")} have grown close.`)
           .join("\n") + "\n"
       : "";
-  const scratchpadContext = formatCompactScratchpadContext(sim, { targetId: from });
+  const {
+    text: scratchpadContext,
+    sections: scratchpadSections,
+  } = formatCompactScratchpadContextWithSections(sim, { targetId: from });
+
+  logScratchpadContextInjection({
+    callType: "reply",
+    simId: sim.id,
+    targetId: from,
+    sections: scratchpadSections,
+  });
 
   const scratchpadSection = scratchpadContext
     ? "\n" + scratchpadContext + "\n\n" +
