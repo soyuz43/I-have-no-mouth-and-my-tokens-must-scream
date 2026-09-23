@@ -546,6 +546,7 @@ function getOperationDestinationKey(
       );
 
     case "question":
+    case "question_resolve":
       return (
         `question:` +
         `${operation.about}:` +
@@ -961,6 +962,67 @@ function validateAndNormalizeOperation({
 
         about,
         priority,
+        text,
+        refs,
+      };
+
+      break;
+    }
+
+    case "QUESTION_RESOLVE": {
+      const about =
+        String(
+          attributes.about ?? ""
+        )
+          .trim()
+          .toUpperCase();
+
+      if (
+        !isAllowedScratchpadSubject(
+          about
+        )
+      ) {
+        reasons.push(
+          `Unsupported QUESTION_RESOLVE subject: ${about || "(missing)"}.`
+        );
+      }
+
+      const resolution =
+        normalizeOperationText(
+          attributes.resolution
+        );
+
+      if (!resolution) {
+        reasons.push(
+          "QUESTION_RESOLVE requires a resolution attribute."
+        );
+      }
+
+      const refs =
+        parseReferenceList(
+          attributes.refs,
+          {
+            attributeName:
+              "refs",
+
+            visibleMessageMap,
+            simId,
+            reasons,
+          }
+        );
+
+      normalized = {
+        type:
+          "question_resolve",
+
+        tag:
+          "QUESTION_RESOLVE",
+
+        sourceIndex:
+          operation.sourceIndex,
+
+        about,
+        resolution,
         text,
         refs,
       };

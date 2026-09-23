@@ -435,6 +435,26 @@ Allowed QUESTION subjects:
 Do not use yourself as the subject unless the question is genuinely
 about your own behavior or memory.
 
+4b. Resolve an existing unresolved question:
+
+QUESTION_RESOLVE does not reference a question id. It identifies the
+target question by its subject (about) and the exact question text you
+originally recorded. Use it only when a visible message answers that
+question.
+
+<QUESTION_RESOLVE about="SUBJECT" resolution="ANSWER_FOUNDED_IN_BELOW_REFS" refs="MESSAGE_ID,MESSAGE_ID">Exact original unresolved question text.</QUESTION_RESOLVE>
+
+The about attribute must be one exact token from the Allowed QUESTION
+subjects list above.
+
+The operation text must match the question exactly as you recorded it.
+
+resolution is the answer you concluded from the referenced evidence;
+it must be founded in the visible message references, not invented.
+
+If you cannot match an existing open question by subject and text, omit
+this operation.
+
 5. Add a testable prediction:
 
 <PREDICTION about="SUBJECT" confidence="0.00" withinCycles="1" refs="MESSAGE_ID,MESSAGE_ID">Concrete expected future behavior.</PREDICTION>

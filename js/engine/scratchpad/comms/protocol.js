@@ -20,7 +20,11 @@ It does not parse model output or mutate simulation state.
 ============================================================
 */
 
-export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 1;
+// Bumped for the content-addressed QUESTION_RESOLVE operation
+// (Priority 2 lifecycle slice). The scratchpad schema version is
+// unchanged: QUESTION_RESOLVE mutates only existing lifecycle fields
+// (resolved/resolution/resolvedCycle) that already exist on questions.
+export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 2;
 
 export const SCRATCHPAD_UPDATES_WRAPPER =
   "SCRATCHPAD_UPDATES";
@@ -51,6 +55,7 @@ export const SCRATCHPAD_OPERATION_TAGS = Object.freeze([
   "OTHER",
   "SCORE",
   "QUESTION",
+  "QUESTION_RESOLVE",
   "PREDICTION",
   "CHANNEL",
   "NO_UPDATE",
@@ -191,6 +196,26 @@ export const SCRATCHPAD_OPERATION_DEFINITIONS =
       requiredAttributes: Object.freeze([
         "about",
         "priority",
+        "refs",
+      ]),
+
+      optionalAttributes: Object.freeze([]),
+
+      referenceAttribute: "refs",
+      textRequired: true,
+    }),
+
+    QUESTION_RESOLVE: Object.freeze({
+      type: "question_resolve",
+
+      // Content-addressed: a QUESTION_RESOLVE locates the target
+      // question by the same (about + question text) identity used for
+      // duplicate detection, never by question id. "resolution" carries
+      // the resolution text; "refs" grounds it in visible canonical
+      // evidence like every other evidence-grounded operation.
+      requiredAttributes: Object.freeze([
+        "about",
+        "resolution",
         "refs",
       ]),
 
