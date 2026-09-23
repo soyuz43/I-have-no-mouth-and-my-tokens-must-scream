@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   isPredictionExpired,
   expirePredictions,
-} from "file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/engine/scratchpad/expirePredictions.js";
+} from "../engine/scratchpad/expirePredictions.js";
 
 function makePrediction(overrides = {}) {
   return {
@@ -200,7 +200,7 @@ test("integration: G.cycle wiring marks entries after social phase path", async 
   // Minimal smoke test of the cycle module's import graph and that
   // G.cycle is an integer boundary the expiry hook reads.
   const { G } = await import(
-    "file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/core/state.js"
+    "../core/state.js"
   );
   G.cycle = 3;
   assert.equal(Number.isInteger(G.cycle), true);
