@@ -3,7 +3,10 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
-import { formatCompactScratchpadContext } from "./utils/formatCompactScratchpadContext.js";
+import {
+  formatCompactScratchpadContextWithSections,
+} from "./utils/formatCompactScratchpadContext.js";
+import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 
 export function buildSimOutreachPrompt(sim, state = null) {
@@ -31,10 +34,18 @@ Let your drives and current state determine how (or whether) to use this intel.
 
   // --- Filter inter‑sim messages: only PUBLIC or where this sim is involved ---
 
-  const scratchpadContext = formatCompactScratchpadContext(
-    sim,
-    { otherPrisonerIds: others }
-  );
+  const { text: scratchpadContext, sections: scratchpadSections } =
+    formatCompactScratchpadContextWithSections(
+      sim,
+      { otherPrisonerIds: others }
+    );
+
+  logScratchpadContextInjection({
+    callType: "outreach",
+    simId: sim.id,
+    targetId: "all",
+    sections: scratchpadSections,
+  });
 
   const coalitionSection =
     perceivedCoalitions.length > 0

@@ -9,6 +9,8 @@
 **Repository state:** clean audited worktree; remote freshness was not independently established by a new fetch
 **Code changes since audit:** PR #120 (feat: scratchpad lifecycle - ids, prediction expiry, consolidation, merge commit `38d3a4c`) landed three engine-owned cinder blocks: deterministic collection-local IDs on committed questions/predictions (Candidate A), `expirePredictions` lifecycle maintenance (Candidate B), and `consolidate.js` dedup/archive/cadence consolidation activating `lastConsolidatedCycle` (Candidate C). The audit commit `e1ded28b` remains the historical baseline for the reconstituted architecture. A subsequent change wired `formatCompactScratchpadContext` into outreach and reply prompts, added formatter unit tests to `npm test`, and closed the two critical behavioral-injection roadmap items.
 
+**Reconciliation update (2026-09-23):** This pass reflects two completed work items verified against the current tree. (a) Lifecycle test wiring: `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` are now included in the `npm test` command (and therefore the GitHub Actions workflow, which runs `npm test`); the full suite passes. (b) Priority 1 prompt-injection observability: `formatCompactScratchpadContext` gained a metadata-producing companion, `formatCompactScratchpadContextWithSections` (returns `{ text, sections }`), and `simOutreach.js` / `simReply.js` now log which compact scratchpad sections and field paths are supplied to each call via a new developer-console-only logger at `js/prompts/utils/scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`. No prisoner-facing prompt text, protocol, schema, validation, commit, or model-call behavior changed. Measured behavioral effect of injection remains OPEN (see Priority 1 and section 17).
+
 This document supersedes the original roadmap:
 
 `Documentation/roadmaps&features/prisoner_scratchpads&goals.md`
@@ -156,7 +158,7 @@ This phase order is authoritative for future rollback design because communicati
 - [ ] **OPEN:** Let person models alter recipient selection, disclosure, concealment, alliance, or testing behavior.
 - [ ] **OPEN:** Let goals produce observable multi-cycle behavior.
 
-`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach and replies; journals, goals, and measured behavior change remain open.
+`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach and replies; journals, goals, and measured behavior change remain open. Observability for that injected context now exists: both prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`) listing the rendered `sections` (person-model target/field keys, channel scope/field keys, prediction/question counts and ids). This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message.
 
 ---
 
@@ -610,6 +612,7 @@ The cognition overview derives live counts and confidence summaries for display.
 Dedicated scratchpad coverage exists, but it is narrow.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
+- [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ Both lifecycle test files are now in the `npm test` command (13 and 14 cases), closing the earlier reconnaissance finding that they existed but were unwired.
 - [x] ~~Cover five focused repair/parsing cases involving encoded wrapper tags, encoded attributes, encoded `NO_UPDATE`, and encoded tag-like text embedded inside operation content.~~
 - [ ] **PARTIAL:** Protocol parsing and repair have focused regression coverage, but the complete operation grammar and all invalid-input classes are not comprehensively covered.
 - [ ] **OPEN:** Unit coverage for operation validation, including target, field, subject, evidence, confidence, score, and prediction-horizon rejection.
@@ -620,7 +623,7 @@ Dedicated scratchpad coverage exists, but it is narrow.
 - [ ] **OPEN:** Regression coverage for duplicate-note no-ops and whole-claim replacement semantics.
 - [ ] **OPEN:** Regression coverage for per-prisoner failure isolation and non-advancing failed cursors.
 - [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain.
-- [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ `js/tests/formatCompactScratchpadContext.test.mjs` covers uninitialized, populated/filtering, and targetId cases; wired into `npm test`. Behavioral divergence tests remain open.
+- [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ `js/tests/formatCompactScratchpadContext.test.mjs` covers uninitialized, populated/filtering, and targetId cases; wired into `npm test`. Behavioral divergence tests remain open. It also now asserts that `formatCompactScratchpadContextWithSections` returns the same text as the legacy entry point and that its `sections` metadata reflects only rendered person-model fields, channel scopes/fields, and prediction/question counts and ids; plus logger tests proving the injection logger is a no-op when disabled and writes the expected `{ callType, simId, targetId, sections }` record when enabled.
 - [ ] **OPEN:** Behavioral tests for subjective divergence after scratchpad prompt integration exists.
 - [ ] **OPEN:** Long-run scratchpad growth, consolidation, and stability tests.
 - [ ] **OPEN:** Rollback and phase-replay tests after that subsystem is designed.
@@ -881,8 +884,8 @@ A later design may add explicit revise, retract, merge-evidence, supersede, or a
 - [x] ~~Inject relevant person-model claims into replies.~~ Sender-targeted person-model block is injected via `targetId: from`.
 - [x] ~~Inject relevant questions, predictions, and channel beliefs into outreach.~~ All three compact sections are included in the outreach context block.
 - [x] ~~Prohibit direct scratchpad quotation.~~ Anti-quotation instruction appended to the injected block in both prompt builders.
-- [ ] Log which scratchpad paths were supplied to each communication call.
-- [ ] Compare communication behavior before and after integration.
+- [x] ~~Log which scratchpad paths were supplied to each communication call.~~ `formatCompactScratchpadContextWithSections` returns a structured `sections` descriptor; `simOutreach.js` (targetId `all`) and `simReply.js` (targetId `from`) emit it through the developer-console-only, `G.DEBUG_PROMPTS`-gated logger in `scratchpadContextLog.js`. This is observability only and does not change prompt text or behavior.
+- [ ] Compare communication behavior before and after integration. (observability foundation now exists; measured effect remains OPEN)
 
 The core loop is closed; remaining items harden observability and measure behavioral effect.
 
@@ -960,7 +963,7 @@ A defensible completion threshold is:
 - [x] ~~Updates are sparse, validated, evidence-grounded, and atomic.~~
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
-- [ ] Scratchpad state changes later behavior. (outreach/reply prompt injection now live; journal injection and measured effect still open)
+- [ ] Scratchpad state changes later behavior. (outreach/reply prompt injection now live; journal injection and measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation but behavioral measurement remains OPEN)
 - [ ] Questions and predictions have complete lifecycles. (IDs + expiry + archive exist; explicit RESOLVE operation still open)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now bounds notes/questions/predictions via dedup+archive; no retention cap yet)
 - [ ] Canonical non-message observations can become scratchpad evidence.

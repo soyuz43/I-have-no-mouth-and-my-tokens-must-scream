@@ -15,11 +15,11 @@ import {
   archiveResolvedQuestions,
   consolidateScratchpad,
   runScratchpadConsolidation,
-} from "file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/engine/scratchpad/consolidate.js";
+} from "../engine/scratchpad/consolidate.js";
 
 import {
   expirePredictions,
-} from "file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/engine/scratchpad/expirePredictions.js";
+} from "../engine/scratchpad/expirePredictions.js";
 
 function baseScratchpad() {
   return {
@@ -183,7 +183,7 @@ test("runScratchpadConsolidation: skips off-cadence, runs on-cadence, idempotent
 });
 
 test("integration: G.cycle is a valid integer boundary the hook reads", async () => {
-  const { G } = await import("file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/core/state.js");
+  const { G } = await import("../core/state.js");
   G.cycle = 5;
   assert.equal(Number.isInteger(G.cycle), true);
   // expirePredictions dependency resolves (consolidate imports it).
@@ -192,7 +192,7 @@ test("integration: G.cycle is a valid integer boundary the hook reads", async ()
 
 test("P1 regression: consolidation runs for scratchpad with notes/questions but no predictions", async () => {
   const { runScratchpadConsolidation } =
-    await import("file:///C:/Users/thisi/workspace/personal/I-have-no-mouth-but-my-tokens-must-scream/js/engine/scratchpad/consolidate.js");
+    await import("../engine/scratchpad/consolidate.js");
 
   const sp = {
     messageNotes: [

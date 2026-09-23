@@ -12,6 +12,14 @@
 // - Skip empty sections entirely
 // - Use conversational tone, not structured data labels
 // - Return "" when scratchpad is empty or uninitialized
+//
+// Observability:
+// A separate metadata-producing entry point
+// (formatCompactScratchpadContextWithSections) returns the same text
+// together with a structured description of which scratchpad sections
+// and field paths were actually rendered. This is developer-only
+// observability for prompt-injection auditing and does not change the
+// prisoner-facing text or any runtime state.
 
 const OTHER_FIELDS = [
   "perceivedGoal",
@@ -99,20 +107,22 @@ function formatPersonModel(scratchpad, prisonerId) {
 
   const claims = models[prisonerId];
   if (!claims || typeof claims !== "object") {
-    return "";
+    return { text: "", fields: [] };
   }
 
   const lines = [];
+  const fields = [];
 
   for (const field of OTHER_FIELDS) {
     if (isPopulatedClaim(claims[field])) {
       lines.push(
         formatClaimLine(FIELD_LABELS[field], claims[field])
       );
+      fields.push(field);
     }
   }
 
-  return lines.join("\n");
+  return { text: lines.join("\n"), fields };
 }
 
 function formatChannelBeliefsCompact(scratchpad) {
@@ -120,6 +130,8 @@ function formatChannelBeliefsCompact(scratchpad) {
     scratchpad.informationModel?.channels ?? {};
 
   const lines = [];
+  const publicFields = [];
+  const privateFields = [];
 
   for (const field of PUBLIC_CHANNEL_FIELDS) {
     if (isPopulatedClaim(channels.public?.[field])) {
@@ -129,6 +141,7 @@ function formatChannelBeliefsCompact(scratchpad) {
           channels.public[field]
         )
       );
+      publicFields.push(field);
     }
   }
 
@@ -140,10 +153,17 @@ function formatChannelBeliefsCompact(scratchpad) {
           channels.private[field]
         )
       );
+      privateFields.push(field);
     }
   }
 
-  return lines.join("\n");
+  return {
+    text: lines.join("\n"),
+    scopes: [
+      { scope: "public", fields: publicFields },
+      { scope: "private", fields: privateFields },
+    ].filter((entry) => entry.fields.length > 0),
+  };
 }
 
 function formatPredictionsCompact(scratchpad, limit) {
@@ -172,7 +192,12 @@ function formatPredictionsCompact(scratchpad, limit) {
     );
   }
 
-  return lines.join("\n");
+  return {
+    text: lines.join("\n"),
+    ids: predictions
+      .map((p) => p?.id)
+      .filter((id) => id !== undefined && id !== null),
+  };
 }
 
 function formatQuestionsCompact(scratchpad, limit) {
@@ -194,7 +219,12 @@ function formatQuestionsCompact(scratchpad, limit) {
     lines.push(`- ${text} (about ${about}, priority: ${priority})`);
   }
 
-  return lines.join("\n");
+  return {
+    text: lines.join("\n"),
+    ids: questions
+      .map((q) => q?.id)
+      .filter((id) => id !== undefined && id !== null),
+  };
 }
 
 /**
@@ -219,8 +249,44 @@ export function formatCompactScratchpadContext(
     questionLimit = DEFAULT_QUESTION_LIMIT,
   } = {}
 ) {
+  return formatCompactScratchpadContextWithSections(sim, {
+    targetId,
+    otherPrisonerIds,
+    predictionLimit,
+    questionLimit,
+  }).text;
+}
+
+/**
+ * Format the compact scratchpad context block (identical text to
+ * formatCompactScratchpadContext) and also return a structured
+ * description of which sections and field paths were rendered.
+ *
+ * The sections metadata describes only what was actually injected:
+ * - personModel: one entry per rendered prisoner, with targetId and the
+ *   list of rendered person-model field keys.
+ * - channelBeliefs: scope ("public"/"private") and rendered field keys.
+ * - predictions: rendered count and stable prediction ids where present.
+ * - questions: rendered count and stable question ids where present.
+ *
+ * Sections that rendered nothing are omitted. The text output is
+ * byte-for-byte identical to formatCompactScratchpadContext.
+ *
+ * @param {object} sim
+ * @param {object} options
+ * @returns {{ text: string, sections: Array<object> }}
+ */
+export function formatCompactScratchpadContextWithSections(
+  sim,
+  {
+    targetId = null,
+    otherPrisonerIds = [],
+    predictionLimit = DEFAULT_PREDICTION_LIMIT,
+    questionLimit = DEFAULT_QUESTION_LIMIT,
+  } = {}
+) {
   if (!sim || typeof sim !== "object") {
-    return "";
+    return { text: "", sections: [] };
   }
 
   const scratchpad =
@@ -230,18 +296,25 @@ export function formatCompactScratchpadContext(
       : {};
 
   if (!scratchpad.initialized) {
-    return "";
+    return { text: "", sections: [] };
   }
 
   const sections = [];
+  const renderedTexts = [];
 
   // Person-model claims
   if (targetId) {
-    const personBlock = formatPersonModel(scratchpad, targetId);
+    const { text: personBlock, fields } =
+      formatPersonModel(scratchpad, targetId);
     if (personBlock) {
-      sections.push(
+      renderedTexts.push(
         `What you believe about ${targetId}:\n${personBlock}`
       );
+      sections.push({
+        section: "personModel",
+        targetId,
+        fields,
+      });
     }
   } else {
     const ids = Array.isArray(otherPrisonerIds)
@@ -250,56 +323,79 @@ export function formatCompactScratchpadContext(
     const parts = [];
 
     for (const id of ids) {
-      const block = formatPersonModel(scratchpad, id);
+      const { text: block, fields } =
+        formatPersonModel(scratchpad, id);
       if (block) {
         parts.push(`${id}:\n${block}`);
+        sections.push({
+          section: "personModel",
+          targetId: id,
+          fields,
+        });
       }
     }
 
     if (parts.length > 0) {
-      sections.push(
+      renderedTexts.push(
         `What you believe about the others:\n${parts.join("\n\n")}`
       );
     }
   }
 
   // Channel beliefs
-  const channelBlock = formatChannelBeliefsCompact(scratchpad);
+  const {
+    text: channelBlock,
+    scopes,
+  } = formatChannelBeliefsCompact(scratchpad);
   if (channelBlock) {
-    sections.push(
+    renderedTexts.push(
       `What you suspect about communication channels:\n${channelBlock}`
     );
+    for (const { scope, fields } of scopes) {
+      sections.push({
+        section: "channelBeliefs",
+        scope,
+        fields,
+      });
+    }
   }
 
   // Predictions
-  const predictionBlock = formatPredictionsCompact(
-    scratchpad,
-    predictionLimit
-  );
+  const {
+    text: predictionBlock,
+    ids: predictionIds,
+  } = formatPredictionsCompact(scratchpad, predictionLimit);
   if (predictionBlock) {
-    sections.push(
+    renderedTexts.push(
       `What you expect to happen:\n${predictionBlock}`
     );
+    sections.push({
+      section: "predictions",
+      count: predictionIds.length,
+      ids: predictionIds,
+    });
   }
 
   // Questions
-  const questionBlock = formatQuestionsCompact(
-    scratchpad,
-    questionLimit
-  );
+  const {
+    text: questionBlock,
+    ids: questionIds,
+  } = formatQuestionsCompact(scratchpad, questionLimit);
   if (questionBlock) {
-    sections.push(
+    renderedTexts.push(
       `What you still wonder about:\n${questionBlock}`
     );
+    sections.push({
+      section: "questions",
+      count: questionIds.length,
+      ids: questionIds,
+    });
   }
 
-  if (sections.length === 0) {
-    return "";
-  }
+  const text =
+    renderedTexts.length === 0
+      ? ""
+      : ["YOUR PRIVATE COGNITION", "", ...renderedTexts].join("\n");
 
-  return [
-    "YOUR PRIVATE COGNITION",
-    "",
-    ...sections,
-  ].join("\n");
+  return { text, sections };
 }
