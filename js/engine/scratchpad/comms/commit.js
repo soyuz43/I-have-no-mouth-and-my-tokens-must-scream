@@ -700,6 +700,85 @@ function applyQuestionOperation({
 }
 
 /* ============================================================
+   QUESTION RESOLUTION COMMITTING
+   ------------------------------------------------------------
+   Content-addressed RESOLVE. Locates the target via the same
+   question-identity matcher used for duplicate detection
+   (about + lowercased text), preserving every existing field
+   (id, evidence, subject, priority, creation metadata). Sets only
+   resolved / resolution / resolvedCycle. No-op when the target is
+   already resolved or no matching unresolved question exists.
+============================================================ */
+
+function applyQuestionResolveOperation({
+  scratchpad,
+  operation,
+  cycle,
+  changedPaths,
+}) {
+  if (
+    !Array.isArray(
+      scratchpad.unresolvedQuestions
+    )
+  ) {
+    return {
+      changed: false,
+      path: null,
+      reason:
+        "no_unresolved_questions_collection",
+    };
+  }
+
+  const existingIndex =
+    scratchpad.unresolvedQuestions.findIndex(
+      (existing) =>
+        isSameOpenQuestion(
+          existing,
+          operation
+        )
+    );
+
+  if (existingIndex < 0) {
+    return {
+      changed: false,
+      path: null,
+      reason:
+        "question_resolve_target_not_found",
+    };
+  }
+
+  const existing =
+    scratchpad.unresolvedQuestions[
+      existingIndex
+    ];
+
+  if (existing.resolved === true) {
+    return {
+      changed: false,
+      path:
+        `unresolvedQuestions[${existingIndex}]`,
+      reason:
+        "question_already_resolved",
+    };
+  }
+
+  existing.resolved = true;
+  existing.resolution =
+    normalizeText(operation.resolution);
+  existing.resolvedCycle = cycle;
+
+  const path =
+    `unresolvedQuestions[${existingIndex}]`;
+
+  changedPaths.push(path);
+
+  return {
+    changed: true,
+    path,
+  };
+}
+
+/* ============================================================
    PREDICTION COMMITTING
 ============================================================ */
 
@@ -928,6 +1007,14 @@ function applyOperation({
 
     case "question":
       return applyQuestionOperation({
+        scratchpad,
+        operation,
+        cycle,
+        changedPaths,
+      });
+
+    case "question_resolve":
+      return applyQuestionResolveOperation({
         scratchpad,
         operation,
         cycle,
