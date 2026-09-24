@@ -17,6 +17,8 @@
 
 **Reconciliation update (2026-09-24):** New question IDs are now computed as one more than the maximum ID across both `unresolvedQuestions` and `archivedQuestions`, preventing reuse of archived question IDs. This fix applies to questions now; prediction ID allocation will receive the same cross-archive fix in the prediction-archival slice. Deterministic prediction expiry was already implemented and runtime-wired through `js/engine/scratchpad/expirePredictions.js`, so the stale Priority 2 deadline-check item is reconciled below.
 
+**Reconciliation update (2026-09-24, prediction-resolution Slice 4):** The prediction-resolution lifecycle is now complete through commit. `PREDICTION_RESOLVE` is defined, validated, and dispatched with the content-addressed target identity `about + normalized prediction text + withinCycles`. The commit path captures a read-only pre-batch predictions snapshot before cloning, finds the pre-batch target and captures its internal ID, then updates the same ID in the cloned active collection. Successful resolution sets `resolved`, the validated `outcome` and `resolutionRationale`, the validated `refs` as `resultEvidence`, and the current `resolvedCycle`; original prediction provenance remains unchanged. No-op routing is precise and does not increment revision: `prediction_resolve_target_not_found` (no matching identity), `prediction_already_resolved` (matching identity is already resolved), and `prediction_resolve_target_not_prebatch` (the matching prediction was created earlier in the same batch). Focused commit tests were added to `js/tests/predictionResolve.test.mjs`; the wired full suite passes with **332 tests**: 242 TAP cases plus 90 custom JSON-runner cases, with zero failures. The scratchpad schema remains version `3`, the communication protocol remains version `3`, and no model-facing prompt text changed. Prediction ID-allocation/archival work (Slice 5), expired-duplicate semantics (Slice 6), prompt integration (Slice 7), and confidence calibration (Slice 8) remain OPEN.
+
 This document supersedes the original roadmap:
 
 `Documentation/roadmaps&features/prisoner_scratchpads&goals.md`
@@ -312,7 +314,7 @@ private.canBeDelayedOrSuppressed
 - [x] ~~Validate prediction horizons against protocol limits.~~
 - [x] ~~Prompt for predictions that are observable enough to evaluate later.~~
 - [x] ~~**PARTIAL (now complete):** Question objects contain resolution-oriented fields, and a complete question-resolution operation now exists.~~ `QUESTION_RESOLVE` (added in the 2026-09-23 second-pass slice, hardened in the third-pass slice) resolves an existing unresolved question by content via `isSameOpenQuestion`. The resolve lifecycle is now explicit and commit-time-guarded: a `QUESTION_RESOLVE` may only resolve a question that was an open, unresolved question before the current review batch began, enforced by a read-only pre-batch snapshot of `unresolvedQuestions` (a same-batch-created question cannot be resolved in the same batch; that case no-ops with `question_resolve_target_not_prebatch`). No-op reasons are now precise: `question_resolve_target_not_prebatch` (same-batch-created target), `question_already_resolved` (matching identity already resolved — existing `resolution`/`resolvedCycle` are not overwritten and the question is not reopened), and `question_resolve_target_not_found` (no matching identity, including resolved-and-archived). The redundant duplicate `QUESTION` plus `QUESTION_RESOLVE` case for a pre-existing open question works correctly (duplicate `QUESTION` is a no-op; the `QUESTION_RESOLVE` resolves the pre-existing question). It sets `resolved`/`resolution`/`resolvedCycle`, never references question IDs. Resolved questions then reach `archivedQuestions` through the existing consolidation path (section 3.2 / Priority 3). Prediction-result evaluation and confidence calibration remain OPEN.
-- [ ] **PARTIAL:** Prediction objects contain resolution-oriented fields, but no complete prediction-result evaluator or resolution operation was found.
+- [x] ~~**PARTIAL (now complete):** Prediction-result resolution operation.~~ `PREDICTION_RESOLVE` validates `about`, a 1–12-cycle `withinCycles` horizon, one of the five allowed outcomes (`confirmed`, `disconfirmed`, `ambiguous`, `unobservable`, `superseded`), rationale, and visible canonical evidence. The commit path is fully implemented: it captures a read-only pre-batch `predictions` snapshot before cloning, matches by `about + normalized prediction text + withinCycles`, captures the pre-batch target ID, and updates that specific ID in the cloned active collection. Successful resolution sets `resolved`, `outcome`, `resolutionRationale`, `resultEvidence`, and `resolvedCycle` while preserving the original prediction fields. No-op cases are precise and do not increment revision: `prediction_resolve_target_not_found` (no matching identity), `prediction_already_resolved` (matching identity already resolved, without overwriting the existing result), and `prediction_resolve_target_not_prebatch` (matching target was created earlier in the same batch). Prediction archival, prediction ID allocation across `archivedPredictions`, expired-duplicate semantics, model-facing prompt integration, and confidence calibration remain OPEN.
 - [x] ~~Expire predictions when their evaluation window closes.~~ `expirePredictions` marks due, unresolved predictions `expired`/`expiredCycle`; it runs every cycle (Candidate B) and is also delegated by consolidation. Additive only.
 - [ ] **OPEN:** Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.
 - [ ] **OPEN:** Feed prediction outcomes back into confidence calibration.
@@ -380,8 +382,8 @@ No reviewed runtime path was found that advances `metaAwareness.level`, records 
 The current protocol is versioned independently from the scratchpad schema.
 
 ```text
-Scratchpad schema: version 2
-Scratchpad communication operation protocol: version 2
+Scratchpad schema: version 3
+Scratchpad communication operation protocol: version 3
 ```
 
 Current operation tags:
@@ -392,6 +394,7 @@ OTHER
 SCORE
 QUESTION
 PREDICTION
+PREDICTION_RESOLVE
 CHANNEL
 NO_UPDATE
 ```
@@ -406,6 +409,7 @@ NO_UPDATE
 - [x] ~~`CHANNEL`: revise structured beliefs about public or private communication.~~
 - [x] ~~`NO_UPDATE`: explicitly record that visible evidence did not justify a substantive change.~~
 - [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing the duplicate-detection matcher. Does not reference or expose question IDs; requires a resolution text and visible canonical evidence.~~ `QUESTION` and `QUESTION_RESOLVE` use **distinct destination-key namespaces** (`question:` and `question_resolve:`) since the 2026-09-23 third-pass slice; the prior incidental cross-type destination-key collision is no longer the lifecycle guard. Same-type destination collisions (two `QUESTION` or two `QUESTION_RESOLVE`) remain intact. The resolve lifecycle rule is enforced at commit time via a pre-batch `unresolvedQuestions` snapshot (see section 4.5).
+- [x] ~~`PREDICTION_RESOLVE`: resolve an existing prediction by content and lifecycle identity.~~ Fully implemented across protocol definition, validation, and commit logic: requires `about`, `withinCycles`, one of the five allowed outcomes, rationale, visible evidence, and prediction text; matches `about + normalized prediction text + withinCycles` against a pre-batch snapshot; routes the matching internal ID into the cloned active collection; and sets the full result lifecycle without changing original prediction fields. No-op reasons are `prediction_resolve_target_not_found`, `prediction_already_resolved`, and `prediction_resolve_target_not_prebatch`; none increment revision. The operation is registered in the communication protocol but is not yet exposed through model-facing prompt text.
 
 ## 5.2 Protocol guarantees
 
@@ -427,7 +431,7 @@ NO_UPDATE
 - [ ] **OPEN:** Revise only part of an existing claim, merge additional evidence, retract the claim, or preserve the superseded claim in an archive. Current `OTHER`, `SCORE`, and `CHANNEL` operations replace the complete selected field-level claim.
 - [ ] **OPEN:** Revise or retract an existing message note.
 - [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing `isSameOpenQuestion`; requires resolution text and visible canonical evidence. Added in the 2026-09-23 second-pass slice; lifecycle rule hardened and reason routing added in the third-pass slice (pre-batch existence guard, distinct destination namespaces, precise no-op reasons).~~
-- [ ] **OPEN:** Evaluate or resolve a prediction.
+- [x] ~~Evaluate or resolve a prediction.~~ Resolution is implemented by `PREDICTION_RESOLVE`; independent automatic result evaluation and confidence calibration remain OPEN.
 - [ ] **OPEN:** Add, revise, complete, fail, abandon, or archive a goal.
 - [ ] **OPEN:** Add or revise a free-form AM hypothesis.
 - [ ] **OPEN:** Record, resolve, or retract a suspected forgery.
@@ -901,12 +905,12 @@ The core loop is closed; remaining items harden observability and measure behavi
 
 - [x] ~~Add stable IDs to questions and predictions.~~ (Candidate A, landed in PR #120)
 - [x] ~~Add a content-addressed question-resolution operation.~~ `QUESTION_RESOLVE` (2026-09-23 second-pass slice, hardened third-pass) resolves an existing unresolved question by subject + exact question text via `isSameOpenQuestion`; requires resolution text and visible canonical evidence; no-ops (with precise reasons) when the target is same-batch-created, already resolved, or not found; never references question IDs. The resolve lifecycle now enforces pre-batch open-question existence at commit time; `QUESTION`/`QUESTION_RESOLVE` use distinct destination-key namespaces. Resolved questions are archived by the existing consolidation path.
-- [ ] **OPEN:** Add a prediction-resolution / outcome operation (e.g. `PREDICTION_RESOLVE`).
+- [x] ~~Add a prediction-resolution / outcome operation.~~ `PREDICTION_RESOLVE` is fully implemented through protocol definition, validation, and commit logic. It uses a pre-batch snapshot guard and content-addressed identity (`about + text + withinCycles`), sets the complete resolution lifecycle, and uses precise no-op reasons without incrementing revision. It is not yet exposed through model-facing prompt text.
 - [x] ~~Create deterministic deadline checks.~~ `expirePredictions` is runtime-wired at the cycle boundary and delegates the same deterministic expiry logic through consolidation.
 - [ ] Add evidence-backed result evaluation (prediction outcomes).
-- [ ] **OPEN:** Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded (outcome taxonomy still undecided).
+- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~ The five-value outcome taxonomy is defined and validated by `PREDICTION_RESOLVE`.
 - [ ] **OPEN:** Feed prediction outcomes back into confidence calibration.
-- [ ] Archive resolved entries without losing provenance. (question archival complete via consolidation; prediction archival still depends on prediction resolution)
+- [ ] **OPEN:** Archive resolved predictions without losing provenance. (question archival is complete via consolidation; prediction archival is the next lifecycle slice, together with prediction ID-allocation reconciliation)
 
 ## Priority 3 — Add consolidation and bounded memory
 
@@ -974,7 +978,7 @@ A defensible completion threshold is:
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
 - [ ] Scratchpad state changes later behavior. (outreach/reply prompt injection now live; journal injection and measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation but behavioral measurement remains OPEN)
-- [ ] Questions and predictions have complete lifecycles. (Question lifecycle closure is now more explicit, robust, and observable: IDs + content-addressed RESOLVE operation + commit-time pre-batch existence guard + precise no-op reason routing + consolidation archive. Prediction lifecycle remains open — no prediction-resolution operation, outcome taxonomy, or calibration yet)
+- [ ] Questions and predictions have complete lifecycles. (Question and prediction resolution operations are now implemented with content addressing, pre-batch existence guards, precise no-op routing, and tested lifecycle updates; question archival is complete. The overall item remains OPEN because prediction archival, expired-duplicate semantics, model-facing prompt integration, and confidence calibration are not complete.)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now bounds notes/questions/predictions via dedup+archive; no retention cap yet)
 - [ ] Canonical non-message observations can become scratchpad evidence.
 - [ ] Canonical prisoner scratchpads are included in user-facing export.

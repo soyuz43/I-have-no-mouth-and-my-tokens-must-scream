@@ -19,6 +19,13 @@ import {
   validateScratchpadCommsOperations,
 } from "../engine/scratchpad/comms/validate.js";
 
+import {
+  commitScratchpadCommsOperations,
+} from "../engine/scratchpad/comms/commit.js";
+
+import { G } from "../core/state.js";
+import { makeScratchpad } from "../core/utils.js";
+
 const PREDICTION_TEXT =
   "Ellen will send the next message to TED.";
 
@@ -375,4 +382,304 @@ test("PREDICTION and PREDICTION_RESOLVE identities do not collide", () => {
 
   assert.equal(result.accepted.length, 2);
   assert.equal(result.rejected.length, 0);
+});
+
+/* ============================================================
+   COMMIT BEHAVIOR
+   ============================================================ */
+
+function makeOpenPrediction(overrides = {}) {
+  return {
+    id: 1,
+    about: "ELLEN",
+    prediction: PREDICTION_TEXT,
+    confidence: 0.8,
+    evidence: ["C0-M000001"],
+    createdCycle: 0,
+    withinCycles: 3,
+    evaluateByCycle: 3,
+    resolved: false,
+    outcome: null,
+    resolvedCycle: null,
+    resultEvidence: [],
+    resolutionRationale: null,
+    ...overrides,
+  };
+}
+
+function makeSimWithPrediction({
+  prediction = makeOpenPrediction(),
+  revision = 0,
+} = {}) {
+  const sim = {
+    id: "TED",
+    scratchpad: makeScratchpad("TED"),
+  };
+  sim.scratchpad.initialized = true;
+  sim.scratchpad.revision = revision;
+  sim.scratchpad.predictions = [prediction];
+  return sim;
+}
+
+function makeSimWithoutPredictions() {
+  const sim = {
+    id: "TED",
+    scratchpad: makeScratchpad("TED"),
+  };
+  sim.scratchpad.initialized = true;
+  return sim;
+}
+
+function commitBatch(
+  operations,
+  { sim = makeSimWithPrediction() } = {}
+) {
+  G.cycle = 5;
+  G.sims = { [sim.id]: sim };
+
+  const parsedResult =
+    parseOperations(
+      Array.isArray(operations)
+        ? operations.join("\n")
+        : operations
+    );
+  const evidence = [
+    makeVisibleMessage("C0-M000001"),
+  ];
+  const validationResult =
+    validateScratchpadCommsOperations({
+      simId: sim.id,
+      parsedResult,
+      evidence,
+    });
+  const commitResult =
+    commitScratchpadCommsOperations({
+      simId: sim.id,
+      validationResult,
+      evidence,
+      cycle: 5,
+    });
+
+  return {
+    sim,
+    validationResult,
+    commitResult,
+  };
+}
+
+test("PREDICTION_RESOLVE sets all lifecycle fields and preserves prediction fields", () => {
+  const original = makeOpenPrediction();
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      VALID_RESOLVE_OPERATION,
+      {
+        sim: makeSimWithPrediction({
+          prediction: original,
+        }),
+      }
+    );
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(commitResult.substantiveChanged, true);
+  assert.deepEqual(
+    commitResult.operationReports,
+    [
+      {
+        type: "prediction_resolve",
+        tag: "PREDICTION_RESOLVE",
+        changed: true,
+        path: "predictions[0]",
+        reason: null,
+      },
+    ]
+  );
+
+  const resolved =
+    sim.scratchpad.predictions[0];
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.outcome, "confirmed");
+  assert.equal(
+    resolved.resolutionRationale,
+    "The cited message confirms the prediction."
+  );
+  assert.deepEqual(
+    resolved.resultEvidence,
+    ["C0-M000001"]
+  );
+  assert.equal(resolved.resolvedCycle, 5);
+
+  assert.deepEqual(
+    {
+      id: resolved.id,
+      about: resolved.about,
+      prediction: resolved.prediction,
+      confidence: resolved.confidence,
+      evidence: resolved.evidence,
+      createdCycle: resolved.createdCycle,
+      withinCycles: resolved.withinCycles,
+      evaluateByCycle: resolved.evaluateByCycle,
+    },
+    {
+      id: original.id,
+      about: original.about,
+      prediction: original.prediction,
+      confidence: original.confidence,
+      evidence: original.evidence,
+      createdCycle: original.createdCycle,
+      withinCycles: original.withinCycles,
+      evaluateByCycle: original.evaluateByCycle,
+    }
+  );
+});
+
+test("PREDICTION_RESOLVE increments scratchpad revision exactly once", () => {
+  const { sim, commitResult } =
+    commitBatch(
+      VALID_RESOLVE_OPERATION,
+      {
+        sim: makeSimWithPrediction({
+          revision: 4,
+        }),
+      }
+    );
+
+  assert.equal(commitResult.revisionBefore, 4);
+  assert.equal(commitResult.revisionAfter, 5);
+  assert.equal(sim.scratchpad.revision, 5);
+  assert.equal(sim.scratchpad.lastUpdatedCycle, 5);
+});
+
+test("PREDICTION_RESOLVE no-ops when target is absent from the pre-batch snapshot", () => {
+  const { sim, commitResult } =
+    commitBatch(
+      VALID_RESOLVE_OPERATION,
+      { sim: makeSimWithoutPredictions() }
+    );
+
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(commitResult.substantiveChanged, false);
+  assert.equal(commitResult.revisionBefore, 0);
+  assert.equal(commitResult.revisionAfter, 0);
+  assert.equal(sim.scratchpad.revision, 0);
+  assert.deepEqual(sim.scratchpad.predictions, []);
+  assert.equal(
+    commitResult.operationReports[0].reason,
+    "prediction_resolve_target_not_found"
+  );
+});
+
+test("PREDICTION_RESOLVE no-ops without overwriting an already-resolved prediction", () => {
+  const prediction =
+    makeOpenPrediction({
+      resolved: true,
+      outcome: "refuted",
+      resolvedCycle: 2,
+      resultEvidence: ["C0-M000002"],
+      resolutionRationale: "Existing result.",
+    });
+  const { sim, commitResult } =
+    commitBatch(
+      VALID_RESOLVE_OPERATION,
+      {
+        sim: makeSimWithPrediction({
+          prediction,
+        }),
+      }
+    );
+
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(commitResult.substantiveChanged, false);
+  assert.equal(commitResult.revisionAfter, 0);
+  assert.equal(
+    commitResult.operationReports[0].reason,
+    "prediction_already_resolved"
+  );
+  assert.deepEqual(
+    sim.scratchpad.predictions[0],
+    prediction
+  );
+});
+
+test("same-batch PREDICTION plus PREDICTION_RESOLVE does not resolve the new prediction", () => {
+  const predictionOperation =
+    `<PREDICTION about="ELLEN" confidence="0.8" ` +
+    `withinCycles="3" refs="C0-M000001">${PREDICTION_TEXT}</PREDICTION>`;
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        predictionOperation,
+        VALID_RESOLVE_OPERATION,
+      ],
+      { sim: makeSimWithoutPredictions() }
+    );
+
+  assert.equal(validationResult.accepted.length, 2);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(
+    commitResult.operationReports[1].reason,
+    "prediction_resolve_target_not_prebatch"
+  );
+  assert.equal(
+    sim.scratchpad.predictions[0].resolved,
+    false
+  );
+  assert.equal(sim.scratchpad.revision, 1);
+});
+
+test("multiple PREDICTION_RESOLVE operations route non-target operations as no-ops", () => {
+  const firstOperation =
+    VALID_RESOLVE_OPERATION;
+  const secondOperation =
+    VALID_RESOLVE_OPERATION.replace(
+      'withinCycles="3"',
+      'withinCycles="4"'
+    );
+  const simFixture =
+    makeSimWithPrediction();
+  simFixture.scratchpad.predictions.push(
+    makeOpenPrediction({
+      id: 2,
+      withinCycles: 4,
+      evaluateByCycle: 4,
+      resolved: true,
+      outcome: "refuted",
+      resolvedCycle: 2,
+      resultEvidence: ["C0-M000002"],
+      resolutionRationale: "Already resolved.",
+    })
+  );
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        firstOperation,
+        secondOperation,
+      ],
+      {
+        sim: simFixture,
+      }
+    );
+
+  assert.equal(validationResult.accepted.length, 2);
+  assert.equal(validationResult.rejected.length, 0);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(commitResult.appliedOperationCount, 1);
+  assert.equal(commitResult.noOpOperationCount, 1);
+  assert.equal(commitResult.revisionAfter, 1);
+  assert.equal(
+    commitResult.operationReports[0].changed,
+    true
+  );
+  assert.equal(
+    commitResult.operationReports[1].changed,
+    false
+  );
+  assert.equal(
+    commitResult.operationReports[1].reason,
+    "prediction_already_resolved"
+  );
+  assert.equal(
+    sim.scratchpad.predictions[0].resolved,
+    true
+  );
 });
