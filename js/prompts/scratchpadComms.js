@@ -469,6 +469,43 @@ withinCycles must be an integer between ${MIN_PREDICTION_HORIZON} and ${MAX_PRED
 
 The prediction must be observable enough to evaluate later.
 
+5b. Resolve an existing prediction:
+
+<PREDICTION_RESOLVE about="SUBJECT" withinCycles="1" outcome="OUTCOME" rationale="Concise explanation of why this outcome was reached." refs="MESSAGE_ID">Exact original prediction text.</PREDICTION_RESOLVE>
+
+PREDICTION_RESOLVE resolves a prediction you previously made and records
+your subjective outcome based on visible evidence.
+
+The about attribute must be one exact token from the Allowed QUESTION
+subjects list above.
+
+withinCycles is the horizon of the prediction being resolved and must be
+an integer between ${MIN_PREDICTION_HORIZON} and ${MAX_PREDICTION_HORIZON}.
+
+outcome must be exactly one of:
+
+- confirmed: visible evidence supports the predicted proposition
+- disconfirmed: visible evidence contradicts the predicted proposition
+- ambiguous: available evidence cannot distinguish the predicted outcome from plausible alternatives
+- unobservable: the proposition cannot be reliably evaluated with available evidence
+- superseded: a newer interpretation has replaced the original forecast as your operative expectation
+
+rationale is a concise explanation of why this outcome was reached.
+
+refs must contain at least one visible message ID supporting the outcome.
+
+The operation text must be the exact prediction text being resolved.
+
+The engine matches the target by about + prediction text + withinCycles.
+The model does not need to reference, and must not reference, any internal
+identifier.
+
+Resolution is allowed before, at, or after the evaluation deadline. Expiry
+does not prevent resolution; the engine handles expiry separately.
+
+If you cannot match an existing prediction by about, prediction text, and
+withinCycles, omit this operation.
+
 6. Propose an information-channel belief:
 
 <CHANNEL channel="private" field="visibleToAM" value="true" confidence="0.00" refs="MESSAGE_ID,MESSAGE_ID">Concise evidence-based reason.</CHANNEL>
