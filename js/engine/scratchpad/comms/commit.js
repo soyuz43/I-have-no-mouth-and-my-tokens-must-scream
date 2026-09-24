@@ -940,6 +940,130 @@ function isSameOpenPrediction(
   );
 }
 
+function isSamePredictionResolveIdentity(
+  existing,
+  operation
+) {
+  if (
+    !existing ||
+    typeof existing !== "object"
+  ) {
+    return false;
+  }
+
+  const existingText =
+    normalizeText(
+      existing.prediction ??
+      existing.text
+    ).toLowerCase();
+
+  return (
+    String(
+      existing.about ?? ""
+    ).toUpperCase() ===
+      operation.about &&
+    existingText ===
+      operation.text.toLowerCase() &&
+    existing.withinCycles ===
+      operation.withinCycles
+  );
+}
+
+function applyPredictionResolveOperation({
+  scratchpad,
+  operation,
+  cycle,
+  changedPaths,
+  preBatchPredictions = [],
+}) {
+  const preBatchTarget =
+    Array.isArray(preBatchPredictions)
+      ? preBatchPredictions.find(
+          (existing) =>
+            isSamePredictionResolveIdentity(
+              existing,
+              operation
+            )
+        )
+      : null;
+
+  if (!preBatchTarget) {
+    const postBatchIndex =
+      scratchpad.predictions.findIndex(
+        (existing) =>
+          isSamePredictionResolveIdentity(
+            existing,
+            operation
+          )
+      );
+
+    return {
+      changed: false,
+      path: null,
+      reason:
+        postBatchIndex >= 0
+          ? "prediction_resolve_target_not_prebatch"
+          : "prediction_resolve_target_not_found",
+    };
+  }
+
+  if (preBatchTarget.resolved === true) {
+    return {
+      changed: false,
+      path: null,
+      reason:
+        "prediction_already_resolved",
+    };
+  }
+
+  const targetId = preBatchTarget.id;
+  const existingIndex =
+    scratchpad.predictions.findIndex(
+      (existing) =>
+        existing?.id === targetId
+    );
+
+  if (existingIndex < 0) {
+    return {
+      changed: false,
+      path: null,
+      reason:
+        "prediction_resolve_target_not_found",
+    };
+  }
+
+  const existing =
+    scratchpad.predictions[existingIndex];
+
+  if (existing.resolved === true) {
+    return {
+      changed: false,
+      path:
+        `predictions[${existingIndex}]`,
+      reason:
+        "prediction_already_resolved",
+    };
+  }
+
+  existing.resolved = true;
+  existing.outcome = operation.outcome;
+  existing.resolutionRationale =
+    operation.rationale;
+  existing.resultEvidence =
+    [...operation.refs];
+  existing.resolvedCycle = cycle;
+
+  const path =
+    `predictions[${existingIndex}]`;
+
+  changedPaths.push(path);
+
+  return {
+    changed: true,
+    path,
+  };
+}
+
 function applyPredictionOperation({
   scratchpad,
   operation,
@@ -1118,6 +1242,7 @@ function applyOperation({
   cycle,
   changedPaths,
   preBatchUnresolvedQuestions,
+  preBatchPredictions,
 }) {
   switch (operation.type) {
     case "note":
@@ -1165,6 +1290,15 @@ function applyOperation({
         operation,
         cycle,
         changedPaths,
+      });
+
+    case "prediction_resolve":
+      return applyPredictionResolveOperation({
+        scratchpad,
+        operation,
+        cycle,
+        changedPaths,
+        preBatchPredictions,
       });
 
     case "channel":
@@ -1265,6 +1399,11 @@ export function commitScratchpadCommsOperations({
         ? currentScratchpad.unresolvedQuestions
         : [];
 
+    const preBatchPredictions =
+      Array.isArray(currentScratchpad.predictions)
+        ? currentScratchpad.predictions
+        : [];
+
     const nextScratchpad =
       cloneValue(
         currentScratchpad
@@ -1319,6 +1458,7 @@ export function commitScratchpadCommsOperations({
           cycle,
           changedPaths,
           preBatchUnresolvedQuestions,
+          preBatchPredictions,
         });
 
       if (result.changed) {
