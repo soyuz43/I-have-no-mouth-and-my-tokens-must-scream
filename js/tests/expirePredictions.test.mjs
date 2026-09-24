@@ -13,6 +13,22 @@ import {
   expirePredictions,
 } from "../engine/scratchpad/expirePredictions.js";
 
+import { makeScratchpad } from "../core/utils.js";
+
+import {
+  parseScratchpadCommsOutput,
+} from "../engine/scratchpad/comms/parse.js";
+
+import {
+  validateScratchpadCommsOperations,
+} from "../engine/scratchpad/comms/validate.js";
+
+import {
+  commitScratchpadCommsOperations,
+} from "../engine/scratchpad/comms/commit.js";
+
+import { G } from "../core/state.js";
+
 function makePrediction(overrides = {}) {
   return {
     id: 1,
@@ -29,6 +45,73 @@ function makePrediction(overrides = {}) {
     ...overrides,
   };
 }
+
+test("makeScratchpad: initializes prediction archival state at schema version 3", () => {
+  const scratchpad = makeScratchpad("TED");
+
+  assert.equal(scratchpad.schemaVersion, 3);
+  assert.deepEqual(scratchpad.archivedPredictions, []);
+});
+
+test("PREDICTION: initializes resolution state fields without changing existing fields", () => {
+  const input = [
+    "<SCRATCHPAD_UPDATES>",
+    '<PREDICTION about="ELLEN" confidence="0.7" withinCycles="2" refs="C0-M000001">She will answer.</PREDICTION>',
+    "</SCRATCHPAD_UPDATES>",
+  ].join("\n");
+  const parsedResult =
+    parseScratchpadCommsOutput(input);
+  const sim = {
+    id: "TED",
+    scratchpad: makeScratchpad("TED"),
+  };
+  sim.scratchpad.initialized = true;
+  G.sims = { TED: sim };
+
+  const evidence = [
+    {
+      messageId: "C0-M000001",
+      sequence: 1,
+      cycle: 0,
+      kind: "MESSAGE",
+      from: "ELLEN",
+      to: ["TED"],
+      text: "I will answer.",
+      visibility: "public",
+    },
+  ];
+  const validationResult =
+    validateScratchpadCommsOperations({
+      simId: "TED",
+      parsedResult,
+      evidence,
+    });
+  const commitResult =
+    commitScratchpadCommsOperations({
+      simId: "TED",
+      validationResult,
+      evidence,
+      cycle: 5,
+    });
+
+  assert.equal(commitResult.status, "committed");
+  assert.equal(sim.scratchpad.predictions.length, 1);
+  assert.deepEqual(sim.scratchpad.predictions[0], {
+    id: 1,
+    about: "ELLEN",
+    prediction: "She will answer.",
+    confidence: 0.7,
+    evidence: ["C0-M000001"],
+    createdCycle: 5,
+    withinCycles: 2,
+    evaluateByCycle: 7,
+    resolved: false,
+    outcome: null,
+    resolvedCycle: null,
+    resultEvidence: [],
+    resolutionRationale: null,
+  });
+});
 
 test("isPredictionExpired: false when cycle is exactly at deadline", () => {
   assert.equal(
@@ -47,6 +130,16 @@ test("isPredictionExpired: true once cycle passes deadline", () => {
       3
     ),
     true
+  );
+});
+
+test("isPredictionExpired: false before deadline", () => {
+  assert.equal(
+    isPredictionExpired(
+      makePrediction({ evaluateByCycle: 2 }),
+      1
+    ),
+    false
   );
 });
 
