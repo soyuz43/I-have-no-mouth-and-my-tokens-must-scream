@@ -618,6 +618,150 @@ function commitBatch(input, { builder } = {}) {
 const NEW_Q = `<QUESTION about="ELLEN" priority="medium" refs="C0-M000001">Did Ellen receive the message?</QUESTION>`;
 const RESOLVE_Q = `<QUESTION_RESOLVE about="ELLEN" resolution="Yes, she did." refs="C0-M000001">Did Ellen receive the message?</QUESTION_RESOLVE>`;
 
+test("new question ID exceeds archived question IDs", () => {
+  function makeSimWithArchivedIds() {
+    const sim = makeSimNoQuestion();
+    sim.scratchpad.archivedQuestions = [
+      {
+        id: 4,
+        about: "ELLEN",
+        question: "Did Ellen receive the first message?",
+        priority: "medium",
+        evidence: ["C0-M000001"],
+        createdCycle: 0,
+        resolved: true,
+        resolution: "Yes, she did.",
+        resolvedCycle: 1,
+      },
+    ];
+    sim.scratchpad.unresolvedQuestions = [
+      {
+        id: 2,
+        about: "NIMDOK",
+        question: "Did NIMDOK receive the message?",
+        priority: "low",
+        evidence: ["C0-M000001"],
+        createdCycle: 1,
+        resolved: false,
+        resolution: null,
+        resolvedCycle: null,
+      },
+    ];
+    return sim;
+  }
+
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        NEW_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithArchivedIds }
+    );
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  const newQuestion =
+    sim.scratchpad.unresolvedQuestions.find(
+      (question) => question.id === 5
+    );
+  assert.ok(newQuestion);
+  assert.equal(newQuestion.id, 5);
+});
+
+test("new question ID works when legacy scratchpad lacks archivedQuestions", () => {
+  function makeSimWithoutQuestionArchive() {
+    const sim = makeSimNoQuestion();
+    delete sim.scratchpad.archivedQuestions;
+    return sim;
+  }
+
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        NEW_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithoutQuestionArchive }
+    );
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].id,
+    1
+  );
+});
+
+test("question archived after resolution does not release its ID for reuse", () => {
+  const created =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        NEW_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimNoQuestion }
+    );
+
+  const firstQuestion =
+    created.sim.scratchpad.unresolvedQuestions[0];
+  assert.equal(firstQuestion.id, 1);
+
+  const resolved = commitBatch(
+    [
+      "<SCRATCHPAD_UPDATES>",
+      RESOLVE_Q,
+      "</SCRATCHPAD_UPDATES>",
+    ].join("\n"),
+    { builder: () => created.sim }
+  );
+  assert.equal(
+    resolved.sim.scratchpad.unresolvedQuestions[0]
+      .resolved,
+    true
+  );
+
+  consolidateScratchpad(
+    resolved.sim.scratchpad,
+    5,
+    1
+  );
+  assert.equal(
+    resolved.sim.scratchpad.archivedQuestions[0].id,
+    1
+  );
+  assert.equal(
+    resolved.sim.scratchpad.unresolvedQuestions.length,
+    0
+  );
+
+  G.sims = { TED: resolved.sim };
+  const recreated = commitBatch(
+    [
+      "<SCRATCHPAD_UPDATES>",
+      NEW_Q,
+      "</SCRATCHPAD_UPDATES>",
+    ].join("\n"),
+    {
+      builder: () => {
+        const sim = makeSimNoQuestion();
+        sim.scratchpad.archivedQuestions =
+          resolved.sim.scratchpad.archivedQuestions;
+        return sim;
+      },
+    }
+  );
+
+  assert.equal(recreated.commitResult.status, "committed");
+  assert.equal(
+    recreated.sim.scratchpad.unresolvedQuestions[0].id,
+    2
+  );
+});
+
 test("same-batch [QUESTION new, QUESTION_RESOLVE same] leaves question unresolved", () => {
   const { sim, validationResult, commitResult } =
     commitBatch(

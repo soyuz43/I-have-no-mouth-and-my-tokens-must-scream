@@ -677,15 +677,22 @@ function applyQuestionOperation({
   const currentQuestions =
     scratchpad.unresolvedQuestions || [];
 
+  const archivedQuestions =
+    Array.isArray(scratchpad.archivedQuestions)
+      ? scratchpad.archivedQuestions
+      : [];
+
   const maxQuestionId =
-    currentQuestions.reduce(
-      (max, entry) =>
-        Math.max(
-          max,
-          entry?.id || 0
-        ),
-      0
-    );
+    currentQuestions
+      .concat(archivedQuestions)
+      .reduce(
+        (max, entry) =>
+          Math.max(
+            max,
+            entry?.id || 0
+          ),
+        0
+      );
 
   const nextQuestionId =
     maxQuestionId + 1;
