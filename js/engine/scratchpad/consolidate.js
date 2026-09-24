@@ -179,6 +179,115 @@ export function archiveResolvedPredictions(predictions) {
 }
 
 /**
+ * Compute aggregate metrics for resolved predictions. Reads active
+ * and archived prediction arrays without mutating either the
+ * scratchpad or any prediction.
+ *
+ * @param {object} scratchpad
+ * @returns {{
+ *   totalResolved: number,
+ *   outcomeCounts: Record<string, number>,
+ *   scoreableCount: number,
+ *   confirmedCount: number,
+ *   disconfirmedCount: number,
+ *   accuracyRate: number|null,
+ *   averageConfidenceOnScoreable: number|null,
+ *   expiredBeforeResolution: number,
+ *   resolvedAfterExpiry: number
+ * }}
+ */
+export function evaluatePredictionAccuracy(scratchpad) {
+  const metrics = {
+    totalResolved: 0,
+    outcomeCounts: {},
+    scoreableCount: 0,
+    confirmedCount: 0,
+    disconfirmedCount: 0,
+    accuracyRate: null,
+    averageConfidenceOnScoreable: null,
+    expiredBeforeResolution: 0,
+    resolvedAfterExpiry: 0,
+  };
+
+  if (
+    !scratchpad ||
+    typeof scratchpad !== "object"
+  ) {
+    return metrics;
+  }
+
+  const predictions = [];
+  if (Array.isArray(scratchpad.predictions)) {
+    predictions.push(...scratchpad.predictions);
+  }
+  if (Array.isArray(scratchpad.archivedPredictions)) {
+    predictions.push(...scratchpad.archivedPredictions);
+  }
+
+  let scoreableConfidenceTotal = 0;
+
+  for (const prediction of predictions) {
+    if (
+      !prediction ||
+      typeof prediction !== "object" ||
+      prediction.resolved !== true
+    ) {
+      continue;
+    }
+
+    metrics.totalResolved += 1;
+
+    if (typeof prediction.outcome === "string") {
+      metrics.outcomeCounts[prediction.outcome] =
+        (metrics.outcomeCounts[prediction.outcome] ?? 0) + 1;
+    }
+
+    if (prediction.outcome === "confirmed") {
+      metrics.confirmedCount += 1;
+    }
+    if (prediction.outcome === "disconfirmed") {
+      metrics.disconfirmedCount += 1;
+    }
+
+    if (
+      prediction.outcome === "confirmed" ||
+      prediction.outcome === "disconfirmed"
+    ) {
+      metrics.scoreableCount += 1;
+      if (
+        typeof prediction.confidence === "number" &&
+        Number.isFinite(prediction.confidence)
+      ) {
+        scoreableConfidenceTotal += prediction.confidence;
+      }
+    }
+
+    if (prediction.expired === true) {
+      metrics.expiredBeforeResolution += 1;
+    }
+
+    if (
+      typeof prediction.resolvedCycle === "number" &&
+      Number.isFinite(prediction.resolvedCycle) &&
+      typeof prediction.evaluateByCycle === "number" &&
+      Number.isFinite(prediction.evaluateByCycle) &&
+      prediction.resolvedCycle > prediction.evaluateByCycle
+    ) {
+      metrics.resolvedAfterExpiry += 1;
+    }
+  }
+
+  if (metrics.scoreableCount > 0) {
+    metrics.accuracyRate =
+      metrics.confirmedCount / metrics.scoreableCount;
+    metrics.averageConfidenceOnScoreable =
+      scoreableConfidenceTotal / metrics.scoreableCount;
+  }
+
+  return metrics;
+}
+
+/**
  * Perform deterministic consolidation on a scratchpad in place.
  *
  * Mutates `scratchpad` (engine-owned, like belief contagion). Sets
@@ -205,6 +314,8 @@ export function consolidateScratchpad(
     archivedQuestions: 0,
     archivedPredictions: 0,
     expiredPredictions: 0,
+    predictionAccuracy:
+      evaluatePredictionAccuracy(null),
   };
 
   if (
@@ -299,6 +410,9 @@ export function consolidateScratchpad(
   }
 
   scratchpad.lastConsolidatedCycle = cycle;
+
+  summary.predictionAccuracy =
+    evaluatePredictionAccuracy(scratchpad);
 
   return summary;
 }
