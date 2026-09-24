@@ -1095,15 +1095,22 @@ function applyPredictionOperation({
   const currentPredictions =
     scratchpad.predictions || [];
 
+  const archivedPredictions =
+    Array.isArray(scratchpad.archivedPredictions)
+      ? scratchpad.archivedPredictions
+      : [];
+
   const maxPredictionId =
-    currentPredictions.reduce(
-      (max, entry) =>
-        Math.max(
-          max,
-          entry?.id || 0
-        ),
-      0
-    );
+    currentPredictions
+      .concat(archivedPredictions)
+      .reduce(
+        (max, entry) =>
+          Math.max(
+            max,
+            entry?.id || 0
+          ),
+        0
+      );
 
   const nextPredictionId =
     maxPredictionId + 1;

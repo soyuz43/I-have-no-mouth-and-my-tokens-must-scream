@@ -13,6 +13,7 @@ import {
   shouldConsolidate,
   dedupMessageNotes,
   archiveResolvedQuestions,
+  archiveResolvedPredictions,
   consolidateScratchpad,
   runScratchpadConsolidation,
 } from "../engine/scratchpad/consolidate.js";
@@ -26,6 +27,7 @@ function baseScratchpad() {
     messageNotes: [],
     unresolvedQuestions: [],
     archivedQuestions: [],
+    archivedPredictions: [],
     predictions: [],
     lastConsolidatedCycle: null,
     contradictions: [],
@@ -95,6 +97,78 @@ test("archiveResolvedQuestions: splits active vs resolved, preserves provenance"
   assert.deepEqual(active.map((q) => q.id), [1]);
   assert.deepEqual(archived.map((q) => q.id), [2, 3]);
   assert.equal(archived[0].resolution, "done");
+});
+
+test("archiveResolvedPredictions: moves only resolved predictions", () => {
+  const predictions = [
+    { id: 1, resolved: false },
+    { id: 2, resolved: true, outcome: "confirmed" },
+  ];
+  const { active, archived } =
+    archiveResolvedPredictions(predictions);
+  assert.deepEqual(active, [predictions[0]]);
+  assert.deepEqual(archived, [predictions[1]]);
+});
+
+test("archiveResolvedPredictions: preserves the complete prediction object", () => {
+  const prediction = {
+    id: 7,
+    about: "ELLEN",
+    prediction: "Ellen will send the next message.",
+    confidence: 0.8,
+    evidence: ["C0-M000001"],
+    createdCycle: 1,
+    withinCycles: 3,
+    evaluateByCycle: 4,
+    resolved: true,
+    outcome: "confirmed",
+    resolvedCycle: 4,
+    resultEvidence: ["C0-M000002"],
+    resolutionRationale: "The later message confirmed it.",
+    expired: false,
+  };
+
+  const { active, archived } =
+    archiveResolvedPredictions([
+      prediction,
+    ]);
+
+  assert.deepEqual(active, []);
+  assert.equal(archived[0], prediction);
+  assert.deepEqual(archived[0], prediction);
+});
+
+test("archiveResolvedPredictions: leaves expired unresolved predictions active", () => {
+  const prediction = {
+    id: 1,
+    resolved: false,
+    expired: true,
+    evaluateByCycle: 2,
+  };
+  const { active, archived } =
+    archiveResolvedPredictions([prediction]);
+
+  assert.deepEqual(active, [prediction]);
+  assert.deepEqual(archived, []);
+});
+
+test("consolidateScratchpad: creates archivedPredictions defensively and is idempotent", () => {
+  const sp = baseScratchpad();
+  delete sp.archivedPredictions;
+  sp.predictions = [
+    { id: 1, resolved: true },
+  ];
+
+  const firstSummary = consolidateScratchpad(sp, 5);
+  const secondSummary = consolidateScratchpad(sp, 5);
+
+  assert.equal(firstSummary.archivedPredictions, 1);
+  assert.equal(secondSummary.archivedPredictions, 0);
+  assert.ok(Array.isArray(sp.archivedPredictions));
+  assert.deepEqual(sp.predictions, []);
+  assert.deepEqual(sp.archivedPredictions, [
+    { id: 1, resolved: true },
+  ]);
 });
 
 test("consolidateScratchpad: sets lastConsolidatedCycle and dedups+archives", () => {
