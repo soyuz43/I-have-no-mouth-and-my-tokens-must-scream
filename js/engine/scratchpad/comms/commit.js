@@ -1020,6 +1020,12 @@ function applyPredictionOperation({
 
     resolvedCycle:
       null,
+
+    resultEvidence:
+      [],
+
+    resolutionRationale:
+      null,
   };
 
   scratchpad.predictions.push(

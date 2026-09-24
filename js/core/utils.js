@@ -596,11 +596,14 @@ export function makeScratchpad(id) {
 
   return {
     /*
-     * Version 2 introduces:
+     * Version 3 introduces:
+     * - Archived predictions
+     *
+     * Version 2 introduced:
      * - Per-field epistemic claims for hypothesesAboutOthers
      * - Communication-review cursor state
      */
-    schemaVersion: 2,
+    schemaVersion: 3,
 
     initialized: false,
     revision: 0,
@@ -735,6 +738,7 @@ export function makeScratchpad(id) {
     activeGoal: null,
     goalHistory: [],
     predictions: [],
+    archivedPredictions: [],
     unresolvedQuestions: [],
     archivedQuestions: [],
     discardedHypotheses: [],
