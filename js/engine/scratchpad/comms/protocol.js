@@ -20,11 +20,10 @@ It does not parse model output or mutate simulation state.
 ============================================================
 */
 
-// Bumped for the content-addressed QUESTION_RESOLVE operation
-// (Priority 2 lifecycle slice). The scratchpad schema version is
-// unchanged: QUESTION_RESOLVE mutates only existing lifecycle fields
-// (resolved/resolution/resolvedCycle) that already exist on questions.
-export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 2;
+// Bumped for the content-addressed PREDICTION_RESOLVE operation.
+// The scratchpad schema version is unchanged because the operation
+// only addresses prediction lifecycle fields that already exist.
+export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 3;
 
 export const SCRATCHPAD_UPDATES_WRAPPER =
   "SCRATCHPAD_UPDATES";
@@ -57,6 +56,7 @@ export const SCRATCHPAD_OPERATION_TAGS = Object.freeze([
   "QUESTION",
   "QUESTION_RESOLVE",
   "PREDICTION",
+  "PREDICTION_RESOLVE",
   "CHANNEL",
   "NO_UPDATE",
 ]);
@@ -81,6 +81,15 @@ export const SCRATCHPAD_QUESTION_PRIORITIES =
     "low",
     "medium",
     "high",
+  ]);
+
+export const SCRATCHPAD_PREDICTION_OUTCOMES =
+  Object.freeze([
+    "confirmed",
+    "disconfirmed",
+    "ambiguous",
+    "unobservable",
+    "superseded",
   ]);
 
 export const SCRATCHPAD_CHANNELS = Object.freeze([
@@ -232,6 +241,23 @@ export const SCRATCHPAD_OPERATION_DEFINITIONS =
         "about",
         "confidence",
         "withinCycles",
+        "refs",
+      ]),
+
+      optionalAttributes: Object.freeze([]),
+
+      referenceAttribute: "refs",
+      textRequired: true,
+    }),
+
+    PREDICTION_RESOLVE: Object.freeze({
+      type: "prediction_resolve",
+
+      requiredAttributes: Object.freeze([
+        "about",
+        "withinCycles",
+        "outcome",
+        "rationale",
         "refs",
       ]),
 
