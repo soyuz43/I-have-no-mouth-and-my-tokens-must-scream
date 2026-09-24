@@ -575,6 +575,44 @@ function applyScoreOperation({
 }
 
 /* ============================================================
+   QUESTION IDENTITY MATCHING (RESOLVED-AGNOSTIC)
+   ------------------------------------------------------------
+   Like isSameOpenQuestion but does NOT require the question to
+   be unresolved. Used to detect a resolved-but-present question
+   (still in unresolvedQuestions, resolved === true) so a
+   QUESTION_RESOLVE can report question_already_resolved instead
+   of a generic not-found. Does not affect open-question duplicate
+   detection, which keeps using isSameOpenQuestion.
+============================================================ */
+
+function isSameQuestionIdentity(
+  existing,
+  operation
+) {
+  if (
+    !existing ||
+    typeof existing !== "object"
+  ) {
+    return false;
+  }
+
+  const existingText =
+    normalizeText(
+      existing.question ??
+      existing.text
+    ).toLowerCase();
+
+  return (
+    String(
+      existing.about ?? ""
+    ).toUpperCase() ===
+      operation.about &&
+    existingText ===
+      operation.text.toLowerCase()
+  );
+}
+
+/* ============================================================
    QUESTION COMMITTING
 ============================================================ */
 
@@ -715,6 +753,7 @@ function applyQuestionResolveOperation({
   operation,
   cycle,
   changedPaths,
+  preBatchUnresolvedQuestions = [],
 }) {
   if (
     !Array.isArray(
@@ -729,7 +768,76 @@ function applyQuestionResolveOperation({
     };
   }
 
-  const existingIndex =
+  // Lifecycle routing for QUESTION_RESOLVE.
+  // (1) Resolve only when an OPEN question existed in the pre-batch
+  //     snapshot. The snapshot is captured before the clone
+  //     (currentScratchpad.unresolvedQuestions), so a QUESTION
+  //     created earlier in this same batch cannot satisfy it.
+  const openPreBatchIndex =
+    Array.isArray(preBatchUnresolvedQuestions)
+      ? preBatchUnresolvedQuestions.findIndex(
+          (existing) =>
+            isSameOpenQuestion(
+              existing,
+              operation
+            )
+        )
+      : -1;
+
+  if (openPreBatchIndex >= 0) {
+    const existingIndex =
+      scratchpad.unresolvedQuestions.findIndex(
+        (existing) =>
+          isSameOpenQuestion(
+            existing,
+            operation
+          )
+      );
+
+    if (existingIndex < 0) {
+      return {
+        changed: false,
+        path: null,
+        reason:
+          "question_resolve_target_not_found",
+      };
+    }
+
+    const existing =
+      scratchpad.unresolvedQuestions[
+        existingIndex
+      ];
+
+    if (existing.resolved === true) {
+      return {
+        changed: false,
+        path:
+          `unresolvedQuestions[${existingIndex}]`,
+        reason:
+          "question_already_resolved",
+      };
+    }
+
+    existing.resolved = true;
+    existing.resolution =
+      normalizeText(operation.resolution);
+    existing.resolvedCycle = cycle;
+
+    const path =
+      `unresolvedQuestions[${existingIndex}]`;
+
+    changedPaths.push(path);
+
+    return {
+      changed: true,
+      path,
+    };
+  }
+
+  // (2) No open pre-batch question. If the SAME BATCH created an open
+  //     question (a QUESTION earlier in this batch), block it with an
+  //     explicit not-prebatch reason rather than a generic not-found.
+  const openPostBatchIndex =
     scratchpad.unresolvedQuestions.findIndex(
       (existing) =>
         isSameOpenQuestion(
@@ -738,39 +846,54 @@ function applyQuestionResolveOperation({
         )
     );
 
-  if (existingIndex < 0) {
+  if (openPostBatchIndex >= 0) {
     return {
       changed: false,
       path: null,
       reason:
-        "question_resolve_target_not_found",
+        "question_resolve_target_not_prebatch",
     };
   }
 
-  const existing =
-    scratchpad.unresolvedQuestions[
-      existingIndex
-    ];
+  // (3) No open question anywhere. If a matching question identity is
+  //     present but already resolved (either in the pre-batch
+  //     snapshot or still lingering in unresolvedQuestions), report
+  //     already-resolved without overwriting it.
+  const resolvedPresent =
+    (Array.isArray(preBatchUnresolvedQuestions) &&
+      preBatchUnresolvedQuestions.some(
+        (existing) =>
+          isSameQuestionIdentity(
+            existing,
+            operation
+          ) &&
+          existing.resolved === true
+      )) ||
+    scratchpad.unresolvedQuestions.some(
+      (existing) =>
+        isSameQuestionIdentity(
+          existing,
+          operation
+        ) &&
+        existing.resolved === true
+    );
 
-  if (existing.resolved === true) {
+  if (resolvedPresent) {
     return {
       changed: false,
-      path:
-        `unresolvedQuestions[${existingIndex}]`,
+      path: null,
       reason:
         "question_already_resolved",
     };
   }
 
-  existing.resolved = true;
-  existing.resolution =
-    normalizeText(operation.resolution);
-  existing.resolvedCycle = cycle;
-
-  const path =
-    `unresolvedQuestions[${existingIndex}]`;
-
-  changedPaths.push(path);
+  // (4) No matching question identity exists at all.
+  return {
+    changed: false,
+    path: null,
+    reason:
+      "question_resolve_target_not_found",
+  };
 
   return {
     changed: true,
@@ -981,6 +1104,7 @@ function applyOperation({
   messageMap,
   cycle,
   changedPaths,
+  preBatchUnresolvedQuestions,
 }) {
   switch (operation.type) {
     case "note":
@@ -1019,6 +1143,7 @@ function applyOperation({
         operation,
         cycle,
         changedPaths,
+        preBatchUnresolvedQuestions,
       });
 
     case "prediction":
@@ -1120,6 +1245,13 @@ export function commitScratchpadCommsOperations({
     const currentScratchpad =
       sim.scratchpad;
 
+    const preBatchUnresolvedQuestions =
+      Array.isArray(
+        currentScratchpad.unresolvedQuestions
+      )
+        ? currentScratchpad.unresolvedQuestions
+        : [];
+
     const nextScratchpad =
       cloneValue(
         currentScratchpad
@@ -1173,6 +1305,7 @@ export function commitScratchpadCommsOperations({
           messageMap,
           cycle,
           changedPaths,
+          preBatchUnresolvedQuestions,
         });
 
       if (result.changed) {

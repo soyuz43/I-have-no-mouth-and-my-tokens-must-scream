@@ -558,3 +558,377 @@ test("consolidateScratchpad moves a resolved question into archivedQuestions", (
   assert.equal(archived.resolvedCycle, 5);
   assert.equal(archived.id, 1);
 });
+
+
+/* ============================================================
+   OPTION C: PRE-BATCH QUESTION_EXISTENCE GATE FOR RESOLVE
+   A QUESTION_RESOLVE may only resolve a question that was an
+   open, unresolved question before the review batch began.
+   The cross-type destination-key collision has been removed;
+   QUESTION uses "question:" and QUESTION_RESOLVE uses
+   "question_resolve:" keys.
+============================================================ */
+
+function makeSimNoQuestion(simId = "TED") {
+  const sim = { id: simId, scratchpad: makeScratchpad(simId) };
+  sim.scratchpad.initialized = true;
+  return sim;
+}
+
+function makeSimWithResolvedQuestion(simId = "TED") {
+  const sim = makeSimWithQuestion();
+  sim.scratchpad.unresolvedQuestions[0].resolved = true;
+  sim.scratchpad.unresolvedQuestions[0].resolution = "Already answered.";
+  sim.scratchpad.unresolvedQuestions[0].resolvedCycle = 2;
+  return sim;
+}
+
+function commitBatch(input, { builder } = {}) {
+  G.cycle = 5;
+  const sim =
+    builder
+      ? builder()
+      : makeSimNoQuestion();
+  G.sims = { [sim.id]: sim };
+
+  const { parsedResult } = repairAndParse(input);
+  const evidence = [
+    makeVisibleMessage(
+      "C0-M000001",
+      "ELLEN",
+      ["TED"],
+      sim.id
+    ),
+  ];
+  const validationResult =
+    validateScratchpadCommsOperations({
+      simId: sim.id,
+      parsedResult,
+      evidence,
+    });
+  const commitResult = commitScratchpadCommsOperations({
+    simId: sim.id,
+    validationResult,
+    evidence,
+    cycle: 5,
+  });
+  return { sim, validationResult, commitResult };
+}
+
+const NEW_Q = `<QUESTION about="ELLEN" priority="medium" refs="C0-M000001">Did Ellen receive the message?</QUESTION>`;
+const RESOLVE_Q = `<QUESTION_RESOLVE about="ELLEN" resolution="Yes, she did." refs="C0-M000001">Did Ellen receive the message?</QUESTION_RESOLVE>`;
+
+test("same-batch [QUESTION new, QUESTION_RESOLVE same] leaves question unresolved", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        NEW_Q,
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimNoQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    2
+  );
+  assert.equal(commitResult.status, "committed");
+
+  const question = sim.scratchpad.unresolvedQuestions[0];
+  assert.ok(question);
+  assert.equal(question.resolved, false);
+
+  const resolveReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION_RESOLVE"
+  );
+  assert.equal(resolveReport.changed, false);
+  assert.equal(
+    resolveReport.reason,
+    "question_resolve_target_not_prebatch"
+  );
+});
+
+test("same-batch [QUESTION_RESOLVE same, QUESTION new] leaves question unresolved", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        RESOLVE_Q,
+        NEW_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimNoQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    2
+  );
+  assert.equal(commitResult.status, "committed");
+
+  const question = sim.scratchpad.unresolvedQuestions[0];
+  assert.ok(question);
+  assert.equal(question.resolved, false);
+
+  const resolveReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION_RESOLVE"
+  );
+  assert.equal(resolveReport.changed, false);
+});
+
+test("pre-existing open question plus QUESTION_RESOLVE only resolves it", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    1
+  );
+  assert.equal(commitResult.status, "committed");
+
+  const question = sim.scratchpad.unresolvedQuestions[0];
+  assert.equal(question.resolved, true);
+  assert.equal(question.resolution, "Yes, she did.");
+  assert.equal(question.resolvedCycle, 5);
+  assert.equal(sim.scratchpad.revision, 1);
+});
+
+test("pre-existing question plus duplicate QUESTION plus QUESTION_RESOLVE resolves pre-existing", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        NEW_Q,
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    2
+  );
+
+  const questionReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION"
+  );
+  assert.equal(questionReport.changed, false);
+  assert.equal(
+    questionReport.reason,
+    "question_already_exists"
+  );
+
+  const resolveReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION_RESOLVE"
+  );
+  assert.equal(resolveReport.changed, true);
+
+  const question = sim.scratchpad.unresolvedQuestions[0];
+  assert.equal(question.resolved, true);
+  assert.equal(sim.scratchpad.revision, 1);
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions.length,
+    1
+  );
+});
+
+test("two QUESTION_RESOLVE for same identity: first resolves, second rejected as duplicate destination", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        RESOLVE_Q,
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithQuestion }
+    );
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(validationResult.rejected.length, 1);
+  assert.match(
+    String(validationResult.rejected[0].reasons.join(" ")),
+    /Conflicting or duplicate operation destination/
+  );
+
+  assert.equal(commitResult.status, "committed");
+  const question = sim.scratchpad.unresolvedQuestions[0];
+  assert.equal(question.resolved, true);
+  assert.equal(sim.scratchpad.revision, 1);
+});
+
+test("already-resolved (not yet archived) question plus QUESTION_RESOLVE returns question_already_resolved", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithResolvedQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    1
+  );
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(sim.scratchpad.revision, 0);
+
+  const resolveReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION_RESOLVE"
+  );
+  assert.equal(resolveReport.changed, false);
+  assert.equal(
+    resolveReport.reason,
+    "question_already_resolved"
+  );
+
+  // Existing resolution must not be overwritten or reopened.
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].resolved,
+    true
+  );
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].resolution,
+    "Already answered."
+  );
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].resolvedCycle,
+    2
+  );
+});
+
+function makeSimWithArchivedQuestion(simId = "TED") {
+  const sim = makeSimNoQuestion(simId);
+  // The once-unresolved question has been archived, so no matching
+  // identity remains in unresolvedQuestions.
+  sim.scratchpad.archivedQuestions = [
+    {
+      id: 1,
+      about: "ELLEN",
+      question: "Did Ellen receive the message?",
+      priority: "medium",
+      evidence: ["C0-M000001"],
+      createdCycle: 0,
+      resolved: true,
+      resolution: "Already answered.",
+      resolvedCycle: 2,
+    },
+  ];
+  return sim;
+}
+
+test("resolved-and-archived question plus QUESTION_RESOLVE returns question_resolve_target_not_found", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        RESOLVE_Q,
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithArchivedQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    1
+  );
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(sim.scratchpad.revision, 0);
+
+  const resolveReport = commitResult.operationReports.find(
+    (r) => r.tag === "QUESTION_RESOLVE"
+  );
+  assert.equal(resolveReport.changed, false);
+  assert.equal(
+    resolveReport.reason,
+    "question_resolve_target_not_found"
+  );
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions.length,
+    0
+  );
+});
+
+test("invalid refs combined with a non-pre-batch target are rejected at validation", () => {
+  G.cycle = 5;
+  const sim = makeSimWithQuestion();
+  G.sims = { TED: sim };
+
+  const input = [
+    "<SCRATCHPAD_UPDATES>",
+    '<QUESTION_RESOLVE about="ELLEN" resolution="Yes." refs="C0-M999999">Did Ellen receive the message?</QUESTION_RESOLVE>',
+    "</SCRATCHPAD_UPDATES>",
+  ].join("\n");
+
+  const { parsedResult } = repairAndParse(input);
+  const evidence = [
+    makeVisibleMessage(
+      "C0-M000001",
+      "ELLEN",
+      ["TED"],
+      "TED"
+    ),
+  ];
+  const validationResult =
+    validateScratchpadCommsOperations({
+      simId: "TED",
+      parsedResult,
+      evidence,
+    });
+
+  assert.notEqual(
+    validationResult.rejected.length,
+    0
+  );
+  const reasons = validationResult.rejected.flatMap(
+    (r) => r.reasons
+  );
+  assert.ok(
+    reasons.some((r) =>
+      /Unknown or invisible message reference/.test(r)
+    ),
+    `expected unknown-reference rejection, got: ${reasons.join(" | ")}`
+  );
+
+  // Commit is never reached for a rejected op; the pre-existing
+  // question stays open and untouched.
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].resolved,
+    false
+  );
+});
+
+test("QUESTION_RESOLVE with never-existing target is a no-op; revision unchanged", () => {
+  const { sim, validationResult, commitResult } =
+    commitBatch(
+      [
+        "<SCRATCHPAD_UPDATES>",
+        '<QUESTION_RESOLVE about="TED" resolution="n/a" refs="C0-M000001">A question that does not exist.</QUESTION_RESOLVE>',
+        "</SCRATCHPAD_UPDATES>",
+      ].join("\n"),
+      { builder: makeSimWithQuestion }
+    );
+
+  assert.equal(
+    validationResult.accepted.length,
+    1
+  );
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(sim.scratchpad.revision, 0);
+  assert.equal(
+    sim.scratchpad.unresolvedQuestions[0].resolved,
+    false
+  );
+});

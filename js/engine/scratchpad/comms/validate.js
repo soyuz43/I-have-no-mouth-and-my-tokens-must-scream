@@ -546,9 +546,15 @@ function getOperationDestinationKey(
       );
 
     case "question":
-    case "question_resolve":
       return (
         `question:` +
+        `${operation.about}:` +
+        `${operation.text.toLowerCase()}`
+      );
+
+    case "question_resolve":
+      return (
+        `question_resolve:` +
         `${operation.about}:` +
         `${operation.text.toLowerCase()}`
       );
