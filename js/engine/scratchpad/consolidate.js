@@ -15,13 +15,14 @@
 // `lastConsolidatedCycle` field and performs bounded-memory
 // maintenance:
 //   - deduplicate message notes (by messageId);
-//   - archive resolved questions (preserving provenance);
+//   - archive resolved questions and predictions (preserving provenance);
 //   - expire predictions (delegated to expirePredictions);
 //   - flag contradictions (reserved: no contradiction source yet).
 //
 // All steps are additive: existing fields and their order are
-// preserved; `archivedQuestions` is added only to the schema by the
-// caller (makeScratchpad), never inferred here.
+// preserved; `archivedQuestions` and `archivedPredictions` are added
+// only to the schema by the caller (makeScratchpad), never inferred
+// here.
 
 import {
   expirePredictions,
@@ -147,14 +148,46 @@ export function archiveResolvedQuestions(questions) {
 }
 
 /**
+ * Partition predictions: keep active ones, archive resolved ones
+ * (preserving provenance). Returns a new { active, archived } pair;
+ * does not mutate inputs.
+ *
+ * @param {Array<object>} predictions
+ * @returns {{ active: Array<object>, archived: Array<object> }}
+ */
+export function archiveResolvedPredictions(predictions) {
+  const active = [];
+  const archived = [];
+
+  if (!Array.isArray(predictions)) {
+    return { active, archived };
+  }
+
+  for (const prediction of predictions) {
+    if (
+      prediction &&
+      typeof prediction === "object" &&
+      prediction.resolved === true
+    ) {
+      archived.push(prediction);
+    } else {
+      active.push(prediction);
+    }
+  }
+
+  return { active, archived };
+}
+
+/**
  * Perform deterministic consolidation on a scratchpad in place.
  *
  * Mutates `scratchpad` (engine-owned, like belief contagion). Sets
  * `lastConsolidatedCycle` and returns a summary of what changed.
  *
  * Additive: does not remove or reorder existing fields. If
- * `archivedQuestions` is absent from the schema, it is created as an
- * array so resolution provenance is never lost.
+ * `archivedQuestions` or `archivedPredictions` is absent from the
+ * schema, it is created as an array so resolution provenance is never
+ * lost.
  *
  * @param {object} scratchpad
  * @param {number} cycle
@@ -170,6 +203,7 @@ export function consolidateScratchpad(
     consolidatedCycle: cycle,
     dedupedMessageNotes: 0,
     archivedQuestions: 0,
+    archivedPredictions: 0,
     expiredPredictions: 0,
   };
 
@@ -236,6 +270,32 @@ export function consolidateScratchpad(
     );
     summary.expiredPredictions =
       expiredIds.length;
+  }
+
+  // 4. Archive resolved predictions, preserving provenance.
+  if (
+    Array.isArray(
+      scratchpad.predictions
+    )
+  ) {
+    const { active, archived } =
+      archiveResolvedPredictions(
+        scratchpad.predictions
+      );
+    scratchpad.predictions = active;
+
+    if (
+      !Array.isArray(
+        scratchpad.archivedPredictions
+      )
+    ) {
+      scratchpad.archivedPredictions = [];
+    }
+    scratchpad.archivedPredictions.push(
+      ...archived
+    );
+    summary.archivedPredictions =
+      archived.length;
   }
 
   scratchpad.lastConsolidatedCycle = cycle;

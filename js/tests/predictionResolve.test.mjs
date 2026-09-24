@@ -25,6 +25,7 @@ import {
 
 import { G } from "../core/state.js";
 import { makeScratchpad } from "../core/utils.js";
+import { consolidateScratchpad } from "../engine/scratchpad/consolidate.js";
 
 const PREDICTION_TEXT =
   "Ellen will send the next message to TED.";
@@ -430,6 +431,10 @@ function makeSimWithoutPredictions() {
   return sim;
 }
 
+const NEW_PREDICTION =
+  `<PREDICTION about="ELLEN" confidence="0.8" ` +
+  `withinCycles="3" refs="C0-M000001">${PREDICTION_TEXT}</PREDICTION>`;
+
 function commitBatch(
   operations,
   { sim = makeSimWithPrediction() } = {}
@@ -466,6 +471,86 @@ function commitBatch(
     commitResult,
   };
 }
+
+test("new prediction ID exceeds archived prediction IDs", () => {
+  const sim = makeSimWithoutPredictions();
+  sim.scratchpad.archivedPredictions = [
+    {
+      ...makeOpenPrediction({ id: 4 }),
+      resolved: true,
+    },
+  ];
+  sim.scratchpad.predictions = [
+    makeOpenPrediction({
+      id: 2,
+      about: "NIMDOK",
+      prediction: "NIMDOK will send the next message.",
+    }),
+  ];
+
+  const { validationResult, commitResult } =
+    commitBatch(NEW_PREDICTION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(sim.scratchpad.predictions[1].id, 5);
+});
+
+test("new prediction ID works when legacy scratchpad lacks archivedPredictions", () => {
+  const sim = makeSimWithoutPredictions();
+  delete sim.scratchpad.archivedPredictions;
+
+  const { validationResult, commitResult } =
+    commitBatch(NEW_PREDICTION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(sim.scratchpad.predictions[0].id, 1);
+});
+
+test("prediction archived after resolution does not release its ID for reuse", () => {
+  const created = commitBatch(
+    NEW_PREDICTION,
+    { sim: makeSimWithoutPredictions() }
+  );
+  assert.equal(
+    created.sim.scratchpad.predictions[0].id,
+    1
+  );
+
+  const resolved = commitBatch(
+    VALID_RESOLVE_OPERATION,
+    { sim: created.sim }
+  );
+  assert.equal(
+    resolved.sim.scratchpad.predictions[0].resolved,
+    true
+  );
+
+  consolidateScratchpad(
+    resolved.sim.scratchpad,
+    5,
+    1
+  );
+  assert.equal(
+    resolved.sim.scratchpad.archivedPredictions[0].id,
+    1
+  );
+  assert.equal(
+    resolved.sim.scratchpad.predictions.length,
+    0
+  );
+
+  const recreated = commitBatch(
+    NEW_PREDICTION,
+    { sim: resolved.sim }
+  );
+  assert.equal(recreated.commitResult.status, "committed");
+  assert.equal(
+    recreated.sim.scratchpad.predictions[0].id,
+    2
+  );
+});
 
 test("PREDICTION_RESOLVE sets all lifecycle fields and preserves prediction fields", () => {
   const original = makeOpenPrediction();
