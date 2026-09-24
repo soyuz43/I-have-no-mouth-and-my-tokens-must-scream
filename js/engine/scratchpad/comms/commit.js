@@ -936,7 +936,8 @@ function isSameOpenPrediction(
       operation.about &&
     existingText ===
       operation.text.toLowerCase() &&
-    existing.resolved !== true
+    existing.resolved !== true &&
+    existing.expired !== true
   );
 }
 

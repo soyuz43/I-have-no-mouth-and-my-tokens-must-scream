@@ -385,6 +385,78 @@ test("PREDICTION and PREDICTION_RESOLVE identities do not collide", () => {
   assert.equal(result.rejected.length, 0);
 });
 
+test("expired prediction does not suppress identical new prediction", () => {
+  const sim = makeSimWithPrediction({
+    prediction: makeOpenPrediction({
+      evaluateByCycle: 2,
+      expired: true,
+      expiredCycle: 3,
+    }),
+  });
+
+  const { validationResult, commitResult } =
+    commitBatch(NEW_PREDICTION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(commitResult.substantiveChanged, true);
+  assert.equal(sim.scratchpad.predictions.length, 2);
+
+  const expiredPrediction = sim.scratchpad.predictions[0];
+  const newPrediction = sim.scratchpad.predictions[1];
+  assert.equal(expiredPrediction.expired, true);
+  assert.equal(newPrediction.id, 2);
+  assert.equal(newPrediction.resolved, false);
+  assert.equal(newPrediction.createdCycle, 5);
+  assert.equal(newPrediction.evaluateByCycle, 8);
+});
+
+test("non-expired unresolved prediction suppresses identical new prediction", () => {
+  const sim = makeSimWithPrediction();
+
+  const { validationResult, commitResult } =
+    commitBatch(NEW_PREDICTION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "reviewed_no_change");
+  assert.equal(commitResult.substantiveChanged, false);
+  assert.deepEqual(
+    commitResult.operationReports,
+    [
+      {
+        type: "prediction",
+        tag: "PREDICTION",
+        changed: false,
+        path: "predictions[0]",
+        reason: "prediction_already_exists",
+      },
+    ]
+  );
+  assert.equal(sim.scratchpad.predictions.length, 1);
+  assert.equal(sim.scratchpad.predictions[0].id, 1);
+});
+
+test("resolved prediction does not suppress identical new prediction", () => {
+  const sim = makeSimWithPrediction({
+    prediction: makeOpenPrediction({
+      resolved: true,
+      outcome: "confirmed",
+      resolvedCycle: 3,
+    }),
+  });
+
+  const { validationResult, commitResult } =
+    commitBatch(NEW_PREDICTION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(commitResult.substantiveChanged, true);
+  assert.equal(sim.scratchpad.predictions.length, 2);
+  assert.equal(sim.scratchpad.predictions[0].id, 1);
+  assert.equal(sim.scratchpad.predictions[1].id, 2);
+  assert.equal(sim.scratchpad.predictions[1].resolved, false);
+});
+
 /* ============================================================
    COMMIT BEHAVIOR
    ============================================================ */
@@ -550,6 +622,68 @@ test("prediction archived after resolution does not release its ID for reuse", (
     recreated.sim.scratchpad.predictions[0].id,
     2
   );
+});
+
+test("expired prediction can still be late-resolved", () => {
+  const sim = makeSimWithPrediction({
+    prediction: makeOpenPrediction({
+      expired: true,
+      expiredCycle: 4,
+    }),
+  });
+
+  const { validationResult, commitResult } =
+    commitBatch(VALID_RESOLVE_OPERATION, { sim });
+
+  assert.equal(validationResult.accepted.length, 1);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(commitResult.substantiveChanged, true);
+
+  const resolved = sim.scratchpad.predictions[0];
+  assert.equal(resolved.expired, true);
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.outcome, "confirmed");
+  assert.equal(resolved.resolvedCycle, 5);
+  assert.deepEqual(
+    resolved.resultEvidence,
+    ["C0-M000001"]
+  );
+  assert.equal(
+    resolved.resolutionRationale,
+    "The cited message confirms the prediction."
+  );
+});
+
+test("same-batch recreated prediction remains distinct from expired target", () => {
+  const sim = makeSimWithPrediction({
+    prediction: makeOpenPrediction({
+      expired: true,
+      expiredCycle: 4,
+    }),
+  });
+
+  const { validationResult, commitResult } =
+    commitBatch(
+      [
+        NEW_PREDICTION,
+        VALID_RESOLVE_OPERATION,
+      ],
+      { sim }
+    );
+
+  assert.equal(validationResult.accepted.length, 2);
+  assert.equal(commitResult.status, "committed");
+  assert.equal(sim.scratchpad.predictions.length, 2);
+  assert.deepEqual(
+    sim.scratchpad.predictions.map(
+      (prediction) => prediction.id
+    ),
+    [1, 2]
+  );
+  assert.equal(sim.scratchpad.predictions[0].expired, true);
+  assert.equal(sim.scratchpad.predictions[0].resolved, true);
+  assert.equal(sim.scratchpad.predictions[1].expired, undefined);
+  assert.equal(sim.scratchpad.predictions[1].resolved, false);
 });
 
 test("PREDICTION_RESOLVE sets all lifecycle fields and preserves prediction fields", () => {
