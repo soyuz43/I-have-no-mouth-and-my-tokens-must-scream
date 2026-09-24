@@ -14,6 +14,7 @@ import {
   dedupMessageNotes,
   archiveResolvedQuestions,
   archiveResolvedPredictions,
+  evaluatePredictionAccuracy,
   consolidateScratchpad,
   runScratchpadConsolidation,
 } from "../engine/scratchpad/consolidate.js";
@@ -31,6 +32,25 @@ function baseScratchpad() {
     predictions: [],
     lastConsolidatedCycle: null,
     contradictions: [],
+  };
+}
+
+function resolvedPrediction(overrides) {
+  return {
+    id: 1,
+    about: "TED",
+    prediction: "TED acts before cycle 5",
+    confidence: 0.8,
+    evidence: ["C0-M000001"],
+    createdCycle: 0,
+    withinCycles: 3,
+    evaluateByCycle: 3,
+    resolved: true,
+    outcome: "confirmed",
+    resolvedCycle: 3,
+    resultEvidence: ["C3-M000002"],
+    resolutionRationale: "Observed action",
+    ...overrides,
   };
 }
 
@@ -152,6 +172,117 @@ test("archiveResolvedPredictions: leaves expired unresolved predictions active",
   assert.deepEqual(archived, []);
 });
 
+test("evaluatePredictionAccuracy: computes mixed outcome, calibration, and expiry metrics", () => {
+  const scratchpad = {
+    predictions: [
+      resolvedPrediction({ id: 1, outcome: "confirmed", confidence: 0.9 }),
+      resolvedPrediction({ id: 2, outcome: "disconfirmed", confidence: 0.5 }),
+      resolvedPrediction({ id: 3, outcome: "ambiguous" }),
+      resolvedPrediction({ id: 4, outcome: "unobservable" }),
+    ],
+    archivedPredictions: [
+      resolvedPrediction({
+        id: 5,
+        outcome: "superseded",
+        expired: true,
+        expiredCycle: 4,
+        resolvedCycle: 5,
+      }),
+    ],
+  };
+
+  const metrics = evaluatePredictionAccuracy(scratchpad);
+
+  assert.deepEqual(metrics, {
+    totalResolved: 5,
+    outcomeCounts: {
+      confirmed: 1,
+      disconfirmed: 1,
+      ambiguous: 1,
+      unobservable: 1,
+      superseded: 1,
+    },
+    scoreableCount: 2,
+    confirmedCount: 1,
+    disconfirmedCount: 1,
+    accuracyRate: 0.5,
+    averageConfidenceOnScoreable: 0.7,
+    expiredBeforeResolution: 1,
+    resolvedAfterExpiry: 1,
+  });
+});
+
+test("evaluatePredictionAccuracy: returns null rates without scoreable predictions", () => {
+  const metrics = evaluatePredictionAccuracy({
+    predictions: [
+      resolvedPrediction({ id: 1, outcome: "ambiguous" }),
+      resolvedPrediction({ id: 2, outcome: "unobservable" }),
+    ],
+    archivedPredictions: [
+      resolvedPrediction({ id: 3, outcome: "superseded" }),
+    ],
+  });
+
+  assert.equal(metrics.scoreableCount, 0);
+  assert.equal(metrics.confirmedCount, 0);
+  assert.equal(metrics.disconfirmedCount, 0);
+  assert.equal(metrics.accuracyRate, null);
+  assert.equal(metrics.averageConfidenceOnScoreable, null);
+});
+
+test("evaluatePredictionAccuracy: does not modify the scratchpad or predictions", () => {
+  const scratchpad = {
+    metadata: { source: "test" },
+    predictions: [
+      resolvedPrediction({
+        id: 1,
+        outcome: "confirmed",
+        confidence: 0.8,
+        expired: true,
+        expiredCycle: 4,
+        resolvedCycle: 5,
+      }),
+    ],
+    archivedPredictions: [
+      resolvedPrediction({ id: 2, outcome: "disconfirmed" }),
+    ],
+  };
+  const before = structuredClone(scratchpad);
+
+  evaluatePredictionAccuracy(scratchpad);
+
+  assert.deepEqual(scratchpad, before);
+});
+
+test("evaluatePredictionAccuracy: empty or unresolved-only scratchpad returns zero metrics", () => {
+  const emptyMetrics = evaluatePredictionAccuracy(baseScratchpad());
+  const unresolvedMetrics = evaluatePredictionAccuracy({
+    predictions: [
+      {
+        id: 1,
+        confidence: 0.9,
+        resolved: false,
+        outcome: null,
+        resolvedCycle: null,
+        evaluateByCycle: 3,
+      },
+    ],
+    archivedPredictions: [],
+  });
+
+  for (const metrics of [emptyMetrics, unresolvedMetrics]) {
+    assert.equal(metrics.totalResolved, 0);
+    assert.deepEqual(metrics.outcomeCounts, {});
+    assert.equal(metrics.scoreableCount, 0);
+    assert.equal(metrics.confirmedCount, 0);
+    assert.equal(metrics.disconfirmedCount, 0);
+    assert.equal(metrics.accuracyRate, null);
+    assert.equal(metrics.averageConfidenceOnScoreable, null);
+    assert.equal(metrics.expiredBeforeResolution, 0);
+    assert.equal(metrics.resolvedAfterExpiry, 0);
+  }
+});
+
 test("consolidateScratchpad: creates archivedPredictions defensively and is idempotent", () => {
   const sp = baseScratchpad();
   delete sp.archivedPredictions;
@@ -169,6 +300,35 @@ test("consolidateScratchpad: creates archivedPredictions defensively and is idem
   assert.deepEqual(sp.archivedPredictions, [
     { id: 1, resolved: true },
   ]);
+});
+
+test("consolidateScratchpad: includes predictionAccuracy after archival", () => {
+  const sp = baseScratchpad();
+  sp.predictions = [
+    resolvedPrediction({ id: 1, outcome: "confirmed", confidence: 0.8 }),
+  ];
+  sp.archivedPredictions = [
+    resolvedPrediction({ id: 2, outcome: "disconfirmed", confidence: 0.5 }),
+  ];
+
+  const summary = consolidateScratchpad(sp, 5);
+
+  assert.deepEqual(summary.predictionAccuracy, {
+    totalResolved: 2,
+    outcomeCounts: {
+      confirmed: 1,
+      disconfirmed: 1,
+    },
+    scoreableCount: 2,
+    confirmedCount: 1,
+    disconfirmedCount: 1,
+    accuracyRate: 0.5,
+    averageConfidenceOnScoreable: 0.65,
+    expiredBeforeResolution: 0,
+    resolvedAfterExpiry: 0,
+  });
+  assert.equal(sp.predictions.length, 0);
+  assert.equal(sp.archivedPredictions.length, 2);
 });
 
 test("consolidateScratchpad: sets lastConsolidatedCycle and dedups+archives", () => {
