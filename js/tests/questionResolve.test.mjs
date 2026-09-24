@@ -61,10 +61,10 @@ test("QUESTION_RESOLVE is a registered operation tag", () => {
   );
 });
 
-test("QUESTION_RESOLVE protocol version was bumped to 2", () => {
+test("scratchpad communications protocol version is 3", () => {
   assert.equal(
     SCRATCHPAD_COMMS_PROTOCOL_VERSION,
-    2
+    3
   );
 });
 

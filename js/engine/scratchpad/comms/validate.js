@@ -16,6 +16,7 @@ import {
   isAllowedOtherField,
   isAllowedScoreField,
   isAllowedQuestionPriority,
+  SCRATCHPAD_PREDICTION_OUTCOMES,
   isAllowedScratchpadChannel,
   isAllowedChannelField,
   isAllowedBooleanValue,
@@ -566,6 +567,14 @@ function getOperationDestinationKey(
         `${operation.text.toLowerCase()}`
       );
 
+    case "prediction_resolve":
+      return (
+        `prediction_resolve:` +
+        `${operation.about}:` +
+        `${operation.text.toLowerCase()}:` +
+        `${operation.withinCycles}`
+      );
+
     case "no_update":
       return "no_update";
 
@@ -1114,6 +1123,102 @@ function validateAndNormalizeOperation({
         about,
         confidence,
         withinCycles,
+        text,
+        refs,
+      };
+
+      break;
+    }
+
+    case "PREDICTION_RESOLVE": {
+      const about =
+        String(
+          attributes.about ?? ""
+        )
+          .trim()
+          .toUpperCase();
+
+      if (
+        !isAllowedScratchpadSubject(
+          about
+        )
+      ) {
+        reasons.push(
+          `Unsupported PREDICTION_RESOLVE subject: ${about || "(missing)"}.`
+        );
+      }
+
+      const withinCycles =
+        parseIntegerInRange(
+          attributes.withinCycles,
+          {
+            name:
+              "withinCycles",
+
+            min:
+              MIN_PREDICTION_HORIZON,
+
+            max:
+              MAX_PREDICTION_HORIZON,
+
+            reasons,
+          }
+        );
+
+      const outcome =
+        String(
+          attributes.outcome ?? ""
+        )
+          .trim();
+
+      if (
+        !SCRATCHPAD_PREDICTION_OUTCOMES.includes(
+          outcome
+        )
+      ) {
+        reasons.push(
+          `outcome must be one of: ${SCRATCHPAD_PREDICTION_OUTCOMES.join(", ")}.`
+        );
+      }
+
+      const rationale =
+        normalizeOperationText(
+          attributes.rationale
+        );
+
+      if (!rationale) {
+        reasons.push(
+          "PREDICTION_RESOLVE requires a rationale attribute."
+        );
+      }
+
+      const refs =
+        parseReferenceList(
+          attributes.refs,
+          {
+            attributeName:
+              "refs",
+
+            visibleMessageMap,
+            simId,
+            reasons,
+          }
+        );
+
+      normalized = {
+        type:
+          "prediction_resolve",
+
+        tag:
+          "PREDICTION_RESOLVE",
+
+        sourceIndex:
+          operation.sourceIndex,
+
+        about,
+        withinCycles,
+        outcome,
+        rationale,
         text,
         refs,
       };
