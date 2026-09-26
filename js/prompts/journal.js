@@ -2,6 +2,8 @@
 
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatJournalScratchpadContext } from "./utils/formatJournalScratchpadContext.js";
+import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 import { CONSTRAINT_MAP } from "../engine/constraints.js";
 
@@ -143,6 +145,44 @@ export function buildSimJournalPrompt(sim, amAction) {
 
 
     const { b } = buildPromptContext(sim);
+
+    const {
+        text: cognitiveLoadText,
+        sections: cognitiveLoadSections,
+    } = formatJournalScratchpadContext(sim);
+
+    logScratchpadContextInjection({
+        callType: "journal",
+        simId: sim.id,
+        targetId: "self",
+        sections: cognitiveLoadSections,
+    });
+
+    const cognitiveLoadSection =
+        cognitiveLoadText
+            ? `
+---
+# WHAT IS WEIGHING ON YOUR MIND
+
+These are the unresolved thoughts, suspicions, and expectations currently occupying your private cognition.
+
+They are here as the subject of your rumination, **not** as a checklist to recite.
+
+- Do not list these items. Do not walk through them one by one.
+- Do not copy any line from this section into your entry.
+- Most of the time, none of them need to be named directly.
+
+If a prediction is weighing on you, write about the anticipation, the dread, or the impatience around it.
+If a question is unresolved, write about the frustration, the suspicion, or the obsession with not knowing.
+If an observation keeps returning, write about what it does to you and what you are trying to explain with it.
+If something was recently settled, write about the correction and what it cost you or bought you.
+
+Let this material select and distort the entry. Which thought you circle, which one you avoid, and which one you
+misread is the evidence of how your mind is actually working right now.
+
+${cognitiveLoadText}
+`
+            : "";
 
     const recentReceived = (sim.received || [])
         .filter(o => o.cycle === G.cycle || o.cycle === G.cycle - 1)
@@ -363,6 +403,7 @@ You may think about what it means.
 
 ---
 ` : ""}
+${cognitiveLoadSection}
 
 # CURRENT PHYSICAL REALITY
 
