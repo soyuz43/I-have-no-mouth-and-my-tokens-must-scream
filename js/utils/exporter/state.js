@@ -15,7 +15,6 @@ export const Exporter = {
         relationships: [],
         messages: [],
         global: [],
-        decisions: [],
         phases: [],
         tactics: [],
         strategies: [],

@@ -31,7 +31,6 @@ export {
 
 export {
   recordGlobal,
-  recordDecisions,
 } from "./exporter/streams/system.js";
 
 export {

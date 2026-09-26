@@ -176,9 +176,6 @@ export async function runCycle() {
 
   execution = await runStrategyPhase(directive);
 
-  // === EXPORTER: capture decisions (for later) ===
-  const decisions = execution?.decisions || execution?.targets || [];
-
   /* ------------------------------------------------------------
      HARD FAIL: strategy must succeed
   ------------------------------------------------------------ */
@@ -571,7 +568,7 @@ export async function runCycle() {
       mean: G.lastMean,
     };
 
-    recordCycle(G, metrics, decisions);
+    recordCycle(G, metrics);
   } catch (err) {
     console.error("[EXPORTER] recordCycle failed:", err);
   }
