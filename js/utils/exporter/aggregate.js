@@ -18,7 +18,6 @@ import {
 } from "./streams/social.js";
 import {
   recordGlobal,
-  recordDecisions,
 } from "./streams/system.js";
 import {
   recordTactics,
@@ -177,11 +176,6 @@ function buildOverviewHistoryEntry(exportData) {
                     streams.global
                 ),
 
-            decisions:
-                asArray(
-                    streams.decisions
-                ),
-
             phases:
                 asArray(
                     streams.phases
@@ -313,9 +307,6 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
             global:
                 Exporter.buffers.global,
 
-            decisions:
-                Exporter.buffers.decisions,
-
             phases:
                 Exporter.buffers.phases,
 
@@ -428,7 +419,7 @@ export function snapshotPrevState(G) {
 /**
  * Call at the end of a cycle, before endCycle().
  */
-export function finalizeCycle(G, metrics, decisions) {
+export function finalizeCycle(G, metrics) {
     const cycle = G.cycle;
 
     recordState(G, cycle);
@@ -437,7 +428,6 @@ export function finalizeCycle(G, metrics, decisions) {
     recordRelationships(G, cycle);
     recordMessages(G, cycle);
     recordGlobal(G, metrics, cycle);
-    recordDecisions(decisions, G, cycle);
     recordPhases(G, cycle);
     recordTactics(G, cycle);
 
@@ -461,6 +451,6 @@ export function finalizeCycle(G, metrics, decisions) {
 /**
  * Convenience alias for finalizing and exporting one cycle.
  */
-export function recordCycle(G, metrics, decisions) {
-    finalizeCycle(G, metrics, decisions);
+export function recordCycle(G, metrics) {
+    finalizeCycle(G, metrics);
 }

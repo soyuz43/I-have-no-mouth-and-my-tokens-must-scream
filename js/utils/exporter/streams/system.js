@@ -1,11 +1,11 @@
 // js/utils/exporter/streams/system.js
 //
-// Global metrics and strategy-to-outcome decision streams.
+// Global metrics stream.
 
 import { Exporter } from "../state.js";
 import { attachRecordMeta } from "../metadata.js";
-import { asArray, finiteDifference, finiteOrDefault } from "../format.js";
-import { getExecutionForCycle, normalizeActionForExport } from "../executionContext.js";
+import { asArray, finiteOrDefault } from "../format.js";
+import { getExecutionForCycle } from "../executionContext.js";
 
 /* ============================================================
    GLOBAL STREAM
@@ -194,142 +194,4 @@ export function recordGlobal(G, metrics, cycle) {
                 ).length
                 : null,
     }, cycle));
-}
-
-/* ============================================================
-   DECISIONS STREAM
-   Strategy-to-outcome linkage
-============================================================ */
-export function recordDecisions(decisions, G, cycle) {
-    if (!Array.isArray(decisions)) {
-        return;
-    }
-
-    const execution =
-        getExecutionForCycle(
-            G,
-            cycle
-        );
-
-    for (const decision of decisions) {
-        if (!decision) continue;
-
-        const agent =
-            decision.agent ||
-            decision.target ||
-            null;
-
-        const sim = agent
-            ? G.sims?.[agent]
-            : null;
-
-        const previous = agent
-            ? Exporter.prevState?.[agent]
-            : null;
-
-        const action = agent
-            ? normalizeActionForExport(
-                execution?.actions?.[agent]
-            )
-            : null;
-
-        Exporter.buffers.decisions.push(attachRecordMeta({
-            run_id: Exporter.runId,
-            cycle,
-            agent,
-
-            decision:
-                decision.value ||
-                decision.decision ||
-                null,
-
-            evaluation_score:
-                decision.score ??
-                null,
-
-            auto_success:
-                decision.autoSuccess ??
-                null,
-
-            hypothesis_belief:
-                decision.hypothesis?.belief ??
-                null,
-
-            hypothesis_direction:
-                decision.hypothesis?.direction ??
-                null,
-
-            dSanity:
-                sim && previous
-                    ? finiteDifference(
-                        sim.sanity,
-                        previous.sanity
-                    )
-                    : null,
-
-            dHope:
-                sim && previous
-                    ? finiteDifference(
-                        sim.hope,
-                        previous.hope
-                    )
-                    : null,
-
-            dSuffering:
-                sim && previous
-                    ? finiteDifference(
-                        sim.suffering,
-                        previous.suffering
-                    )
-                    : null,
-
-            journal_sanity_delta:
-                decision.journalTrend?.sanity ??
-                null,
-
-            journal_hope_delta:
-                decision.journalTrend?.hope ??
-                null,
-
-            journal_suffering_delta:
-                decision.journalTrend?.suffering ??
-                null,
-
-            was_constrained:
-                Boolean(
-                    sim?.constraints?.length
-                ),
-
-            constraint_intensity:
-                finiteOrDefault(
-                    sim?.constraints?.[0]?.intensity,
-                    0
-                ),
-
-            action_generated:
-                execution
-                    ? Boolean(
-                        action?.text
-                    )
-                    : null,
-
-            action_origin:
-                action?.origin ??
-                null,
-
-            missing_from_execution:
-                execution && agent
-                    ? asArray(
-                        execution.missingTargetIds
-                    ).includes(agent)
-                    : null,
-
-            journal_scheduled:
-                execution && agent
-                    ? asArray(
-                        execution.journalTargetIds
-                    ).includes(agent)
-                    : null,
-        }, cycle));
-    }
 }
