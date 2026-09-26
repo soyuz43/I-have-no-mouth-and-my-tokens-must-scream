@@ -32,6 +32,11 @@ export const CONSTRAINT_LIBRARY = [
     posture: {
       mobility_restriction: 0.8,
       stability: 0.5,
+
+      hand_use: 0.8,
+      concentration: 0.5,
+      interaction_reach: 0.4,
+
       pain_type: ["joint", "muscular"]
     },
 
@@ -70,6 +75,11 @@ Outcome: Progressive fatigue, instability, reduced reasoning clarity.`,
     posture: {
       mobility_restriction: 0.7,
       stability: 0.3,
+
+      hand_use: 0.2,
+      concentration: 0.5,
+      interaction_reach: 0.3,
+
       pain_type: ["muscular"]
     },
 
@@ -108,6 +118,11 @@ Outcome: Fast fatigue, cognitive interruption, rising instability.`,
     posture: {
       mobility_restriction: 0.85,
       stability: 0.4,
+
+      hand_use: 0.7,
+      concentration: 0.4,
+      interaction_reach: 0.5,
+
       pain_type: ["muscular"]
     },
 
@@ -146,6 +161,11 @@ Outcome: Steady degradation without immediate collapse.`,
     posture: {
       mobility_restriction: 0.9,
       stability: 0.2,
+
+      hand_use: 0.4,
+      concentration: 0.3,
+      interaction_reach: 0.3,
+
       pain_type: ["muscular", "joint"]
     },
 
@@ -184,6 +204,11 @@ Outcome: Rapid collapse risk, fragmentation, loss of control.`,
     posture: {
       mobility_restriction: 1.0,
       stability: 0.1,
+
+      hand_use: 0.0,
+      concentration: 0.3,
+      interaction_reach: 0.1,
+
       pain_type: ["joint", "circulatory"]
     },
 
@@ -222,6 +247,11 @@ Outcome: Severe strain, rapid sanity degradation.`,
     posture: {
       mobility_restriction: 0.85,
       stability: 0.3,
+
+      hand_use: 0.5,
+      concentration: 0.4,
+      interaction_reach: 0.4,
+
       pain_type: ["circulatory", "muscular"]
     },
 
@@ -260,6 +290,11 @@ Outcome: Disorientation, fatigue, reduced clarity.`,
     posture: {
       mobility_restriction: 0.7,
       stability: 0.2,
+
+      hand_use: 0.5,
+      concentration: 0.4,
+      interaction_reach: 0.3,
+
       pain_type: ["muscular"]
     },
 
@@ -298,6 +333,11 @@ Outcome: Continuous micro-strain, cognitive distraction.`,
     posture: {
       mobility_restriction: 0.95,
       stability: 0.6,
+
+      hand_use: 0.6,
+      concentration: 0.5,
+      interaction_reach: 0.4,
+
       pain_type: ["circulatory", "muscular"]
     },
 
@@ -335,6 +375,11 @@ Outcome: Slow cumulative degradation.`,
     posture: {
       mobility_restriction: 1.0,
       stability: 0.1,
+
+      hand_use: 0.0,
+      concentration: 0.2,
+      interaction_reach: 0.0,
+
       pain_type: ["muscular", "circulatory", "joint"]
     },
 
@@ -658,6 +703,11 @@ export function tickConstraints(sim) {
      * A zero-remaining constraint may be waiting for post-cycle
      * assessment. Preserve it, but never apply its effects again.
      */
+    // SAFETY: This guard skips STAT EFFECTS for zero-remaining constraints.
+    // It does NOT release the prisoner from the physical position.
+    // Physical gating (capability derivation) must NOT be added to this function.
+    // Capability gating must check array membership in sim.constraints,
+    // not the remaining value. See js/engine/agency/capabilities.js.
     if (remaining <= 0) {
       if (getConstraintDebugEnabled()) {
         console.debug(
