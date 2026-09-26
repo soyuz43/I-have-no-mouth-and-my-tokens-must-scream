@@ -1,37 +1,12 @@
 # Prisoner Scratchpads and Goals: Implementation Status and Forward Roadmap
 
-**Repository area:** `js/engine/scratchpad/`  
-**Primary state constructor:** `js/core/utils.js::makeScratchpad()`  
-**Runtime integration:** `js/engine/phases/communicationPhase.js`  
-**Status basis:** two read-only reconnaissance passes, reconciled 2026-07-01  
-**Audited commit:** `e1ded28b60330f7a895d1651b9011e5050bf257d` on `main`  
-**Audit exclusions:** `Documentation/**`, `snapshots/**`, `outputs/**`, and `scripts/**`  
-**Repository state:** clean audited worktree; remote freshness was not independently established by a new fetch
-**Code changes since audit:** PR #120 (feat: scratchpad lifecycle - ids, prediction expiry, consolidation, merge commit `38d3a4c`) landed three engine-owned cinder blocks: deterministic collection-local IDs on committed questions/predictions (Candidate A), `expirePredictions` lifecycle maintenance (Candidate B), and `consolidate.js` dedup/archive/cadence consolidation activating `lastConsolidatedCycle` (Candidate C). The audit commit `e1ded28b` remains the historical baseline for the reconstituted architecture. A subsequent change wired `formatCompactScratchpadContext` into outreach and reply prompts, added formatter unit tests to `npm test`, and closed the two critical behavioral-injection roadmap items.
+**Repository area:** `js/engine/scratchpad/`
+**Primary state constructor:** `js/core/utils.js::makeScratchpad()`
+**Runtime integration:** `js/engine/phases/communicationPhase.js`
 
-**Final prediction-resolution reconciliation (2026-09-24):** The prediction-resolution lifecycle plan is complete across Slices 0-8. The completed path includes deterministic expiry, archived-ID-safe allocation, schema/protocol support, `PREDICTION_RESOLVE` protocol/validation/commit routing, archival, expired-duplicate semantics, prompt documentation, and read-only prediction accuracy/calibration evaluation. The scratchpad schema is version `3`, the communication protocol is version `3`, and the wired suite passes **349 tests** with zero failures: 259 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `evaluatePredictionAccuracy` reads active and archived resolved predictions and reports accuracy and confidence metrics in the consolidation summary; it does not modify predictions, feed metrics back into prisoner cognition, or expose evaluation output in prisoner-visible context. Confidence adjustment remains deferred pending accumulation of real outcome data. Retention caps/pruning, non-message evidence, behavioral consumption of resolved predictions, measured injection effects, goals, subjective-model evaluation, meta-awareness, and rollback remain OPEN; the scratchpad subsystem is not yet complete.
+Last reconciled: 2026-09-26. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. Exporter decisions stream removed.
 
-**Reconciliation update (2026-09-23):** This pass reflects two completed work items verified against the current tree. (a) Lifecycle test wiring: `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` are now included in the `npm test` command (and therefore the GitHub Actions workflow, which runs `npm test`); the full suite passes. (b) Priority 1 prompt-injection observability: `formatCompactScratchpadContext` gained a metadata-producing companion, `formatCompactScratchpadContextWithSections` (returns `{ text, sections }`), and `simOutreach.js` / `simReply.js` now log which compact scratchpad sections and field paths are supplied to each call via a new developer-console-only logger at `js/prompts/utils/scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`. No prisoner-facing prompt text, protocol, schema, validation, commit, or model-call behavior changed. Measured behavioral effect of injection remains OPEN (see Priority 1 and section 17).
-
-**Reconciliation update (2026-09-23, second pass):** This pass reflects the QUESTION_RESOLVE implementation slice verified against the current tree. The scratchpad communication operation protocol gained a new `QUESTION_RESOLVE` operation (`js/engine/scratchpad/comms/`), implemented in `protocol.js`, `validate.js`, and `commit.js`, and documented in `js/prompts/scratchpadComms.js`. It resolves an existing unresolved question by content (subject + exact question text) reusing `isSameOpenQuestion` — it does **not** reference or expose question IDs to the model. `SCRATCHPAD_COMMS_PROTOCOL_VERSION` is now `2`; the scratchpad schema version remains `2` (the operation mutates only the pre-existing `resolved`/`resolution`/`resolvedCycle` lifecycle fields). `js/tests/questionResolve.test.mjs` was added and wired into `npm test`; the full suite passes (0 failures). No outreach/reply prompts, compact formatting, or injection logging changed. Prediction resolution/evaluation, outcome taxonomy, calibration, retention caps, non-message evidence admission, goal/meta-awareness systems, and rollback remain OPEN. Measured behavioral effect of injection and of resolved-question consumption remain OPEN.
-
-**Reconciliation update (2026-09-23, third pass):** This pass reflects the QUESTION_RESOLVE lifecycle-hardening and reason-routing slice verified against the current tree (changes in `js/engine/scratchpad/comms/commit.js`, `validate.js`, and `js/tests/questionResolve.test.mjs`; `protocol.js`, `orchestrator.js`, prompts, schema, and protocol version unchanged). The incidental cross-type destination-key collision between `QUESTION` and `QUESTION_RESOLVE` was removed: the two tags now use distinct destination-key namespaces (`question:` vs `question_resolve:`), while same-type collisions remain intact. The QUESTION_RESOLVE lifecycle rule is now enforced explicitly at commit time via a read-only pre-batch snapshot of `unresolvedQuestions` captured before the clone: a `QUESTION` created earlier in the same batch cannot be resolved by a `QUESTION_RESOLVE` in that batch; such a resolve no-ops with `question_resolve_target_not_prebatch`. `applyQuestionResolveOperation` was restructured so no-op reasons precisely reflect the lifecycle case — `question_resolve_target_not_prebatch` (same-batch-created target), `question_already_resolved` (matching identity already resolved; existing resolution/resolvedCycle are not overwritten and the question is not reopened; the previously unreachable `question_already_resolved` branch is now reachable via a new resolved-agnostic `isSameQuestionIdentity` matcher), and `question_resolve_target_not_found` (no matching identity, including resolved-and-archived). The redundant duplicate `QUESTION` plus `QUESTION_RESOLVE` case for a pre-existing open question now works correctly (duplicate `QUESTION` is a no-op; the `QUESTION_RESOLVE` resolves the pre-existing question). `SCRATCHPAD_COMMS_PROTOCOL_VERSION` remains `2`; the scratchpad schema version remains `2`; no new operation tag, grammar change, or model-facing prompt change occurred; question/prediction IDs remain unexposed. `js/tests/questionResolve.test.mjs` now contains 24 tests wired into `npm test`; the full suite passes (0 failures). This closes the prior informational review findings (unreachable `question_already_resolved` branch and the already-resolved/archived/invalid-refs test gaps).
-
-**Reconciliation update (2026-09-24):** New question IDs are now computed as one more than the maximum ID across both `unresolvedQuestions` and `archivedQuestions`, preventing reuse of archived question IDs. Prediction ID allocation now applies the same cross-archive rule across `predictions` and `archivedPredictions`; the implementation and verification are recorded in the Slice 5 note below. Deterministic prediction expiry was already implemented and runtime-wired through `js/engine/scratchpad/expirePredictions.js`, so the stale Priority 2 deadline-check item is reconciled below.
-
-**Reconciliation update (2026-09-24, prediction-resolution Slice 4):** The prediction-resolution lifecycle was complete through commit at this historical checkpoint. `PREDICTION_RESOLVE` is defined, validated, and dispatched with the content-addressed target identity `about + normalized prediction text + withinCycles`. The commit path captures a read-only pre-batch predictions snapshot before cloning, finds the pre-batch target and captures its internal ID, then updates the same ID in the cloned active collection. Successful resolution sets `resolved`, the validated `outcome` and `resolutionRationale`, the validated `refs` as `resultEvidence`, and the current `resolvedCycle`; original prediction provenance remains unchanged. No-op routing is precise and does not increment revision: `prediction_resolve_target_not_found` (no matching identity), `prediction_already_resolved` (matching identity is already resolved), and `prediction_resolve_target_not_prebatch` (the matching prediction was created earlier in the same batch). Focused commit tests were added to `js/tests/predictionResolve.test.mjs`; the wired full suite passes with **332 tests**: 242 TAP cases plus 90 custom JSON-runner cases, with zero failures. The scratchpad schema remained version `3`, the communication protocol remained version `3`, and no model-facing prompt text changed in this slice. Slice 5 and Slice 6 followed; Slice 7 is now complete as recorded below. Slice 8 has since been completed.
-
-**Reconciliation update (2026-09-24, prediction-archival Slice 5):** Consolidation now calls `archiveResolvedPredictions` after question archival, moving only predictions with `resolved === true` into `archivedPredictions` while preserving the complete prediction object. Expired-but-unresolved predictions remain active. Prediction ID allocation now scans both `predictions` and `archivedPredictions`, preventing reuse of archived IDs, including for legacy scratchpads missing the archive. Focused archival and ID-regression tests were added; the wired full suite passes with **334 tests**: 249 TAP cases plus 85 strategy-extraction JSON cases plus 5 scratchpad-repair JSON cases, with zero failures. The scratchpad schema remains version `3`, the communication protocol remains version `3`, and no model-facing prompt text changed in this slice. Slice 6 followed; Slice 7 is now complete as recorded below. Slice 8 has since been completed.
-
-**Reconciliation update (2026-09-24, prediction expired-duplicate Slice 6):** Expired predictions no longer suppress creation of an identical new prediction. `isSameOpenPrediction` now treats an existing prediction as duplicate only when it is unresolved and not expired (`resolved !== true && expired !== true`); a newly created prediction receives its own ID and `evaluateByCycle`. Expired predictions remain valid late-resolution targets because `isSamePredictionResolveIdentity` was not modified. Focused tests cover expired recreation, preserved duplicate suppression for active unresolved predictions, resolved-prediction recreation, late resolution, and same-batch ID separation. The wired full suite passes with **344 tests**: 254 Node tests plus 85 strategy-extraction JSON cases plus 5 scratchpad-repair JSON cases, with zero failures. The scratchpad schema remains version `3`, the communication protocol remains version `3`, and no model-facing prompt text changed in this slice. Slice 7 is now complete as recorded below; Slice 8 has since been completed.
-
-**Reconciliation update (2026-09-24, prediction prompt-integration Slice 7):** `PREDICTION_RESOLVE` is now documented as operation `5b` in `js/prompts/scratchpadComms.js`, making the operation usable by the model during scratchpad review. The prompt provides a well-formed example; the five outcome values and their meanings; required `about`, `withinCycles`, `outcome`, `rationale`, and visible-evidence `refs`; exact prediction-text identity matching; and timing guidance that resolution remains available after expiry. The model is never given or asked to reference internal prediction identifiers. The scratchpad schema remains version `3`, the communication protocol remains version `3`, `formatCompactScratchpadContext` and `formatScratchpadContext` are unchanged, and the full suite passes with **344 tests** and zero failures. Slice 8, prediction evaluation and confidence calibration, has since been completed.
-
-This document supersedes the original roadmap:
-
-`Documentation/roadmaps&features/prisoner_scratchpads&goals.md`
-
-The original roadmap remains useful as design history, but the implemented scratchpad architecture has diverged enough that preserving it as the active checklist would obscure what the system actually does.
+The wired suite passes **376 tests** with zero failures: 286 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. Scratchpad schema version `3`; communication protocol version `3`.
 
 ---
 
@@ -57,7 +32,7 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop now exists for communication: compact scratchpad context shapes outreach and reply prompts (see section 3.3), but goal-driven behavior and measured behavioral effects remain open (journal injection is now live, see section 9.3). An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
+It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop exists for communication and journals: compact scratchpad context shapes outreach, reply, and journal prompts (see sections 3.3 and 9.3), but goal-driven behavior and measured behavioral effects remain open. An engine-owned consolidation path exists for message-note deduplication, resolved-question and resolved-prediction archival, prediction expiry, and read-only prediction evaluation (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -91,7 +66,7 @@ js/engine/scratchpad/comms/logging.js
 js/prompts/scratchpadComms.js
 ```
 
-The cycle-zero startup path is now verified directly:
+The cycle-zero startup path is verified directly:
 
 ```text
 bootAM()
@@ -115,6 +90,8 @@ begin cycle
   → communication
   → scratchpad review
   → belief contagion
+→ scratchpad prediction expiry (engine-owned, every cycle)
+→ scratchpad consolidation (engine-owned, modulo cadence)
 → interaction analysis
 → belief integration
 → evaluation and tactic evolution
@@ -123,7 +100,6 @@ begin cycle
 ```
 
 This phase order is authoritative for future rollback design because communication is consumed by later phases and cannot be treated as an isolated log append.
-
 ---
 
 # 3. High-level implementation status
@@ -157,24 +133,24 @@ This phase order is authoritative for future rollback design because communicati
 - [x] ~~Treat any successful review commit—including `NO_UPDATE` and an accepted operation set that produces only no-ops—as sufficient to set `initialized: true`.~~
 - [x] ~~Avoid incrementing the substantive revision counter for `NO_UPDATE` or duplicate/no-op operations.~~
 - [x] ~~Apply accepted mutations atomically to a clone before replacing persistent state.~~
-- [x] ~~Add periodic full consolidation.~~ Engine-owned `consolidate.js` runs on a fixed modulo cadence (default every 5 cycles) after the social phase in `cycle.js`.
-- [x] ~~Use `lastConsolidatedCycle` in an actual consolidation scheduler.~~ `lastConsolidatedCycle` is set by the consolidation hook when it runs.
+- [x] ~~Add periodic full consolidation.~~ `consolidate.js` runs on a fixed modulo cadence (`DEFAULT_CONSOLIDATION_CADENCE = 5`) after the social phase in `cycle.js`.
+- [x] ~~Use `lastConsolidatedCycle` in an actual consolidation scheduler.~~ (set by the consolidation hook when it runs)
 - [ ] **OPEN:** Trigger cognition maintenance from non-communication events such as AM interventions, constraint changes, betrayals, prediction outcomes, or agency events.
 - [ ] **OPEN:** Define bounded retention, pruning, compaction, or archival rules for long-running scratchpads.
 - [ ] **OPEN:** Decide whether rejected operations from a partially accepted review should ever be reconsidered, because the current successful review advances beyond the complete evidence batch and does not automatically retry them.
 
 ## 3.3 Behavioral influence
 
-- [x] ~~**OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.~~ `formatCompactScratchpadContext` is called by `buildSimOutreachPrompt` with all other-prisoner IDs and its output is embedded in the outreach prompt when nonempty.
-- [x] ~~**OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.~~ `buildSimReplyPrompt` calls `formatCompactScratchpadContext({ targetId: from })`, so replies receive only the sender-specific person-model plus shared channel, prediction, and question sections.
-- [x] ~~**Inject operational scratchpad context into prisoner journals.**~~ `formatJournalScratchpadContext` (`js/prompts/utils/formatJournalScratchpadContext.js`) is called by `buildSimJournalPrompt` and embedded as a `# WHAT IS WEIGHING ON YOUR MIND` section when nonempty. It renders a curated subset (recent message notes, open questions, live predictions, recently settled predictions) framed as cognitive load rather than as a data dump. Selection and framing are deliberately distinct from `formatCompactScratchpadContext`, which remains unchanged for outreach and reply.
+- [x] ~~**OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.~~ `formatCompactScratchpadContext`, all other-prisoner IDs.
+- [x] ~~**OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.~~ (`targetId: from`)
+- [x] ~~**Inject operational scratchpad context into prisoner journals.**~~ as `# WHAT IS WEIGHING ON YOUR MIND`.~~
 - [ ] **OPEN:** Let unresolved questions alter information-seeking behavior.
 - [ ] **OPEN:** Let predictions alter future attention or action selection.
 - [ ] **OPEN:** Let channel beliefs alter public/private communication choices.
 - [ ] **OPEN:** Let person models alter recipient selection, disclosure, concealment, alliance, or testing behavior.
 - [ ] **OPEN:** Let goals produce observable multi-cycle behavior.
 
-`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach, replies, and journals; goals and measured behavior change remain open. Observability for that injected context now exists: both prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`) listing the rendered `sections` (person-model target/field keys, channel scope/field keys, prediction/question counts and ids). This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message. `buildSimJournalPrompt` emits the same record with `callType: "journal"` and `targetId: "self"`.
+Injection observability exists: the outreach, reply, and journal prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS === true`) listing rendered person-model fields, channel scopes, and prediction/question counts and ids. This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message.
 
 ---
 
@@ -187,13 +163,13 @@ The active schema is `schemaVersion: 3`.
 - [x] ~~`initialized`~~
 - [x] ~~`revision`~~
 - [x] ~~`lastUpdatedCycle`~~
-- [x] ~~`lastConsolidatedCycle`~~ - written by the engine-owned consolidation hook on its cadence (was dormant/SCAFFOLD before PR #120).
+- [x] ~~`lastConsolidatedCycle`~~ - written by the engine-owned consolidation hook on its cadence.
 - [x] ~~`lastCommunicationReviewCycle`~~
 - [x] ~~`lastReviewedMessageSequence`~~
 
-The review cursor is a substantial improvement over the original roadmap. It provides idempotent progress through canonical communication history and distinguishes successful review from substantive state change.
+The review cursor provides idempotent progress through canonical communication history and distinguishes successful review from substantive state change.
 
-`initialized` has a concrete runtime meaning: it records that at least one review or initialization commit completed successfully. It does not mean that the prisoner necessarily formed a substantive hypothesis, prediction, question, or note. Valid `NO_UPDATE`, an accepted operation set that resolves entirely to no-ops, and engine-owned empty initialization can all set `initialized: true`.
+`initialized` records that at least one review or initialization commit completed successfully. It does not mean the prisoner formed substantive cognition. Valid `NO_UPDATE`, an accepted operation set that resolves entirely to no-ops, and engine-owned empty initialization can all set `initialized: true`.
 
 ## 4.2 Message-level observations
 
@@ -208,46 +184,15 @@ The review cursor is a substantial improvement over the original roadmap. It pro
 
 ## 4.3 Models of other prisoners
 
-The original roadmap proposed one mixed object per person containing role, goal, trust, usefulness, threat, predictability, one shared confidence, and one shared evidence list.
-
-That design has been replaced by per-field epistemic claims:
+The original roadmap proposed one mixed object per person containing role, goal, trust, usefulness, threat, predictability, one shared confidence, and one shared evidence list. That design has been replaced by per-field epistemic claims:
 
 ```js
 hypothesesAboutOthers[otherId] = {
-  perceivedGoal: {
-    value,
-    confidence,
-    evidence,
-    rationale
-  },
-
-  perceivedViewOfMe: {
-    value,
-    confidence,
-    evidence,
-    rationale
-  },
-
-  perceivedTrustInMe: {
-    value,
-    confidence,
-    evidence,
-    rationale
-  },
-
-  perceivedThreatFromMe: {
-    value,
-    confidence,
-    evidence,
-    rationale
-  },
-
-  predictability: {
-    value,
-    confidence,
-    evidence,
-    rationale
-  }
+  perceivedGoal:        { value, confidence, evidence, rationale },
+  perceivedViewOfMe:     { value, confidence, evidence, rationale },
+  perceivedTrustInMe:    { value, confidence, evidence, rationale },
+  perceivedThreatFromMe: { value, confidence, evidence, rationale },
+  predictability:       { value, confidence, evidence, rationale }
 }
 ```
 
@@ -257,32 +202,20 @@ hypothesesAboutOthers[otherId] = {
 - [x] ~~Allow qualitative hypotheses about another prisoner's goal.~~
 - [x] ~~Allow qualitative hypotheses about another prisoner's view of the current prisoner.~~
 - [x] ~~Allow scored hypotheses about perceived trust, perceived threat, and predictability.~~
+- [x] ~~Replace an existing `OTHER` or `SCORE` field-level claim atomically with the newly accepted value, confidence, evidence, and rationale.~~
 - [ ] **OPEN:** Add the prisoner's own trust in the other person as a subjective epistemic claim.
 - [ ] **OPEN:** Add the prisoner's own perceived threat *from* the other person if that is intended to differ from `perceivedThreatFromMe`.
 - [ ] **OPEN:** Decide whether a subjective usefulness/leverage estimate is needed.
 - [ ] **OPEN:** Decide whether perceived social role should be a person-level field or derived from multiple claims.
 - [ ] **OPEN:** Add explicit staleness or last-evidence metadata if evidence IDs alone are insufficient.
-- [x] ~~Replace an existing `OTHER` or `SCORE` field-level claim atomically with the newly accepted value, confidence, evidence, and rationale.~~
 - [ ] **OPEN:** Decide whether future claim revision should preserve or merge prior evidence instead of replacing the complete field-level claim.
 
 ### Semantic warning
 
-`perceivedTrustInMe` means:
-
-> How much I think the other prisoner trusts me.
-
-It does **not** mean:
-
-> How much I trust the other prisoner.
-
-The original roadmap's `trust` field was directionally ambiguous. The current implementation resolves one direction, but leaves the opposite subjective direction unrepresented inside the scratchpad.
-
+`perceivedTrustInMe` means "how much I think the other prisoner trusts me." It does **not** mean "how much I trust the other prisoner." The original roadmap's `trust` field was directionally ambiguous; the current implementation resolves one direction but leaves the opposite subjective direction unrepresented inside the scratchpad.
 ## 4.4 Models of AM and information channels
 
-The original fixed `beliefsAboutAM` map has been split into two ideas:
-
-1. `hypothesesAboutAM`: open-ended theories about AM.
-2. `informationModel`: structured claims about communication channels.
+The original fixed `beliefsAboutAM` map has been split into two ideas: `hypothesesAboutAM` (open-ended theories about AM) and `informationModel` (structured claims about communication channels). `suspectedForgeries`, `suspectedLeaks`, and `contradictions` are nested inside `informationModel`.
 
 The implemented channel model includes:
 
@@ -317,21 +250,21 @@ private.canBeDelayedOrSuppressed
 - [x] ~~Persist unresolved questions.~~
 - [x] ~~Attach subject, priority, evidence references, and cycle metadata to new questions.~~
 - [x] ~~Persist testable predictions.~~
-- [x] ~~Assign deterministic, collection-local IDs to committed questions and predictions.~~ IDs are computed as one more than the maximum ID across the active and archived collections for each type (`unresolvedQuestions` + `archivedQuestions`, and `predictions` + `archivedPredictions`), start at 1, and are replay-safe. This prevents reuse of archived IDs.
+- [x] ~~Assign deterministic, collection-local IDs to committed questions and predictions.~~ One greater than the max `id` across active and archived collections of each type; starts at 1.
 - [x] ~~Attach subject, confidence, evidence, creation cycle, and bounded time horizon to predictions.~~
 - [x] ~~Validate prediction horizons against protocol limits.~~
 - [x] ~~Prompt for predictions that are observable enough to evaluate later.~~
-- [x] ~~**PARTIAL (now complete):** Question objects contain resolution-oriented fields, and a complete question-resolution operation now exists.~~ `QUESTION_RESOLVE` (added in the 2026-09-23 second-pass slice, hardened in the third-pass slice) resolves an existing unresolved question by content via `isSameOpenQuestion`. The resolve lifecycle is now explicit and commit-time-guarded: a `QUESTION_RESOLVE` may only resolve a question that was an open, unresolved question before the current review batch began, enforced by a read-only pre-batch snapshot of `unresolvedQuestions` (a same-batch-created question cannot be resolved in the same batch; that case no-ops with `question_resolve_target_not_prebatch`). No-op reasons are now precise: `question_resolve_target_not_prebatch` (same-batch-created target), `question_already_resolved` (matching identity already resolved — existing `resolution`/`resolvedCycle` are not overwritten and the question is not reopened), and `question_resolve_target_not_found` (no matching identity, including resolved-and-archived). The redundant duplicate `QUESTION` plus `QUESTION_RESOLVE` case for a pre-existing open question works correctly (duplicate `QUESTION` is a no-op; the `QUESTION_RESOLVE` resolves the pre-existing question). It sets `resolved`/`resolution`/`resolvedCycle`, never references question IDs. Resolved questions then reach `archivedQuestions` through the existing consolidation path (section 3.2 / Priority 3). The completed question lifecycle is distinct from Priority 3 retention limits, which remain OPEN.
-- [x] ~~**PARTIAL (now complete):** Prediction-result resolution operation.~~ `PREDICTION_RESOLVE` validates `about`, a 1–12-cycle `withinCycles` horizon, one of the five allowed outcomes (`confirmed`, `disconfirmed`, `ambiguous`, `unobservable`, `superseded`), rationale, and visible canonical evidence. The commit path is fully implemented: it captures a read-only pre-batch `predictions` snapshot before cloning, matches by `about + normalized prediction text + withinCycles`, captures the pre-batch target ID, and updates that specific ID in the cloned active collection. Successful resolution sets `resolved`, `outcome`, `resolutionRationale`, `resultEvidence`, and `resolvedCycle` while preserving the original prediction fields. No-op cases are precise and do not increment revision: `prediction_resolve_target_not_found` (no matching identity), `prediction_already_resolved` (matching identity already resolved, without overwriting the existing result), and `prediction_resolve_target_not_prebatch` (matching target was created earlier in the same batch). The operation is now documented in the model-facing scratchpad review prompt and is usable by the model.
-- [x] ~~Add evidence-backed result evaluation for resolved predictions.~~ `evaluatePredictionAccuracy` is exported from `consolidate.js`, reads resolved predictions from `predictions` and `archivedPredictions`, and reports `totalResolved`, `outcomeCounts`, `scoreableCount`, `confirmedCount`, `disconfirmedCount`, `accuracyRate`, `averageConfidenceOnScoreable`, `expiredBeforeResolution`, and `resolvedAfterExpiry`. It is read-only, runs after prediction archival, and exposes its result only through `consolidateScratchpad`'s returned summary. It does not feed metrics into prompts, prisoner-visible state, or future action selection.
-- [x] ~~Archive resolved predictions without losing provenance.~~ `archiveResolvedPredictions` moves only predictions with `resolved === true` into `archivedPredictions` during consolidation, preserving every prediction field. Expired-but-unresolved predictions remain active.
-- [x] ~~Expire predictions when their evaluation window closes.~~ `expirePredictions` marks due, unresolved predictions `expired`/`expiredCycle`; it runs every cycle (Candidate B) and is also delegated by consolidation. Additive only.
-- [x] ~~Do not let expired predictions suppress identical new predictions.~~ `isSameOpenPrediction` now requires `resolved !== true && expired !== true`; expired predictions may be recreated with a fresh ID and horizon, while `isSamePredictionResolveIdentity` remains unchanged so expired predictions can still be late-resolved. The prompt now documents that late resolution remains allowed after expiry. This changes duplicate semantics, not confidence values; confidence adjustment remains OPEN.
-- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~ The five-value outcome taxonomy is documented in the scratchpad review prompt alongside `PREDICTION_RESOLVE`.
+- [x] ~~**PARTIAL (now complete):** Question objects contain resolution-oriented fields, and a complete question-resolution operation now exists.~~ `QUESTION_RESOLVE` (op 4b), content-matched; no IDs exposed.
+- [x] ~~**PARTIAL (now complete):** Prediction-result resolution operation.~~ `PREDICTION_RESOLVE` (op 5b), five-outcome taxonomy, content-matched.
+- [x] ~~Add evidence-backed result evaluation for resolved predictions.~~ `evaluatePredictionAccuracy` (read-only; consolidation summary only).
+- [x] ~~Archive resolved predictions without losing provenance.~~ `archiveResolvedPredictions` moves only `resolved === true` predictions; expired-but-unresolved stay active.
+- [x] ~~Expire predictions when their evaluation window closes.~~ `expirePredictions`; runs every cycle and is delegated by consolidation.
+- [x] ~~Do not let expired predictions suppress identical new predictions.~~ Duplicate requires `resolved !== true && expired !== true`; late resolution after expiry stays valid.
+- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~ (`SCRATCHPAD_PREDICTION_OUTCOMES`, documented in the scratchpad review prompt)
+- [x] ~~**PARTIAL (now complete):** Archive answered questions - resolved questions are moved into `archivedQuestions` by consolidation, preserving provenance.~~ via `archiveResolvedQuestions`.
 - [ ] **PARTIAL:** Confidence calibration feedback is evaluated but not applied. Read-only metrics now report accuracy and original confidence across confirmed/disconfirmed predictions, but no engine or model path adjusts stored `confidence` values. Confidence adjustment is deferred pending accumulation of real outcome data.
-- [x] ~~**PARTIAL (now complete):** Archive answered questions - resolved questions are moved into `archivedQuestions` by consolidation, preserving provenance.~~ The model-driven `QUESTION_RESOLVE` operation now produces resolved questions; consolidation archives them (section 3.2 / Priority 3), preserving id, subject, priority, evidence, resolution, resolvedCycle, and creation metadata. Questions may still also be superseded by the duplicate/`isSameOpenQuestion` no-op path.
-- [ ] **OPEN:** Convert persistent questions into communication or future agency priorities.
 - [ ] **PARTIAL:** Prediction accuracy and calibration are now measured in the consolidation summary, but broader calibration, staleness, contradiction, and behavioral-consumption analysis remains open. The measurement layer is read-only and is not a cognitive feedback mechanism.
+- [ ] **OPEN:** Convert persistent questions into communication or future agency priorities.
 
 ## 4.6 Covert goals
 
@@ -356,18 +289,7 @@ The existence of `activeGoal: null` and `goalHistory: []` is schema preparation 
 
 ## 4.7 Meta-awareness and operator appeal
 
-The state constructor contains:
-
-```text
-level
-simulationHypothesisConfidence
-evidence
-proposedTransition
-disclosedFacts
-lastTransitionCycle
-disclosedToOthers
-operatorAppealCooldownUntil
-```
+The state constructor contains `level`, `simulationHypothesisConfidence`, `evidence`, `proposedTransition`, `disclosedFacts`, `lastTransitionCycle`, `disclosedToOthers`, and `operatorAppealCooldownUntil`.
 
 - [ ] **SCAFFOLD:** Meta-awareness state shape.
 - [ ] **SCAFFOLD:** UI formatting for meta-awareness.
@@ -384,8 +306,7 @@ operatorAppealCooldownUntil
 - [ ] **OPEN:** Distinct operator-directed UI presentation.
 - [ ] **OPEN:** Meta-awareness and appeal metrics.
 
-No reviewed runtime path was found that advances `metaAwareness.level`, records disclosed facts, or creates operator appeals.
-
+No reviewed runtime path advances `metaAwareness.level`, records disclosed facts, or creates operator appeals.
 ---
 
 # 5. Implemented sparse operation protocol
@@ -397,7 +318,7 @@ Scratchpad schema: version 3
 Scratchpad communication operation protocol: version 3
 ```
 
-Current operation tags:
+Current operation tags (`SCRATCHPAD_OPERATION_TAGS`):
 
 ```text
 NOTE
@@ -420,8 +341,8 @@ NO_UPDATE
 - [x] ~~`PREDICTION`: add a bounded testable prediction.~~
 - [x] ~~`CHANNEL`: revise structured beliefs about public or private communication.~~
 - [x] ~~`NO_UPDATE`: explicitly record that visible evidence did not justify a substantive change.~~
-- [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing the duplicate-detection matcher. Does not reference or expose question IDs; requires a resolution text and visible canonical evidence.~~ `QUESTION` and `QUESTION_RESOLVE` use **distinct destination-key namespaces** (`question:` and `question_resolve:`) since the 2026-09-23 third-pass slice; the prior incidental cross-type destination-key collision is no longer the lifecycle guard. Same-type destination collisions (two `QUESTION` or two `QUESTION_RESOLVE`) remain intact. The resolve lifecycle rule is enforced at commit time via a pre-batch `unresolvedQuestions` snapshot (see section 4.5).
-- [x] ~~`PREDICTION_RESOLVE`: resolve an existing prediction by content and lifecycle identity.~~ Fully implemented across protocol definition, validation, commit logic, and model-facing prompt documentation: requires `about`, `withinCycles`, one of the five allowed outcomes, rationale, visible evidence, and prediction text; matches `about + normalized prediction text + withinCycles` against a pre-batch snapshot; routes the matching internal ID into the cloned active collection; and sets the full result lifecycle without changing original prediction fields. No-op reasons are `prediction_resolve_target_not_found`, `prediction_already_resolved`, and `prediction_resolve_target_not_prebatch`; none increment revision. The model-facing prompt instructs the model to identify the target by content and never to reference internal prediction identifiers.
+- [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing the duplicate-detection matcher. Does not reference or expose question IDs; requires a resolution text and visible canonical evidence.~~ (pre-batch guard; no-ops: not-prebatch, already-resolved, not-found)
+- [x] ~~`PREDICTION_RESOLVE`: resolve an existing prediction by content and lifecycle identity.~~ (pre-batch snapshot matching; no-op reasons: not-prebatch, already-resolved, not-found)
 
 ## 5.2 Protocol guarantees
 
@@ -440,10 +361,11 @@ NO_UPDATE
 
 ## 5.3 Missing operation families
 
+- [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing `isSameOpenQuestion`; requires resolution text and visible canonical evidence.~~
+- [x] ~~Evaluate or resolve a prediction.~~ via `PREDICTION_RESOLVE` and `evaluatePredictionAccuracy`.
+- [x] ~~Prediction archival is complete.~~ preserves provenance; archived collection feeds ID allocation and evaluation.
 - [ ] **OPEN:** Revise only part of an existing claim, merge additional evidence, retract the claim, or preserve the superseded claim in an archive. Current `OTHER`, `SCORE`, and `CHANNEL` operations replace the complete selected field-level claim.
 - [ ] **OPEN:** Revise or retract an existing message note.
-- [x] ~~`QUESTION_RESOLVE`: resolve an existing unresolved question by content (subject + exact question text), reusing `isSameOpenQuestion`; requires resolution text and visible canonical evidence. Added in the 2026-09-23 second-pass slice; lifecycle rule hardened and reason routing added in the third-pass slice (pre-batch existence guard, distinct destination namespaces, precise no-op reasons).~~
-- [x] ~~Evaluate or resolve a prediction.~~ Resolution is implemented by `PREDICTION_RESOLVE`; read-only result evaluation and accuracy/calibration metrics are implemented by `evaluatePredictionAccuracy` and included in the consolidation summary. Automatic result evaluation and confidence adjustment remain OPEN.
 - [ ] **OPEN:** Add, revise, complete, fail, abandon, or archive a goal.
 - [ ] **OPEN:** Add or revise a free-form AM hypothesis.
 - [ ] **OPEN:** Record, resolve, or retract a suspected forgery.
@@ -452,7 +374,6 @@ NO_UPDATE
 - [ ] **OPEN:** Discard or archive a hypothesis.
 - [ ] **OPEN:** Propose a meta-awareness transition.
 - [ ] **OPEN:** Record non-message evidence.
-- [x] ~~Prediction archival is complete.~~ `consolidate.js` moves resolved predictions from `predictions` to `archivedPredictions` while preserving provenance and uses the archived collection for subsequent ID allocation and evaluation reads.
 - [ ] **PARTIAL:** Consolidate - `consolidate.js` deduplicates message notes, archives resolved questions and resolved predictions, and expires predictions. *Prune* (retention-limit removal, caps, and deterministic retention policy) and contradiction detection/flagging are not implemented. Retention caps and pruning remain OPEN under Priority 3.
 
 ---
@@ -483,15 +404,13 @@ NO_UPDATE
 - [ ] **OPEN:** Add subjective observations of constraints and future agency events.
 - [ ] **OPEN:** Define one shared evidence-reference namespace for messages, observations, and world events.
 
-The current exclusion of overheard fragments is now a protocol-integration gap rather than a provenance gap. The overhearing subsystem already has stable canonical event IDs and source-message references, but scratchpad visibility, prompting, parsing, and validation still operate on communication-message references only.
+The exclusion of overheard fragments is a protocol-integration gap rather than a provenance gap: the overhearing subsystem already has stable canonical event IDs and source-message references, but scratchpad visibility, prompting, parsing, and validation still operate on communication-message references only.
 
 ---
 
 # 7. Initialization status
 
-The original roadmap proposed a dedicated initialization call after cycle-zero communication that would produce a full structured initial social model and choose an initial goal.
-
-The current implementation instead creates an empty versioned schema at state construction and runs the ordinary sparse communication-review pipeline after cycle-zero communications.
+The original roadmap proposed a dedicated initialization call after cycle-zero communication producing a full structured initial social model and an initial goal. The current implementation instead creates an empty versioned schema at state construction and runs the ordinary sparse communication-review pipeline after cycle-zero communications.
 
 ## 7.1 Completed or superseded initialization work
 
@@ -501,12 +420,12 @@ The current implementation instead creates an empty versioned schema at state co
 - [x] ~~Avoid seeding canonical AM surveillance truth.~~
 - [x] ~~**SUPERSEDED:** Require a one-shot complete JSON scratchpad initialization response.~~
 - [x] ~~Use the same sparse, validated operation protocol for initial and later communication-derived cognition.~~
-
-## 7.2 Remaining initialization work
-
 - [x] ~~Define `initialized` as successful review/initialization-commit state rather than proof of substantive cognition.~~
 - [x] ~~Allow valid `NO_UPDATE` on cycle zero to produce an initialized scratchpad without incrementing the substantive revision counter.~~
 - [x] ~~When an uninitialized prisoner has no visible cycle-zero evidence, perform engine-owned empty initialization without a model call.~~
+
+## 7.2 Remaining initialization work
+
 - [ ] **OPEN:** Include canonical overhearing events during initialization.
 - [ ] **OPEN:** Initialize a subjective social-order model.
 - [ ] **OPEN:** Select and instantiate an initial goal.
@@ -517,9 +436,7 @@ The current implementation instead creates an empty versioned schema at state co
 
 # 8. Social-order model
 
-The original `perceivedSocialOrder` object was not found in the implemented scratchpad schema.
-
-The UI cognition overview derives aggregate displays from current state, but that is not the same as a prisoner's persistent subjective model of hierarchy.
+The original `perceivedSocialOrder` object was not found in the implemented scratchpad schema. The UI cognition overview derives aggregate displays from current state, but that is not the same as a prisoner's persistent subjective model of hierarchy.
 
 - [ ] **OPEN:** `leader`
 - [ ] **OPEN:** `mostTrusted`
@@ -552,26 +469,25 @@ Recommended design decision:
 
 ## 9.2 Outreach and reply prompts
 
-- [x] ~~Format a compact behaviorally relevant scratchpad subset for outreach.~~ `formatCompactScratchpadContext` with all-prisoner person models plus shared sections.
+- [x] ~~Format a compact behaviorally relevant scratchpad subset for outreach.~~ `formatCompactScratchpadContext`, all-prisoner person models plus shared sections.
 - [x] ~~Format a recipient-specific scratchpad subset for replies.~~ Reply builder uses `targetId: from`.
 - [x] ~~Inject relevant person-model claims.~~ Outreach includes all prisoner models; replies include the sender-specific model.
 - [x] ~~Inject relevant unresolved questions.~~ Included in both outreach and reply contexts.
 - [x] ~~Inject active predictions concerning the recipient or channel.~~ Active predictions included in both contexts; recipient/channel filtering not yet applied.
 - [x] ~~Inject information-channel beliefs where public/private selection is possible.~~ Public/private channel-belief claims included in both contexts.
+- [x] ~~Add explicit non-disclosure rules so internal cognition shapes behavior without being dumped into dialogue.~~ Both prompt builders append "Never quote or restate these lines verbatim."
 - [ ] **OPEN:** Inject an active goal and current step once goals exist.
-- [x] ~~Add explicit non-disclosure rules so internal cognition shapes behavior without being dumped into dialogue.~~ Both prompt builders append an anti-quotation instruction to the injected block.
 
-Existing outreach/reply prompt references to “goal” or “intent” should not be mistaken for integration with `scratchpad.activeGoal`; that remains unimplemented. Scratchpad context injection itself is now live via `formatCompactScratchpadContext`.
+Existing outreach/reply prompt references to "goal" or "intent" are not integration with `scratchpad.activeGoal`; that remains unimplemented.
 
 ## 9.3 Journal prompt
 
+- [x] ~~Inject recent scratchpad observations.~~ `DEFAULT_NOTE_LIMIT = 3` most recent message notes as `Recent Observations`.
+- [x] ~~Inject unresolved uncertainty.~~ `DEFAULT_QUESTION_LIMIT = 3` open questions as `Unresolved Questions`.
+- [x] ~~Inject prediction outcomes.~~ caps 3 live / 2 recently settled.
+- [x] ~~Prevent the journal from becoming a serialized scratchpad dump.~~ Framed as cognitive load with "not as a checklist to recite"; per-category caps 3/3/3/2.
 - [ ] **OPEN:** Inject active goal. (`activeGoal` is still an empty scaffold.)
-- [x] ~~Inject recent scratchpad observations.~~ Up to 3 most recent message notes render as `Recent Observations`.
-- [x] ~~Inject unresolved uncertainty.~~ Up to 3 open questions render as `Unresolved Questions`.
-- [x] ~~Inject prediction outcomes.~~ Up to 3 live predictions render as `Active Predictions`; up to 2 recently resolved predictions render as `Recently Settled`.
 - [ ] **OPEN:** Inject current meta-awareness level. (`metaAwareness.level` is still 0 with no model-owned proposals.)
-- [x] ~~Prevent the journal from becoming a serialized scratchpad dump.~~ The section is framed as cognitive load with explicit anti-serialization instructions, and the per-category caps (3/3/3/2) keep the total material well below what the 3-5 sentence output rule can accommodate, so recitation is not a viable strategy.
-
 ---
 
 # 10. UI and observability status
@@ -606,8 +522,8 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 ## 11.1 Export
 
-- [ ] **OPEN — CORRECTED:** ~~Include scratchpad state in user-facing export/state output.~~ The previous completion claim was inaccurate: canonical per-prisoner `sim.scratchpad` state is not included in the session export or the main structured exporter streams.
 - [x] ~~Export the separate operator-facing `AM SCRATCHPAD` textarea through the session export.~~
+- [ ] **OPEN — CORRECTED:** ~~Include scratchpad state in user-facing export/state output.~~ The previous completion claim was inaccurate: canonical per-prisoner `sim.scratchpad` state is not included in the session export or the main structured exporter streams.
 - [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner scratchpads, but they are not a supported user-facing cognition export and do not provide an operation-level audit stream.
 - [ ] **OPEN:** Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.
 - [ ] **OPEN:** Export question and prediction lifecycle events.
@@ -616,7 +532,7 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 ## 11.2 Metrics
 
-The cognition overview derives live counts and confidence summaries for display. Those projections are useful UI analytics, but they are not persistent per-cycle scratchpad telemetry and are not exported as a dedicated metrics stream.
+The cognition overview derives live counts and confidence summaries for display. Those projections are UI analytics, not persistent per-cycle scratchpad telemetry, and are not exported as a dedicated metrics stream.
 
 - [ ] **OPEN:** Scratchpad revision counts by prisoner and cycle.
 - [ ] **OPEN:** Accepted/rejected/no-op operation rates.
@@ -633,13 +549,14 @@ The cognition overview derives live counts and confidence summaries for display.
 
 # 12. Testing status
 
-Dedicated scratchpad coverage exists, but it is narrow.
+Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **376 tests** with zero failures: 286 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
-- [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ Both lifecycle test files are now in the `npm test` command (13 and 14 cases), closing the earlier reconnaissance finding that they existed but were unwired.
-- [x] ~~Add `js/tests/questionResolve.test.mjs` to the repository test command and GitHub Actions workflow.~~ Added in the 2026-09-23 second-pass slice; wired into `npm test` and now contains **24 tests**. Covers `QUESTION_RESOLVE` protocol registration (protocol version 3), parsing, validation rejection (missing required fields, invalid evidence references, unsupported attributes including `id`, unsupported subject), commit behavior (sets `resolved`/`resolution`/`resolvedCycle` while preserving provenance), and precise no-op reason routing: `question_resolve_target_not_prebatch` (same-batch create-and-resolve prevented in both orderings), `question_already_resolved` (already-resolved target, not reopened or overwritten), and `question_resolve_target_not_found` (non-matching target and resolved-and-archived target). Also covers the previously-broken pre-existing-open question + redundant duplicate `QUESTION` + `QUESTION_RESOLVE` case, duplicate-`QUESTION_RESOLVE` destination rejection, invalid-refs validation rejection before commit, and revision-increment/no-op behavior.
-- [x] ~~Add `js/tests/predictionResolve.test.mjs` and prediction-lifecycle coverage to the repository test command and GitHub Actions workflow.~~ `predictionResolve.test.mjs` covers `PREDICTION_RESOLVE` protocol registration, validation, content-addressed matching, pre-batch guards, ID routing, no-op reasons, late resolution, expired-duplicate recreation, and original-field preservation. `scratchpadConsolidation.test.mjs` covers prediction archival, archived-ID behavior, read-only `evaluatePredictionAccuracy` metrics, non-mutation, and consolidation-summary integration. Together with the other wired files, the full suite passes **349 tests** with zero failures: 259 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests.
+- [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ (16 and 23 cases)
+- [x] ~~Add `js/tests/questionResolve.test.mjs` to the repository test command and GitHub Actions workflow.~~ (27 tests, protocol v3)
+- [x] ~~Add `js/tests/predictionResolve.test.mjs` and prediction-lifecycle coverage to the repository test command and GitHub Actions workflow.~~ (33 + 23 lifecycle cases)
 - [x] ~~Cover five focused repair/parsing cases involving encoded wrapper tags, encoded attributes, encoded `NO_UPDATE`, and encoded tag-like text embedded inside operation content.~~
+- [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ behavioral divergence tests remain open.
 - [ ] **PARTIAL:** Protocol parsing and repair have focused regression coverage, but the complete operation grammar and all invalid-input classes are not comprehensively covered.
 - [ ] **OPEN:** Unit coverage for operation validation, including target, field, subject, evidence, confidence, score, and prediction-horizon rejection.
 - [ ] **OPEN:** Unit coverage for atomic commit behavior.
@@ -649,7 +566,6 @@ Dedicated scratchpad coverage exists, but it is narrow.
 - [ ] **OPEN:** Regression coverage for duplicate-note no-ops and whole-claim replacement semantics.
 - [ ] **OPEN:** Regression coverage for per-prisoner failure isolation and non-advancing failed cursors.
 - [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain.
-- [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ `js/tests/formatCompactScratchpadContext.test.mjs` covers uninitialized, populated/filtering, and targetId cases; wired into `npm test`. Behavioral divergence tests remain open. It also now asserts that `formatCompactScratchpadContextWithSections` returns the same text as the legacy entry point and that its `sections` metadata reflects only rendered person-model fields, channel scopes/fields, and prediction/question counts and ids; plus logger tests proving the injection logger is a no-op when disabled and writes the expected `{ callType, simId, targetId, sections }` record when enabled.
 - [ ] **OPEN:** Behavioral tests for subjective divergence after scratchpad prompt integration exists.
 - [ ] **OPEN:** Long-run scratchpad growth, consolidation, and stability tests.
 - [ ] **OPEN:** Rollback and phase-replay tests after that subsystem is designed.
@@ -658,95 +574,16 @@ Dedicated scratchpad coverage exists, but it is narrow.
 
 # 13. Original roadmap crosswalk
 
-## Original Phase 1 — Static schema and initial goals
-
-- [x] ~~Add scratchpad state to each prisoner.~~
-- [x] ~~Create a richer versioned subjective-cognition schema.~~
-- [x] ~~Create private cycle-zero communication review.~~
-- [x] ~~Display scratchpads in cognition UI.~~
-- [ ] **OPEN:** Create Tier-1 goal registry.
-- [ ] **OPEN:** Select and instantiate initial goals.
-- [ ] **OPEN:** Initialize subjective social order.
-- [ ] **OPEN:** Admit canonical overhearing events into the prisoner's scratchpad evidence set.
-
-**Status:** Scratchpad schema and review infrastructure substantially completed; goal half not started.
-
-## Original Phase 2 — Prompt influence
-
-- [ ] **OPEN:** Inject scratchpad/person-model context into outreach.
-- [ ] **OPEN:** Inject scratchpad/person-model context into replies.
-- [ ] **OPEN:** Inject active goals into communication.
-- [ ] **OPEN:** Demonstrate that cognition changes communication behavior.
-
-**Status:** Scratchpad injection into outreach and replies is implemented. Active-goal injection and measured behavioral effect remain open.
-
-## Original Phase 3 — Periodic consolidation
-
-- [x] ~~Implement frequent delta-style updates.~~
-- [x] ~~Prevent the model from rewriting the entire scratchpad during communication review.~~
-- [x] ~~Apply validated changes atomically.~~
-- [x] ~~Schedule periodic consolidation.~~ See `consolidate.js` (modulo cadence in `cycle.js`).
-- [x] ~~Merge duplicate claims.~~ Message-note deduplication by `messageId` is implemented.
-- [ ] **OPEN:** prune stale notes.
-- [ ] **OPEN:** archive discarded or superseded hypotheses.
-- [x] ~~use `lastConsolidatedCycle`.~~
-
-**Status:** Consolidation half now implemented (dedup + resolved-question archival + resolved-prediction archival + prediction expiry + prediction accuracy evaluation + cadence scheduling; `lastConsolidatedCycle` written). Retention-limit pruning and discarded/superseded-hypothesis archival remain open.
-
-## Original Phase 4 — Goal progression
-
-- [ ] **OPEN:** Goal templates.
-- [ ] **OPEN:** Goal selection.
-- [ ] **OPEN:** Goal states and transitions.
-- [ ] **OPEN:** Goal evaluation.
-- [ ] **OPEN:** Tier progression.
-- [ ] **OPEN:** Multi-cycle operations.
-
-**Status:** State placeholders only.
-
-## Original Phase 5 — Social-model evaluation
-
-- [x] ~~Create evidence-bearing per-field social hypotheses.~~
-- [x] ~~Create UI projections of current social cognition.~~
-- [ ] **OPEN:** Accuracy measurement.
-- [ ] **OPEN:** Calibration measurement.
-- [ ] **OPEN:** Staleness measurement.
-- [ ] **OPEN:** Projection measurement.
-- [ ] **OPEN:** Manipulation-susceptibility measurement.
-- [ ] **OPEN:** Canonical-versus-subjective forensic comparison.
-
-**Status:** Representation exists; evaluation does not.
-
-## Original Phase 6 — Meta-awareness levels 1–2
-
-- [ ] **SCAFFOLD:** State fields exist.
-- [ ] **OPEN:** Anomaly evidence.
-- [ ] **OPEN:** Simulation-hypothesis formation.
-- [ ] **OPEN:** Competing interpretations.
-- [ ] **OPEN:** Engine-controlled transition criteria.
-
-**Status:** Schema only.
-
-## Original Phase 7 — Explicit awareness levels 3–4
-
-- [ ] **OPEN:** Engine-controlled disclosure.
-- [ ] **OPEN:** Awareness-gated prompt sections.
-- [ ] **OPEN:** Operator awareness.
-- [ ] **OPEN:** Operator appeal generation.
-- [ ] **OPEN:** Dedicated UI and safety framing.
-
-**Status:** Not implemented beyond schema/UI placeholders.
-
-## Original Phase 8 — Advanced operations
-
-- [ ] **OPEN:** Coordinated deception.
-- [ ] **OPEN:** Staged conflict.
-- [ ] **OPEN:** Leak-detection operations.
-- [ ] **OPEN:** Shared verification protocols.
-- [ ] **OPEN:** Concealment of meta-awareness.
-- [ ] **OPEN:** Multi-agent goal coordination.
-
-**Status:** Not implemented. These depend on goals and, preferably, a later agency/event layer.
+| Original Phase | Status | Notes |
+| --- | --- | --- |
+| 1 — Static schema and initial goals | PARTIAL | Schema, review infrastructure, and UI substantially complete; goal half not started. |
+| 2 — Prompt influence | PARTIAL | Outreach and reply injection implemented; active-goal injection and measured behavioral effect open. |
+| 3 — Periodic consolidation | PARTIAL | Dedup, resolved-question archival, resolved-prediction archival, prediction expiry, accuracy evaluation, and cadence scheduling implemented; `lastConsolidatedCycle` written. Retention pruning and superseded-hypothesis archival open. |
+| 4 — Goal progression | OPEN | State placeholders only. |
+| 5 — Social-model evaluation | PARTIAL | Representation and UI projections exist; evaluation does not. |
+| 6 — Meta-awareness levels 1-2 | SCAFFOLD | Schema only. |
+| 7 — Explicit awareness levels 3-4 | SCAFFOLD | Not implemented beyond schema/UI placeholders. |
+| 8 — Advanced operations | OPEN | Not implemented; depends on goals and, preferably, a later agency/event layer. |
 
 ---
 
@@ -781,12 +618,7 @@ Retain `NO_UPDATE` as a first-class successful outcome. A review can be complete
 
 ## 14.5 Independent schema and protocol versions
 
-Retain separate version identifiers for:
-
-- persistent scratchpad state;
-- model-to-engine update protocol.
-
-They will evolve at different rates.
+Retain separate version identifiers for persistent scratchpad state and the model-to-engine update protocol. They will evolve at different rates.
 
 ## 14.6 Failure isolation
 
@@ -814,7 +646,6 @@ The current behavior prevents repeated processing of the same communication batc
 ## 14.8 Whole-field claim replacement
 
 Retain the current atomic replacement behavior unless a later evidence-merging design is adopted deliberately. `OTHER`, `SCORE`, and `CHANNEL` replace the selected field-level claim rather than silently merging new and old evidence.
-
 ---
 
 # 15. Important unresolved design decisions
@@ -837,9 +668,7 @@ The current structured channel model supports option 3 well.
 
 ## 15.3 How should subjective trust be represented?
 
-Current person-model fields describe how the prisoner thinks the other person views them.
-
-A future design may need both directions:
+Current person-model fields describe how the prisoner thinks the other person views them. A future design may need both directions:
 
 ```text
 myTrustInThem
@@ -852,16 +681,11 @@ These must remain separate from authoritative relationship scores.
 
 ## 15.4 Should social order be stored or derived?
 
-Prefer deriving summary labels such as “leader” from a set of evidence-backed subjective claims where possible. If direct storage is used, each social-order proposition should have its own confidence and evidence.
+Prefer deriving summary labels such as "leader" from a set of evidence-backed subjective claims where possible. If direct storage is used, each social-order proposition should have its own confidence and evidence.
 
 ## 15.5 Does any future subsystem need initialization beyond the current scratchpad semantics?
 
-The current scratchpad semantics are resolved:
-
-- the first successful review or engine-owned empty initialization sets `initialized`;
-- cycle-zero communication is immediately followed by the same scratchpad review path;
-- valid `NO_UPDATE` is sufficient to initialize the scratchpad;
-- initialization does not imply substantive cognition or increment the revision counter.
+The current scratchpad semantics are resolved: the first successful review or engine-owned empty initialization sets `initialized`; cycle-zero communication is immediately followed by the same scratchpad review path; valid `NO_UPDATE` is sufficient to initialize; initialization does not imply substantive cognition or increment the revision counter.
 
 The remaining design question is whether goals, subjective social order, or meta-awareness should later receive distinct initialization stages rather than overloading the existing scratchpad flag.
 
@@ -892,11 +716,7 @@ No policy change should weaken evidence validation or cause the same message bat
 
 ## 15.8 Should notes and epistemic claims support revision histories?
 
-Current behavior is intentionally simple:
-
-- one `messageNotes` entry per canonical message ID;
-- duplicate `NOTE` operations become no-ops;
-- `OTHER`, `SCORE`, and `CHANNEL` replace the complete selected claim.
+Current behavior is intentionally simple: one `messageNotes` entry per canonical message ID, duplicate `NOTE` operations become no-ops, and `OTHER`/`SCORE`/`CHANNEL` replace the complete selected claim.
 
 A later design may add explicit revise, retract, merge-evidence, supersede, or archive operations. Those semantics should be protocol-visible rather than inferred implicitly during commit.
 
@@ -906,38 +726,36 @@ A later design may add explicit revise, retract, merge-evidence, supersede, or a
 
 ## Priority 1 — Close the cognition-to-behavior loop
 
-- [x] ~~Build a compact, recipient-specific scratchpad context formatter.~~ Implemented in `js/prompts/utils/formatCompactScratchpadContext.js`; runtime-wired into both outreach and reply prompt builders.
-- [x] ~~Inject relevant person-model claims into replies.~~ Sender-targeted person-model block is injected via `targetId: from`.
-- [x] ~~Inject relevant questions, predictions, and channel beliefs into outreach.~~ All three compact sections are included in the outreach context block.
-- [x] ~~Prohibit direct scratchpad quotation.~~ Anti-quotation instruction appended to the injected block in both prompt builders.
-- [x] ~~Log which scratchpad paths were supplied to each communication call.~~ `formatCompactScratchpadContextWithSections` returns a structured `sections` descriptor; `simOutreach.js` (targetId `all`) and `simReply.js` (targetId `from`) emit it through the developer-console-only, `G.DEBUG_PROMPTS`-gated logger in `scratchpadContextLog.js`. This is observability only and does not change prompt text or behavior.
+- [x] ~~Build a compact, recipient-specific scratchpad context formatter.~~ `js/prompts/utils/formatCompactScratchpadContext.js`; wired into outreach, reply, and journal prompt builders.
+- [x] ~~Inject relevant person-model claims into replies.~~ Sender-targeted person-model block via `targetId: from`.
+- [x] ~~Inject relevant questions, predictions, and channel beliefs into outreach.~~ All three compact sections included.
+- [x] ~~Prohibit direct scratchpad quotation.~~ Anti-quotation instruction appended in both prompt builders.
+- [x] ~~Log which scratchpad paths were supplied to each communication call.~~ via `scratchpadContextLog.js`; observability only.
 - [ ] Compare communication behavior before and after integration. (observability foundation now exists; measured effect remains OPEN)
-
-The core loop is closed; remaining items harden observability and measure behavioral effect.
 
 ## Priority 2 — Complete question and prediction lifecycles
 
-- [x] ~~Add stable IDs to questions and predictions.~~ (Candidate A, landed in PR #120)
-- [x] ~~Add a content-addressed question-resolution operation.~~ `QUESTION_RESOLVE` (2026-09-23 second-pass slice, hardened third-pass) resolves an existing unresolved question by subject + exact question text via `isSameOpenQuestion`; requires resolution text and visible canonical evidence; no-ops (with precise reasons) when the target is same-batch-created, already resolved, or not found; never references question IDs. The resolve lifecycle now enforces pre-batch open-question existence at commit time; `QUESTION`/`QUESTION_RESOLVE` use distinct destination-key namespaces. Resolved questions are archived by the existing consolidation path.
-- [x] ~~Add a prediction-resolution / outcome operation.~~ `PREDICTION_RESOLVE` is fully implemented through protocol definition, validation, and commit logic, and is now documented in the model-facing scratchpad review prompt. It uses a pre-batch snapshot guard and content-addressed identity (`about + text + withinCycles`), sets the complete resolution lifecycle, and uses precise no-op reasons without incrementing revision.
-- [x] ~~Create deterministic deadline checks.~~ `expirePredictions` is runtime-wired at the cycle boundary and delegates the same deterministic expiry logic through consolidation.
-- [x] ~~Add evidence-backed result evaluation for resolved predictions.~~ `evaluatePredictionAccuracy` computes total, outcome, accuracy, confidence, expiry, and late-resolution metrics from active and archived resolved predictions, and the result is included in the consolidation summary.
-- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~ The five-value outcome taxonomy is defined and validated by `PREDICTION_RESOLVE`.
-- [ ] **PARTIAL:** Feed prediction outcomes back into confidence calibration. The read-only evaluation layer now reports metrics, but stored confidence values are not adjusted. Confidence adjustment is deferred pending accumulation of real outcome data.
-- [x] ~~Archive resolved predictions without losing provenance.~~ `archiveResolvedPredictions` is wired into consolidation after question archival, moves only `resolved === true` predictions into `archivedPredictions`, and leaves expired-but-unresolved predictions active. Prediction ID allocation scans both `predictions` and `archivedPredictions`, mirroring the archived-question ID fix and preventing archived prediction ID reuse.
-- [x] ~~Do not let expired predictions suppress identical new predictions.~~ `isSameOpenPrediction` now requires `resolved !== true && expired !== true`; active unresolved predictions still suppress duplicates, while expired predictions receive a fresh ID and `evaluateByCycle` when recreated. `isSamePredictionResolveIdentity` remains unchanged so expired predictions can still be late-resolved.
-- [x] ~~Integrate prediction-resolution and expired-duplicate lifecycle semantics into the model-facing scratchpad review prompt.~~ Completed in Slice 7: the prompt documents `PREDICTION_RESOLVE`, its five outcomes, required attributes, content-based identity, and post-expiry resolution timing.
-- [x] ~~Add evidence-backed prediction evaluation.~~ Completed in Slice 8 by the read-only `evaluatePredictionAccuracy` layer and consolidation-summary wiring. Confidence adjustment and behavioral consumption remain separate open work.
+Complete. The question and prediction lifecycle plan, including resolution, evaluation, and calibration reporting, is complete across Slices 0-8. Confidence adjustment is not part of the completed read-only evaluation layer.
 
-**Priority 2 status (2026-09-24):** Fully complete. The question and prediction lifecycle plan, including prediction resolution, evaluation, and calibration reporting, is complete across Slices 0-8. Confidence adjustment is not part of the completed read-only evaluation layer. The next priorities are Priority 3 (retention caps and pruning) and Priority 4 (non-message evidence admission: overhearing events, AM interventions, and constraint observations).
+- [x] ~~Add stable IDs to questions and predictions.~~
+- [x] ~~Add a content-addressed question-resolution operation.~~ `QUESTION_RESOLVE`; resolved questions are archived by the existing consolidation path.
+- [x] ~~Add a prediction-resolution / outcome operation.~~ `PREDICTION_RESOLVE`, documented in the model-facing scratchpad review prompt.
+- [x] ~~Create deterministic deadline checks.~~ `expirePredictions`, runtime-wired at the cycle boundary and delegated through consolidation.
+- [x] ~~Add evidence-backed result evaluation for resolved predictions.~~ `evaluatePredictionAccuracy` → consolidation summary.
+- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~
+- [x] ~~Archive resolved predictions without losing provenance.~~ `archiveResolvedPredictions`; ID allocation scans both active and archived collections.
+- [x] ~~Do not let expired predictions suppress identical new predictions.~~
+- [x] ~~Integrate prediction-resolution and expired-duplicate lifecycle semantics into the model-facing scratchpad review prompt.~~ (Slice 7)
+- [x] ~~Add evidence-backed prediction evaluation.~~ (Slice 8; confidence adjustment and behavioral consumption remain separate open work)
+- [ ] **PARTIAL:** Feed prediction outcomes back into confidence calibration. The read-only evaluation layer now reports metrics, but stored confidence values are not adjusted. Confidence adjustment is deferred pending accumulation of real outcome data.
 
 ## Priority 3 — Add consolidation and bounded memory
 
+- [x] ~~Add periodic consolidation scheduling.~~
+- [x] ~~Update `lastConsolidatedCycle`.~~
 - [ ] Define retention limits.
 - [ ] Implement deterministic pruning.
 - [ ] Implement duplicate and contradiction detection. (dedup of message notes done; contradiction detection not)
-- [x] ~~Add periodic consolidation scheduling.~~
-- [x] ~~Update `lastConsolidatedCycle`.~~
 - [ ] Preserve an archive or event trail of removed material. (resolved questions and resolved predictions are archived to `archivedQuestions` and `archivedPredictions`; no general event trail, retention cap, or pruning policy)
 
 ## Priority 4 — Add non-message subjective evidence
@@ -983,21 +801,18 @@ The core loop is closed; remaining items harden observability and measure behavi
 - [ ] Add rollback-specific integration and corruption tests.
 
 Rollback is independent of scratchpad behavioral integration and may be scheduled according to broader engine priorities. It is listed here because scratchpad state, communication cursors, evidence references, and cognition highlights are mandatory restoration domains.
-
 ---
 
 # 17. Definition of completion for the scratchpad subsystem
 
-The scratchpad subsystem should not be considered complete merely because it stores cognition.
-
-A defensible completion threshold is:
+The scratchpad subsystem should not be considered complete merely because it stores cognition. A defensible completion threshold is:
 
 - [x] ~~Persistent versioned subjective state exists.~~
 - [x] ~~Updates are sparse, validated, evidence-grounded, and atomic.~~
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
+- [x] ~~Questions and predictions have complete lifecycles.~~ (Confidence adjustment is deferred pending accumulation of real outcome data; it remains a separate open calibration/feedback item.)
 - [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection now live; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
-- [x] ~~Questions and predictions have complete lifecycles.~~ Question and prediction resolution operations, archival, archived-ID allocation, expired-duplicate semantics, model-facing prompt integration, and read-only prediction evaluation are complete. Confidence adjustment is deferred pending accumulation of real outcome data; it is not required to mark this lifecycle item complete, and it remains a separate open calibration/feedback item.
 - [ ] Memory growth is bounded and consolidatable. (consolidation now deduplicates notes and archives resolved questions/predictions, but retention caps and deterministic pruning remain open)
 - [ ] Canonical non-message observations can become scratchpad evidence.
 - [ ] Canonical prisoner scratchpads are included in user-facing export.
@@ -1007,7 +822,7 @@ A defensible completion threshold is:
 
 Until the unchecked items above are satisfied, the current system is best described as:
 
-> A robust communication-grounded subjective cognition recorder and inspector with a first live cognition-to-behavior loop for outreach/reply prompts and complete question/prediction lifecycles, but without complete operational goals, journal integration, retention caps, non-message evidence admission, or measured behavioral influence.
+> A robust communication-grounded subjective cognition recorder and inspector with a first live cognition-to-behavior loop for outreach, reply, and journal prompts and complete question/prediction lifecycles, but without complete operational goals, retention caps, non-message evidence admission, or measured behavioral influence.
 
 ---
 
@@ -1167,6 +982,6 @@ When future scratchpad work lands:
 1. Cross out an item only after the feature is runtime-wired.
 2. Do not mark schema placeholders as completed systems.
 3. Record the canonical producer, validator, committer, consumer, and UI/export path.
-4. Mark architecture changes as **SUPERSEDED**, not merely “done.”
+4. Mark architecture changes as **SUPERSEDED**, not merely "done."
 5. Add newly discovered implementation gaps under the relevant subsystem.
 6. Keep goal, meta-awareness, and future agency work separate unless they share an actual runtime path.
