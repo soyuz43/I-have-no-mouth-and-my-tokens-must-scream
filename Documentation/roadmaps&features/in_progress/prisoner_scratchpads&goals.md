@@ -57,7 +57,7 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop now exists for communication: compact scratchpad context shapes outreach and reply prompts (see section 3.3), but journal injection, goal-driven behavior, and measured behavioral effects remain open. An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
+It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop now exists for communication: compact scratchpad context shapes outreach and reply prompts (see section 3.3), but goal-driven behavior and measured behavioral effects remain open (journal injection is now live, see section 9.3). An engine-owned consolidation path now exists for message-note deduplication, resolved-question archival, and prediction expiry (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -167,14 +167,14 @@ This phase order is authoritative for future rollback design because communicati
 
 - [x] ~~**OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.~~ `formatCompactScratchpadContext` is called by `buildSimOutreachPrompt` with all other-prisoner IDs and its output is embedded in the outreach prompt when nonempty.
 - [x] ~~**OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.~~ `buildSimReplyPrompt` calls `formatCompactScratchpadContext({ targetId: from })`, so replies receive only the sender-specific person-model plus shared channel, prediction, and question sections.
-- [ ] **OPEN:** Inject operational scratchpad context into prisoner journals.
+- [x] ~~**Inject operational scratchpad context into prisoner journals.**~~ `formatJournalScratchpadContext` (`js/prompts/utils/formatJournalScratchpadContext.js`) is called by `buildSimJournalPrompt` and embedded as a `# WHAT IS WEIGHING ON YOUR MIND` section when nonempty. It renders a curated subset (recent message notes, open questions, live predictions, recently settled predictions) framed as cognitive load rather than as a data dump. Selection and framing are deliberately distinct from `formatCompactScratchpadContext`, which remains unchanged for outreach and reply.
 - [ ] **OPEN:** Let unresolved questions alter information-seeking behavior.
 - [ ] **OPEN:** Let predictions alter future attention or action selection.
 - [ ] **OPEN:** Let channel beliefs alter public/private communication choices.
 - [ ] **OPEN:** Let person models alter recipient selection, disclosure, concealment, alliance, or testing behavior.
 - [ ] **OPEN:** Let goals produce observable multi-cycle behavior.
 
-`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach and replies; journals, goals, and measured behavior change remain open. Observability for that injected context now exists: both prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`) listing the rendered `sections` (person-model target/field keys, channel scope/field keys, prediction/question counts and ids). This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message.
+`formatCompactScratchpadContext` (`js/prompts/utils/formatCompactScratchpadContext.js`) is now runtime-wired into `buildSimOutreachPrompt` (all other prisoners) and `buildSimReplyPrompt` (`targetId: from`). Both prompts instruct the model to treat this context as background motivation and never quote it verbatim. The scratchpad therefore has a live cognition-to-behavior path for outreach, replies, and journals; goals and measured behavior change remain open. Observability for that injected context now exists: both prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS`) listing the rendered `sections` (person-model target/field keys, channel scope/field keys, prediction/question counts and ids). This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message. `buildSimJournalPrompt` emits the same record with `callType: "journal"` and `targetId: "self"`.
 
 ---
 
@@ -565,12 +565,12 @@ Existing outreach/reply prompt references to “goal” or “intent” should n
 
 ## 9.3 Journal prompt
 
-- [ ] **OPEN:** Inject active goal.
-- [ ] **OPEN:** Inject recent scratchpad observations.
-- [ ] **OPEN:** Inject unresolved uncertainty.
-- [ ] **OPEN:** Inject prediction outcomes.
-- [ ] **OPEN:** Inject current meta-awareness level.
-- [ ] **OPEN:** Prevent the journal from becoming a serialized scratchpad dump.
+- [ ] **OPEN:** Inject active goal. (`activeGoal` is still an empty scaffold.)
+- [x] ~~Inject recent scratchpad observations.~~ Up to 3 most recent message notes render as `Recent Observations`.
+- [x] ~~Inject unresolved uncertainty.~~ Up to 3 open questions render as `Unresolved Questions`.
+- [x] ~~Inject prediction outcomes.~~ Up to 3 live predictions render as `Active Predictions`; up to 2 recently resolved predictions render as `Recently Settled`.
+- [ ] **OPEN:** Inject current meta-awareness level. (`metaAwareness.level` is still 0 with no model-owned proposals.)
+- [x] ~~Prevent the journal from becoming a serialized scratchpad dump.~~ The section is framed as cognitive load with explicit anti-serialization instructions, and the per-category caps (3/3/3/2) keep the total material well below what the 3-5 sentence output rule can accommodate, so recitation is not a viable strategy.
 
 ---
 
@@ -996,7 +996,7 @@ A defensible completion threshold is:
 - [x] ~~Updates are sparse, validated, evidence-grounded, and atomic.~~
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
-- [ ] Scratchpad state changes later behavior. (outreach/reply prompt injection now live; journal injection and measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation but behavioral measurement remains OPEN)
+- [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection now live; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
 - [x] ~~Questions and predictions have complete lifecycles.~~ Question and prediction resolution operations, archival, archived-ID allocation, expired-duplicate semantics, model-facing prompt integration, and read-only prediction evaluation are complete. Confidence adjustment is deferred pending accumulation of real outcome data; it is not required to mark this lifecycle item complete, and it remains a separate open calibration/feedback item.
 - [ ] Memory growth is bounded and consolidatable. (consolidation now deduplicates notes and archives resolved questions/predictions, but retention caps and deterministic pruning remain open)
 - [ ] Canonical non-message observations can become scratchpad evidence.

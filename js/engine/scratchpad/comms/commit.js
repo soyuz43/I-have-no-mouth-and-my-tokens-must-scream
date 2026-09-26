@@ -902,10 +902,6 @@ function applyQuestionResolveOperation({
       "question_resolve_target_not_found",
   };
 
-  return {
-    changed: true,
-    path,
-  };
 }
 
 /* ============================================================

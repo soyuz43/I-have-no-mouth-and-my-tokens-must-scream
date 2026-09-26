@@ -2,9 +2,9 @@
 //
 // Developer-only observability logger for scratchpad prompt injection.
 //
-// Records, for a single outreach or reply prompt build, which scratchpad
-// sections and field paths were supplied to the communication prompt via
-// formatCompactScratchpadContext*.
+// Records, for a single prompt build, which scratchpad sections and field
+// paths were supplied via formatCompactScratchpadContext* (outreach, reply)
+// or formatJournalScratchpadContext (journal).
 //
 // Constraints (this is a purely additive observability slice):
 // - Writes only to the developer console. No DOM access.
@@ -45,14 +45,26 @@ function safeConsoleLog(record) {
 
 /**
  * Log a structured record describing the scratchpad context injected
- * into a single communication prompt.
+ * into a single prompt.
+ *
+ * Three call types are recognized, each pairing a formatter with the
+ * prompt it feeds:
+ * - "outreach": formatCompactScratchpadContextWithSections, all others
+ * - "reply":    formatCompactScratchpadContextWithSections, one target
+ * - "journal":  formatJournalScratchpadContext, self-directed
+ *
+ * The record shape is identical across all three; `callType` and
+ * `targetId` are what distinguish them. Journal passes targetId "self"
+ * because the journal has no recipient.
  *
  * @param {object} params
- * @param {"outreach"|"reply"} params.callType
+ * @param {"outreach"|"reply"|"journal"} params.callType
  * @param {string} params.simId
- * @param {string} params.targetId - reply target id, or "all" for outreach
+ * @param {string} params.targetId - reply target id, "all" for outreach,
+ *   or "self" for journal
  * @param {Array<object>} params.sections - section descriptors from
- *   formatCompactScratchpadContextWithSections
+ *   formatCompactScratchpadContextWithSections (outreach/reply) or
+ *   formatJournalScratchpadContext (journal)
  * @param {Function} [params.isEnabled] - optional override for the enabled
  *   check (used by tests to force the logger on); defaults to the
  *   G.DEBUG_PROMPTS check.
