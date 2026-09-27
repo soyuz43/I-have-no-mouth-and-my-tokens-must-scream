@@ -155,33 +155,35 @@ You can then derive this profile from active constraints without yet connecting 
 
 ## 3. Generic action definition shape
 
-You can define the contract without filling the library:
+You can define the contract without filling the library. The shape is
+illustrated here with a physical action, because communication is not
+an agency action (see the note below):
 
 ```js
 {
-  type: "SEND_MESSAGE",
+  type: "REACH_TOWARD",
   baseCost: 1,
 
   requirements: {
-    concentration: 0.15
+    interactionReach: 0.15
   },
 
   effortDomains: [
-    "cognitive"
+    "mobility"
   ],
 
   executionModes: {
-    fragmentary: {
+    strained: {
       cost: 1,
       minimums: {
-        concentration: 0.1
+        interactionReach: 0.1
       }
     },
 
-    coherent: {
+    deliberate: {
       cost: 2,
       minimums: {
-        concentration: 0.4
+        stability: 0.4
       }
     }
   }
@@ -190,7 +192,13 @@ You can define the contract without filling the library:
 
 Every key inside `requirements` and inside each mode's `minimums` must be one of the five implemented capability keys. A requirement naming any other key cannot be evaluated, because `deriveCapabilities()` has no value to compare it against.
 
-There is no `speech` capability key, so `SEND_MESSAGE` cannot currently be gated by a gag or a silencing. Quality degradation therefore keys off `concentration` alone until a constraint supplies a speech-affecting posture field. Communication itself still happens in the existing communication phase, which is not capability-gated.
+> **SEND_MESSAGE is not an agency action.** Communication is handled by the Social Phase. The Agency Phase is for physical and object-manipulation actions only.
+
+An earlier revision of this document used `SEND_MESSAGE` as the worked example for the action shape and gave it a `fragmentary`/`coherent` mode ladder. That was a placeholder to exercise the mode machinery, and it was wrong about ownership: `runSocialPhase()` and `communicationPhase.js` already own messaging as a rich, sequential, reactive, turn-taking engine (outreach, replies, rumors, overhearing, escalation, reactive intel). Keeping a second, capability-gated messaging action in the agency registry created redundancy and architectural confusion. `SEND_MESSAGE` has been removed from `js/engine/agency/actionDefs.js`.
+
+The mode machinery itself is unchanged. `legalActions.js` still reads `executionModes` on any definition, and a future physical action may use a ladder for a graded attempt rather than a degraded message. The only consequence is that no registry entry currently declares one.
+
+There is no `speech` capability key, and no agency action needs one. Any future gag or silencing constraint that should affect communication belongs in the Social Phase's own gating, which is a separate design question.
 
 You do not need to believe these numbers are final. You need the engine to know that actions can have:
 
@@ -239,21 +247,33 @@ The foundation remains useful whichever answers you later choose.
 
 I would not start with cigarettes, matches, cans, and inventories simultaneously. That immediately requires resource provenance, custody, consumption, transfer, prerequisites, and observation.
 
-Start with three actions that test the agency machinery itself:
+Start with two actions that test the agency machinery itself:
 
 ```text
 WAIT
 OBSERVE
-SEND_MESSAGE
 ```
 
-But give `SEND_MESSAGE` execution modes:
+`WAIT` is the unconditional floor and `OBSERVE` is the cheapest
+capability-gated action, so together they establish both ends of the
+availability range: an action that is always legal, and one that a
+restrained prisoner can lose.
+
+Do not add a communication action here. `SEND_MESSAGE` was in the
+original version of this proposal purely to exercise the mode ladder
+(`SIGNAL` / `BRIEF` / `COHERENT` / `DETAILED`), but communication
+belongs to the Social Phase and the agency registry should not carry a
+second, weaker version of it. The mode machinery remains in
+`legalActions.js` and is tested against a local mock definition, so
+the ladder stays covered without a real registry entry.
+
+The first genuinely physical action added to the registry should be
+one that can carry a mode ladder, so the degraded-variant path is
+exercised in production. A reach or a strain would work:
 
 ```text
-SIGNAL
-BRIEF
-COHERENT
-DETAILED
+strained
+deliberate
 ```
 
 Then connect constraints to:
@@ -261,7 +281,7 @@ Then connect constraints to:
 * concentration;
 * stability;
 * effective cost;
-* message quality;
+* attempt precision;
 * additional strain.
 
 This tests almost everything important:

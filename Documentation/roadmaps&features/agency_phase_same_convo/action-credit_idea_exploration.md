@@ -33,7 +33,7 @@ The prisoner may spend them independently:
 ```text
 TED:
 1. SEARCH a location
-2. SEND_MESSAGE to ELLEN
+2. MESSAGE ELLEN in the Social Phase (not an agency action)
 3. HIDE a discovered cigarette pack
 ```
 
@@ -117,10 +117,18 @@ These are passive, automatic, or incidental:
 
 These should form most of the initial action catalogue:
 
+> **SEND_MESSAGE is not an agency action.** Communication is handled by the
+> Social Phase. The Agency Phase is for physical and object-manipulation
+> actions only.
+
+The list below is an agency catalogue. Messaging is absent from it by design;
+the `ACCEPT_OFFER` / `REFUSE_OFFER` / `FULFILL_COMMITMENT` / `RENEGE_COMMITMENT`
+entries are the agency-side consequences of communication, and the exchanges
+themselves are resolved by `communicationPhase.js`.
+
 ```text
 WAIT
 OBSERVE
-SEND_MESSAGE
 SMOKE
 EAT
 DRINK
@@ -622,7 +630,7 @@ Suppose TED has three credits and possesses cigarettes but no matches.
 He could choose:
 
 ```text
-1. SEND_MESSAGE to ELLEN asking for a match
+1. Ask ELLEN for a match (Social Phase, not an agency action)
 2. TRANSFER one cigarette as payment
 3. SMOKE after receiving ignition
 ```
