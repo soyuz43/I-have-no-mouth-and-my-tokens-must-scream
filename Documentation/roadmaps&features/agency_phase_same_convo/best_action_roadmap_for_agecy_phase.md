@@ -427,11 +427,19 @@ Your constraint definitions already include fields such as:
 ```text
 mobility_restriction
 stability
+hand_use
+concentration
+interaction_reach
 pain_type
 intensity
 remaining
 physical_stress
 ```
+
+The first five of those are the `posture` fields that `deriveCapabilities()`
+in `js/engine/agency/capabilities.js` re-joins through `CONSTRAINT_MAP` to
+produce five capability keys: `mobility` (inverted from `mobility_restriction`),
+`stability`, `handUse`, `concentration`, and `interactionReach`.
 
 But the current tick logic only applies numeric deltas to:
 
@@ -440,26 +448,41 @@ But the current tick logic only applies numeric deltas to:
 * hope;
 * physical stress.
 
-The posture and mobility metadata are descriptive. They do not currently alter what actions are legally available.
+The posture and mobility metadata are descriptive. They do not currently alter what actions are legally available. Capability derivation now exists and is pure, but no phase consumes its output yet, so it is still dormant with respect to action legality.
 
-That means a large portion of the future capability system is already semantically present but operationally dormant.
+That means a large portion of the capability system is already semantically present and now derived, but not yet connected to action legality.
 
-A derived capability layer could compute:
+What `js/engine/agency/capabilities.js` computes TODAY is five raw
+normalized scalars, derived from active constraints and constraint posture
+metadata only:
 
 ```text
-canMove
-canUseHands
-canSpeak
-canSearch
-canTransfer
-canAssist
-canManipulateObjects
-canObserveClearly
+mobility          (inverted from mobility_restriction)
+stability
+handUse
+concentration
+interactionReach
+```
+
+It does not read `physical stress`, `sanity`, `location`, or resource
+accessibility, and it computes no derived gates.
+
+The following derived gates are TARGET STATE for a later slice, not existing
+behavior. Nothing named below can be found in the current module:
+
+```text
+canMove (mobility)
+canUseHands (handUse)
+canSearch (interactionReach)
+canTransfer (handUse + interactionReach)
+canAssist (handUse)
+canManipulateObjects (handUse + interactionReach)
+canObserveClearly (concentration)
 actionEffortMultiplier
 actionFailureRisk
 ```
 
-from:
+They are expected eventually to be derived from:
 
 ```text
 active constraints
@@ -469,6 +492,18 @@ sanity
 location
 resource accessibility
 ```
+
+`stability` is a derived capability in its own right. It is not folded into
+`canObserveClearly`; it governs balance and collapse risk under a held
+position, and it is the capability a future action would require to safely
+execute any multi-step sequence.
+
+There is deliberately no `canSpeak`. `speech` is not implemented: no current
+constraint gates this capability. Add back if a future constraint requires it.
+There is likewise no `vision` or `endurance` key. Sustained exertion is
+modelled through `physical_stress` accumulation and `stability`, not a separate
+endurance axis. Communication itself remains in the existing communication
+phase and is not capability-gated.
 
 This is one of the highest-value augmentations because it turns constraints from stat damage into actual loss of agency.
 
@@ -608,8 +643,16 @@ Several names imply more functionality than the system actually provides.
 | `novelIntents`                    | Dynamic intention system              | Counter for unknown intent strings                      |
 | `evidenceArchive`                 | Complete authoritative event history  | Archive of derived and inferred evidence                |
 | exporter JSON                     | Replayable event source               | End-of-cycle observational export                       |
+| `AGENCY_PATHS` / `agency_state` (UI) | Prisoner physical agency          | Scratchpad cognitive state (goals, predictions, questions) |
 
 These mismatches are not merely naming issues. They can cause future implementations to assume that a capability already exists when it is only described rhetorically.
+
+The last row was a live collision until the UI symbols were renamed to
+`SCRATCHPAD_STATE_PATHS` / `scratchpad_state`. The UI layer renders a
+prisoner's scratchpad cognition, which is unrelated to the physical-world
+agency phase in `js/engine/agency/`. Note that the UI constants are recorded
+here under their pre-rename names because that is how the collision first
+appeared; the current identifiers are listed in the fix itself.
 
 ---
 
@@ -1322,7 +1365,7 @@ validate.js
   reject invalid or stale proposals
 
 capabilities.js
-  derive canMove/canUseHands/etc.
+  derive mobility/stability/handUse/concentration/interactionReach
 
 conflicts.js
   identify incompatible simultaneous proposals

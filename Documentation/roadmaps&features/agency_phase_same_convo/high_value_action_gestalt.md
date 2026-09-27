@@ -29,6 +29,8 @@ Can the prisoner physically attempt it at all?
 
 A gag might block articulate speech. Bound hands might block lighting a cigarette. A painful position might still permit speech, but make sustained concentration difficult.
 
+Of those three examples, only the last two are currently expressible. There is no `speech` capability key, so a gag cannot gate action legality today. `speech` is not implemented: no current constraint gates this capability. Add back if a future constraint requires it. Blocking hands (`handUse: 0`) and degrading concentration (`concentration: 0.3` under `overhead_restraint`) are both real and implemented.
+
 ### 2. Effective cost
 
 Start with the action’s normal cost and add constraint-derived effort:
@@ -105,7 +107,7 @@ Spend two credits:
 
 The second message consumes more of the prisoner’s limited capacity, but conveys materially better information.
 
-That is much more interesting than merely reducing a speech stat.
+That is much more interesting than merely reducing a single capability stat.
 
 # Communication should probably have quality tiers
 
@@ -146,8 +148,12 @@ Smoking requires:
 
 * accessible cigarette;
 * accessible ignition source;
-* sufficient hand or mouth capability;
-* enough stability to perform the sequence.
+* sufficient `handUse` and `interactionReach`;
+* enough `stability` to perform the sequence.
+
+The sequence of lighting and drawing is a hand-and-reach task, so `handUse` and
+`interactionReach` are the capability keys that gate it. There is no `speech` or
+`vision` component, and no current constraint reduces either of those anyway.
 
 Possible outcomes:
 
@@ -208,21 +214,27 @@ Instead, constraints should modify a shared capability-and-effort profile:
 ```js
 {
   capabilities: {
-    speech: 0.8,
-    concentration: 0.35,
-    handUse: 0,
     mobility: 0.1,
-    vision: 1,
-    endurance: 0.25
+    stability: 0.1,
+    handUse: 0,
+    concentration: 0.35,
+    interactionReach: 0.1
   },
 
   effortModifiers: {
     physical: 2,
-    cognitive: 1,
-    communicative: 1
+    cognitive: 1
   }
 }
 ```
+
+These five capability keys are the implemented vocabulary produced by `deriveCapabilities()` in `js/engine/agency/capabilities.js`. There is no `speech`, `vision`, or `endurance` key:
+
+* `speech` — not implemented. No current constraint gates this capability. Add back if a future constraint requires it.
+* `vision` — not implemented. No current constraint gates this capability. Add back if a future constraint requires it.
+* `endurance` — not implemented. Sustained exertion is modelled through `physical_stress` accumulation and the `stability` capability instead.
+
+There is no `communicative` effort domain, because effort domains exist to price the effort of a capability-gated action, and there is no communicative capability to gate on. Communication still runs in the existing communication phase, which the agency phase does not gate.
 
 Actions declare requirements:
 
@@ -233,16 +245,16 @@ Actions declare requirements:
   baseCost: 2,
 
   requirements: {
-    speech: 0.5,
     concentration: 0.4
   },
 
   effortDomains: [
-    "communicative",
     "cognitive"
   ]
 }
 ```
+
+Every requirement key must be one of the five implemented keys, or the engine has no capability value to compare it against.
 
 The engine combines them.
 
