@@ -1411,6 +1411,10 @@ header {
   border-left-color: #1a1000;
   background: #020100;
 }
+.log-e.agency {
+  border-left-color: var(--teal);
+  background: #000203;
+}
 
 .log-spk {
   display: block;
@@ -1435,6 +1439,9 @@ header {
 .log-e.chat .log-spk {
   color: #ccaa55;
 } /* brighter */
+.log-e.agency .log-spk {
+  color: var(--teal);
+}
 
 .log-body {
   color: #d8c8aa;

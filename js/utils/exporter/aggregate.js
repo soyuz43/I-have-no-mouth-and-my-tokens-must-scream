@@ -17,6 +17,9 @@ import {
   recordMessages,
 } from "./streams/social.js";
 import {
+  recordAgency,
+} from "./streams/agency.js";
+import {
   recordGlobal,
 } from "./streams/system.js";
 import {
@@ -304,6 +307,9 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
             messages:
                 Exporter.buffers.messages,
 
+            agency:
+                Exporter.buffers.agency,
+
             global:
                 Exporter.buffers.global,
 
@@ -427,6 +433,7 @@ export function finalizeCycle(G, metrics) {
     recordConstraints(G, cycle);
     recordRelationships(G, cycle);
     recordMessages(G, cycle);
+    recordAgency(G, cycle);
     recordGlobal(G, metrics, cycle);
     recordPhases(G, cycle);
     recordTactics(G, cycle);

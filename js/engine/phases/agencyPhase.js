@@ -46,6 +46,7 @@ import { addLog } from "../../ui/logs.js";
 import { deriveCapabilities } from "../agency/capabilities.js";
 import { enumerateLegalActions } from "../agency/legalActions.js";
 import { ACTION_DEFINITIONS } from "../agency/actionDefs.js";
+import { formatAgencySummary } from "../agency/formatAgencySummary.js";
 
 /* ============================================================
    PER-SIM DERIVATION
@@ -80,7 +81,20 @@ function deriveForSim(sim) {
 
   return {
     legalCount: enumerated.legal.length,
-    blockedCount: enumerated.blocked.length
+    blockedCount: enumerated.blocked.length,
+
+    /*
+     * The derived objects are returned alongside the counts so the
+     * caller can format an explanation without re-reading
+     * `G.agency`. The writes above are the authoritative state; a
+     * re-read there would be equivalent, but passing the values
+     * the phase already holds keeps "what was logged" and "what
+     * was stored" the same object by construction rather than by
+     * coincidence of key naming.
+     */
+    derived,
+    legal: enumerated.legal,
+    blocked: enumerated.blocked
   };
 }
 
@@ -101,6 +115,19 @@ export async function runAgencyPhase() {
    */
   G.agency.cycle = G.cycle;
 
+  /*
+   * Run totals for the closing timeline marker.
+   *
+   * Accumulated across the loop rather than recomputed from
+   * `G.agency` afterwards, because the loop can `continue` past a
+   * missing sim or swallow a per-sim failure, and a total that
+   * silently omitted a failed agent would read as a successful
+   * derivation of zero. Counting only what was actually derived
+   * keeps the marker honest about a partial run.
+   */
+  let totalLegal = 0;
+  let totalBlocked = 0;
+
   for (const simId of SIM_IDS) {
 
     const sim = G.sims?.[simId];
@@ -110,8 +137,16 @@ export async function runAgencyPhase() {
     }
 
     try {
-      const { legalCount, blockedCount } =
-        deriveForSim(sim);
+      const {
+        legalCount,
+        blockedCount,
+        derived,
+        legal,
+        blocked
+      } = deriveForSim(sim);
+
+      totalLegal += legalCount;
+      totalBlocked += blockedCount;
 
       console.log(
         `[AGENCY][${sim.id}] ${legalCount} legal, ${blockedCount} blocked`
@@ -119,7 +154,12 @@ export async function runAgencyPhase() {
 
       addLog(
         `AGENCY // ${sim.id}`,
-        `Cycle ${G.cycle}: ${legalCount} legal, ${blockedCount} blocked.`,
+        formatAgencySummary(
+          sim.id,
+          derived,
+          legal,
+          blocked
+        ),
         "agency"
       );
 
@@ -147,6 +187,17 @@ export async function runAgencyPhase() {
 
   G.agency.lastDerivedCycle = G.cycle;
 
-  timelineEvent(`// AGENCY PHASE COMPLETE`);
+  /*
+   * The marker keeps the `//` prefix on purpose: `timelineEvent()`
+   * classifies a label as a MARKER by its leading characters and
+   * renders the whole label in yellow. Losing the prefix would drop
+   * the marker styling and the event would render as an ordinary,
+   * word-colourised line indistinguishable from a phase action.
+   *
+   * The em dash is the same separator the label columns use, so the
+   * row reads consistently with the other phase markers.
+   */
+  timelineEvent(
+    `// AGENCY COMPLETE — ${totalLegal} legal, ${totalBlocked} blocked`
+  );
 }
-

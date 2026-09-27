@@ -14,6 +14,7 @@ export const Exporter = {
         constraints: [],
         relationships: [],
         messages: [],
+        agency: [],
         global: [],
         phases: [],
         tactics: [],

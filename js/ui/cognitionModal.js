@@ -10,6 +10,10 @@ import {
   formatCognitionOverview,
 } from "./cognitionOverview.js";
 
+import {
+  formatAgencyStateForDisplay,
+} from "./agencyFormatter.js";
+
 /* ============================================================
    CANONICAL COMMUNICATION MESSAGE LOOKUP
 ============================================================ */
@@ -667,9 +671,31 @@ export function renderCognitionModal(
         scratchpad,
         simId,
         G.cognitionHighlights
-        ?.[simId] ??
-        null
-      );
+          ?.[simId] ??
+          null
+      ) +
+      /*
+       * PHYSICAL STATE is APPENDED to the scratchpad, not nested
+       * inside it, and is rendered inside the same try/catch as
+       * the rest of the body. Two reasons:
+       *
+       *   1. `formatScratchpadForDisplay()` owns a complete
+       *      `cog-root` element. Appending after it keeps the
+       *      section a sibling rather than a child of another
+       *      component's root, so neither owns the other.
+       *   2. It reads `G.agency` directly rather than the
+       *      exporter's retained history. `G.agency` is the
+       *      CURRENT cycle, and the modal is rebuilt on every
+       *      open, so it is automatically current. Agency data
+       *      absent from the bounded history is therefore not a
+       *      display gap here.
+       *
+       * The formatter is total — an agent with no derivation this
+       * cycle renders an explicit "NO PHYSICAL STATE" block — so
+       * opening the modal before the first agency phase, or after
+       * a per-sim derivation failure, is not a special case.
+       */
+      formatAgencyStateForDisplay(simId);
   } catch (error) {
     console.error(
       `[COGNITION] Failed to render ${view === "overview"
