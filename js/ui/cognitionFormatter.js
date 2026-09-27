@@ -40,7 +40,7 @@ const INFORMATION_COLLECTIONS = [
   },
 ];
 
-const AGENCY_COLLECTIONS = [
+const SCRATCHPAD_STATE_COLLECTIONS = [
   {
     key: "goalHistory",
     tag: "goal_history",
@@ -63,9 +63,9 @@ const AGENCY_COLLECTIONS = [
   },
 ];
 
-const AGENCY_PATHS = [
+const SCRATCHPAD_STATE_PATHS = [
   "activeGoal",
-  ...AGENCY_COLLECTIONS.map(({ key }) => key),
+  ...SCRATCHPAD_STATE_COLLECTIONS.map(({ key }) => key),
 ];
 
 const KNOWN_TOP_LEVEL_FIELDS = new Set([
@@ -1806,7 +1806,7 @@ function renderInformationModel(
   );
 }
 
-function renderAgencyState(
+function renderScratchpadState(
   scratchpad,
   highlightState
 ) {
@@ -1849,7 +1849,7 @@ function renderAgencyState(
         ),
     },
 
-    ...AGENCY_COLLECTIONS.map(
+    ...SCRATCHPAD_STATE_COLLECTIONS.map(
       ({
         key,
         tag,
@@ -1886,12 +1886,12 @@ function renderAgencyState(
   const parentOptions =
     getHighlightOptions(
       highlightState,
-      AGENCY_PATHS,
+      SCRATCHPAD_STATE_PATHS,
       false
     );
 
   return section(
-    "agency_state",
+    "scratchpad_state",
     sortHighlightedItems(
       items
     )
@@ -2041,10 +2041,10 @@ function buildContentSections(
       false
     );
 
-  const agencyOptions =
+  const scratchpadStateOptions =
     getHighlightOptions(
       highlightState,
-      AGENCY_PATHS,
+      SCRATCHPAD_STATE_PATHS,
       false
     );
 
@@ -2110,10 +2110,10 @@ function buildContentSections(
 
     {
       highlight:
-        agencyOptions.highlight,
+        scratchpadStateOptions.highlight,
 
       html:
-        renderAgencyState(
+        renderScratchpadState(
           scratchpad,
           highlightState
         ),

@@ -170,7 +170,7 @@ Advantages:
 
 Disadvantage:
 
-* speech remains effectively free while physical actions are scarce.
+* speech remains effectively free while physical actions are scarce, since there is no `speech` capability key that a constraint could restrict.
 
 ## Eventually unify communication into the credit economy
 
@@ -573,7 +573,8 @@ Describes the kind of thing:
   requirements: {
     consume: {
       ignition: true,
-      usableHands: true
+      handUse: 0.5,
+      interactionReach: 0.5
     }
   },
   effects: {
@@ -584,6 +585,14 @@ Describes the kind of thing:
   }
 }
 ```
+
+The `ignition` requirement is a resource prerequisite, not a capability. The
+`handUse` and `interactionReach` keys are capability thresholds, and they are
+two of the five keys produced by `deriveCapabilities()` in
+`js/engine/agency/capabilities.js`. `usableHands` is not a capability key.
+
+Note that `stability` here is an *effect* on the prisoner, not a capability.
+The `stability` capability is a derived input, and the two are distinct.
 
 ## Object instance or stack
 

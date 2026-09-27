@@ -14,7 +14,7 @@
 // ---------------
 // 1. GATING IS ARRAY MEMBERSHIP, NOT `remaining`.
 //
-//    8 of 9 constraint definitions have `base_cycles: 1`. Constraints
+//    All 9 constraint definitions have `base_cycles: 1`. Constraints
 //    are applied in the strategy phase and ticked in the psychology
 //    phase. By the time a future agency phase runs (after the social
 //    phase), a freshly applied constraint is ALREADY at
@@ -55,9 +55,19 @@
 //    and never calls `Math.random()`.
 //
 //    NOTE: `CONSTRAINT_MAP` holds live references to the definition
-//    objects rather than copies. Everything returned from this module
-//    is deep enough copied that a caller cannot reach back into a
-//    definition and corrupt the prompt layer or `tickConstraints()`.
+//    objects rather than copies. Posture is returned as a ONE-LEVEL
+//    DEEP COPY: the top-level object is new, and array-valued
+//    fields (currently only `pain_type`) are copied as new arrays.
+//    That prevents a caller from reassigning a posture field or
+//    mutating a posture array in place and thereby corrupting the
+//    prompt layer or `tickConstraints()`.
+//
+//    That guarantee relies on the assumption that posture arrays
+//    contain only primitive strings. A posture array holding nested
+//    objects would still be shared with the caller, because
+//    `copyPosture()` does not recurse. No current definition does
+//    this; a future one must either keep the primitive-string rule or
+//    make `copyPosture()` recursive.
 //
 // SCOPE OF THIS PASS
 // ------------------
@@ -132,6 +142,22 @@ const CAPABILITY_BANDS = Object.freeze([
   }
 ]);
 
+/*
+ * Inclusive band boundaries are compared with a tolerance.
+ *
+ * `mobility` is derived by subtracting from 1 (`1 - mobility_restriction`),
+ * so a mobility_restriction of 0.9 yields 0.09999999999999998 rather than
+ * exactly 0.1. Without a tolerance, that value falls through the
+ * `severely_impaired` boundary (min: 0.1) and is mislabelled
+ * `unavailable` -- collapsing a "severely impaired" position into the
+ * stronger claim that the capability is gone.
+ *
+ * 1e-9 is far below any difference the posture values are authored at
+ * (all are single-decimal), so it absorbs float representation error
+ * without merging genuinely distinct bands.
+ */
+const BAND_EPSILON = 1e-9;
+
 /* ============================================================
    INTERNALS
 ============================================================ */
@@ -149,7 +175,8 @@ function clampCapability(value) {
 function bandFor(value) {
   const match =
     CAPABILITY_BANDS.find(
-      (entry) => value >= entry.min
+      (entry) =>
+        value >= entry.min - BAND_EPSILON
     );
 
   return match ? match.band : "unavailable";
@@ -206,6 +233,11 @@ function capabilityFromPosture(posture) {
  * `CONSTRAINT_MAP` holds live references. Handing a caller the real
  * object would let a downstream mutation silently rewrite the
  * definition that `tickConstraints()` and the journal prompt read.
+ *
+ * ONE-LEVEL DEEP COPY. Array-valued fields are copied as new
+ * arrays; every other value is copied by reference. This is safe
+ * only while posture arrays hold primitive strings, which is the
+ * case for every field in `CONSTRAINT_LIBRARY` today.
  */
 function copyPosture(posture) {
   if (

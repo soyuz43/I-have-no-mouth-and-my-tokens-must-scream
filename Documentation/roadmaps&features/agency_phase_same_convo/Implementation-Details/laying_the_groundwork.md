@@ -109,13 +109,22 @@ You can implement the shape before determining every constraint mapping:
 ```js
 {
   mobility: 1,
+  stability: 1,
   handUse: 1,
-  speech: 1,
-  vision: 1,
   concentration: 1,
-  endurance: 1
+  interactionReach: 1
 }
 ```
+
+These five keys are the implemented capability vocabulary. They map one-to-one onto the `posture` metadata declared by every constraint definition in `js/engine/constraints.js`, and they are exactly the keys `deriveCapabilities()` in `js/engine/agency/capabilities.js` returns.
+
+Capabilities that appear in earlier drafts of this document but are **not** implemented:
+
+* `speech` — not implemented. No current constraint gates this capability. Add back if a future constraint requires it.
+* `vision` — not implemented. No current constraint gates this capability. Add back if a future constraint requires it.
+* `endurance` — not implemented. Sustained exertion is currently modelled through `physical_stress` accumulation and the `stability` capability rather than a separate endurance axis.
+
+`mobility` also deserves a note: it is derived from the inverted `mobility_restriction` posture field, so a higher `mobility_restriction` produces a lower `mobility` capability. Every other key is normal-polarity, where higher means more capable.
 
 These do not necessarily need to be booleans. Continuous normalized values give you room for:
 
@@ -131,13 +140,16 @@ For example:
 ```js
 {
   mobility: 0.15,
+  stability: 0.1,
   handUse: 0,
-  speech: 0.8,
-  vision: 1,
   concentration: 0.35,
-  endurance: 0.2
+  interactionReach: 0.1
 }
 ```
+
+This corresponds closely to the real `overhead_restraint` posture, which yields
+`mobility: 0`, `stability: 0.1`, `handUse: 0`, `concentration: 0.3`,
+`interactionReach: 0.1`.
 
 You can then derive this profile from active constraints without yet connecting it to fifty actions.
 
@@ -151,12 +163,10 @@ You can define the contract without filling the library:
   baseCost: 1,
 
   requirements: {
-    speech: 0.25,
     concentration: 0.15
   },
 
   effortDomains: [
-    "communicative",
     "cognitive"
   ],
 
@@ -164,7 +174,6 @@ You can define the contract without filling the library:
     fragmentary: {
       cost: 1,
       minimums: {
-        speech: 0.2,
         concentration: 0.1
       }
     },
@@ -172,13 +181,16 @@ You can define the contract without filling the library:
     coherent: {
       cost: 2,
       minimums: {
-        speech: 0.5,
         concentration: 0.4
       }
     }
   }
 }
 ```
+
+Every key inside `requirements` and inside each mode's `minimums` must be one of the five implemented capability keys. A requirement naming any other key cannot be evaluated, because `deriveCapabilities()` has no value to compare it against.
+
+There is no `speech` capability key, so `SEND_MESSAGE` cannot currently be gated by a gag or a silencing. Quality degradation therefore keys off `concentration` alone until a constraint supplies a speech-affecting posture field. Communication itself still happens in the existing communication phase, which is not capability-gated.
 
 You do not need to believe these numbers are final. You need the engine to know that actions can have:
 
@@ -246,9 +258,8 @@ DETAILED
 
 Then connect constraints to:
 
-* speech;
 * concentration;
-* endurance;
+* stability;
 * effective cost;
 * message quality;
 * additional strain.

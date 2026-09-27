@@ -90,6 +90,68 @@ test("a sim with a missing constraints array is treated as unrestrained", () => 
 });
 
 /* ============================================================
+   A2) INVERTED-POLARITY BAND BOUNDARY
+============================================================ */
+
+test("squat_hold mobility lands in severely_impaired, not unavailable", () => {
+  /*
+   * Regression guard for a float boundary bug.
+   *
+   * `mobility` is inverted (`1 - mobility_restriction`), and
+   * squat_hold declares `mobility_restriction: 0.9`. In IEEE-754
+   * that subtraction yields 0.09999999999999998 rather than
+   * exactly 0.1, so an exact `>= 0.1` band comparison fell through
+   * to `unavailable`.
+   *
+   * `severely_impaired` is the correct band: a restriction of 0.9
+   * means mobility is very low, not gone. The stronger claim
+   * belongs to constraints declaring mobility_restriction of 1.0
+   * (overhead_restraint, palestinian_chair), which invert to
+   * exactly 0.
+   */
+  const result = deriveCapabilities(
+    simWith([restraint("squat_hold")])
+  );
+
+  // Still a float artefact, and deliberately not rounded away.
+  assert.ok(
+    result.capabilities.mobility < 0.1,
+    "mobility should still expose the raw inverted float"
+  );
+
+  assert.equal(
+    result.bands.mobility,
+    "severely_impaired"
+  );
+
+  assert.notEqual(
+    result.bands.mobility,
+    "unavailable"
+  );
+});
+
+test("a mobility_restriction of 1.0 still bands as unavailable", () => {
+  /*
+   * The tolerance in `bandFor()` must not promote a genuinely
+   * absent capability into an impaired band. A restriction of 1.0
+   * inverts to exactly 0, which is outside any tolerance.
+   */
+  for (const id of ["overhead_restraint", "palestinian_chair"]) {
+    const result = deriveCapabilities(
+      simWith([restraint(id)])
+    );
+
+    assert.equal(result.capabilities.mobility, 0);
+
+    assert.equal(
+      result.bands.mobility,
+      "unavailable",
+      id + " should remain unavailable for mobility"
+    );
+  }
+});
+
+/* ============================================================
    B) PALESTINIAN_CHAIR
 ============================================================ */
 
