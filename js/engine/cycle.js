@@ -24,6 +24,7 @@ import { addLog } from "../ui/logs.js";
 import { runStrategyPhase } from "./phases/strategyPhase.js";
 import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
+import { runAgencyPhase } from "./phases/agencyPhase.js";
 import { expirePredictions } from "./scratchpad/expirePredictions.js";
 import { runScratchpadConsolidation } from "./scratchpad/consolidate.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
@@ -404,6 +405,19 @@ export async function runCycle() {
   await runSocialPhase();
 
   /* ------------------------------------------------------------
+     AGENCY PHASE (DERIVE AND OBSERVE ONLY)
+     Derives each prisoner's current capability set and the set of
+     actions that opens, writing the result to G.agency and logging a
+     summary. No model call, no proposal collection, no resolution, and
+     no prisoner state mutation. Placed after the social phase so the
+     snapshot reflects post-communication posture, and before
+     prediction expiry so a later slice could consume it without
+     reordering the remaining pipeline.
+  ------------------------------------------------------------ */
+
+  await runAgencyPhase();
+
+  /* ------------------------------------------------------------
      SCRATCHPAD PREDICTION EXPIRY
      Engine-owned lifecycle maintenance: mark predictions whose
      evaluation deadline (evaluateByCycle) has passed and that remain
@@ -594,6 +608,17 @@ function beginCycle() {
 
   // === EXPORTER: snapshot pre-cycle state ===
   snapshotPrevState(G);
+
+  // Agency: per-cycle derived capability + legal-action snapshot.
+  // Field-by-field rather than `G.agency = createAgencyState()` so a
+  // reference captured by a consumer during the previous cycle keeps
+  // pointing at the live envelope. `nextActionSequence` is NOT reset:
+  // it is a monotonic id counter, not per-cycle state.
+  G.agency.cycle = null;
+  G.agency.capabilities = {};
+  G.agency.legalActions = {};
+  G.agency.blockedActions = {};
+  G.agency.lastDerivedCycle = null;
 
   // === NEW: Explicit pre-psychology belief snapshot for attribution ===
   G.beliefSnapshots = G.beliefSnapshots || {};
