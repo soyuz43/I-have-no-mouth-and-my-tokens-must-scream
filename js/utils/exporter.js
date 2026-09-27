@@ -30,6 +30,10 @@ export {
 } from "./exporter/streams/social.js";
 
 export {
+  recordAgency,
+} from "./exporter/streams/agency.js";
+
+export {
   recordGlobal,
 } from "./exporter/streams/system.js";
 
