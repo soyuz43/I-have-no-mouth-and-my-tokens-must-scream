@@ -39,6 +39,14 @@ subjective observation
 → witness-specific consequences
 ```
 
+> **Scope note.** "Physical/social" above is aspirational scope for the agency
+> stack, not a claim that messaging belongs in the agency registry.
+> **SEND_MESSAGE is not an agency action.** Communication is handled by the
+> Social Phase (`runSocialPhase()` → `communicationPhase.js`). The Agency
+> Phase is for physical and object-manipulation actions only, and the
+> registry in `js/engine/agency/actionDefs.js` currently holds `WAIT` and
+> `OBSERVE` alone.
+
 The architecture most readily supports a **discrete, schema-bound, simultaneous agency phase with engine-resolved outcomes**. It does not currently favor a continuous spatial simulator or an unconstrained natural-language “Game Master” design. The report’s central proposal—models propose, the engine resolves—is exactly the right direction for this codebase.  
 
 ---
@@ -965,6 +973,12 @@ Advantages:
 This is the **strongest first experimental environment**, but it requires more foundational work.
 
 ## Option C: Abstract social actions — fastest but weakest
+
+These are Social Phase concerns, not agency actions. `communicationPhase.js`
+already resolves cooperation, defiance, and support through its reactive,
+turn-taking exchanges, and an agency-side `SUPPORT` / `DEFY` action would
+duplicate that logic rather than extend it. The option is recorded here only
+because it was considered and rejected.
 
 Actions such as:
 

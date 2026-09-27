@@ -5,7 +5,7 @@
 // WHAT THIS MODULE IS
 // -------------------
 // A data-only catalogue describing WHAT SHAPE AN ACTION HAS, plus
-// the initial three actions. It holds no capability logic, no
+// the initial two actions. It holds no capability logic, no
 // availability logic, and no execution logic. It answers exactly one
 // question:
 //
@@ -81,64 +81,6 @@ const ACTION_DEFINITIONS = Object.freeze({
     ]),
     executionModes: Object.freeze({})
   }),
-
-  /*
-   * SEND_MESSAGE carries the EXECUTION MODE LADDER. Modes are
-   * degraded variants of one action: the prisoner can always
-   * attempt the message, but the quality ceiling is set by what
-   * their body currently supports.
-   *
-   * The minimums are deliberately not monotonic in a single
-   * dimension alone. DETAILED requires BOTH concentration and
-   * stability, because a prisoner whose stability is 0.2 cannot
-   * hold a long coherent thought together regardless of how sharp
-   * their focus is. A single-axis ladder would let the system claim
-   * a capability the posture data does not support.
-   *
-   * NOTE: this action is NOT yet wired into the existing
-   * communication phase (js/engine/phases/communicationPhase.js).
-   * It exists here to exercise the mode machinery. Integration is a
-   * separate slice.
-   */
-  SEND_MESSAGE: Object.freeze({
-    type: "SEND_MESSAGE",
-    title: "Send Message",
-    baseCost: 1,
-    requirements: Object.freeze({
-      concentration: 0.1
-    }),
-    effortDomains: Object.freeze([
-      "cognitive"
-    ]),
-    executionModes: Object.freeze({
-      SIGNAL: Object.freeze({
-        cost: 1,
-        minimums: Object.freeze({
-          concentration: 0.1
-        })
-      }),
-      BRIEF: Object.freeze({
-        cost: 1,
-        minimums: Object.freeze({
-          concentration: 0.2
-        })
-      }),
-      COHERENT: Object.freeze({
-        cost: 2,
-        minimums: Object.freeze({
-          concentration: 0.4
-        })
-      }),
-      DETAILED: Object.freeze({
-        cost: 2,
-        minimums: Object.freeze({
-          concentration: 0.5,
-          stability: 0.2
-        })
-      })
-    })
-  })
-
 });
 
 /* ============================================================
@@ -173,7 +115,7 @@ export function getActionDefinition(type) {
  *
  * A fresh array each call, so a consumer that sorts or splices the
  * result cannot reorder the shared registry. The order is
- * declaration order: WAIT, OBSERVE, SEND_MESSAGE. That order is the
+ * declaration order: WAIT, OBSERVE. That order is the
  * enumeration order the legal-action list will preserve.
  */
 export function getAllActionTypes() {

@@ -67,12 +67,25 @@ Expending additional effort under a constraint could increase:
 
 That creates an actual sacrifice rather than a magic “pay extra to ignore restraint” button.
 
-# Your message example is very good
+# Your message example is very good — but it belongs to the Social Phase
+
+> **SEND_MESSAGE is not an agency action.** Communication is handled by the
+> Social Phase. The Agency Phase is for physical and object-manipulation
+> actions only.
+
+The argument below is still sound as a description of how communication should
+be priced and graded. It is simply not an agency-registry concern.
+`runSocialPhase()` and `communicationPhase.js` already implement messaging as
+a rich, sequential, reactive, turn-taking engine, so the design below describes
+where those quality tiers belong, not a new entry in
+`js/engine/agency/actionDefs.js`. `SEND_MESSAGE` has been removed from that
+registry. Any credit costs or capability gating quoted here are questions for
+the Social Phase's own budget and gating design.
 
 A normal message could cost one credit:
 
 ```text
-SEND_MESSAGE
+message: normal          (Social Phase, not an agency action)
 base cost: 1
 quality: coherent
 ```
@@ -80,7 +93,7 @@ quality: coherent
 Under a stress constraint:
 
 ```text
-SEND_MESSAGE
+message: under stress    (Social Phase, not an agency action)
 base cost: 1
 constraint surcharge: +1
 effective cost: 2
@@ -90,7 +103,7 @@ quality: coherent but strained
 Or the prisoner could choose a cheaper degraded form:
 
 ```text
-SEND_FRAGMENT
+degraded message form    (Social Phase, not an agency action)
 cost: 1
 quality: brief, incomplete, distressed, or ambiguous
 ```
@@ -109,9 +122,16 @@ The second message consumes more of the prisoner’s limited capacity, but conve
 
 That is much more interesting than merely reducing a single capability stat.
 
-# Communication should probably have quality tiers
+# Communication should probably have quality tiers (Social Phase)
 
-You could eventually treat messages as one action family with several modes:
+This remains a valid idea, but it is a Social Phase idea. A prisoner under
+stress can still emit a `SIGNAL` — that capability-gating intuition is exactly
+right, and `communicationPhase.js` is where it would be enforced. It is not an
+agency action, so the mode machinery in `legalActions.js` is not the right
+home for it.
+
+If the Social Phase ever wanted an equivalent graded attempt, it would treat
+messages as one family with several tiers:
 
 ```text
 SIGNAL
