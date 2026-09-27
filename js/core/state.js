@@ -1,6 +1,7 @@
 // js/core/state.js
 
 import { makeBelief, makeDrives, makeScratchpad } from "./utils.js";
+import { createAgencyState } from "../engine/agency/state/createAgencyState.js";
 
 /* ============================================================
    RELATIONSHIP GRAPH INITIALIZER
@@ -245,6 +246,14 @@ export const G = {
     lastCycle: [],
     nextEventSequence: 1,
   },
+
+  /* ============================================================
+     AGENCY (DERIVED PER-CYCLE CAPABILITY + LEGAL-ACTION SNAPSHOT)
+     Written only by the agency phase. See
+     js/engine/agency/state/createAgencyState.js.
+  ============================================================ */
+
+  agency: createAgencyState(),
 
   privateLeak: {
     seen: 0.158,
