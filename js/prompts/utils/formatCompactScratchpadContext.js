@@ -240,6 +240,20 @@ function formatQuestionsCompact(scratchpad, limit) {
  * @param {number} options.questionLimit - Max questions (default 3).
  * @returns {string} Compact context block, or "" if nothing to show.
  */
+function formatPhysicalLimitationsCompact(scratchpad) {
+  const limitations =
+    Array.isArray(scratchpad.physicalLimitations)
+      ? scratchpad.physicalLimitations
+      : [];
+
+  if (limitations.length === 0) {
+    return { text: "", tokens: [] };
+  }
+
+  const lines = limitations.map((token) => "- " + token);
+  return { text: lines.join("\n"), tokens: [...limitations] };
+}
+
 export function formatCompactScratchpadContext(
   sim,
   {
@@ -389,6 +403,21 @@ export function formatCompactScratchpadContextWithSections(
       section: "questions",
       count: questionIds.length,
       ids: questionIds,
+    });
+  }
+
+  // Physical limitations (engine-owned, objective)
+  const {
+    text: physicalBlock,
+    tokens: physicalTokens,
+  } = formatPhysicalLimitationsCompact(scratchpad);
+  if (physicalBlock) {
+    renderedTexts.push(
+      "Your current physical limitations (objective):\n" + physicalBlock
+    );
+    sections.push({
+      section: "physicalLimitations",
+      tokens: physicalTokens,
     });
   }
 

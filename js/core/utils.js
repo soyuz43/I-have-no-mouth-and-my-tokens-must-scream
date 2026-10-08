@@ -744,6 +744,20 @@ export function makeScratchpad(id) {
     discardedHypotheses: [],
 
     /*
+     * Engine-owned, objective physical-limitation awareness.
+     *
+     * Populated deterministically by the scratchpad commit path from
+     * the Agency Phase's derived capability bands (see
+     * js/engine/scratchpad/physicalState.js). Tokens are stable
+     * snake_case strings such as "hands_bound". This is NOT a model
+     * judgement: it records restrained posture as fact so the prisoner
+     * prompt can reflect physical reality without the LLM guessing its
+     * own restraints. Kept as an array so multiple simultaneous
+     * impairments can be represented and diffed.
+     */
+    physicalLimitations: [],
+
+    /*
      * Progressive awareness of anomalies and the possible nature
      * of the simulation.
      *

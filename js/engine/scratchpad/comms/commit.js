@@ -8,6 +8,14 @@ import {
   getHighestMessageSequence,
 } from "./visibility.js";
 
+import {
+  buildVisibleOverhearingEventMap,
+} from "./overhearingEvidence.js";
+
+import {
+  generatePhysicalStateUpdate,
+} from "../physicalState.js";
+
 /*
 ============================================================
 SCRATCHPAD COMMUNICATION COMMIT LAYER
@@ -155,6 +163,21 @@ function assertScratchpadShape(
   ) {
     throw new TypeError(
       `${simId} has no valid scratchpad object.`
+    );
+  }
+
+  /*
+   * physicalLimitations is an optional engine-owned array. It is not
+   * required for a scratchpad to be valid (legacy and test scratchpads
+   * may omit it), but when present it must be an array so the
+   * deterministic commit path can treat it uniformly.
+   */
+  if (
+    scratchpad.physicalLimitations !== undefined &&
+    !Array.isArray(scratchpad.physicalLimitations)
+  ) {
+    throw new TypeError(
+      simId + ".scratchpad.physicalLimitations must be an array when present."
     );
   }
 
@@ -365,6 +388,7 @@ function applyNoteOperation({
   scratchpad,
   operation,
   messageMap,
+  eventMap,
   changedPaths,
 }) {
   const message =
@@ -372,9 +396,17 @@ function applyNoteOperation({
       operation.messageId
     );
 
-  if (!message) {
+  const event =
+    !message && eventMap
+      ? eventMap.get(
+          operation.messageId
+        )
+      : null;
+
+  if (!message && !event) {
     throw new Error(
-      `Validated NOTE references unavailable message ${operation.messageId}.`
+      "Validated NOTE references unavailable message or overhearing event " +
+      String(operation.messageId) + "."
     );
   }
 
@@ -394,53 +426,65 @@ function applyNoteOperation({
     return {
       changed: false,
       path:
-        `messageNotes[${existingIndex}]`,
+        "messageNotes[" + existingIndex + "]",
       reason:
         "message_note_already_exists",
     };
   }
 
+  /*
+   * When the note cites an overhearing event (a conversation the
+   * prisoner perceived but did not receive as a canonical message),
+   * project a canonical record from the event so the note shape stays
+   * stable. perceivedText is null for "observed_only" events, which is
+   * correct: the prisoner may record that a conversation occurred
+   * without quoting words they never heard.
+   */
+  const source = message
+    ? {
+        messageId: message.messageId,
+        sequence: message.sequence,
+        cycle: message.cycle,
+        from: message.from,
+        to: [...message.to],
+        visibility: message.visibility,
+        kind: message.kind,
+        intent:
+          message.normalizedIntent ??
+          message.intent ??
+          null,
+      }
+    : {
+        messageId: event.eventId,
+        sequence: event.sequence,
+        cycle: event.cycle,
+        from: event.participants.from,
+        to: [event.participants.to],
+        visibility: "overheard",
+        kind: event.sourceKind || "MESSAGE",
+        intent: null,
+      };
+
   const note = {
-    messageId:
-      message.messageId,
-
-    sequence:
-      message.sequence,
-
-    cycle:
-      message.cycle,
-
-    speaker:
-      message.from,
-
-    recipients:
-      [...message.to],
-
-    channel:
-      message.visibility,
-
-    kind:
-      message.kind,
-
-    intent:
-      message.normalizedIntent ??
-      message.intent ??
-      null,
-
-    note:
-      operation.text,
-
-    confidence:
-      operation.confidence,
+    messageId: source.messageId,
+    sequence: source.sequence,
+    cycle: source.cycle,
+    speaker: source.from,
+    recipients: [...source.to],
+    channel: source.visibility,
+    kind: source.kind,
+    intent: source.intent,
+    sourceEventId:
+      event && !message ? event.eventId : null,
+    note: operation.text,
+    confidence: operation.confidence,
   };
 
-  scratchpad.messageNotes.push(
-    note
-  );
+  scratchpad.messageNotes.push(note);
 
   const path =
-    `messageNotes[` +
-    `${scratchpad.messageNotes.length - 1}]`;
+    "messageNotes[" +
+    (scratchpad.messageNotes.length - 1) + "]";
 
   changedPaths.push(path);
 
@@ -449,7 +493,6 @@ function applyNoteOperation({
     path,
   };
 }
-
 /* ============================================================
    OTHER-PRISONER MODEL COMMITTING
 ============================================================ */
@@ -1242,6 +1285,7 @@ function applyChannelOperation({
 function applyOperation({
   scratchpad,
   operation,
+  eventMap,
   messageMap,
   cycle,
   changedPaths,
@@ -1254,6 +1298,7 @@ function applyOperation({
         scratchpad,
         operation,
         messageMap,
+        eventMap,
         changedPaths,
       });
 
@@ -1393,6 +1438,17 @@ export function commitScratchpadCommsOperations({
         evidenceMessages
       );
 
+    /*
+     * Admissible overhearing events for this prisoner, used only by
+     * NOTE operations that cite an eventId rather than a messageId.
+     */
+    const eventMap = buildVisibleOverhearingEventMap(
+      G && G.overhearing && typeof G.overhearing === "object"
+        ? G.overhearing
+        : null,
+      normalizedSimId
+    );
+
     const currentScratchpad =
       sim.scratchpad;
 
@@ -1458,6 +1514,7 @@ export function commitScratchpadCommsOperations({
             nextScratchpad,
 
           operation,
+          eventMap,
           messageMap,
           cycle,
           changedPaths,
@@ -1487,6 +1544,53 @@ export function commitScratchpadCommsOperations({
         reason:
           result.reason ?? null,
       });
+    }
+
+    /*
+     * Engine-owned physical-limitation awareness.
+     *
+     * Deterministic, read-only bridge from the Agency Phase's derived
+     * capability bands to the scratchpad. This is NOT a model
+     * judgement: it records objectively impaired posture (e.g. bound
+     * hands) as fact so the prisoner prompt reflects physical reality.
+     * Read-only on G.agency; the only write below is to the local
+     * nextScratchpad clone, which is atomically swapped in later.
+     */
+    {
+      const agencyCapabilities =
+        G &&
+        G.agency &&
+        G.agency.capabilities &&
+        typeof G.agency.capabilities === "object"
+          ? G.agency.capabilities[normalizedSimId]
+          : null;
+
+      const nextLimitations =
+        generatePhysicalStateUpdate(
+          sim,
+          agencyCapabilities
+        );
+
+      const currentLimitations =
+        Array.isArray(
+          currentScratchpad.physicalLimitations
+        )
+          ? currentScratchpad.physicalLimitations
+          : [];
+
+      const limitationsChanged =
+        currentLimitations.length !==
+          nextLimitations.length ||
+        nextLimitations.some(
+          (token) => !currentLimitations.includes(token)
+        );
+
+      nextScratchpad.physicalLimitations =
+        [...nextLimitations];
+
+      if (limitationsChanged) {
+        changedPaths.push("physicalLimitations");
+      }
     }
 
     const substantiveChanged =
