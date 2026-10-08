@@ -10,7 +10,22 @@
 //    are open to them, which are closed, and why?"
 //
 // It performs NO execution, NO costing of effort, NO model call, and
-// NO state write. It is a pure function of its three arguments.
+// NO state write. It is a pure function of its four arguments.
+//
+// TWO INDEPENDENT GATES
+// ---------------------
+// An action can be refused for two different reasons, and they are
+// not interchangeable:
+//
+//   capabilities  - what the BODY can do. Evaluated by meetsMinimum()
+//                   against the five deriveCapabilities() keys.
+//   resources     - what the prisoner POSSESSES. Evaluated against a
+//                   derived resource view.
+//
+// The capability gate runs FIRST. A prisoner whose hands are bound is
+// reported as capability-blocked even if they also lack a cigarette,
+// because "your body cannot do this" is the more informative refusal
+// and it is the one the posture is actually responsible for.
 //
 // WHY LEGAL/BLOCKED RATHER THAN A SINGLE LIST
 // -------------------------------------------
@@ -38,7 +53,8 @@
 // ---------------
 // No mutation of any argument, no reads from `G`, no `Math.random()`,
 // no `Date` access, no I/O. Same arguments in, structurally equal
-// result out, every time.
+// result out, every time. The resource view is PASSED IN, never read
+// from global state, precisely to keep this contract true.
 
 /*
  * Comparison tolerance.
@@ -186,6 +202,139 @@ function aggregateMissingModes(closedModes) {
   return missing;
 }
 
+/*
+ * Evaluate the RESOURCE half of an action's requirements.
+ *
+ * WHY THIS IS NOT meetsMinimum()
+ * ------------------------------
+ * `ignition` is a resource prerequisite, not a capability. A
+ * capability requirement is a numeric floor compared against one of
+ * five derived floats; a resource requirement is a question about
+ * possession. meetsMinimum() FAILS CLOSED on an absent key, and
+ * deriveCapabilities() will never emit `ignition`, so routing this
+ * through the capability path would refuse every resource-bearing
+ * action for every prisoner, silently and permanently.
+ *
+ * FAIL-CLOSED RULES (all deliberate)
+ * ----------------------------------
+ *   - No view supplied            -> everything declared is unmet.
+ *   - `ignition: true` but no
+ *     ignition source held        -> unmet.
+ *   - `consume: [{...}]` and the
+ *     prisoner holds too few      -> unmet.
+ *   - `holdAny: true` and the
+ *     prisoner holds no stack     -> unmet.
+ *
+ * A prisoner must never be GRANTED an action because the engine could
+ * not read their inventory. Refusing is recoverable and visible;
+ * silently granting is neither.
+ *
+ * Returns the same { satisfied, missing } shape the capability path
+ * uses, so both halves report through one field downstream.
+ */
+function evaluateResourceRequirements(resourceRequirements, view) {
+  const satisfied = {};
+  const missing = {};
+
+  if (
+    !resourceRequirements ||
+    typeof resourceRequirements !== "object"
+  ) {
+    return { satisfied, missing };
+  }
+
+  const safeView =
+    view && typeof view === "object"
+      ? view
+      : null;
+
+  const byDefinition =
+    safeView &&
+    safeView.byDefinition &&
+    typeof safeView.byDefinition === "object"
+      ? safeView.byDefinition
+      : {};
+
+  if (resourceRequirements.ignition === true) {
+    const hasIgnition = safeView?.hasIgnition === true;
+
+    if (hasIgnition) {
+      satisfied.ignition = true;
+    } else {
+      missing.ignition = true;
+    }
+  }
+
+  /*
+   * `consume` is a list of { definitionId, quantity } entries: the
+   * stacks an action would draw down. Every entry must be satisfied.
+   * A shortfall is recorded as the REQUIRED quantity, matching the
+   * capability path's convention of reporting the declared bar
+   * rather than the observed value.
+   */
+  const consume = Array.isArray(resourceRequirements.consume)
+    ? resourceRequirements.consume
+    : [];
+
+  for (const entry of consume) {
+    const definitionId = entry?.definitionId;
+
+    if (typeof definitionId !== "string") {
+      continue;
+    }
+
+    const required = Number(entry?.quantity);
+
+    if (!Number.isFinite(required)) {
+      continue;
+    }
+
+    const stacks = Array.isArray(byDefinition[definitionId])
+      ? byDefinition[definitionId]
+      : [];
+
+    let held = 0;
+
+    for (const stack of stacks) {
+      const quantity = Number(stack?.quantity);
+
+      if (Number.isFinite(quantity)) {
+        held += quantity;
+      }
+    }
+
+    if (held >= required) {
+      satisfied[definitionId] = required;
+      continue;
+    }
+
+    missing[definitionId] = required;
+  }
+
+  /*
+   * `holdAny` means "possesses at least one accessible stack".
+   *
+   * The target resource is IMPLICIT: this slice does not name
+   * specific resourceIds, because choosing one is a proposal-pipeline
+   * concern that does not exist yet. The gate is the possession
+   * precondition only.
+   */
+  if (resourceRequirements.holdAny === true) {
+    const stackCount =
+      Array.isArray(safeView?.stacks)
+        ? safeView.stacks.length
+        : 0;
+
+    if (stackCount > 0) {
+      satisfied.holdAny = true;
+    } else {
+      missing.holdAny = true;
+    }
+  }
+
+  return { satisfied, missing };
+}
+
 /* ============================================================
    PUBLIC API
 ============================================================ */
@@ -208,7 +357,8 @@ function aggregateMissingModes(closedModes) {
 export function enumerateLegalActions(
   sim,
   capabilities,
-  registry
+  registry,
+  resourceView = null
 ) {
   const empty = { legal: [], blocked: [] };
 
@@ -222,6 +372,19 @@ export function enumerateLegalActions(
   ) {
     return empty;
   }
+
+  /*
+   * A null or malformed view is NOT a reason to return early.
+   *
+   * Every action still has to be classified: WAIT and OBSERVE have no
+   * resource requirements and must stay legal for a prisoner whose
+   * inventory could not be read. Only the actions that DECLARE a
+   * resource requirement fail closed against the missing view.
+   */
+  const safeResourceView =
+    resourceView && typeof resourceView === "object"
+      ? resourceView
+      : null;
 
   const legal = [];
   const blocked = [];
@@ -274,6 +437,29 @@ export function enumerateLegalActions(
       }
 
       blocked.push(entry);
+
+      continue;
+    }
+
+    /*
+     * SECOND GATE: resources.
+     *
+     * Reached only when the body is capable, so a hands-bound
+     * prisoner is reported above as capability-blocked rather than
+     * here as resource-blocked.
+     */
+    const resourceGate = evaluateResourceRequirements(
+      definition.resourceRequirements,
+      safeResourceView
+    );
+
+    if (!isFullySatisfied(resourceGate)) {
+      blocked.push({
+        type,
+        title: definition.title ?? type,
+        reason: "resource_requirement_unmet",
+        missingRequirements: { ...resourceGate.missing }
+      });
 
       continue;
     }

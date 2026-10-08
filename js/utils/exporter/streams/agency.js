@@ -139,6 +139,26 @@ export function recordAgency(G, cycle) {
     const legal = asArray(legalById[simId]);
     const blocked = asArray(blockedById[simId]);
 
+    /*
+     * The resource VIEW for this agent. Absent when the phase never
+     * got as far as building one, in which case every derived field
+     * below records as empty rather than null: an agent with no view
+     * possesses nothing gatable, and a null would be read as
+     * "unknown" rather than "none".
+     */
+    const resourceView =
+      G?.agency?.resources?.[simId] ?? null;
+
+    const heldByDefinition =
+      resourceView &&
+      resourceView.byDefinition &&
+      typeof resourceView.byDefinition === "object"
+        ? resourceView.byDefinition
+        : {};
+
+    const hasIgnition =
+      resourceView?.hasIgnition === true;
+
     const blockedRecords = blocked
       .map(normalizeBlockedEntry)
       .filter(Boolean);
@@ -201,7 +221,44 @@ export function recordAgency(G, cycle) {
           legal_count: legal.length,
 
           blocked_count: blockedRecords.length,
-          blocked: blockedRecords
+          blocked: blockedRecords,
+
+          /*
+           * The per-prisoner resource VIEW, not the ledger.
+           *
+           * `held_resources` is flat ("cigarette:3|match:1") so the
+           * row survives a CSV round-trip; `has_ignition` is a flat
+           * boolean because it is the single field the
+           * cigarette-and-match dependency turns on. `held_stacks`
+           * stays nested because each stack carries provenance and
+           * accessibility flags a researcher needs as separate
+           * values.
+           *
+           * Consumed quantities are NOT recorded here: this slice
+           * never mutates the ledger, so a change across cycles can
+           * only ever be a seeding or import-order artifact.
+           */
+          /*
+           * `joinList()` always joins on ";" and takes no separator
+           * argument, so the counts are formatted here rather than by
+           * passing one that would be silently ignored.
+           */
+          held_resources: joinList(
+            Object.keys(heldByDefinition).map(
+              (definitionId) =>
+                definitionId +
+                ":" +
+                heldByDefinition[definitionId].reduce(
+                  (sum, stack) =>
+                    sum + (Number(stack?.quantity) || 0),
+                  0
+                )
+            )
+          ),
+          has_ignition: hasIgnition,
+          held_stacks: cloneValue(
+            asArray(resourceView?.stacks)
+          )
         },
         cycle
       )

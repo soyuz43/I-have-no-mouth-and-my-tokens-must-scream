@@ -1020,9 +1020,20 @@ test("real derivation flows through both new surfaces unchanged", () => {
     enumerated.blocked
   );
 
+  /*
+   * palestinian_chair drives handUse and interactionReach to 0, so the
+   * three physical actions now appear in BLOCKED. No resource view is
+   * supplied here, but the capability gate runs first and refuses them
+   * before resources are ever consulted - which is why they are
+   * reported with capability thresholds rather than resource reasons.
+   */
   assert.equal(
     summary,
     "LEGAL: WAIT, OBSERVE\n" +
+    "BLOCKED: SMOKE handUse(0.2), interactionReach(0.2) " +
+    "modes:strained|deliberate, " +
+    "TRANSFER handUse(0.3), interactionReach(0.3), " +
+    "HIDE handUse(0.3), interactionReach(0.3)\n" +
     "BANDS: mob:UNAV sta:SEV hd:UNAV con:SEV rei:UNAV\n" +
     "CONSTR: palestinian_chair",
     "the real palestinian_chair envelope should render exactly this"

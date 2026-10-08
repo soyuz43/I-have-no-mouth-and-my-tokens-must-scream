@@ -6,6 +6,7 @@ import { SIM_IDS } from "../core/constants.js";
 import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { purgeInvalidDerivedTactics } from "../engine/tactics/validateDerivedTactic.js";
 import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
+import { seedResources } from "../engine/agency/resourceLedger.js";
 
 
 import { addLog } from "./logs.js";
@@ -285,6 +286,18 @@ export async function bootAM() {
   });
 
   bootLog(`✓ Threads ready. Backend: ${G.backend.toUpperCase()}`);
+
+  /* ---------------------------------------------------------
+     RESOURCE LEDGER SEED
+
+     One-time initialization of the authoritative ledger. Called
+     here, in the boot path, rather than at state-module import so a
+     re-import cannot silently restock the world.
+  --------------------------------------------------------- */
+
+  seedResources(G.resources);
+
+  bootLog("✓ Resource ledger seeded (derive-and-observe; no resolver yet).");
 
   bootLog(
     `✓ AM IS AWAKE. ${EMBEDDED_TACTICS.length} embedded tactics · derived tactics accrue at runtime.`

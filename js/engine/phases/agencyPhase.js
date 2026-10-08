@@ -46,6 +46,10 @@ import { addLog } from "../../ui/logs.js";
 import { deriveCapabilities } from "../agency/capabilities.js";
 import { enumerateLegalActions } from "../agency/legalActions.js";
 import { ACTION_DEFINITIONS } from "../agency/actionDefs.js";
+import {
+  buildResourceView,
+  seedResources
+} from "../agency/resourceLedger.js";
 import { formatAgencySummary } from "../agency/formatAgencySummary.js";
 
 /* ============================================================
@@ -63,6 +67,23 @@ function deriveForSim(sim) {
   const derived = deriveCapabilities(sim);
 
   /*
+   * The resource view is built HERE and passed IN, never read from
+   * inside the enumerator. That keeps enumerateLegalActions() pure
+   * and keeps this phase the single place where authoritative state
+   * is translated into a per-prisoner snapshot.
+   *
+   * If the ledger was never seeded, buildResourceView() returns the
+   * empty view and every resource-bearing action fails closed. That
+   * is the intended behaviour, not a bug to repair here: a prisoner
+   * must never be granted an action because their inventory could not
+   * be read.
+   */
+  const resourceView = buildResourceView(
+    G.resources,
+    sim.id
+  );
+
+  /*
    * `deriveCapabilities()` returns an envelope; the enumerator
    * compares against the five capability floats inside it. Passing the
    * envelope rather than `derived.capabilities` would make every
@@ -72,12 +93,14 @@ function deriveForSim(sim) {
   const enumerated = enumerateLegalActions(
     sim,
     derived.capabilities,
-    ACTION_DEFINITIONS
+    ACTION_DEFINITIONS,
+    resourceView
   );
 
   G.agency.capabilities[sim.id] = derived;
   G.agency.legalActions[sim.id] = enumerated.legal;
   G.agency.blockedActions[sim.id] = enumerated.blocked;
+  G.agency.resources[sim.id] = resourceView;
 
   return {
     legalCount: enumerated.legal.length,
