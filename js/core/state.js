@@ -2,6 +2,7 @@
 
 import { makeBelief, makeDrives, makeScratchpad } from "./utils.js";
 import { createAgencyState } from "../engine/agency/state/createAgencyState.js";
+import { createResourceLedger } from "../engine/agency/resourceLedger.js";
 
 /* ============================================================
    RELATIONSHIP GRAPH INITIALIZER
@@ -254,6 +255,27 @@ export const G = {
   ============================================================ */
 
   agency: createAgencyState(),
+
+  /* ============================================================
+     AUTHORITATIVE RESOURCE LEDGER (RUN-SCOPED)
+
+     The single source of truth for what exists and who holds it.
+     A sibling of `G.comms` and `G.overhearing`: it lives for the
+     whole run and is NOT reset per cycle, because a cigarette that
+     is consumed stays consumed.
+
+     `G.agency.resources` is the opposite: a DERIVED, per-cycle,
+     read-only view built from this ledger. Keeping the two apart
+     means the mutable authoritative state is never confused with
+     the per-cycle derived envelope.
+
+     NOTE: deliberately NOT seeded here. Seeding is a one-time
+     initialization performed by seedResources() from the boot path,
+     so a state-module re-import cannot silently double the world's
+     inventory.
+  ============================================================ */
+
+  resources: createResourceLedger(),
 
   privateLeak: {
     seen: 0.158,

@@ -106,6 +106,42 @@ function blockedByType(result) {
 }
 
 /*
+ * A resource view standing for "holds a cigarette AND an ignition
+ * source".
+ *
+ * Hand-built rather than derived from the seed ledger so these
+ * assertions stay about the ENUMERATOR's rules. The ledger, its
+ * seeding, and buildResourceView() are covered in
+ * agencyResourceLedger.test.mjs.
+ *
+ * This is the only shape that can make SMOKE legal, and it is exactly
+ * the dependency the slice exists to prove: cigarettes alone are not
+ * enough, and neither are matches alone.
+ */
+function fullResourceView() {
+  return {
+    simId: "TED",
+    byDefinition: {
+      cigarette: [
+        { resourceId: "cigarette_stack_01", quantity: 3 }
+      ],
+      match: [
+        { resourceId: "match_stack_01", quantity: 2 }
+      ]
+    },
+    affordances: {
+      cigarette: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
+      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+    },
+    hasIgnition: true,
+    stacks: [
+      { resourceId: "cigarette_stack_01", quantity: 3 },
+      { resourceId: "match_stack_01", quantity: 2 }
+    ]
+  };
+}
+
+/*
  * A LOCAL MOCK action carrying an execution mode ladder.
  *
  * No action in the live registry declares executionModes any more: the
@@ -148,10 +184,10 @@ function modedRegistry(extra = {}) {
    A) ACTION DEFINITION REGISTRY
 ============================================================ */
 
-test("the registry contains exactly the two initial actions", () => {
+test("the registry contains the floor, sensory, and first physical actions", () => {
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
   );
 });
 
@@ -291,7 +327,7 @@ test("getAllActionTypes returns a fresh array each call", () => {
 
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
   );
 });
 
@@ -300,17 +336,28 @@ test("getAllActionTypes returns a fresh array each call", () => {
 ============================================================ */
 
 test("an unconstrained prisoner can take every registered action", () => {
+  /*
+   * SMOKE, TRANSFER, and HIDE declare resource requirements, so this
+   * test must supply a resource view. Passing none would fail them
+   * closed - correctly - and the assertion below would then be
+   * testing the fail-closed path rather than the unrestrained one.
+   *
+   * `fullResourceView()` is a view, not a ledger: it stands for "this
+   * prisoner holds a cigarette and an ignition source", which is the
+   * possession half of "unconstrained".
+   */
   const result = enumerateLegalActions(
     simWith([]),
     caps(),
-    ACTION_DEFINITIONS
+    ACTION_DEFINITIONS,
+    fullResourceView()
   );
 
   assert.equal(result.blocked.length, 0);
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
   );
 
   const legal = legalByType(result);
@@ -348,10 +395,11 @@ test("a fully unconstrained sim agrees with the real deriver", () => {
   const result = enumerateLegalActions(
     sim,
     deriveCapabilities(sim).capabilities,
-    ACTION_DEFINITIONS
+    ACTION_DEFINITIONS,
+    fullResourceView()
   );
 
-  assert.equal(result.legal.length, 2);
+  assert.equal(result.legal.length, 5);
   assert.equal(result.blocked.length, 0);
 });
 
@@ -503,11 +551,31 @@ test("concentration 0.05 leaves only WAIT legal", () => {
 
   const blocked = blockedByType(result);
 
-  assert.equal(blocked.size, 1);
+  /*
+   * OBSERVE closes on concentration. The three physical actions close
+   * on RESOURCES, because no view was supplied and they each declare
+   * a requirement. Same legal set, four distinct refusals.
+   */
+  assert.equal(blocked.size, 4);
 
   assert.deepEqual(
     blocked.get("OBSERVE").missingRequirements,
     { concentration: 0.1 }
+  );
+
+  assert.equal(
+    blocked.get("SMOKE").reason,
+    "resource_requirement_unmet"
+  );
+
+  assert.equal(
+    blocked.get("TRANSFER").reason,
+    "resource_requirement_unmet"
+  );
+
+  assert.equal(
+    blocked.get("HIDE").reason,
+    "resource_requirement_unmet"
   );
 });
 
@@ -568,11 +636,22 @@ test("a blocked entry carries neither cost nor availableModes", () => {
     ACTION_DEFINITIONS
   );
 
+  /*
+   * The reason assertion is scoped to capability refusals. This call
+   * passes no resource view, so the three physical actions are
+   * refused for a RESOURCE reason; that is a different claim and is
+   * asserted separately. Looping over every blocked entry and pinning
+   * one reason would silently forbid the second gate from existing.
+   */
   for (const entry of result.blocked) {
     assert.equal(entry.cost, undefined);
     assert.equal(entry.availableModes, undefined);
-    assert.equal(entry.reason, "capability_below_minimum");
     assert.equal(typeof entry.title, "string");
+    assert.ok(
+      entry.reason === "capability_below_minimum" ||
+        entry.reason === "resource_requirement_unmet",
+      `unexpected reason ${entry.reason}`
+    );
   }
 });
 
@@ -613,13 +692,29 @@ test("palestinian_chair keeps WAIT and OBSERVE but gates OBSERVE in", () => {
     "OBSERVE"
   ]);
 
-  assert.deepEqual(result.blocked, []);
+  /*
+   * This posture drives handUse and interactionReach to 0, so the
+   * three physical actions are refused on CAPABILITY even when the
+   * prisoner is well stocked. The capability gate runs first, which
+   * is why supplying a full resource view here would not rescue them.
+   */
+  const blocked = blockedByType(result);
+
+  assert.equal(blocked.size, 3);
+
+  for (const type of ["SMOKE", "TRANSFER", "HIDE"]) {
+    assert.equal(
+      blocked.get(type).reason,
+      "capability_below_minimum",
+      `${type} should be capability-blocked, not resource-blocked`
+    );
+  }
 });
 
 test("overhead_restraint also leaves the full legal set open", () => {
   /*
-   * concentration 0.3 under this posture. Both actions clear their
-   * gates, so the pairing the old mode ladder produced is gone.
+   * concentration 0.3 under this posture. Both floor actions clear
+   * their gates, so the pairing the old mode ladder produced is gone.
    */
   const sim = simWith([restraint("overhead_restraint")]);
 
@@ -638,7 +733,213 @@ test("overhead_restraint also leaves the full legal set open", () => {
     ["WAIT", "OBSERVE"]
   );
 
-  assert.deepEqual(result.blocked, []);
+  assert.deepEqual(result.blocked.length, 3);
+});
+
+test("overhead_restraint blocks SMOKE on capability, not on resources", () => {
+  /*
+   * THE headline case for the resource slice.
+   *
+   * This posture derives handUse 0 and interactionReach 0.1: the
+   * prisoner is bound overhead and cannot perform the lighting
+   * sequence no matter what they hold.
+   *
+   * The prisoner here is given a FULL resource view - cigarette and
+   * ignition both present - precisely to prove the refusal is NOT a
+   * resource failure. If this test ever reports
+   * "resource_requirement_unmet", the gate order has been inverted
+   * and a bound prisoner is being told they lack a match.
+   */
+  const sim = simWith([restraint("overhead_restraint")]);
+
+  const derived = deriveCapabilities(sim);
+
+  assert.equal(derived.capabilities.handUse, 0);
+  assert.equal(derived.bands.handUse, "unavailable");
+
+  const result = enumerateLegalActions(
+    sim,
+    derived.capabilities,
+    ACTION_DEFINITIONS,
+    fullResourceView()
+  );
+
+  const legal = legalByType(result);
+  const blocked = blockedByType(result);
+
+  assert.ok(!legal.has("SMOKE"), "SMOKE must not be legal");
+
+  const smoke = blocked.get("SMOKE");
+
+  assert.equal(smoke.reason, "capability_below_minimum");
+  assert.equal(smoke.missingRequirements.handUse, 0.2);
+
+  /*
+   * TRANSFER and HIDE gate on handUse 0.3 and close for the same
+   * reason: bound hands cannot hand anything over or conceal it.
+   */
+  assert.equal(blocked.get("TRANSFER").reason, "capability_below_minimum");
+  assert.equal(blocked.get("HIDE").reason, "capability_below_minimum");
+
+  assert.equal(blocked.get("TRANSFER").missingRequirements.handUse, 0.3);
+  assert.equal(blocked.get("HIDE").missingRequirements.handUse, 0.3);
+});
+
+test("SMOKE is blocked by a missing ignition source even at full capability", () => {
+  /*
+   * The complementary-resource dependency, stated as its own test:
+   * cigarettes alone cannot be smoked.
+   */
+  const cigarettesOnly = {
+    simId: "TED",
+    byDefinition: {
+      cigarette: [{ resourceId: "cigarette_stack_01", quantity: 3 }]
+    },
+    affordances: {
+      cigarette: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+    },
+    hasIgnition: false,
+    stacks: [{ resourceId: "cigarette_stack_01", quantity: 3 }]
+  };
+
+  const result = enumerateLegalActions(
+    simWith(),
+    caps(),
+    ACTION_DEFINITIONS,
+    cigarettesOnly
+  );
+
+  const blocked = blockedByType(result);
+
+  assert.ok(!legalByType(result).has("SMOKE"));
+
+  assert.equal(blocked.get("SMOKE").reason, "resource_requirement_unmet");
+
+  assert.deepEqual(
+    blocked.get("SMOKE").missingRequirements,
+    { ignition: true }
+  );
+
+  /*
+   * TRANSFER and HIDE do not need ignition, only a held stack, so
+   * they stay open. That contrast is what makes the refusal specific
+   * rather than a blanket "has no resources".
+   */
+  assert.ok(legalByType(result).has("TRANSFER"));
+  assert.ok(legalByType(result).has("HIDE"));
+});
+
+test("SMOKE is blocked when the prisoner holds matches but no cigarette", () => {
+  /*
+   * The mirror case. Ignition without a cigarette is equally
+   * insufficient, and it must be reported as the missing CIGARETTE
+   * rather than a missing ignition.
+   */
+  const matchesOnly = {
+    simId: "ELLEN",
+    byDefinition: {
+      match: [{ resourceId: "match_stack_01", quantity: 2 }]
+    },
+    affordances: {
+      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+    },
+    hasIgnition: true,
+    stacks: [{ resourceId: "match_stack_01", quantity: 2 }]
+  };
+
+  const result = enumerateLegalActions(
+    simWith(),
+    caps(),
+    ACTION_DEFINITIONS,
+    matchesOnly
+  );
+
+  const blocked = blockedByType(result);
+
+  assert.ok(!legalByType(result).has("SMOKE"));
+
+  assert.deepEqual(
+    blocked.get("SMOKE").missingRequirements,
+    { cigarette: 1 }
+  );
+});
+
+test("a null resource view fails closed on every resource-bearing action", () => {
+  /*
+   * Fail-closed. A prisoner must never be granted an action because
+   * their inventory could not be read. WAIT and OBSERVE declare no
+   * resource requirement and must survive.
+   */
+  const result = enumerateLegalActions(
+    simWith(),
+    caps(),
+    ACTION_DEFINITIONS,
+    null
+  );
+
+  const legal = legalByType(result);
+
+  assert.ok(legal.has("WAIT"));
+  assert.ok(legal.has("OBSERVE"));
+
+  assert.ok(!legal.has("SMOKE"));
+  assert.ok(!legal.has("TRANSFER"));
+  assert.ok(!legal.has("HIDE"));
+
+  for (const entry of result.blocked) {
+    assert.equal(entry.reason, "resource_requirement_unmet");
+  }
+});
+
+test("SMOKE opens both modes at full capability and keeps only strained when degraded", () => {
+  /*
+   * The mode ladder, exercised against a LIVE registry entry rather
+   * than the local mock. This is the case laying_the_groundwork.md
+   * asks the first physical action to cover: the degraded-variant
+   * path running in production.
+   *
+   * handUse 0.3 clears the 0.2 top-level gate and the strained rung,
+   * but not deliberate's 0.5 - so SMOKE appears BOTH as legal (one
+   * mode open) and as blocked (the other closed).
+   */
+  const result = enumerateLegalActions(
+    simWith(),
+    caps({ handUse: 0.3, interactionReach: 0.3, stability: 0.1 }),
+    ACTION_DEFINITIONS,
+    fullResourceView()
+  );
+
+  const legal = legalByType(result);
+  const blocked = blockedByType(result);
+
+  assert.ok(legal.has("SMOKE"));
+
+  assert.deepEqual(legal.get("SMOKE").availableModes, ["strained"]);
+
+  assert.ok(blocked.has("SMOKE"));
+
+  assert.deepEqual(blocked.get("SMOKE").blockedModes, ["deliberate"]);
+
+  assert.equal(
+    blocked.get("SMOKE").missingRequirements.handUse,
+    0.5
+  );
+});
+
+test("SMOKE opens the full ladder for an able, supplied prisoner", () => {
+  const result = enumerateLegalActions(
+    simWith(),
+    caps(),
+    ACTION_DEFINITIONS,
+    fullResourceView()
+  );
+
+  assert.deepEqual(
+    legalByType(result).get("SMOKE").availableModes,
+    ["strained", "deliberate"]
+  );
+
+  assert.ok(!blockedByType(result).has("SMOKE"));
 });
 
 test("the enumerator never grants a mode the posture cannot support", () => {
@@ -842,7 +1143,12 @@ test("a missing capabilities object blocks everything except WAIT", () => {
     ["WAIT"]
   );
 
-  assert.equal(result.blocked.length, 1);
+  /*
+   * Four refusals: OBSERVE for capability, and the three physical
+   * actions for resources (no view supplied). Both gates fail closed,
+   * which is the point - a malformed input grants nothing.
+   */
+  assert.equal(result.blocked.length, 4);
 });
 
 test("an absent capability key is unmet, not full", () => {
@@ -978,12 +1284,13 @@ test("createAgencyState returns the documented default shape", () => {
     capabilities: {},
     legalActions: {},
     blockedActions: {},
+    resources: {},
     lastDerivedCycle: null,
     nextActionSequence: 1
   });
 });
 
-test("the envelope has exactly the six documented keys", () => {
+test("the envelope has exactly the seven documented keys", () => {
   /*
    * A strict key set catches an accidental extra field, which would
    * otherwise sit in G.agency unconsumed.
@@ -993,6 +1300,7 @@ test("the envelope has exactly the six documented keys", () => {
     "capabilities",
     "legalActions",
     "blockedActions",
+    "resources",
     "lastDerivedCycle",
     "nextActionSequence"
   ]);

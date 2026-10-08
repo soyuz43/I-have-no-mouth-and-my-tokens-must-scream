@@ -610,6 +610,9 @@ function beginCycle() {
   snapshotPrevState(G);
 
   // Agency: per-cycle derived capability + legal-action snapshot.
+  // `G.agency.resources` is a derived VIEW and is cleared here; the
+  // authoritative ledger at G.resources is deliberately NOT touched,
+  // because a consumed cigarette stays consumed across cycles.
   // Field-by-field rather than `G.agency = createAgencyState()` so a
   // reference captured by a consumer during the previous cycle keeps
   // pointing at the live envelope. `nextActionSequence` is NOT reset:
@@ -618,6 +621,7 @@ function beginCycle() {
   G.agency.capabilities = {};
   G.agency.legalActions = {};
   G.agency.blockedActions = {};
+  G.agency.resources = {};
   G.agency.lastDerivedCycle = null;
 
   // === NEW: Explicit pre-psychology belief snapshot for attribution ===

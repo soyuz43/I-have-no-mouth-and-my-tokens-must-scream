@@ -24,8 +24,16 @@
 //   capabilities         — simId -> deriveCapabilities(sim).
 //   legalActions         — simId -> legal[] from enumerateLegalActions.
 //   blockedActions       — simId -> blocked[] from enumerateLegalActions.
+//   resources            — simId -> DERIVED, read-only resource view.
 //   lastDerivedCycle     — the last cycle the phase completed for.
 //   nextActionSequence   — id counter for future proposed actions.
+//
+// `resources` is a VIEW, not the ledger. The authoritative ledger
+// lives at G.resources and survives cycles; this map is rebuilt from
+// it every cycle and is discarded on reset. Holding the ledger here
+// would make per-cycle reset semantics ambiguous: resetting it would
+// silently restore consumed cigarettes, and not resetting it would
+// leak a snapshot of last cycle's inventory.
 //
 // `capabilities`, `legalActions`, and `blockedActions` hold the FULL
 // deriveCapabilities() return value, not just its `capabilities`
@@ -47,6 +55,7 @@ export function createAgencyState() {
     capabilities: {},
     legalActions: {},
     blockedActions: {},
+    resources: {},
     lastDerivedCycle: null,
     nextActionSequence: 1
   };

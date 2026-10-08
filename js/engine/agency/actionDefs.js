@@ -81,6 +81,140 @@ const ACTION_DEFINITIONS = Object.freeze({
     ]),
     executionModes: Object.freeze({})
   }),
+
+  /*
+   * SMOKE is the first genuinely physical action in the registry and
+   * the first to carry an execution-mode ladder in production.
+   *
+   * WHY `resourceRequirements` IS A SEPARATE BLOCK
+   * ----------------------------------------------
+   * `ignition: true` is a RESOURCE prerequisite, not a capability.
+   * deriveCapabilities() emits exactly five capability keys and will
+   * never emit `ignition`, and the enumerator's meetsMinimum() FAILS
+   * CLOSED on an absent key. Putting `ignition` inside `requirements`
+   * would therefore block SMOKE for every prisoner on every cycle,
+   * silently and totally. The two blocks are evaluated by different
+   * rules against different inputs, so they stay separate.
+   *
+   * WHY THESE NUMBERS
+   * -----------------
+   * Lighting and drawing is a hand-and-reach task, so handUse and
+   * interactionReach gate it; `stability` is the "enough stability to
+   * perform the sequence" bar from high_value_action_gestalt.md.
+   * There is no `speech` or `vision` component.
+   *
+   * Striking the match is NOT a separate action: the doc's
+   * simplification is that SMOKE consumes one cigarette AND one
+   * ignition use together.
+   */
+  SMOKE: Object.freeze({
+    type: "SMOKE",
+    title: "Smoke a cigarette",
+    baseCost: 1,
+    /*
+     * These are the ATTEMPT bar, not the clean-execution bar.
+     *
+     * The enumerator refuses an action outright when its top-level
+     * requirements are unmet, without consulting the mode ladder. A
+     * top-level gate set at the "normal condition" level would
+     * therefore make `strained` unreachable: no prisoner could ever
+     * be degraded-but-able. The ladder is only meaningful when the
+     * top level is the floor.
+     */
+    requirements: Object.freeze({
+      handUse: 0.2,
+      interactionReach: 0.2
+    }),
+    effortDomains: Object.freeze([
+      "physical"
+    ]),
+    resourceRequirements: Object.freeze({
+      consume: Object.freeze([
+        Object.freeze({
+          definitionId: "cigarette",
+          quantity: 1
+        })
+      ]),
+      ignition: true
+    }),
+    /*
+     * The degraded-variant ladder.
+     *
+     * `strained` is the floor and matches the top-level gate: it is
+     * what remains when the prisoner can still physically manage the
+     * sequence but nothing more. `deliberate` is the careful,
+     * unhurried form and demands real stability and reach.
+     *
+     * A prisoner between the two gets a PAIRED legal+blocked entry,
+     * which is exactly the case the enumerator exists to make
+     * legible: "he can still smoke, but not carefully".
+     */
+    executionModes: Object.freeze({
+      strained: Object.freeze({
+        cost: 1,
+        minimums: Object.freeze({
+          handUse: 0.2,
+          interactionReach: 0.2
+        })
+      }),
+      deliberate: Object.freeze({
+        cost: 2,
+        minimums: Object.freeze({
+          handUse: 0.5,
+          interactionReach: 0.5,
+          stability: 0.4
+        })
+      })
+    })
+  }),
+
+  /*
+   * TRANSFER moves a held stack to another prisoner.
+   *
+   * The target resource is IMPLICIT in this slice: the requirement is
+   * "holds at least one accessible stack", not "names a specific
+   * resourceId". Naming instances is a proposal-pipeline concern and
+   * is deliberately deferred.
+   */
+  TRANSFER: Object.freeze({
+    type: "TRANSFER",
+    title: "Hand over a resource",
+    baseCost: 1,
+    requirements: Object.freeze({
+      handUse: 0.3,
+      interactionReach: 0.3
+    }),
+    effortDomains: Object.freeze([
+      "physical"
+    ]),
+    resourceRequirements: Object.freeze({
+      holdAny: true
+    }),
+    executionModes: Object.freeze({})
+  }),
+
+  /*
+   * HIDE conceals a held stack. Same implicit-target rule as
+   * TRANSFER. REVEAL is deferred to the slice that builds the
+   * state-mutating resolver, since reversing this is the first thing
+   * that resolver would have to do.
+   */
+  HIDE: Object.freeze({
+    type: "HIDE",
+    title: "Conceal a resource",
+    baseCost: 1,
+    requirements: Object.freeze({
+      handUse: 0.3,
+      interactionReach: 0.3
+    }),
+    effortDomains: Object.freeze([
+      "physical"
+    ]),
+    resourceRequirements: Object.freeze({
+      holdAny: true
+    }),
+    executionModes: Object.freeze({})
+  }),
 });
 
 /* ============================================================
