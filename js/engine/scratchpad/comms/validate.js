@@ -1,5 +1,6 @@
 // js/engine/scratchpad/comms/validate.js
 
+import { G } from "../../../core/state.js";
 import { SIM_IDS } from "../../../core/constants.js";
 
 import {
@@ -26,6 +27,9 @@ import {
   buildVisibleMessageMap,
   isMessageVisibleToSim,
 } from "./visibility.js";
+import {
+  buildVisibleOverhearingEventMap,
+} from "./overhearingEvidence.js";
 
 /*
 ============================================================
@@ -245,6 +249,7 @@ function parseReferenceList(
     attributeName,
     requireExactlyOne = false,
     visibleMessageMap,
+    visibleEventMap,
     simId,
     reasons,
   }
@@ -255,7 +260,7 @@ function parseReferenceList(
 
   if (!source) {
     reasons.push(
-      `${attributeName} must contain at least one message ID.`
+      `${attributeName} must contain at least one message or overhearing event ID.`
     );
 
     return [];
@@ -279,7 +284,7 @@ function parseReferenceList(
     references.length !== 1
   ) {
     reasons.push(
-      `${attributeName} must contain exactly one message ID.`
+      `${attributeName} must contain exactly one message or overhearing event ID.`
     );
   }
 
@@ -288,7 +293,7 @@ function parseReferenceList(
     references.length === 0
   ) {
     reasons.push(
-      `${attributeName} must contain at least one message ID.`
+      `${attributeName} must contain at least one message or overhearing event ID.`
     );
   }
 
@@ -297,7 +302,7 @@ function parseReferenceList(
     references.length
   ) {
     reasons.push(
-      `${attributeName} contains duplicate message references.`
+      `${attributeName} contains duplicate references.`
     );
   }
 
@@ -307,29 +312,40 @@ function parseReferenceList(
         reference
       );
 
-    if (!message) {
+    if (message) {
+      if (
+        !isMessageVisibleToSim(
+          message,
+          simId
+        )
+      ) {
+        reasons.push(
+          `Message reference ${reference} is not visible to ${simId}.`
+        );
+      }
+
+      continue;
+    }
+
+    const event =
+      visibleEventMap &&
+      visibleEventMap.get(
+        reference
+      );
+
+    if (!event) {
       reasons.push(
-        `Unknown or invisible message reference: ${reference}.`
+        `Unknown or impermissible reference: ${reference}. ` +
+        `It is neither a visible message nor an overhearing event this prisoner perceived.`
       );
 
       continue;
     }
 
-    if (
-      !isMessageVisibleToSim(
-        message,
-        simId
-      )
-    ) {
-      reasons.push(
-        `Message reference ${reference} is not visible to ${simId}.`
-      );
-    }
   }
 
   return references;
 }
-
 /* ============================================================
    COMMON OPERATION VALIDATION
 ============================================================ */
@@ -591,6 +607,7 @@ function validateAndNormalizeOperation({
   operation,
   simId,
   visibleMessageMap,
+  visibleEventMap,
   noUpdateMixedWithOperations,
 }) {
   const definition =
@@ -671,6 +688,7 @@ function validateAndNormalizeOperation({
               true,
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -779,6 +797,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -888,6 +907,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -960,6 +980,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -1021,6 +1042,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -1105,6 +1127,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -1200,6 +1223,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -1292,6 +1316,7 @@ function validateAndNormalizeOperation({
               "refs",
 
             visibleMessageMap,
+            visibleEventMap,
             simId,
             reasons,
           }
@@ -1346,6 +1371,45 @@ function validateAndNormalizeOperation({
    EVIDENCE INPUT
 ============================================================ */
 
+
+/* ============================================================
+   OVERHEARING EVENT MAP RESOLUTION
+============================================================ */
+
+/*
+ * Resolve the admissible overhearing-event map for the sim.
+ *
+ * The orchestrator may pass a prebuilt map (preferred: it already
+ * owns G.overhearing and the per-sim filter). When it passes an empty
+ * map, fall back to reading G.overhearing directly so the validator
+ * remains usable as a standalone pure boundary without the
+ * orchestrator threading the map through.
+ *
+ * If neither is available the map is empty, which simply means no
+ * overhearing references are admissible for this review.
+ */
+function resolveVisibleEventMap({
+  suppliedEventMap,
+  simId,
+}) {
+  if (
+    suppliedEventMap &&
+    suppliedEventMap instanceof Map &&
+    suppliedEventMap.size > 0
+  ) {
+    return suppliedEventMap;
+  }
+
+  const overhearing =
+    G && G.overhearing && typeof G.overhearing === "object"
+      ? G.overhearing
+      : null;
+
+  return buildVisibleOverhearingEventMap(
+    overhearing,
+    simId
+  );
+}
 function resolveEvidenceMessages(
   evidence
 ) {
@@ -1375,6 +1439,7 @@ export function validateScratchpadCommsOperations({
   parsedResult,
   simId,
   evidence,
+  visibleEventMap = new Map(),
 }) {
   const normalizedSimId =
     normalizeSimId(simId);
@@ -1398,6 +1463,12 @@ export function validateScratchpadCommsOperations({
     buildVisibleMessageMap(
       visibleMessages
     );
+
+  const admissibleEventMap =
+    resolveVisibleEventMap({
+      suppliedEventMap: visibleEventMap,
+      simId: normalizedSimId,
+    });
 
   const accepted = [];
   const rejected = [];
@@ -1563,6 +1634,9 @@ export function validateScratchpadCommsOperations({
           normalizedSimId,
 
         visibleMessageMap,
+
+        visibleEventMap:
+          admissibleEventMap,
 
         noUpdateMixedWithOperations,
       });
@@ -1819,3 +1893,9 @@ export function getRejectedScratchpadReasons(
         : []
   );
 }
+
+
+
+
+
+

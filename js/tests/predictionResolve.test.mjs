@@ -301,7 +301,7 @@ test("validation rejects an invisible or unknown evidence reference", () => {
   assert.ok(
     result.rejected[0].reasons.some(
       (reason) =>
-        /Unknown or invisible message reference/.test(reason)
+        /Unknown or (invisible message|impermissible) reference/.test(reason)
     ),
     result.rejected[0].reasons.join(" | ")
   );

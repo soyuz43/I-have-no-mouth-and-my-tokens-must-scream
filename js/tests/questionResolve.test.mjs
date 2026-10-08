@@ -204,7 +204,7 @@ test("validation rejects invalid evidence references", () => {
     .flatMap((r) => r.reasons);
   assert.ok(
     reasons.some((r) =>
-      /Unknown or invisible message reference/.test(r)
+      /Unknown or (invisible message|impermissible) reference/.test(r)
     ),
     `expected unknown-reference rejection, got: ${reasons.join(" | ")}`
   );
@@ -1041,7 +1041,7 @@ test("invalid refs combined with a non-pre-batch target are rejected at validati
   );
   assert.ok(
     reasons.some((r) =>
-      /Unknown or invisible message reference/.test(r)
+      /Unknown or (invisible message|impermissible) reference/.test(r)
     ),
     `expected unknown-reference rejection, got: ${reasons.join(" | ")}`
   );
