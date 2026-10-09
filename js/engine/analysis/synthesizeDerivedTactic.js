@@ -321,7 +321,7 @@ export async function synthesizeDerivedTactic(G, effect, thresholds) {
   console.log(`  Subcategory:   ${tactic.subcategory}`);
   console.log(`  Objective:     ${tactic.objective}`);
   console.log(
-    `  Phase:         ${tactic.initialPhaseId} (" + tactic.phases[tactic.initialPhaseId].purpose + ")`
+    `  Phase:         ${tactic.initialPhaseId} (${tactic.phases[tactic.initialPhaseId].purpose})`
   );
   console.log(`  Discovered:    cycle ${tactic.discoveredCycle}`);
   console.log(`  Expires:       cycle ${tactic.expiresCycle}`);
