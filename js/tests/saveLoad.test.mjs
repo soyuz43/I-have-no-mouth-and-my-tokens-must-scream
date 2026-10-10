@@ -3,6 +3,12 @@ import { test } from "node:test";
 
 import { G } from "../core/state.js";
 import { exportState, importState } from "../core/saveLoad.js";
+import {
+  engineRng,
+  researchRng,
+  seedAll,
+  uiRng,
+} from "../core/prng.js";
 import { Exporter } from "../utils/exporter/state.js";
 
 test("exportState omits credentials and runtime-only handles", () => {
@@ -30,6 +36,15 @@ test("exportState omits credentials and runtime-only handles", () => {
     assert.equal(Object.hasOwn(saved.G, "autoTimer"), false);
     assert.equal(Object.hasOwn(saved.G, "research"), false);
     assert.ok(saved.Exporter);
+    assert.deepEqual(Object.keys(saved.rngStates).sort(), [
+      "engineRng",
+      "researchRng",
+      "uiRng",
+    ]);
+    for (const state of Object.values(saved.rngStates)) {
+      assert.ok(Number.isInteger(state.state));
+      assert.ok(state.state >= 0 && state.state <= 0xffffffff);
+    }
   } finally {
     clearTimeout(timer);
     G.colabBearerToken = previous.colabBearerToken;
@@ -40,6 +55,38 @@ test("exportState omits credentials and runtime-only handles", () => {
     } else {
       delete G.research;
     }
+  }
+});
+
+test("exportState and importState restore all PRNG streams", async () => {
+  const streams = [engineRng, uiRng, researchRng];
+  const originalStates = streams.map((stream) => stream.getState());
+
+  try {
+    seedAll("save-load-round-trip");
+    const savedEnvelope = JSON.parse(exportState());
+    const expectedContinuation = streams.map((stream) =>
+      Array.from({ length: 8 }, () => stream.next()),
+    );
+
+    seedAll("different-seed");
+    streams.forEach((stream) => stream.next());
+    await importState(JSON.stringify(savedEnvelope));
+
+    assert.deepEqual(
+      streams.map((stream) => stream.getState()),
+      [
+        savedEnvelope.rngStates.engineRng,
+        savedEnvelope.rngStates.uiRng,
+        savedEnvelope.rngStates.researchRng,
+      ],
+    );
+    assert.deepEqual(
+      streams.map((stream) => Array.from({ length: 8 }, () => stream.next())),
+      expectedContinuation,
+    );
+  } finally {
+    streams.forEach((stream, index) => stream.setState(originalStates[index]));
   }
 });
 

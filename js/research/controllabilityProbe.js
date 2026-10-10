@@ -6,6 +6,8 @@
 //           critical window detection, controllability metric C
 // ============================================================
 
+import { researchRng } from "../core/prng.js";
+
 export class ControllabilityProbe {
   constructor(config = {}) {
     // === CONFIGURATION ===
@@ -141,9 +143,9 @@ export class ControllabilityProbe {
 
       for (let t = 0; t < horizon; t++) {
         // Sample plausible deltas from recent trend + noise
-        const δh = (Math.random() - 0.5) * 2 * sigma;
-        const δsa = (Math.random() - 0.5) * 2 * sigma;
-        const δr = (Math.random() - 0.5) * 2 * sigma;
+        const δh = (researchRng.next() - 0.5) * 2 * sigma;
+        const δsa = (researchRng.next() - 0.5) * 2 * sigma;
+        const δr = (researchRng.next() - 0.5) * 2 * sigma;
 
         h = this._applyCommitDelta(h, δh);
         sa = this._applyCommitDelta(sa, δsa);

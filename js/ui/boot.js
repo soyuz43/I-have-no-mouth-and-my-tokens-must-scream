@@ -2,6 +2,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { seedAll } from "../core/prng.js";
 
 import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { purgeInvalidDerivedTactics } from "../engine/tactics/validateDerivedTactic.js";
@@ -275,6 +276,8 @@ export async function bootAM() {
   /* ---------------------------------------------------------
      SIM THREAD INIT
   --------------------------------------------------------- */
+
+  seedAll();
 
   bootLog("▸ Initializing simulation threads...");
 

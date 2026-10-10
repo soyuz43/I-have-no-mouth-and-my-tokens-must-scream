@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { engineRng } from "../core/prng.js";
 import { step } from "../engine/comms/engine.js";
 import { createCommsState } from "../engine/comms/state/createCommsState.js";
 
@@ -42,7 +43,7 @@ test("canonical overhearing schedules reactive intel and honors the message budg
     coalitions: G.coalitions,
     document: globalThis.document,
     window: globalThis.window,
-    random: Math.random,
+    nextRandom: engineRng.next,
   };
 
   try {
@@ -60,7 +61,7 @@ test("canonical overhearing schedules reactive intel and honors the message budg
     G.coalitions = { cycle: null, groups: [] };
     globalThis.document = { getElementById: () => null };
     globalThis.window = { _timelineMissing: false };
-    Math.random = () => 0;
+    engineRng.next = () => 0;
 
     const state = createCommsState();
     state.messageBudget = 4;
@@ -120,7 +121,7 @@ test("canonical overhearing schedules reactive intel and honors the message budg
     G.lastContact = saved.lastContact;
     G.novelIntents = saved.novelIntents;
     G.coalitions = saved.coalitions;
-    Math.random = saved.random;
+    engineRng.next = saved.nextRandom;
     if (saved.document === undefined) delete globalThis.document;
     else globalThis.document = saved.document;
     if (saved.window === undefined) delete globalThis.window;

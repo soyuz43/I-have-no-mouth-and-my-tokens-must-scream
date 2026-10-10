@@ -13,6 +13,7 @@
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
+import { engineRng } from "../../core/prng.js";
 import { timelineEvent } from "../../ui/timeline.js";
 import {
   addLog,
@@ -1223,7 +1224,7 @@ function buildObservationState({
       );
 
     const roll =
-      roundToFour(Math.random());
+      roundToFour(engineRng.next());
 
     const observed =
       roll < probability;
@@ -1451,7 +1452,7 @@ function pickRandom(values) {
 
   return values[
     Math.floor(
-      Math.random() *
+      engineRng.next() *
       values.length
     )
   ];
@@ -1615,19 +1616,19 @@ function phraseConstraintObservation(
   let pool = direct;
 
   if (intensity < 0.75) {
-    pool = Math.random() < 0.5
+    pool = engineRng.next() < 0.5
       ? indirect
       : inferred;
   }
 
   if (
     intensity >= 1.5 &&
-    Math.random() < 0.4
+    engineRng.next() < 0.4
   ) {
     pool = distorted;
   }
 
-  if (Math.random() < 0.25) {
+  if (engineRng.next() < 0.25) {
     pool = auditory;
   }
 
