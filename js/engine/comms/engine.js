@@ -238,7 +238,7 @@ function logOverhearReaction(data) {
 // MAX_MESSAGE_LENGTH is currently declared in js/engine/comms/parsing/parsers.js as well, ivestigate and fix
 const MAX_MESSAGE_LENGTH = 2000;
 
-export async function step({ fromId, state, queue }) {
+export async function step({ fromId, state, queue, modelCaller = callModel }) {
   const {
     counters,
     cycle,
@@ -284,6 +284,7 @@ export async function step({ fromId, state, queue }) {
     );
   }
 
+  // Communication effectiveness is currently gated by psychological state (sanity/suffering). Physical constraints (physicalLimitations) do not yet affect communication; this is deferred to a future slice.
   if (fromSim.sanity < 10 || fromSim.suffering > 95) return;
 
   try {
@@ -409,7 +410,7 @@ export async function step({ fromId, state, queue }) {
 
     /* ================= OUTREACH ================= */
 
-    const outreachRaw = await callModel(
+    const outreachRaw = await modelCaller(
       fromId,
       buildSimOutreachPrompt(fromSim, state),
       [{ role: "user", content: "Decide now." }],
@@ -835,7 +836,7 @@ Shift your wording or angle slightly to avoid repeating the same phrasing.
         : loopNote;
     }
 
-    const replyRaw = await callModel(
+    const replyRaw = await modelCaller(
       toId,
       buildSimReplyPrompt(
         toSim,

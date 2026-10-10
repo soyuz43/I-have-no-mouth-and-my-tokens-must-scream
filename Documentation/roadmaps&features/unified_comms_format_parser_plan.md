@@ -73,6 +73,8 @@ Two observed failures motivated the work:
 
 If parsing fails, the whole message disappears from the simulation even when its intended meaning is obvious — it is not logged, shown, stored, or used for relationship updates.
 
+**Current social-phase scope boundary:** Communication effectiveness is currently gated by psychological state (sanity/suffering). Physical constraints (`physicalLimitations`) do not yet affect communication; integrating those capability bands is deferred to a future slice.
+
 ---
 
 ## 3. Canonical Schema (Version 1)

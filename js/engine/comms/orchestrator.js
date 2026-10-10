@@ -140,7 +140,7 @@ function shuffle(list) {
    MAIN ORCHESTRATOR
 ============================================================ */
 
-export async function runCommsCycle() {
+export async function runCommsCycle({ stepFn = step } = {}) {
   const MAX_MESSAGES = 24;
 
   /*
@@ -348,7 +348,7 @@ export async function runCommsCycle() {
     beginTurnLog(fromId, turnType);
 
     try {
-      await step({
+      await stepFn({
         fromId,
         state,
         queue,
@@ -389,7 +389,7 @@ export async function runCommsCycle() {
       beginTurnLog(fromId, "burst");
 
       try {
-        await step({
+        await stepFn({
           fromId,
           state,
           queue: burstQueue,
