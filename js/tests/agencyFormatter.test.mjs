@@ -1,17 +1,16 @@
 // js/tests/agencyFormatter.test.mjs
 //
-// Coverage for the three pure/read-only surfaces added when the
-// agency derivation was made visible:
+// Coverage for read-side Agency projections and the exporter that
+// records their detached output:
 //
 //   - js/engine/agency/formatAgencySummary.js       (log text)
 //   - js/utils/exporter/streams/agency.js            (JSON record)
 //   - js/ui/agencyFormatter.js                       (modal HTML)
 //
-// All three sit on the read side of `G.agency`, so none of them may
-// mutate the envelope. That is asserted here directly rather than
-// assumed, because a formatter that writes back would corrupt the
-// NEXT consumer in the same cycle and produce a bug that looks
-// like a derivation error.
+// All three read from `G.agency`; the exporter appends a detached row
+// to its own buffer. None may mutate the envelope, which is asserted
+// directly because a write-back would corrupt the next consumer in
+// the same cycle.
 //
 // SHARED-FIXTURE CAVEAT
 // --------------------
@@ -76,6 +75,29 @@ function simWithConstraints(constraintIds) {
   };
 }
 
+function fullResourceView() {
+  return {
+    simId: "TED",
+    byDefinition: {
+      cigarette: [
+        { resourceId: "cigarette_stack_01", quantity: 3 }
+      ],
+      match: [
+        { resourceId: "match_stack_01", quantity: 2 }
+      ]
+    },
+    affordances: {
+      cigarette: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
+      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+    },
+    hasIgnition: true,
+    stacks: [
+      { resourceId: "cigarette_stack_01", quantity: 3 },
+      { resourceId: "match_stack_01", quantity: 2 }
+    ]
+  };
+}
+
 /*
  * The full unconstrained envelope. Used wherever the assertion is
  * about the FORMATTER's behaviour rather than about restraint.
@@ -101,15 +123,11 @@ const OBSERVE_ENTRY = Object.freeze({
 /*
  * SYNTHETIC BLOCKED FIXTURES.
  *
- * Nothing in the live constraint library can currently close
- * OBSERVE: its gate is concentration 0.1 and the most severe
- * authored concentration is 0.2 (palestinian_chair). The
- * two-action registry therefore emits an empty `blocked` list for
- * every real posture, exactly as agencyFoundation.test.mjs
- * documents. These fixtures supply the blocked cases directly so
- * the refusal rendering and the binding-constraint attribution are
- * covered against SOMETHING rather than left untested until a
- * gated action exists.
+ * Nothing in the live constraint library currently closes OBSERVE:
+ * its gate is concentration 0.1 and the most severe authored
+ * concentration is 0.2 (palestinian_chair). These fixtures isolate
+ * OBSERVE refusal rendering and attribution; real postures can block
+ * physical actions, as agencyFoundation.test.mjs verifies.
  */
 const SYNTHETIC_BLOCKED = Object.freeze([
   Object.freeze({
@@ -124,18 +142,31 @@ const SYNTHETIC_BLOCKED = Object.freeze([
    A) formatAgencySummary
 ============================================================ */
 
-test("an unconstrained agent gets two lines and no BLOCKED/CONSTR", () => {
+test("summary omits BLOCKED/CONSTR when those lists are empty", () => {
+  const sim = simWithConstraints([]);
+  const derived = deriveCapabilities(sim);
+  const legal = enumerateLegalActions(
+    sim,
+    derived.capabilities,
+    ACTION_DEFINITIONS,
+    fullResourceView()
+  ).legal;
+
   const summary = formatAgencySummary(
     "TED",
-    UNCONSTRAINED,
-    [WAIT_ENTRY, OBSERVE_ENTRY],
+    derived,
+    legal,
     []
   );
 
   const lines = summary.split("\n");
 
-  assert.equal(lines.length, 2, "an unconstrained agent should not spend two lines on empty sections");
-  assert.equal(lines[0], "LEGAL: WAIT, OBSERVE");
+  assert.deepEqual(
+    legal.map((entry) => entry.type),
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
+  );
+  assert.equal(lines.length, 2, "empty sections should not add summary lines");
+  assert.equal(lines[0], "LEGAL: WAIT, OBSERVE, SMOKE, TRANSFER, HIDE");
   assert.equal(
     lines[1],
     "BANDS: mob:NORM sta:NORM hd:NORM con:NORM rei:NORM"
