@@ -861,15 +861,35 @@ function safeRatio(eff, rep) {
 
 // Compute marginal delta between two belief states
 function computeDelta(before, after) {
-  if (!before || !after) return {};
+  const beforeValues = isRecord(before) ? before : {};
+  const afterValues = isRecord(after) ? after : {};
   const delta = {};
-  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const allKeys = new Set([
+    ...Object.keys(beforeValues),
+    ...Object.keys(afterValues),
+  ]);
+
   for (const key of allKeys) {
-    const b = before?.[key] ?? 0;
-    const a = after?.[key] ?? 0;
-    delta[key] = a - b;
+    const beforeValue = beforeValues[key];
+    const afterValue = afterValues[key];
+
+    if (isRecord(beforeValue) || isRecord(afterValue)) {
+      delta[key] = computeDelta(beforeValue, afterValue);
+      continue;
+    }
+
+    delta[key] = numericValue(afterValue) - numericValue(beforeValue);
   }
+
   return delta;
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function numericValue(value) {
+  return Number.isFinite(value) ? value : 0;
 }
 
 // Compute attribution-aware deltas for a sim

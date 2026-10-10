@@ -281,15 +281,35 @@ function detectNetworkStress(prev, curr) {
 
 // Compute marginal delta between two belief states
 function computeBeliefDelta(before, after) {
-  if (!before || !after) return {};
+  const beforeValues = isRecord(before) ? before : {};
+  const afterValues = isRecord(after) ? after : {};
   const delta = {};
-  const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const allKeys = new Set([
+    ...Object.keys(beforeValues),
+    ...Object.keys(afterValues),
+  ]);
+
   for (const key of allKeys) {
-    const b = before?.[key] ?? 0;
-    const a = after?.[key] ?? 0;
-    delta[key] = a - b;
+    const beforeValue = beforeValues[key];
+    const afterValue = afterValues[key];
+
+    if (isRecord(beforeValue) || isRecord(afterValue)) {
+      delta[key] = computeBeliefDelta(beforeValue, afterValue);
+      continue;
+    }
+
+    delta[key] = numericValue(afterValue) - numericValue(beforeValue);
   }
+
   return delta;
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function numericValue(value) {
+  return Number.isFinite(value) ? value : 0;
 }
 
 // Compute attribution-aware deltas for stats and beliefs
@@ -308,14 +328,14 @@ export function computeAttribution(id) {
   return {
     stats: {
       am: {
-        hope: (postPsych.hope ?? 0) - (prePsych.hope ?? 0),
-        sanity: (postPsych.sanity ?? 0) - (prePsych.sanity ?? 0),
-        suffering: (postPsych.suffering ?? 0) - (prePsych.suffering ?? 0)
+        hope: numericValue(postPsych.hope) - numericValue(prePsych.hope),
+        sanity: numericValue(postPsych.sanity) - numericValue(prePsych.sanity),
+        suffering: numericValue(postPsych.suffering) - numericValue(prePsych.suffering)
       },
       contagion: {
-        hope: (G.sims[id]?.hope ?? 0) - (postPsych.hope ?? 0),
-        sanity: (G.sims[id]?.sanity ?? 0) - (postPsych.sanity ?? 0),
-        suffering: (G.sims[id]?.suffering ?? 0) - (postPsych.suffering ?? 0)
+        hope: numericValue(G.sims[id]?.hope) - numericValue(postPsych.hope),
+        sanity: numericValue(G.sims[id]?.sanity) - numericValue(postPsych.sanity),
+        suffering: numericValue(G.sims[id]?.suffering) - numericValue(postPsych.suffering)
       }
     },
     beliefs: {
