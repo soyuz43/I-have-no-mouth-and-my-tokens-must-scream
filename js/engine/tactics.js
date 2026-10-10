@@ -410,13 +410,6 @@ export function rankTacticCandidates(
     )
     .map((entry) => entry.tactic);
 }
-/**
- * @deprecated
- * Final tactic selection now belongs to the planning phase.
- *
- * This wrapper remains temporarily while older call sites are
- * migrated away from pickTactics().
- */
 export function pickTactics(sim) {
   return rankTacticCandidates(
     sim,
