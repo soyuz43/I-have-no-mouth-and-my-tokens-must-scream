@@ -14,8 +14,8 @@ EXTRACT PERTURBATIONS FROM EPISODES
 IMPORTANT:
 - sparse output
 - no full belief vector
-- uses marginal deltas (currentBeliefs - baselineBeliefs) to isolate
-  contagion-attributed belief shifts from comms episodes
+- uses marginal deltas from snapshot belief maps (nested under `.beliefs` or
+  supplied directly) to isolate contagion-attributed shifts from comms episodes
 - robust against minor JSON corruption
 ============================================================
 */
@@ -25,7 +25,8 @@ export async function extractInteractionEvidence({
   episodes,
   trajectory,
   baselineBeliefs,
-  currentBeliefs
+  currentBeliefs,
+  modelCaller = callModel
 }) {
 
   if (!Array.isArray(episodes) || episodes.length === 0) return [];
@@ -36,16 +37,18 @@ export async function extractInteractionEvidence({
   const BASE_THRESHOLD = 0.02;
   const marginalDeltas = {};
   const significantDeltas = {};
+  const baselineValues = baselineBeliefs?.beliefs ?? baselineBeliefs;
+  const currentValues = currentBeliefs?.beliefs ?? currentBeliefs;
 
   if (baselineBeliefs && currentBeliefs) {
     const allKeys = new Set([
-      ...Object.keys(baselineBeliefs || {}),
-      ...Object.keys(currentBeliefs || {})
+      ...Object.keys(baselineValues || {}),
+      ...Object.keys(currentValues || {})
     ]);
 
     for (const key of allKeys) {
-      const before = baselineBeliefs?.[key] ?? 0;
-      const after = currentBeliefs?.[key] ?? 0;
+      const before = baselineValues?.[key] ?? 0;
+      const after = currentValues?.[key] ?? 0;
       const delta = after - before;
 
       marginalDeltas[key] = delta;
@@ -53,7 +56,7 @@ export async function extractInteractionEvidence({
       // Noise filter
       const adaptiveThreshold =
         BASE_THRESHOLD *
-        (1 + Math.abs(currentBeliefs[key] - 0.5));
+        (1 + Math.abs((currentValues[key] ?? 0.5) - 0.5));
 
       if (Math.abs(delta) >= adaptiveThreshold) {
         significantDeltas[key] = delta;
@@ -76,7 +79,7 @@ export async function extractInteractionEvidence({
     significantDeltas
   );
 
-  const response = await callModel(
+  const response = await modelCaller(
     "SYSTEM",
     buildPrompt(context),
     [{ role: "user", content: "Analyze interaction effects." }],

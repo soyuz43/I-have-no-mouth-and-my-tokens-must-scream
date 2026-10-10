@@ -33,6 +33,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { runBeliefContagion } from "../engine/social/beliefContagion.js";
 import { runBeliefIntegrationPhase } from "../engine/phases/beliefIntegrationPhase.js";
+import { extractInteractionEvidence } from "../engine/comms/analysis/extractInteractionEvidence.js";
 import { dampBeliefDelta } from "../engine/state/utils/dampBeliefDelta.js";
 
 const SEVEN_KEYS = [
@@ -407,23 +408,11 @@ test("Test 7: pending evidence is same-cycle (reset clears, available, consumed,
   assert.equal(Object.keys(G.pendingBeliefEvidence).length, 0, "pending not cleared by next reset");
 });
 
-// Extractor-input boundary test (deterministic, no LLM, no production mock).
-//
-// extractInteractionEvidence.js computes marginalDelta = currentBeliefs[k] - baselineBeliefs[k]
-// over the keys present in both, then passes it into the model-facing prompt
-// context (buildContext -> marginalDeltas). It is invoked by the engine with
-// baselineBeliefs = postPsychology and currentBeliefs = final (= postContagion)
-// (cycle.js:872-873). The model boundary (callModel) is not directly injectable
-// without mocking an ES-module namespace export, which is unsupported. Instead we
-// assert the DETERMINISTIC INPUT it is supplied: the marginal delta equals
-// postContagion - postPsychology, for a distinct numeric contagion movement.
-// We do NOT assert that the LLM must emit reinforcement.
-//
-// To exercise the production marginal-delta computation path without the LLM,
-// we reimplement the exact production formula (extractInteractionEvidence.js:48-58)
-// against the same baseline/current objects the engine passes in. This proves the
-// input contract; it does not duplicate behavior under test for the LLM step.
-test("Extractor-input: marginal delta equals postContagion - postPsychology", () => {
+// This fixture-level characterization unwraps `.beliefs` and computes deltas
+// locally. It does not invoke extractInteractionEvidence or exercise its
+// production snapshot handling; the integration test below covers that path.
+// The corresponding cycle call occurs in runInteractionAnalysisPhase.
+test("Belief contagion produces a positive escape_possible delta", () => {
   const sims = buildSims({
     TED: makeSim("TED", {
       beliefs: { escape_possible: 0.20, others_trustworthy: 0.75 },
@@ -449,7 +438,7 @@ test("Extractor-input: marginal delta equals postContagion - postPsychology", ()
   const baseline = G.beliefSnapshots.postPsychology.TED.beliefs;
   const current = G.beliefSnapshots.final.TED.beliefs;
 
-  // Exact production marginal-delta computation (extractInteractionEvidence.js:48-58).
+  // Local delta computation from unwrapped belief-map fixtures only.
   const allKeys = new Set([...Object.keys(baseline || {}), ...Object.keys(current || {})]);
   const marginal = {};
   for (const key of allKeys) {
@@ -460,12 +449,55 @@ test("Extractor-input: marginal delta equals postContagion - postPsychology", ()
   const postContagion = current.escape_possible;
   const expected = postContagion - postPsychology;
 
-  assert.ok(expected > 0, "contagion movement not captured as positive marginal delta");
-  assert.equal(marginal.escape_possible, expected, "marginal delta != postContagion - postPsychology");
-  assert.equal(marginal.escape_possible.toFixed(12), (postContagion - postPsychology).toFixed(12),
-    "marginal delta float mismatch");
+  assert.ok(Number.isFinite(marginal.escape_possible), "fixture delta is not numeric");
+  assert.ok(postContagion > postPsychology, "contagion did not increase escape_possible");
+  assert.ok(expected > 0, "fixture delta is not positive");
+});
 
-  // This is the value supplied to the model-facing extractor as the signal
-  // (buildContext -> marginalDeltas). It is the contagion output, demonstrating
-  // the causal-overlap pathway at the input boundary.
+test("extractInteractionEvidence computes numeric deltas from cycle-shaped snapshots", async () => {
+  let capturedPrompt = "";
+
+  await extractInteractionEvidence({
+    simId: "TED",
+    episodes: [[{
+      from: "ELLEN",
+      to: ["TED"],
+      text: "We can escape together.",
+      visibility: "private",
+    }]],
+    trajectory: [],
+    baselineBeliefs: {
+      hope: 42,
+      sanity: 70,
+      suffering: 20,
+      beliefs: {
+        escape_possible: 0.25,
+        others_trustworthy: 0.75,
+        self_worth: 0.4,
+      },
+    },
+    currentBeliefs: {
+      hope: 46,
+      sanity: 68,
+      suffering: 22,
+      beliefs: {
+        escape_possible: 0.5,
+        others_trustworthy: 0.5,
+        self_worth: 0.4,
+      },
+    },
+    modelCaller: async (_role, prompt) => {
+      capturedPrompt = prompt;
+      return JSON.stringify({ perturbations: [] });
+    },
+  });
+
+  const marginalSection = capturedPrompt
+    .split("MARGINAL DELTAS (CONTAGION-ATTRIBUTED CHANGE ONLY)\n------------------------------------------------------------\n")[1]
+    .split("\n\nNOTE:")[0];
+
+  assert.deepEqual(JSON.parse(marginalSection), {
+    escape_possible: 0.25,
+    others_trustworthy: -0.25,
+  });
 });

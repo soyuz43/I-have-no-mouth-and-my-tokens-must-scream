@@ -53,8 +53,7 @@ export function buildEpisodes(cycle) {
 FILTER EPISODES RELEVANT TO A SIM
 
 Includes:
-- direct participation
-- overheard participation
+- direct sender/recipient participation only; overheard listeners are not included
 ============================================================
 */
 
