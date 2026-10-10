@@ -539,8 +539,11 @@ export function repairJSON(text) {
    Creates a private working model for one prisoner.
 
    This state contains provisional hypotheses, interpretations,
-   predictions, and message-linked notes. It must never be treated
-   as canonical truth about AM, another prisoner, or the simulation.
+   predictions, and notes linked to messages or overhearing events. The
+   schema-v3 physicalLimitations field is an engine-derived objective
+   constraint, not a subjective belief. Scratchpad state must never be
+   treated as canonical truth about AM, another prisoner, or the
+   simulation.
 
    Design rules:
    - Initialize epistemic claims as unknown unless supported by
@@ -596,8 +599,9 @@ export function makeScratchpad(id) {
 
   return {
     /*
-     * Version 3 introduces:
+     * Version 3 includes:
      * - Archived predictions
+     * - Engine-derived physicalLimitations
      *
      * Version 2 introduced:
      * - Per-field epistemic claims for hypothesesAboutOthers
@@ -630,18 +634,25 @@ export function makeScratchpad(id) {
 
     /*
      * Private notes attached to communications visible to this
-     * prisoner. These preserve message-level observations before
-     * they are consolidated into broader hypotheses.
+     * prisoner. They preserve message- or event-level observations
+     * before those observations are consolidated into hypotheses.
      *
-     * Intended entry shape:
+     * Current entry shape:
      * {
      *   messageId,
+     *   sourceEventId,
      *   cycle,
      *   speaker,
+     *   recipients,
      *   channel,
+     *   kind,
+     *   intent,
      *   note,
      *   confidence
      * }
+     * messageId is a message ID or canonical overhearing event ID;
+     * sourceEventId is the canonical event ID for overheard notes and
+     * null for message-sourced notes.
      */
     messageNotes: [],
 

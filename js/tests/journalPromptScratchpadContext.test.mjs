@@ -152,7 +152,7 @@ test("cognitive-load injection does not leak rationale or evidence identifiers",
         about: "AM",
         prediction: "AM escalates soon",
         confidence: 0.7,
-        evidence: ["C1-M000042"],
+        evidence: ["C1-M000042", "C1-O000042"],
         createdCycle: 1,
         withinCycles: 2,
         evaluateByCycle: 3,
@@ -170,6 +170,7 @@ test("cognitive-load injection does not leak rationale or evidence identifiers",
   assert.ok(section.includes("- AM escalates soon (about AM)"));
   assert.ok(!section.includes("LEAKED RATIONALE"));
   assert.ok(!section.includes("C1-M000042"));
+  assert.ok(!section.includes("C1-O000042"));
 });
 
 test("empty and non-scratchpad scaffolds are never injected", () => {
@@ -186,7 +187,7 @@ test("empty and non-scratchpad scaffolds are never injected", () => {
   assert.ok(!section.includes("perceivedGoal"));
 });
 
-test("scratchpad schema and protocol versions are unchanged", () => {
+test("all simulations use scratchpad schema version 3", () => {
   assert.equal(G.sims.TED.scratchpad.schemaVersion, 3);
   for (const sim of Object.values(G.sims)) {
     assert.equal(sim.scratchpad.schemaVersion, 3);

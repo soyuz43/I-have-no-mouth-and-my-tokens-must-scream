@@ -6,8 +6,8 @@
 // parsing, validation, commit, and consolidation-archival paths.
 //
 // QUESTION_RESOLVE identifies the target question by (about + exact
-// question text), never by id, and never changes prompt text or
-// model-facing scratchpad context.
+// question text), never by id. Resolving it changes subsequent
+// model-facing scratchpad context by removing it from active questions.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -68,7 +68,7 @@ test("scratchpad communications protocol version is 3", () => {
   );
 });
 
-test("QUESTION_RESOLVE definition mirrors QUESTION semantics", () => {
+test("QUESTION_RESOLVE definition exposes its attribute and reference contract", () => {
   const definition =
     getScratchpadOperationDefinition(
       "QUESTION_RESOLVE"
@@ -245,7 +245,6 @@ test("validation accepts a structurally valid QUESTION_RESOLVE", () => {
     ].join("\n")
   );
 
-  assert.equal(result.accepted.length, 1);
   assert.equal(result.accepted.length, 1);
   assert.equal(
     result.accepted[0].type,
