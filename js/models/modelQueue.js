@@ -7,11 +7,27 @@
 const queue = [];
 
 let active = 0;
+const idleWaiters = [];
 
 let MAX_CONCURRENT = 1; // safest for Ollama
 
 export function setModelConcurrency(n) {
   MAX_CONCURRENT = Math.max(1, Number(n) || 1);
+}
+
+export function getModelQueueStatus() {
+  return {
+    active,
+    pending: queue.length,
+  };
+}
+
+export function waitForModelQueueIdle() {
+  if (active === 0 && queue.length === 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => idleWaiters.push(resolve));
 }
 
 export function enqueueModelCall(fn, label = "model-call") {
@@ -58,6 +74,12 @@ async function processQueue() {
     active--;
 
     processQueue();
+
+    if (active === 0 && queue.length === 0) {
+      while (idleWaiters.length > 0) {
+        idleWaiters.shift()();
+      }
+    }
 
   }
 

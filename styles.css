@@ -1579,6 +1579,24 @@ header {
   font-style: italic;
 }
 
+.save-load-row {
+  display: flex;
+  gap: 3px;
+}
+.save-load-btn {
+  flex: 1;
+  background: #020202;
+  border: 1px solid #442200;
+  color: var(--amber);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.48rem;
+  padding: 4px;
+  cursor: pointer;
+}
+.save-load-btn:hover {
+  background: #060200;
+}
+
 .exec-btn {
   width: 100%;
   background: #0d0000;
