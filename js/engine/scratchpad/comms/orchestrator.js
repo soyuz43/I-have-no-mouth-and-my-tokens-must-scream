@@ -7,6 +7,7 @@ import { callModel } from "../../../models/callModel.js";
 import {
   buildScratchpadCommsPrompt,
 } from "../../../prompts/scratchpadComms.js";
+import { getAgencyEventsForReview } from "../../agency/events.js";
 
 import {
   collectVisibleMessagesForScratchpad,
@@ -995,6 +996,11 @@ export async function runScratchpadCommsReviewForSim(
         lastReviewedMessageSequence:
           getScratchpadCursor(sim),
       });
+    const agencyEvents = getAgencyEventsForReview(
+      G.agency?.events,
+      normalizedSimId,
+      normalizedCycle
+    );
 
     reviewGroupOpened =
       beginScratchpadReviewLog({
@@ -1011,10 +1017,7 @@ export async function runScratchpadCommsReviewForSim(
       evidence,
     });
 
-    if (
-      evidence.messages.length ===
-      0
-    ) {
+    if (evidence.messages.length === 0 && agencyEvents.length === 0) {
       if (
         sim.scratchpad.initialized
       ) {
@@ -1073,7 +1076,8 @@ export async function runScratchpadCommsReviewForSim(
       buildScratchpadCommsPrompt(
         sim,
         evidence.messages,
-        G
+        G,
+        agencyEvents
       );
 
     const modelMessages =

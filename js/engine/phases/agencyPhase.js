@@ -1,41 +1,31 @@
 // js/engine/phases/agencyPhase.js
 //
-// Agency Phase — DERIVE AND OBSERVE ONLY.
+// Agency Phase — PROPOSE, RESOLVE SIMULTANEOUSLY, THEN COMMIT.
 //
 // WHAT THIS PHASE DOES
 // --------------------
 // For each sim it derives what that prisoner's body can currently do
-// (`deriveCapabilities`), enumerates which catalogue actions that opens
-// (`enumerateLegalActions`), writes both into `G.agency`, and logs a
-// one-line summary. That is the whole of it.
+// (`deriveCapabilities`), enumerates legal catalogue actions, collects
+// one proposal per prisoner, resolves all proposals against a shared
+// snapshot, and commits the resulting state changes and events.
 //
-// WHAT THIS PHASE DELIBERATELY DOES NOT DO
-// -----------------------------------------
-//   - No model call. Nothing here prompts anything.
-//   - No proposal collection. It does not ask a sim what it wants to do.
-//   - No resolution. It does not pick, cost, or commit an action.
-//   - No prisoner mutation. It writes only to `G.agency` and to the
-//     log/timeline. Stats, beliefs, relationships, and constraints are
-//     read-only here.
-//
-// The phase is a sensor, not an actuator. Its output is a description
-// of the current physical possibility space, made available before any
-// slice is allowed to act on it. Every statement above is a claim
-// about THIS file only; nothing downstream is implied to exist.
+// OWNERSHIP BOUNDARIES
+// --------------------
+// The model proposes typed intent and never narrates an outcome.
+// Resolution reads the shared snapshot without mutation; commit owns
+// all resource and mutable-stat writes.
 //
 // WHY IT RUNS HERE
 // ----------------
 // Immediately after the social phase, before prediction expiry. The
-// snapshot is a post-social, post-psychology picture of each prisoner's
-// body, and it is taken early enough in the remaining engine stages
-// that a later slice could consume it without reordering the pipeline.
+// snapshot therefore reflects post-social posture. Scratchpad review
+// occurs earlier in the next cycle and can consume these events then.
 //
 // FAILURE ISOLATION
 // -----------------
-// Each sim is wrapped independently and a throw is logged and
-// swallowed. One malformed sim must not abort derivation for the other
-// four, and must not abort the cycle — this phase produces no effect
-// that anything else in the pipeline depends on.
+// Each sim's derivation is wrapped independently. Proposal call and
+// parse failures degrade to WAIT. Snapshot cloning fails closed for a
+// malformed actor; unexpected resolution or commit failures propagate.
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
@@ -47,10 +37,16 @@ import { deriveCapabilities } from "../agency/capabilities.js";
 import { enumerateLegalActions } from "../agency/legalActions.js";
 import { ACTION_DEFINITIONS } from "../agency/actionDefs.js";
 import {
-  buildResourceView,
-  seedResources
+  buildResourceView
 } from "../agency/resourceLedger.js";
 import { formatAgencySummary } from "../agency/formatAgencySummary.js";
+import { deriveActionBudget } from "../agency/budget.js";
+import { collectAgencyProposal } from "../agency/proposal.js";
+import {
+  createAgencySnapshot,
+  resolveAgencyActions
+} from "../agency/resolve.js";
+import { commitAgencyResolution } from "../agency/commit.js";
 
 /* ============================================================
    PER-SIM DERIVATION
@@ -64,6 +60,7 @@ import { formatAgencySummary } from "../agency/formatAgencySummary.js";
  * single sim id.
  */
 function deriveForSim(sim) {
+  const budget = deriveActionBudget(sim);
   const derived = deriveCapabilities(sim);
 
   /*
@@ -101,6 +98,7 @@ function deriveForSim(sim) {
   G.agency.legalActions[sim.id] = enumerated.legal;
   G.agency.blockedActions[sim.id] = enumerated.blocked;
   G.agency.resources[sim.id] = resourceView;
+  G.agency.budgets[sim.id] = budget;
 
   return {
     legalCount: enumerated.legal.length,
@@ -125,7 +123,9 @@ function deriveForSim(sim) {
    PHASE ORCHESTRATOR
 ============================================================ */
 
-export async function runAgencyPhase() {
+export async function runAgencyPhase({
+  proposalCollector = collectAgencyProposal
+} = {}) {
 
   timelineEvent(`>>> AGENCY PHASE`);
 
@@ -138,16 +138,7 @@ export async function runAgencyPhase() {
    */
   G.agency.cycle = G.cycle;
 
-  /*
-   * Run totals for the closing timeline marker.
-   *
-   * Accumulated across the loop rather than recomputed from
-   * `G.agency` afterwards, because the loop can `continue` past a
-   * missing sim or swallow a per-sim failure, and a total that
-   * silently omitted a failed agent would read as a successful
-   * derivation of zero. Counting only what was actually derived
-   * keeps the marker honest about a partial run.
-   */
+  /* Accumulate only derivations that actually completed. */
   let totalLegal = 0;
   let totalBlocked = 0;
 
@@ -205,6 +196,35 @@ export async function runAgencyPhase() {
          * An unwritable log must not escalate into a cycle abort.
          */
       }
+    }
+  }
+
+  const activeSims = SIM_IDS
+    .map((simId) => G.sims?.[simId])
+    .filter(Boolean);
+  const snapshot = createAgencySnapshot(G);
+  const proposals = await Promise.all(
+    activeSims.map((sim) =>
+      proposalCollector(sim, {
+        budget: G.agency.budgets[sim.id] ?? 0,
+        legalActions: G.agency.legalActions[sim.id] ?? [],
+        resourceView: G.agency.resources[sim.id]
+      })
+    )
+  );
+  const resolutions = resolveAgencyActions({
+    proposals,
+    snapshot,
+    cycle: G.cycle
+  });
+  commitAgencyResolution(G, resolutions);
+
+  for (const simId of SIM_IDS) {
+    if (G.sims?.[simId]) {
+      G.agency.resources[simId] = buildResourceView(
+        G.resources,
+        simId
+      );
     }
   }
 

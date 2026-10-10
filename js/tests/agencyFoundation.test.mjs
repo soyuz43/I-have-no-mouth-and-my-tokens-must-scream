@@ -12,10 +12,8 @@
 //   1. A partially-open mode ladder producing a legal action with a
 //      PAIRED blocked entry. Dropping the blocked half makes the
 //      system unable to distinguish "no degraded form left" from
-//      "nothing attempted". No action in the live registry declares
-//      executionModes any more, so this is covered against a LOCAL
-//      MOCK registry: the enumerator keeps supporting the ladder,
-//      but the registry no longer supplies an example of one.
+//      "nothing attempted". SMOKE exercises the live mode ladder;
+//      a LOCAL MOCK registry keeps edge cases independent of it.
 //   2. WAIT remaining legal at concentration 0. An empty legal set
 //      would leave a fully restrained prisoner unrepresentable.
 //   3. The phase passing `derived.capabilities` (the five floats)
@@ -78,6 +76,17 @@ function restraint(constraintId) {
     stacks: 1,
     intensity: 1,
     elapsed: 0
+  };
+}
+
+function waitProposal(sim) {
+  return {
+    actorId: sim.id,
+    action: { type: "WAIT" },
+    cost: 0,
+    accepted: true,
+    reason: null,
+    requestedType: "WAIT"
   };
 }
 
@@ -144,13 +153,8 @@ function fullResourceView() {
 /*
  * A LOCAL MOCK action carrying an execution mode ladder.
  *
- * No action in the live registry declares executionModes any more: the
- * only entry that carried a ladder was removed when communication was
- * reassigned to the Social Phase, and no physical action in the
- * catalogue needs a quality ladder yet. See laying_the_groundwork.md.
- * The enumerator still supports the feature, so it is exercised here
- * against a registry that is local to this test file and never added
- * to ACTION_DEFINITIONS.
+ * SMOKE declares a live mode ladder. This local fixture keeps the
+ * enumerator edge case isolated from the production action catalogue.
  *
  * The thresholds mirror the ladder the registry used to carry,
  * including a DETAILED rung gated on TWO capabilities. That is the
@@ -817,7 +821,7 @@ test("SMOKE is blocked by a missing ignition source even at full capability", ()
 
   assert.deepEqual(
     blocked.get("SMOKE").missingRequirements,
-    { ignition: true }
+    { ignition: true, match: 1 }
   );
 
   /*
@@ -1285,12 +1289,14 @@ test("createAgencyState returns the documented default shape", () => {
     legalActions: {},
     blockedActions: {},
     resources: {},
+    budgets: {},
+    events: [],
     lastDerivedCycle: null,
     nextActionSequence: 1
   });
 });
 
-test("the envelope has exactly the seven documented keys", () => {
+test("the envelope has exactly the documented keys", () => {
   /*
    * A strict key set catches an accidental extra field, which would
    * otherwise sit in G.agency unconsumed.
@@ -1301,6 +1307,8 @@ test("the envelope has exactly the seven documented keys", () => {
     "legalActions",
     "blockedActions",
     "resources",
+    "budgets",
+    "events",
     "lastDerivedCycle",
     "nextActionSequence"
   ]);
@@ -1314,6 +1322,8 @@ test("every call returns an independent envelope", () => {
   assert.notEqual(first.capabilities, second.capabilities);
   assert.notEqual(first.legalActions, second.legalActions);
   assert.notEqual(first.blockedActions, second.blockedActions);
+  assert.notEqual(first.budgets, second.budgets);
+  assert.notEqual(first.events, second.events);
 
   first.capabilities.TED = { marker: true };
   first.legalActions.TED = [];
@@ -1394,10 +1404,8 @@ function restoreDom() {
 }
 
 /*
- * Run the phase against a temporarily restyled G.sims, restoring
- * every touched field afterwards. The phase is asserted to be
- * read-only with respect to sims, but a failing assertion must not
- * leave a contaminated global for the next test.
+ * Run the phase against temporarily restyled sims with WAIT-only
+ * proposals, restoring the persistent event counter afterwards.
  */
 async function withPhase(options, body) {
   installDom();
@@ -1409,6 +1417,8 @@ async function withPhase(options, body) {
 
     const previousCycle = G.cycle;
     const previousConstraints = {};
+    const previousEvents = G.agency.events.slice();
+    const previousActionSequence = G.agency.nextActionSequence;
 
     for (const simId of SIM_IDS) {
       previousConstraints[simId] = G.sims[simId].constraints;
@@ -1421,9 +1431,16 @@ async function withPhase(options, body) {
       G.agency.capabilities = {};
       G.agency.legalActions = {};
       G.agency.blockedActions = {};
+      G.agency.budgets = {};
       G.agency.lastDerivedCycle = null;
 
-      await body({ G, runAgencyPhase });
+      const runAgencyPhaseWithWait = (phaseOptions = {}) =>
+        runAgencyPhase({
+          ...phaseOptions,
+          proposalCollector: waitProposal
+        });
+
+      await body({ G, runAgencyPhase: runAgencyPhaseWithWait });
 
       assert.equal(
         G.agency.cycle,
@@ -1437,6 +1454,8 @@ async function withPhase(options, body) {
       );
     } finally {
       G.cycle = previousCycle;
+      G.agency.events = previousEvents;
+      G.agency.nextActionSequence = previousActionSequence;
 
       for (const simId of SIM_IDS) {
         G.sims[simId].constraints = previousConstraints[simId];
@@ -1451,7 +1470,7 @@ async function withPhase(options, body) {
 
 test("the phase writes one entry per sim into G.agency", async () => {
   await withPhase({ cycle: 12, constraints: [] }, async ({ G, runAgencyPhase }) => {
-    await runAgencyPhase();
+    await runAgencyPhase({ proposalCollector: waitProposal });
 
     for (const simId of SIM_IDS) {
       assert.ok(
@@ -1468,6 +1487,8 @@ test("the phase writes one entry per sim into G.agency", async () => {
         Array.isArray(G.agency.blockedActions[simId]),
         `${simId} has no blocked action list`
       );
+
+      assert.equal(G.agency.budgets[simId], 3);
     }
   });
 });
@@ -1482,7 +1503,7 @@ test("the phase derives against capabilities, not the derive envelope", async ()
   await withPhase(
     { cycle: 13, constraints: [restraint("overhead_restraint")] },
     async ({ G, runAgencyPhase }) => {
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       const legal = G.agency.legalActions.TED;
 
@@ -1508,7 +1529,7 @@ test("the phase stores the full derive envelope, not just the five floats", () =
   return withPhase(
     { cycle: 14, constraints: [restraint("palestinian_chair")] },
     async ({ G, runAgencyPhase }) => {
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       const entry = G.agency.capabilities.TED;
 
@@ -1522,24 +1543,24 @@ test("the phase stores the full derive envelope, not just the five floats", () =
   );
 });
 
-test("the phase mutates nothing on any sim", async () => {
+test("WAIT proposals leave every sim unchanged", async () => {
   return withPhase(
     { cycle: 15, constraints: [restraint("squat_hold")] },
     async ({ G, runAgencyPhase }) => {
       const before = JSON.stringify(G.sims);
 
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       assert.equal(
         JSON.stringify(G.sims),
         before,
-        "the agency phase must be read-only with respect to sims"
+        "a WAIT resolution must not mutate sim state"
       );
     }
   );
 });
 
-test("the phase does not advance the action id counter", async () => {
+test("the phase advances the event id counter once per proposal", async () => {
   installDom();
 
   try {
@@ -1551,12 +1572,12 @@ test("the phase does not advance the action id counter", async () => {
     const previousCycle = G.cycle;
 
     G.cycle = 16;
-    await runAgencyPhase();
+    await runAgencyPhase({ proposalCollector: waitProposal });
 
     assert.equal(
       G.agency.nextActionSequence,
-      before,
-      "deriving is not proposing; no ids should be minted"
+      before + SIM_IDS.length,
+      "each resolved proposal receives one canonical event id"
     );
 
     G.cycle = previousCycle;
@@ -1605,7 +1626,7 @@ test("a failing sim does not stop derivation for the others", async () => {
         }
       });
 
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       assert.ok(
         G.agency.legalActions.TED,
@@ -1666,7 +1687,7 @@ test("a later cycle overwrites rather than accumulating", async () => {
     try {
       G.cycle = 18;
       G.sims.TED.constraints = [restraint("palestinian_chair")];
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       const firstDerivation = JSON.stringify(G.agency.capabilities.TED);
 
@@ -1684,7 +1705,7 @@ test("a later cycle overwrites rather than accumulating", async () => {
 
       G.cycle = 19;
       G.sims.TED.constraints = [];
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       assert.equal(
         JSON.stringify(G.agency.capabilities.TED),
@@ -1736,7 +1757,7 @@ test("the phase never rejects a sim lacking the capabilities object", async () =
       G.cycle = 20;
       G.sims.TED.constraints = undefined;
 
-      await runAgencyPhase();
+      await runAgencyPhase({ proposalCollector: waitProposal });
 
       assert.equal(
         G.agency.legalActions.TED.length,

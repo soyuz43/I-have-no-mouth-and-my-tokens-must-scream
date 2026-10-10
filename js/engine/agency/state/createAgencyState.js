@@ -10,13 +10,11 @@
 // than an inline object literal, so a reset can never be a partial
 // field-by-field copy that silently drops a field added later.
 //
-// WHAT THIS ENVELOPE IS NOT
+// WHAT THIS ENVELOPE STORES
 // -------------------------
-// It is not a result store and not a history. There is no `history`
-// array here, because the phase in this slice derives and logs; it
-// keeps only the CURRENT cycle's picture plus a sequence counter for
-// the action ids a later slice will mint. Adding a history array now
-// would be an unused extension point.
+// Per-cycle derivations and budgets live beside the persistent
+// canonical action-event history. Resource ownership remains in the
+// run-scoped G.resources ledger.
 //
 // FIELD SEMANTICS
 // ---------------
@@ -25,8 +23,10 @@
 //   legalActions         — simId -> legal[] from enumerateLegalActions.
 //   blockedActions       — simId -> blocked[] from enumerateLegalActions.
 //   resources            — simId -> DERIVED, read-only resource view.
+//   budgets              — simId -> action credits for this cycle.
+//   events               — persistent canonical action outcomes.
 //   lastDerivedCycle     — the last cycle the phase completed for.
-//   nextActionSequence   — id counter for future proposed actions.
+//   nextActionSequence   — monotonic id counter for canonical events.
 //
 // `resources` is a VIEW, not the ledger. The authoritative ledger
 // lives at G.resources and survives cycles; this map is rebuilt from
@@ -56,6 +56,8 @@ export function createAgencyState() {
     legalActions: {},
     blockedActions: {},
     resources: {},
+    budgets: {},
+    events: [],
     lastDerivedCycle: null,
     nextActionSequence: 1
   };
