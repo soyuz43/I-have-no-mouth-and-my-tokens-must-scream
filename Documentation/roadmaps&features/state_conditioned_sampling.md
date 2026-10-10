@@ -1,15 +1,20 @@
 # State-Conditioned Sampling Parameters
 
-**Status:** Feature idea
-**Systems affected:** LLM request configuration, prisoner dialogue, journals, communications
+**Status:** Partially implemented
+**Shipped scope:** Prisoner journal calls
+**Systems affected:** Journal sampling (implemented); other call types remain proposed
 
-## Idea
+## Implemented scope
+
+The state-conditioned resolver is wired into the prisoner journal call path. It uses the prisoner's sanity and suffering to adjust `temperature` before the journal model request. The implementation does not condition `top_p` and does not cover every model call type; outreach, replies, and AM calls are not covered by this shipped slice.
+
+## Remaining proposal
 
 Dynamically adjust LLM sampling parameters based on each prisoner's current sanity and suffering.
 
 Instead of using one fixed `temperature` and `top_p` for every character call, derive them from the character's psychological state before sending the request to Ollama or OpenAI.
 
-## Intended Behavior
+## Original target behavior (not fully implemented)
 
 * High sanity should produce more coherent, controlled, and consistent language.
 * Low sanity should permit greater unpredictability, fragmentation, and associative drift.
@@ -26,7 +31,7 @@ low sanity + high suffering
 → higher temperature, wider top_p
 ```
 
-## Design Requirements
+## Remaining design requirements
 
 * Clamp all generated values to safe model-specific ranges.
 * Use gradual interpolation rather than abrupt thresholds.

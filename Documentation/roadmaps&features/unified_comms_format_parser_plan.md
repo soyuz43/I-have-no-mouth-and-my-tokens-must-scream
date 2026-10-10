@@ -3,8 +3,10 @@
 **Status:** Consolidated plan (merges `comms_fixes_june_2026.md` and `structured_communication_cognition_layer.md`)
 **Category:** Communication architecture, prompt design, parser reliability, simulation observability
 **Primary systems affected:** Inter-sim outreach, replies, communication parsing, relationship updates, transmission logging
-**Canonical schema version:** 1
+**Proposed canonical schema version:** 1
 **Recommended document location:** `Documentation/roadmaps&features/unified_comms_format_parser_plan.md`
+
+**Implementation status (verified 2026-10-10):** This remains a proposal. The XML-like outreach/reply decision schema and its parser plan are not implemented; current outreach and reply prompts still request the legacy labeled formats.
 
 ---
 
@@ -12,7 +14,7 @@
 
 This document centralizes two prior roadmaps:
 
-- `comms_fixes_june_2026.md` — a minimal, high-priority fix that introduces an XML-like wrapper and a layered (forgiving) recovery ladder for the communication parser.
+- `comms_fixes_june_2026.md` — a minimal, high-priority proposal for an XML-like wrapper and a layered (forgiving) recovery ladder for the communication parser.
 - `structured_communication_cognition_layer.md` — a superset design adding a bounded *cognition scaffold* (stimulus → internal shift → need → risk → intent → communication choice → strategy → utterance), plus confidence scoring, validation layers, schema versioning, observability, repair, and forensic/relationship analytics.
 
 **Compatibility finding:** The two are not competing approaches. `comms_fixes` is a strict subset of the first half of the structured layer. They share the same guiding principle verbatim:
@@ -73,7 +75,7 @@ Two observed failures motivated the work:
 
 If parsing fails, the whole message disappears from the simulation even when its intended meaning is obvious — it is not logged, shown, stored, or used for relationship updates.
 
-**Current social-phase scope boundary:** Communication effectiveness is currently gated by psychological state (sanity/suffering). Physical constraints (`physicalLimitations`) do not yet affect communication; integrating those capability bands is deferred to a future slice.
+**Current social-phase scope boundary:** Objective physical limitations are now rendered in compact scratchpad context used by outreach and reply prompts, so they are model-visible. This context does not create a mechanical communication-capability gate: the engine does not reject or suppress a communication because a prisoner is physically limited. The XML-like decision schema described in this plan is still unimplemented.
 
 ---
 

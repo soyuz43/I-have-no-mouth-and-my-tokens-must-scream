@@ -12,7 +12,8 @@ flowchart TD
     BEGIN --> STRAT[runStrategyPhase]
     STRAT --> PSY[runPsychologyPhase]
     PSY --> SOCIAL[runSocialPhase]
-    SOCIAL --> IA[runInteractionAnalysisPhase]
+    SOCIAL --> AGENCY[runAgencyPhase]
+    AGENCY --> IA[runInteractionAnalysisPhase]
     IA --> BI[runBeliefIntegrationPhase]
     BI --> EVAL[runEvaluationPhase]
     EVAL --> FINAL[recordCycle and endCycle]
@@ -21,6 +22,7 @@ flowchart TD
     G <--> STRAT
     G <--> PSY
     G <--> SOCIAL
+    G <--> AGENCY
     G <--> IA
     G <--> BI
     G <--> EVAL
@@ -44,7 +46,17 @@ flowchart TD
         SOCIAL --> COMMPHASE[runCommunicationPhase]
         COMMPHASE --> COMMS[runCommsCycle]
         COMMPHASE --> SCRATCH[runScratchpadCommsCycle]
-        SOCIAL --> CONTAGION[runBeliefContagion]
+        COMMPHASE --> CONTAGION[runBeliefContagion after communication]
+    end
+
+    subgraph Agency
+        AGENCY --> CAP[derive capabilities and legal actions]
+        CAP --> LEDGER[build per-prisoner resource view]
+        LEDGER --> PROPOSAL[collect typed action proposals]
+        PROPOSAL --> RESOLVE[resolve proposals against shared snapshot]
+        RESOLVE --> COMMIT[commit resource/stat changes]
+        COMMIT --> EVENTS[append canonical Agency events]
+        EVENTS -.->|next-cycle review context| SCRATCH
     end
 
     subgraph Psychology
