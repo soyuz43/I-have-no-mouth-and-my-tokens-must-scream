@@ -1083,6 +1083,18 @@
               id="ctrl-ta"
               placeholder="Torment directive... leave blank in AUTONOMOUS mode..."
             ></textarea>
+            <div class="tape-control-row">
+              <label class="ctrl-label" for="tape-mode-select">TAPE MODE</label>
+              <select id="tape-mode-select" onchange="setTapeMode(this.value)">
+                <option value="OFF">OFF</option>
+                <option value="RECORD">RECORD</option>
+                <option value="REPLAY">REPLAY</option>
+              </select>
+              <span id="tape-mode-indicator" class="tape-mode-indicator" data-mode="OFF" aria-live="polite">
+                <span class="tape-mode-dot" aria-hidden="true"></span>
+                <span class="tape-mode-status">OFF | LIVE API</span>
+              </span>
+            </div>
             <div class="save-load-row">
               <button class="save-load-btn" onclick="saveRun()">SAVE RUN</button>
               <button class="save-load-btn" onclick="loadRun()">LOAD RUN</button>

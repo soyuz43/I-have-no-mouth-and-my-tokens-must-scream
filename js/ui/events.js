@@ -2,6 +2,24 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { setMode as setReplayTapeMode } from "../core/replayTape.js";
+
+export function setTapeMode(mode) {
+  const selectedMode = setReplayTapeMode(mode);
+  const indicator = document.getElementById("tape-mode-indicator");
+  if (indicator) {
+    const statusElement = indicator.querySelector(".tape-mode-status");
+    if (statusElement) {
+      const status =
+        selectedMode === "REPLAY"
+          ? "REPLAY | NO API"
+          : `${selectedMode} | LIVE API`;
+      indicator.dataset.mode = selectedMode;
+      statusElement.textContent = status;
+    }
+  }
+  return selectedMode;
+}
 
 // ══════════════════════════════════════════════════════════
 // SETUP UI EVENTS

@@ -14,6 +14,12 @@ import {
   researchRng,
   uiRng,
 } from "./prng.js";
+import {
+  clearTape,
+  exportTape,
+  importTape,
+  isValidTapeData,
+} from "./replayTape.js";
 
 const SAVE_SCHEMA_VERSION = 1;
 const ENGINE_VERSION = "1.0.0";
@@ -53,6 +59,7 @@ export function exportState() {
       G: structuredClone(gameSnapshot),
       Exporter: structuredClone(Exporter),
       rngStates,
+      tape: exportTape(),
     };
 
     return JSON.stringify(envelope);
@@ -78,6 +85,7 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
     !isRecord(envelope.G.sims) ||
     !isRecord(envelope.Exporter) ||
     !isRecord(envelope.Exporter.buffers) ||
+    (Object.hasOwn(envelope, "tape") && !isValidTapeData(envelope.tape)) ||
     (Object.hasOwn(envelope, "rngStates") && !isValidRngStates(envelope.rngStates))
   ) {
     throw new Error("Invalid save file or unsupported schema version.");
@@ -97,6 +105,11 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   haltAutoRun(game);
   await waitForCycleIdle();
   await waitForModelQueueIdle();
+
+  clearTape();
+  if (Object.hasOwn(envelope, "tape")) {
+    importTape(envelope.tape);
+  }
 
   const runtimeResearch = game.research;
   replaceObjectContents(game, restoredGame);
