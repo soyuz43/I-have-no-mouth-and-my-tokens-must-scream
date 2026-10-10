@@ -186,6 +186,20 @@ test("SCORE referencing a perceived overhearing eventId is accepted", () => {
   assert.deepEqual(result.accepted[0].refs, ["C1-O000001"]);
 });
 
+test("QUESTION and PREDICTION accept perceived overhearing eventIds", () => {
+  const operations = [
+    '<QUESTION about="ELLEN" priority="medium" refs="C1-O000001">Did Ellen meet Benny?</QUESTION>',
+    '<PREDICTION about="AM" confidence="0.7" withinCycles="2" refs="C1-O000001">AM will intervene soon.</PREDICTION>',
+  ];
+
+  for (const operation of operations) {
+    const result = validateWith({ operation });
+    assert.equal(result.status, "success", operation);
+    assert.equal(result.accepted.length, 1, operation);
+    assert.deepEqual(result.accepted[0].refs, ["C1-O000001"]);
+  }
+});
+
 test("mixed messageId and eventId references are accepted together", () => {
   const result = validateWith({
     operation:
@@ -274,6 +288,8 @@ test("buildVisibleOverhearingEventMap tolerates a malformed ledger", () => {
   );
 });
 
+// This directly tests a utility with no production callers, retained for
+// future enforcement of the perceived-text distinction.
 test("eventPermitsTextReference distinguishes observed_only events", () => {
   const map = buildVisibleOverhearingEventMap(
     {

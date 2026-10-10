@@ -1,9 +1,9 @@
 // js/tests/scratchpadConsolidation.test.mjs
 //
 // Focused coverage for engine-owned scratchpad consolidation
-// (js/engine/scratchpad/consolidate.js + cycle wiring). Pure-logic
-// tests; the cycle hook's import graph and G.cycle boundary are
-// exercised by an integration smoke check at the end.
+// (js/engine/scratchpad/consolidate.js). The final smoke check confirms
+// G.cycle's current shape and a dependency import; it does not exercise
+// cycle-hook wiring.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -99,6 +99,7 @@ test("dedupMessageNotes: notes without messageId are preserved once", () => {
   // the first is kept.
   const out = dedupMessageNotes(notes);
   assert.equal(out.length, 1);
+  assert.equal(out[0].note, "x");
 });
 
 test("dedupMessageNotes: non-array input returns []", () => {
@@ -416,7 +417,7 @@ test("runScratchpadConsolidation: skips off-cadence, runs on-cadence, idempotent
   assert.equal(runScratchpadConsolidation(sp, 5), null);
 });
 
-test("integration: G.cycle is a valid integer boundary the hook reads", async () => {
+test("G.cycle is an integer and consolidation dependencies load", async () => {
   const { G } = await import("../core/state.js");
   G.cycle = 5;
   assert.equal(Number.isInteger(G.cycle), true);

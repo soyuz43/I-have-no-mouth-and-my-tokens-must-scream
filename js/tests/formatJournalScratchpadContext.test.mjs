@@ -205,14 +205,15 @@ test("skips entries with empty text and never leaks rationale or evidence ids", 
       makePrediction(1, "AM", "", { evidence: ["C1-M000001"] }),
       makePrediction(2, "AM", "real prediction", {
         resolutionRationale: "SECRET RATIONALE",
-        evidence: ["C1-M000002"],
+        evidence: ["C1-M000002", "C1-O000002"],
       }),
     ],
   });
   const { text } = formatJournalScratchpadContext(sim);
   assert.equal(text.split("- ").length - 1, 2);
   assert.ok(!text.includes("SECRET RATIONALE"));
-  assert.ok(!text.includes("C1-M00000"));
+  assert.ok(!text.includes("C1-M000002"));
+  assert.ok(!text.includes("C1-O000002"));
 });
 
 /* ---------- sections metadata ---------- */
@@ -234,7 +235,7 @@ test("sections metadata reports only what was rendered", () => {
   ]);
 });
 
-test("sections metadata reports messageNotes ids from sequence, since notes have no id", () => {
+test("messageNotes section metadata reports sequences parsed from messageIds", () => {
   const sim = makeSim({
     messageNotes: [makeNote(4, "TED", "four"), makeNote(9, "ELLEN", "nine")],
   });

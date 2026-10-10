@@ -13,7 +13,8 @@ function makeClaim(value, confidence) {
 
 function makeScratchpad() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    physicalLimitations: [],
     initialized: true,
     hypothesesAboutOthers: {
       ELLEN: {
@@ -108,20 +109,23 @@ test("renders populated sections with filtering and limits", () => {
   assert.ok(!context.includes("Where is he?"));
 });
 
-test("targetId renders only that prisoner model plus shared sections", () => {
+test("targetId renders the requested model and excludes other prisoner fields", () => {
   const context = formatCompactScratchpadContext(makeSim(), {
     targetId: "ELLEN",
   });
   assert.ok(context.includes("What you believe about ELLEN:"));
   assert.ok(context.includes("You think their goal is: escape"));
-  assert.ok(!context.includes("TED"));
+  assert.ok(!context.includes("What you believe about TED:"));
+  assert.ok(!context.includes("You think their goal is: survive alone"));
+  assert.ok(!context.includes("You think they view you as: threat"));
 });
 
-test("WithSections returns identical text to the legacy entry point", () => {
+test("legacy formatter wrapper returns text from the section-aware formatter", () => {
   const sim = makeSim();
   const opts = { otherPrisonerIds: ["ELLEN", "TED"] };
   const legacy = formatCompactScratchpadContext(sim, opts);
   const { text, sections } = formatCompactScratchpadContextWithSections(sim, opts);
+  assert.equal(typeof legacy, "string");
   assert.equal(text, legacy);
   assert.ok(Array.isArray(sections));
 });

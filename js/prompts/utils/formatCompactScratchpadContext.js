@@ -238,7 +238,8 @@ function formatQuestionsCompact(scratchpad, limit) {
  *   Used when targetId is null.
  * @param {number} options.predictionLimit - Max predictions (default 3).
  * @param {number} options.questionLimit - Max questions (default 3).
- * @returns {string} Compact context block, or "" if nothing to show.
+ * @returns {string} Compact context block, including objective
+ *   physicalLimitations when present, or "" if nothing to show.
  */
 function formatPhysicalLimitationsCompact(scratchpad) {
   const limitations =

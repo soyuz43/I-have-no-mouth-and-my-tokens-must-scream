@@ -10,12 +10,12 @@
 // scratchpad evidence, keyed by their canonical eventId (e.g.
 // "C1-O000001").
 //
-// This does NOT weaken reference validation. An event is only
-// admissible for a sim when that sim is the recorded `listener` of the
-// event. Observed-but-unheard events (outcome "observed_only") are
-// admissible for referencing that "a conversation happened" but carry
-// no canonical text; the validator and commit layer enforce that
-// distinction downstream.
+// An event is only admissible for a sim when that sim is the recorded
+// listener. Observed-but-unheard events (outcome "observed_only") can
+// be cited as evidence that a conversation happened, but carry no
+// canonical text. eventPermitsTextReference reports this distinction;
+// it currently has no production callers, so validation and commit do
+// not enforce a no-transcript rule for claims based on these events.
 //
 // WHAT THIS MODULE IS NOT
 // ----------------------
@@ -126,8 +126,8 @@ function projectOverhearingEvent(event) {
 /*
  * Whether an admissible event permits the sim to reference its
  * perceived text. "observed_only" means the sim saw a conversation but
- * heard no words, so the event is citable as an observation but yields
- * no transcript content.
+ * heard no words, so the event yields no transcript content. This
+ * standalone helper currently has no production callers.
  */
 export function eventPermitsTextReference(event) {
   if (!event || typeof event !== "object") {
