@@ -758,8 +758,10 @@ export function makeScratchpad(id) {
      * Engine-owned, objective physical-limitation awareness.
      *
      * Populated deterministically by the scratchpad commit path from
-     * the Agency Phase's derived capability bands (see
-     * js/engine/scratchpad/physicalState.js). Tokens are stable
+     * available Agency Phase capability bands (see
+     * js/engine/scratchpad/physicalState.js). Social review runs before
+     * Agency Phase, and beginCycle clears the per-cycle envelope, so a
+     * missing envelope yields no inferred limitations. Tokens are stable
      * snake_case strings such as "hands_bound". This is NOT a model
      * judgement: it records restrained posture as fact so the prisoner
      * prompt can reflect physical reality without the LLM guessing its

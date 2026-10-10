@@ -4,9 +4,14 @@
 //
 // Cycle Pipeline
 // 1. Strategy Phase (AM planning + execution)
-// 2. Psychology Phase (sim journals + state mutation)
-// 3. Social Phase (inter-sim communication + belief contagion)
-// 4. Evaluation Phase (assessment + tactic evolution)
+// 2. Psychology Phase (journals + state mutation)
+// 3. Social Phase (communication, scratchpad review, coalitions, contagion)
+// 4. Agency Phase (capability derivation, proposal, resolution, commit)
+// 5. Scratchpad maintenance (prediction expiry + consolidation)
+// 6. Interaction Analysis Phase
+// 7. Belief Integration Phase
+// 8. Evaluation Phase (assessment + tactic evolution)
+// 9. Metrics and exporter finalization
 //
 // Attribution-aware belief snapshots:
 // - prePsychology: beliefs before AM input (start of cycle)
@@ -405,7 +410,7 @@ export async function runCycle() {
   await runSocialPhase();
 
   /* ------------------------------------------------------------
-     AGENCY PHASE (DERIVE AND OBSERVE ONLY)
+     AGENCY PHASE (PROPOSE, RESOLVE, AND COMMIT)
      Derives capabilities and legal actions, collects one proposal
      per prisoner, resolves all proposals against one shared snapshot,
      then commits resource/stat changes and canonical events.
@@ -593,7 +598,7 @@ export async function runCycle() {
    CYCLE LIFECYCLE
 ============================================================ */
 
-function beginCycle() {
+export function beginCycle() {
 
   G.cycle++;
 

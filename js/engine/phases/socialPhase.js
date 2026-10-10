@@ -3,10 +3,12 @@
 // Social Phase
 //
 // Responsible for:
-// 1. Inter-sim communication
-// 2. Belief propagation across the social network
+// 1. Inter-sim communication and private scratchpad review
+// 2. Coalition detection from the post-communication trust graph
+// 3. Belief propagation across the social network
 
 import { timelineEvent } from "../../ui/timeline.js";
+import { G } from "../../core/state.js";
 
 import { runCommunicationPhase } from "./communicationPhase.js";
 import { runBeliefContagion } from "../social/beliefContagion.js";

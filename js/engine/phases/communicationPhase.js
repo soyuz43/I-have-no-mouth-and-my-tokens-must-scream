@@ -18,7 +18,8 @@ COMMUNICATION PHASE
 Coordinates the complete prisoner communication lifecycle:
 
 1. Generate and persist canonical inter-sim communications.
-2. Let each prisoner privately review their visible communications.
+2. Let each prisoner privately review visible communications and eligible
+   prior-cycle canonical agency outcomes for which they were actor or recipient.
 3. Return both subsystem results to the caller.
 
 This phase does not:
