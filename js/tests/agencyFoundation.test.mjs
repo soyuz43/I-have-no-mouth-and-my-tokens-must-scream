@@ -1,6 +1,6 @@
 // js/tests/agencyFoundation.test.mjs
 //
-// Pure-logic coverage for the Agency Foundation slice:
+// Behavioral and integration coverage for the Agency Foundation slice:
 //
 //   - js/engine/agency/actionDefs.js              (registry + accessors)
 //   - js/engine/agency/legalActions.js            (availability enumeration)
@@ -663,14 +663,11 @@ test("a blocked entry carries neither cost nor availableModes", () => {
    E) LEGAL-ACTION ENUMERATOR — REAL POSTURES
 ============================================================ */
 
-test("palestinian_chair keeps WAIT and OBSERVE but gates OBSERVE in", () => {
+test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", () => {
   /*
-   * A behaviour change that falls out of the removal, recorded
-   * explicitly rather than left implicit. This posture derives
-   * concentration 0.2, which comfortably clears OBSERVE's 0.1 gate.
-    * Before the ladder-carrying entry was removed, the same posture
-    * produced a PARTIAL refusal as well; there is no second gated
-    * action left, so the blocked half is now empty.
+   * This posture derives concentration 0.2, which clears OBSERVE's 0.1
+   * gate. Its zero handUse and interactionReach block the three physical
+   * actions on capability before their resource requirements are checked.
    */
   const sim = simWith([restraint("palestinian_chair")]);
 
@@ -1653,26 +1650,12 @@ test("a failing sim does not stop derivation for the others", async () => {
   }
 });
 
-test("a later cycle overwrites rather than accumulating", async () => {
+test("a later cycle replaces per-cycle capability data", async () => {
   /*
-   * The witness changed with the registry. This test used to assert
-   * on `blockedActions` going from non-empty to empty, but after
-   * the ladder-carrying entry was removed NO posture in
-   * CONSTRAINT_MAP can close OBSERVE's 0.1 concentration gate: the
-   * most severe authored concentration is 0.2 (palestinian_chair).
-   * So `blockedActions` is
-   * empty for every real posture and can no longer distinguish the
-   * two cycles.
-   *
-   * `capabilities` still does, and it is the field that actually
-   * carries per-cycle posture data, so a stale-envelope regression is
-   * caught by exactly the same assertion this test has always made.
-   *
-   * Worth noting for the roadmap: until a physical action gates on a
-   * capability a real posture can actually push below its threshold,
-   * the agency phase will never emit a refusal in production. That is
-   * a consequence of the two-action registry, not a bug in the
-   * enumerator.
+   * Capability data is a per-cycle snapshot, so removing the posture
+   * should restore its capability bands. Proposal outcomes are committed
+   * separately as persistent events and are not overwritten with this
+   * snapshot.
    */
   installDom();
 
@@ -1736,7 +1719,7 @@ test("a later cycle overwrites rather than accumulating", async () => {
   }
 });
 
-test("the phase never rejects a sim lacking the capabilities object", async () => {
+test("the phase accepts a sim with undefined constraints", async () => {
   /*
    * G.sims entries always carry `constraints`, but the phase must not
    * depend on that: deriveCapabilities already tolerates a missing
@@ -1759,10 +1742,14 @@ test("the phase never rejects a sim lacking the capabilities object", async () =
 
       await runAgencyPhase({ proposalCollector: waitProposal });
 
-      assert.equal(
-        G.agency.legalActions.TED.length,
-        2,
-        "an unconstrained entry should reach the full action set"
+      const unresourceGatedTypes = Object.values(ACTION_DEFINITIONS)
+        .filter((definition) => !definition.resourceRequirements)
+        .map((definition) => definition.type);
+
+      assert.deepEqual(
+        G.agency.legalActions.TED.map((entry) => entry.type),
+        unresourceGatedTypes,
+        "an unconstrained sim with an empty ledger should retain every unresource-gated action"
       );
     } finally {
       G.cycle = previousCycle;

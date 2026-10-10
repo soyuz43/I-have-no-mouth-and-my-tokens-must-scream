@@ -244,10 +244,9 @@ export function formatAgencySummary(
 
   /*
    * The blocked half is the informative half, and it is omitted
-   * when empty rather than printed. With the current two-action
-   * catalogue `blocked` is empty for every real posture, so a
-   * fixed BLOCKED line would cost one wasted line per agent per
-   * cycle across the whole run.
+   * when empty rather than printed. Current physical actions can be
+   * blocked by capability or resource gates, so the line is included
+   * only when this agent has blocked actions to report.
    */
   if (blockedList.length > 0) {
     lines.push(
