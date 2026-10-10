@@ -7,11 +7,9 @@
 //   - the resource gate in js/engine/agency/legalActions.js
 //   - the G.resources / G.agency.resources wiring
 //
-// SCOPE: this slice is DERIVE AND OBSERVE. It proves the gating
-// works. There is no resolver, so no test here asserts that a
-// quantity was consumed, a holder changed, or a flag flipped - those
-// behaviours do not exist yet, and a test asserting them would be
-// asserting a design that has not been built.
+// SCOPE: these tests cover resource definitions, pure inventory views,
+// and legal-action gating. State changes are covered by
+// agencyResolver.test.mjs.
 //
 // The behaviours most likely to regress silently:
 //
@@ -494,7 +492,8 @@ test("SMOKE consumes one cigarette and one ignition use", () => {
   const smoke = ACTION_DEFINITIONS.SMOKE;
 
   assert.deepEqual(smoke.resourceRequirements.consume, [
-    { definitionId: "cigarette", quantity: 1 }
+    { definitionId: "cigarette", quantity: 1 },
+    { definitionId: "match", quantity: 1 }
   ]);
 
   assert.equal(smoke.resourceRequirements.ignition, true);
@@ -610,7 +609,7 @@ test("TED is refused for ignition specifically, not for cigarettes", () => {
 
   assert.deepEqual(
     blockedByType(result).get("SMOKE").missingRequirements,
-    { ignition: true }
+    { ignition: true, match: 1 }
   );
 });
 
@@ -956,11 +955,10 @@ test("the derived view is a snapshot that cannot write through to the ledger", (
   );
 });
 
-test("this slice never mutates the authoritative ledger", () => {
+test("enumerating actions never mutates the authoritative ledger", () => {
   /*
-   * Derive-and-observe. The resolver that decrements quantities does
-   * not exist yet, so any mutation here would be an undeclared
-   * behaviour change rather than a feature.
+   * Legal-action enumeration is a pure read of the ledger. Resource
+   * mutation belongs to the Agency commit path, not the enumerator.
    */
   const ledger = seededLedger();
 

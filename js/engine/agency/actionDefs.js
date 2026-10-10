@@ -4,8 +4,8 @@
 //
 // WHAT THIS MODULE IS
 // -------------------
-// A data-only catalogue describing WHAT SHAPE AN ACTION HAS, plus
-// the initial two actions. It holds no capability logic, no
+// A data-only catalogue describing WHAT SHAPE an action has and the
+// currently registered typed actions. It holds no capability logic, no
 // availability logic, and no execution logic. It answers exactly one
 // question:
 //
@@ -133,6 +133,10 @@ const ACTION_DEFINITIONS = Object.freeze({
         Object.freeze({
           definitionId: "cigarette",
           quantity: 1
+        }),
+        Object.freeze({
+          definitionId: "match",
+          quantity: 1
         })
       ]),
       ignition: true
@@ -171,10 +175,9 @@ const ACTION_DEFINITIONS = Object.freeze({
   /*
    * TRANSFER moves a held stack to another prisoner.
    *
-   * The target resource is IMPLICIT in this slice: the requirement is
-   * "holds at least one accessible stack", not "names a specific
-   * resourceId". Naming instances is a proposal-pipeline concern and
-   * is deliberately deferred.
+   * The requirement establishes that at least one accessible stack is
+   * held. The proposal names the specific stack and recipient; the
+   * resolver revalidates ownership against the cycle snapshot.
    */
   TRANSFER: Object.freeze({
     type: "TRANSFER",
@@ -194,10 +197,9 @@ const ACTION_DEFINITIONS = Object.freeze({
   }),
 
   /*
-   * HIDE conceals a held stack. Same implicit-target rule as
-   * TRANSFER. REVEAL is deferred to the slice that builds the
-   * state-mutating resolver, since reversing this is the first thing
-   * that resolver would have to do.
+   * HIDE conceals a held stack. The proposal names the specific stack;
+   * the resolver revalidates ownership against the cycle snapshot.
+   * REVEAL remains unavailable until it is added to this catalogue.
    */
   HIDE: Object.freeze({
     type: "HIDE",

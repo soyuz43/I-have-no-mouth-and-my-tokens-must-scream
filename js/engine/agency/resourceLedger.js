@@ -19,11 +19,9 @@
 //
 // SCOPE OF THIS SLICE: DERIVE AND OBSERVE ONLY
 // --------------------------------------------
-// Nothing in this module decrements a quantity, moves a holder, or
-// flips a flag. The slice proves the GATING works. The state-mutating
-// resolver (and the REVEAL action that would need it) is a later
-// slice. `seedResources()` is the single exception and is a one-time
-// initialization, not a per-cycle mutation.
+// Mutation ownership lives in agency/commit.js. `buildResourceView()`
+// remains a pure projection; `seedResources()` remains one-time
+// initialization rather than a per-cycle reset.
 //
 // PURITY
 // ------

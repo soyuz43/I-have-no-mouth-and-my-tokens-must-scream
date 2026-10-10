@@ -4,19 +4,14 @@
 //
 // WHAT THIS STREAM IS FOR
 // -----------------------
-// `runAgencyPhase()` derives five physical capabilities and two
-// action lists per agent, every cycle, and stores them in
-// `G.agency`. Nothing else consumes that envelope, and
-// `G.agency` is reset field-by-field in `beginCycle()`. So before
-// this stream existed the derivation was computed and then
-// discarded: a run produced no durable record that a prisoner's
-// body could not do something, and the researcher had no way to
-// correlate a refusal with a posture.
+// `runAgencyPhase()` derives capabilities and legal/blocked action
+// lists per agent, every cycle, and stores them in `G.agency`.
+// Derivations reset field-by-field in `beginCycle()`, so this stream
+// preserves those cycle snapshots for later analysis.
 //
-// This stream is that durable record. It is the ONLY persistence
-// for agency data, which is why no history array was added to
-// `G.agency`. The causal link that makes the record interpretable
-// lives in its `provenance` field.
+// This stream persists derivations. Canonical action outcomes have a
+// separate `agency_events` stream and persistent `G.agency.events`
+// history; derivation provenance remains in its `provenance` field.
 //
 // WHY A SEPARATE STREAM RATHER THAN COLUMNS ON `state`
 // ------------------------------------------------------
@@ -234,9 +229,9 @@ export function recordAgency(G, cycle) {
            * accessibility flags a researcher needs as separate
            * values.
            *
-           * Consumed quantities are NOT recorded here: this slice
-           * never mutates the ledger, so a change across cycles can
-           * only ever be a seeding or import-order artifact.
+           * This view is rebuilt after commit, so held quantities
+           * reflect end-of-Agency inventory. The separate canonical
+           * event stream attributes action-caused resource changes.
            */
           /*
            * `joinList()` always joins on ";" and takes no separator

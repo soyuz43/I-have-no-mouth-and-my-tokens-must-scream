@@ -83,11 +83,9 @@ const RESOURCE_DEFINITIONS = Object.freeze({
     }),
 
     /*
-     * Declared but NOT APPLIED in this slice. The slice is
-     * derive-and-observe: it proves gating works and never mutates
-     * the ledger. The resolver that reads these numbers is a later
-     * slice. Recording them here documents the intended economy
-     * without pretending it is live.
+     * The Agency resolver reads only effects on mutable simulation
+     * stats. Derived capability effects such as stability are ignored
+     * during commit and remain owned by capability derivation.
      */
     effects: Object.freeze({
       consume: Object.freeze({

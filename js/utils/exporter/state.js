@@ -15,6 +15,7 @@ export const Exporter = {
         relationships: [],
         messages: [],
         agency: [],
+        agency_events: [],
         global: [],
         phases: [],
         tactics: [],

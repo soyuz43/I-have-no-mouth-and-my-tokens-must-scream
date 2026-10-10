@@ -406,13 +406,12 @@ export async function runCycle() {
 
   /* ------------------------------------------------------------
      AGENCY PHASE (DERIVE AND OBSERVE ONLY)
-     Derives each prisoner's current capability set and the set of
-     actions that opens, writing the result to G.agency and logging a
-     summary. No model call, no proposal collection, no resolution, and
-     no prisoner state mutation. Placed after the social phase so the
-     snapshot reflects post-communication posture, and before
-     prediction expiry so a later slice could consume it without
-     reordering the remaining pipeline.
+     Derives capabilities and legal actions, collects one proposal
+     per prisoner, resolves all proposals against one shared snapshot,
+     then commits resource/stat changes and canonical events.
+     Placed after social communication so the snapshot reflects
+     post-communication posture. Scratchpad review for these events
+     occurs during the next cycle's earlier communication phase.
   ------------------------------------------------------------ */
 
   await runAgencyPhase();
@@ -609,7 +608,7 @@ function beginCycle() {
   // === EXPORTER: snapshot pre-cycle state ===
   snapshotPrevState(G);
 
-  // Agency: per-cycle derived capability + legal-action snapshot.
+  // Agency: per-cycle capability, legal-action, resource-view, and budget snapshots.
   // `G.agency.resources` is a derived VIEW and is cleared here; the
   // authoritative ledger at G.resources is deliberately NOT touched,
   // because a consumed cigarette stays consumed across cycles.
@@ -622,6 +621,7 @@ function beginCycle() {
   G.agency.legalActions = {};
   G.agency.blockedActions = {};
   G.agency.resources = {};
+  G.agency.budgets = {};
   G.agency.lastDerivedCycle = null;
 
   // === NEW: Explicit pre-psychology belief snapshot for attribution ===
