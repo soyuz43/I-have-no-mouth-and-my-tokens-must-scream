@@ -312,12 +312,14 @@ test("commit creates canonical events and exporter records them separately", () 
     recordAgencyEvents(game, 11);
     recordAgencyEvents(game, 12);
     assert.equal(Exporter.buffers.agency_events.length, 1);
-    assert.deepEqual(Exporter.buffers.agency_events[0], {
+    const [record] = Exporter.buffers.agency_events;
+    const { recorded_at: recordedAt, ...recordWithoutTimestamp } = record;
+    assert.match(recordedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    assert.deepEqual(recordWithoutTimestamp, {
       schema_version: EXPORT_SCHEMA_VERSION,
       run_id: "agency-test",
       cycle: 11,
       cycle_id: "agency-test::cycle:11",
-      recorded_at: Exporter.buffers.agency_events[0].recorded_at,
       event_id: event.eventId,
       actor_id: "TED",
       action_type: "SMOKE",
@@ -330,7 +332,7 @@ test("commit creates canonical events and exporter records them separately", () 
   }
 });
 
-test("Scratchpad review receives only prior-cycle actor or recipient events", () => {
+test("agency-event filter selects prior-cycle actor/recipient events for prompt context", () => {
   const priorCycleTransfer = {
     eventId: "agency:4:1",
     cycle: 4,

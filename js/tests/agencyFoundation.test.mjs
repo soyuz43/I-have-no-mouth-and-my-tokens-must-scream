@@ -1650,7 +1650,7 @@ test("a failing sim does not stop derivation for the others", async () => {
   }
 });
 
-test("a later cycle replaces per-cycle capability data", async () => {
+test("AgencyPhase reflects a sim's capabilities after restraint removal", async () => {
   /*
    * Capability data is a per-cycle snapshot, so removing the posture
    * should restore its capability bands. Proposal outcomes are committed

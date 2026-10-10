@@ -39,7 +39,7 @@
 // ------------------------------------
 // `blocked` and `provenance` are the nested fields here. Both are
 // bounded
-// by the action catalogue (currently two entries) rather than by
+// by the action catalogue (currently five definitions) rather than by
 // journal text or message bodies. It is still deliberately left
 // out of `buildOverviewHistoryEntry()` in aggregate.js: that
 // allowlist exists to keep the live cognition projection light, and

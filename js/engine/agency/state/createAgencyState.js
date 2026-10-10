@@ -4,11 +4,10 @@
 //
 // WHAT THIS IS
 // -------------
-// The per-cycle store the agency phase writes its derivation into.
-// It is a sibling of `G.comms` and `G.overhearing` in
-// js/core/state.js, and follows the same convention: a factory rather
-// than an inline object literal, so a reset can never be a partial
-// field-by-field copy that silently drops a field added later.
+// The agency phase writes derivations into this live envelope.
+// `beginCycle()` resets per-cycle fields individually while preserving
+// persistent events and the monotonic action sequence; this factory
+// supplies the complete initial shape for a new run.
 //
 // WHAT THIS ENVELOPE STORES
 // -------------------------
