@@ -30,6 +30,9 @@ export function exportState() {
   delete gameSnapshot.research;
 
   try {
+    assertJsonCompatible(gameSnapshot, "G");
+    assertJsonCompatible(Exporter, "Exporter");
+
     const envelope = {
       schemaVersion: SAVE_SCHEMA_VERSION,
       engineVersion: ENGINE_VERSION,
@@ -101,6 +104,76 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertJsonCompatible(value, path, ancestors = new WeakSet()) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError(`Unsupported non-finite number at ${path}.`);
+    }
+    return;
+  }
+
+  if (typeof value !== "object") {
+    throw new TypeError(`Unsupported ${typeof value} value at ${path}.`);
+  }
+
+  if (value instanceof Map || value instanceof Set) {
+    throw new TypeError(`Unsupported ${value.constructor.name} value at ${path}.`);
+  }
+
+  const isArray = Array.isArray(value);
+  const prototype = Object.getPrototypeOf(value);
+  if (!isArray && prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`Unsupported object type at ${path}.`);
+  }
+
+  if (ancestors.has(value)) {
+    throw new TypeError(`Unsupported circular reference at ${path}.`);
+  }
+  ancestors.add(value);
+
+  if (isArray) {
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index)) {
+        throw new TypeError(`Unsupported sparse array entry at ${path}[${index}].`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor)) {
+        throw new TypeError(`Unsupported accessor at ${path}[${index}].`);
+      }
+      assertJsonCompatible(descriptor.value, `${path}[${index}]`, ancestors);
+    }
+
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === "length" || (typeof key === "string" && isArrayIndex(key, value.length))) {
+        continue;
+      }
+      throw new TypeError(`Unsupported array property at ${path}.${String(key)}.`);
+    }
+  } else {
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key === "symbol") {
+        throw new TypeError(`Unsupported symbol key at ${path}.`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable || !("value" in descriptor)) {
+        throw new TypeError(`Unsupported non-JSON property at ${path}.${key}.`);
+      }
+      assertJsonCompatible(descriptor.value, `${path}.${key}`, ancestors);
+    }
+  }
+
+  ancestors.delete(value);
+}
+
+function isArrayIndex(key, length) {
+  const index = Number(key);
+  return Number.isInteger(index) && index >= 0 && index < length && String(index) === key;
 }
 
 function replaceObjectContents(target, source) {
