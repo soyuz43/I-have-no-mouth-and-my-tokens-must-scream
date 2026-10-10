@@ -1583,6 +1583,45 @@ header {
   display: flex;
   gap: 3px;
 }
+.tape-control-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tape-control-row .ctrl-label {
+  flex-shrink: 0;
+}
+#tape-mode-select {
+  min-width: 0;
+  background: #020202;
+  border: 1px solid #442200;
+  color: var(--amber);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.48rem;
+  padding: 3px;
+}
+.tape-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--amber);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.42rem;
+  white-space: nowrap;
+}
+.tape-mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
+}
+.tape-mode-indicator[data-mode="RECORD"] {
+  color: var(--red);
+}
+.tape-mode-indicator[data-mode="REPLAY"] {
+  color: #75d887;
+}
 .save-load-btn {
   flex: 1;
   background: #020202;

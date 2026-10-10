@@ -48,6 +48,7 @@ import {
   invalidateColabConnection,
   selTarget,
   selMode,
+  setTapeMode,
   setFrom,
   toggleTo,
 } from "./js/ui/events.js";
@@ -164,6 +165,7 @@ window.runCommsCycle = runCommsCycle;
 
 window.saveRun = saveRun;
 window.loadRun = loadRun;
+window.setTapeMode = setTapeMode;
 
 
 // ---------- RENDER ----------

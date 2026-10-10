@@ -37,6 +37,13 @@
 
 import { G } from "../core/state.js";
 import { stripThinkTags } from "../core/utils.js";
+import {
+  getMode as getReplayTapeMode,
+  hashRequest,
+  recordRequest,
+  replayRequest,
+  TAPE_MODES,
+} from "../core/replayTape.js";
 import { enqueueModelCall } from "./modelQueue.js";
 // ============================================================================
 // PROVIDER-SPECIFIC BACKEND ADAPTERS
@@ -1023,7 +1030,11 @@ function resolveModel(role) {
  * This prevents a queued request from silently switching backend
  * if global application state changes while it is waiting.
  */
-function resolveBackendRoute(role, samplingOverride = null) {
+function resolveBackendRoute(
+  role,
+  samplingOverride = null,
+  { allowMissingCredentials = false } = {},
+) {
   const configuredBackend =
     normalizeBackendName(
       G?.backend
@@ -1052,7 +1063,7 @@ function resolveBackendRoute(role, samplingOverride = null) {
         G.anthropicKey
       );
 
-    if (!apiKey) {
+    if (!apiKey && !allowMissingCredentials) {
       throw new Error(
         "Anthropic API key is not configured."
       );
@@ -1194,6 +1205,7 @@ function resolveBackendRoute(role, samplingOverride = null) {
 
     if (
       requireApiKey &&
+      !allowMissingCredentials &&
       !apiKey
     ) {
       throw new Error(
@@ -1350,8 +1362,22 @@ export async function callModel(
       resolvedSampling;
   }
 
+  const tapeMode = getReplayTapeMode();
   const route =
-    resolveBackendRoute(role, resolvedSampling);
+    resolveBackendRoute(role, resolvedSampling, {
+      allowMissingCredentials: tapeMode === TAPE_MODES.REPLAY,
+    });
+
+  const tapeHash = hashRequest(
+    normalizedSystemPrompt,
+    requestMessages,
+    route.temperature,
+    normalizedMaxTokens,
+  );
+
+  if (tapeMode === TAPE_MODES.REPLAY) {
+    return replayRequest(tapeHash);
+  }
 
   const adapter =
     MODEL_ADAPTERS[route.adapter];
@@ -1596,6 +1622,10 @@ export async function callModel(
           route,
           callContext,
         });
+
+        if (tapeMode === TAPE_MODES.RECORD) {
+          recordRequest(tapeHash, cleaned);
+        }
 
         return cleaned;
       } catch (error) {
