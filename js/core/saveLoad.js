@@ -8,6 +8,12 @@ import {
   getModelQueueStatus,
   waitForModelQueueIdle,
 } from "../models/modelQueue.js";
+import {
+  engineRng,
+  isValidRngState,
+  researchRng,
+  uiRng,
+} from "./prng.js";
 
 const SAVE_SCHEMA_VERSION = 1;
 const ENGINE_VERSION = "1.0.0";
@@ -33,6 +39,12 @@ export function exportState() {
     assertJsonCompatible(gameSnapshot, "G");
     assertJsonCompatible(Exporter, "Exporter");
 
+    const rngStates = {
+      engineRng: engineRng.getState(),
+      uiRng: uiRng.getState(),
+      researchRng: researchRng.getState(),
+    };
+
     const envelope = {
       schemaVersion: SAVE_SCHEMA_VERSION,
       engineVersion: ENGINE_VERSION,
@@ -40,6 +52,7 @@ export function exportState() {
       cycle: G.cycle,
       G: structuredClone(gameSnapshot),
       Exporter: structuredClone(Exporter),
+      rngStates,
     };
 
     return JSON.stringify(envelope);
@@ -64,7 +77,8 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
     envelope.G.cycle !== envelope.cycle ||
     !isRecord(envelope.G.sims) ||
     !isRecord(envelope.Exporter) ||
-    !isRecord(envelope.Exporter.buffers)
+    !isRecord(envelope.Exporter.buffers) ||
+    (Object.hasOwn(envelope, "rngStates") && !isValidRngStates(envelope.rngStates))
   ) {
     throw new Error("Invalid save file or unsupported schema version.");
   }
@@ -97,6 +111,11 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   if (runtimeResearch !== undefined) {
     game.research = runtimeResearch;
   }
+  if (envelope.rngStates) {
+    engineRng.setState(envelope.rngStates.engineRng);
+    uiRng.setState(envelope.rngStates.uiRng);
+    researchRng.setState(envelope.rngStates.researchRng);
+  }
 
   resetUiState(game);
   return game;
@@ -104,6 +123,15 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isValidRngStates(value) {
+  return (
+    isRecord(value) &&
+    isValidRngState(value.engineRng) &&
+    isValidRngState(value.uiRng) &&
+    isValidRngState(value.researchRng)
+  );
 }
 
 function assertJsonCompatible(value, path, ancestors = new WeakSet()) {

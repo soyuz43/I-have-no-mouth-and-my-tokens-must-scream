@@ -2,6 +2,7 @@
 
 import { G } from "../../core/state.js";
 import { MAX_MESSAGE_LENGTH, SIM_IDS } from "../../core/constants.js";
+import { engineRng } from "../../core/prng.js";
 
 import { callModel } from "../../models/callModel.js";
 
@@ -296,9 +297,9 @@ export async function step({ fromId, state, queue, modelCaller = callModel }) {
     ) {
       const rumorPressure = Math.min(0.4, 0.1 + overheardList.length * 0.03);
 
-      if (Math.random() < rumorPressure) {
+      if (engineRng.next() < rumorPressure) {
         const source =
-          overheardList[Math.floor(Math.random() * overheardList.length)];
+          overheardList[Math.floor(engineRng.next() * overheardList.length)];
 
         const possibleTargets = SIM_IDS.filter(
           (id) =>
@@ -309,7 +310,7 @@ export async function step({ fromId, state, queue, modelCaller = callModel }) {
 
         if (possibleTargets.length) {
           const rumorTarget =
-            possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+            possibleTargets[Math.floor(engineRng.next() * possibleTargets.length)];
 
           /* ------------------------------------------------------------
              BUILD RUMOR TEXT (CONTENT vs OBSERVATION)
@@ -329,7 +330,7 @@ export async function step({ fromId, state, queue, modelCaller = callModel }) {
             ];
 
             rumorText =
-              variants[Math.floor(Math.random() * variants.length)] +
+              variants[Math.floor(engineRng.next() * variants.length)] +
               " Something feels off.";
           } else {
             rumorText = `I heard ${source.from} say earlier: ${source.text.slice(0, 800)}...`;
@@ -469,7 +470,7 @@ export async function step({ fromId, state, queue, modelCaller = callModel }) {
       toId = recentPartner;
     }
 
-    else if (Math.random() < 0.35) {
+    else if (engineRng.next() < 0.35) {
       const rels = fromSim.relationships || {};
       const weighted = Object.entries(rels)
         .map(([id, val]) => ({ id, weight: Math.abs(val) }))
@@ -500,7 +501,7 @@ export async function step({ fromId, state, queue, modelCaller = callModel }) {
       sentMessagesThisCycle.get(toId)?.has(fromId) ||
       lastSenderToRecipient[`${toId}|${fromId}`];
 
-    if (isReply && Math.random() < 0.03) return;
+    if (isReply && engineRng.next() < 0.03) return;
 
     /* ================= EXCHANGE LIMIT ================= */
 

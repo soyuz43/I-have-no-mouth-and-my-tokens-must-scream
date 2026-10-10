@@ -2,6 +2,7 @@
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
+import { engineRng } from "../../core/prng.js";
 
 import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
@@ -130,7 +131,7 @@ No behavioral logic is defined here — only orchestration.
 function shuffle(list) {
   const arr = [...list];
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(engineRng.next() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
@@ -369,7 +370,7 @@ export async function runCommsCycle({ stepFn = step } = {}) {
 
   const burstModifier = 1 + groupStress * 1.4;
 
-  const willBurst = state.counters.messageCount < state.messageBudget && Math.random() < SECOND_PASS_CHANCE;
+  const willBurst = state.counters.messageCount < state.messageBudget && engineRng.next() < SECOND_PASS_CHANCE;
 
   logDetail(`burst pass: willBurst=${willBurst}, chance=${SECOND_PASS_CHANCE}, modifier=${burstModifier.toFixed(2)}`);
 
@@ -382,7 +383,7 @@ export async function runCommsCycle({ stepFn = step } = {}) {
 
       const burstProb = BURST_BASE * burstModifier;
 
-      if (Math.random() > burstProb) continue;
+      if (engineRng.next() > burstProb) continue;
 
       logDetail(`burst turn: ${fromId} (prob=${burstProb.toFixed(3)})`);
 

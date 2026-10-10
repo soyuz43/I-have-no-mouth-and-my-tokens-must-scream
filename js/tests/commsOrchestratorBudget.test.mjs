@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { engineRng } from "../core/prng.js";
 import { runCommsCycle } from "../engine/comms/orchestrator.js";
 
 function makeSim(id) {
@@ -24,7 +25,7 @@ test("orchestrator drains the scheduled queue and stops at its message budget", 
     timeline: G.timeline,
     document: globalThis.document,
     window: globalThis.window,
-    random: Math.random,
+    nextRandom: engineRng.next,
   };
 
   try {
@@ -36,7 +37,7 @@ test("orchestrator drains the scheduled queue and stops at its message budget", 
     G.timeline = [];
     globalThis.document = { getElementById: () => null };
     globalThis.window = { _timelineMissing: false };
-    Math.random = () => 0;
+    engineRng.next = () => 0;
 
     let mainQueue;
     let burstTurnCount = 0;
@@ -68,7 +69,7 @@ test("orchestrator drains the scheduled queue and stops at its message budget", 
     G.overhearing = saved.overhearing;
     G.interSimLog = saved.interSimLog;
     G.timeline = saved.timeline;
-    Math.random = saved.random;
+    engineRng.next = saved.nextRandom;
     if (saved.document === undefined) delete globalThis.document;
     else globalThis.document = saved.document;
     if (saved.window === undefined) delete globalThis.window;

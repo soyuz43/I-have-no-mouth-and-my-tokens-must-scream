@@ -1,6 +1,7 @@
 // js/ui/render.js
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { uiRng } from "../core/prng.js";
 
 import { escapeHtml, downloadTextFile } from "../core/utils.js";
 import { validateBeliefs } from "../engine/state/validate.js";
@@ -275,7 +276,7 @@ export function updateSimDisplay(
 
   const stEl = document.getElementById(`ss-${sim.id}`);
   if (stEl && sim.suffering > 72) {
-    stEl.textContent = statuses[Math.floor(Math.random() * statuses.length)];
+    stEl.textContent = statuses[Math.floor(uiRng.next() * statuses.length)];
   }
 
   const card = document.getElementById(`sc-${sim.id}`);

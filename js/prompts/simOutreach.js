@@ -2,6 +2,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
+import { engineRng } from "../core/prng.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import {
   formatCompactScratchpadContextWithSections,
@@ -71,7 +72,7 @@ Let your drives and current state determine how (or whether) to use this intel.
           : false;
       return visibility === "public" || from === sim.id || addressedToSim;
     })
-    .slice(-6 - Math.floor(Math.random() * 3)) // last 6–8 messages
+    .slice(-6 - Math.floor(engineRng.next() * 3)) // last 6–8 messages
     .map((msg) => {
       const from = msg.from ?? "UNKNOWN";
       const toList = Array.isArray(msg.to)

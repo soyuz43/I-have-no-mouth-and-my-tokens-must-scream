@@ -2,6 +2,7 @@
 
 import { G } from "../../../core/state.js";
 import { SIM_IDS } from "../../../core/constants.js";
+import { engineRng } from "../../../core/prng.js";
 import { addLog } from "../../../ui/logs.js";
 
 import { applyOverheardEffect } from "../../relationships.js";
@@ -450,7 +451,7 @@ export function maybeOverhear(
       closeness * 0.5 +
       paranoia * 0.3 +
       attention * 0.2 +
-      Math.random() * 0.2;
+      engineRng.next() * 0.2;
 
     if (score > bestScore) {
       bestScore = score;
@@ -490,7 +491,7 @@ export function maybeOverhear(
     attention * 0.1;
 
   const roll =
-    Math.random() /
+    engineRng.next() /
     modifier;
 
   /* ------------------------------------------------------------
@@ -537,7 +538,7 @@ export function maybeOverhear(
   ) {
     const requestedLength =
       Math.floor(
-        Math.random() * 50
+        engineRng.next() * 50
       ) + 20;
 
     const fragmentLength =
@@ -547,7 +548,7 @@ export function maybeOverhear(
       );
 
     const regionRoll =
-      Math.random();
+      engineRng.next();
 
     let perception;
     let start;
@@ -565,7 +566,7 @@ export function maybeOverhear(
 
       start =
         Math.floor(
-          Math.random() *
+          engineRng.next() *
           Math.max(
             1,
             message.length -

@@ -2,12 +2,13 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { G } from "../core/state.js";
+import { engineRng } from "../core/prng.js";
 import { maybeOverhear, recordOverheard } from "../engine/comms/social/overhearing.js";
 
 const GLOBAL_KEYS = ["sims", "cycle", "overhearing", "privateLeak"];
 let savedGlobals;
 let savedDocument;
-let savedMathRandom;
+let savedEngineRngNext;
 
 function makeSim(id) {
   return {
@@ -36,7 +37,7 @@ function makeSourceMessage(overrides = {}) {
 beforeEach(() => {
   savedGlobals = Object.fromEntries(GLOBAL_KEYS.map((key) => [key, G[key]]));
   savedDocument = globalThis.document;
-  savedMathRandom = Math.random;
+  savedEngineRngNext = engineRng.next;
 
   G.sims = {
     TED: makeSim("TED"),
@@ -55,7 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const [key, value] of Object.entries(savedGlobals)) G[key] = value;
-  Math.random = savedMathRandom;
+  engineRng.next = savedEngineRngNext;
   if (savedDocument === undefined) delete globalThis.document;
   else globalThis.document = savedDocument;
 });
@@ -103,7 +104,7 @@ test("recordOverheard creates linked canonical events for each outcome", () => {
 });
 
 test("maybeOverhear returns the canonical event generated from a private message", () => {
-  Math.random = () => 0;
+  engineRng.next = () => 0;
 
   const event = maybeOverhear(makeSourceMessage());
 
