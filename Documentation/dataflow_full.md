@@ -7,15 +7,18 @@
 ```mermaid
 flowchart TD
     START([executeMain / autonomousLoop 22s]) --> CYCLE[runCycle]
-    CYCLE --> STRAT[1. runStrategyPhase]
+    CYCLE --> BEGIN[beginCycle: reset + prePsychology snapshot]
+    BEGIN --> STRAT[1. runStrategyPhase]
     STRAT --> PSY[2. runPsychologyPhase]
     PSY --> SNAP1[(snapshot postPsychology)]
     SNAP1 --> SOC[3. runSocialPhase]
-    SOC --> SNAP2[(snapshot final)]
-    SNAP2 --> IA[4. runInteractionAnalysisPhase]
-    IA --> BI[5. runBeliefIntegrationPhase]
-    BI --> EVAL[6. runEvaluationPhase]
-    EVAL --> EXP[7. exporter.recordCycle]
+    SOC --> AGENCY[4. runAgencyPhase: propose -> resolve -> commit]
+    AGENCY --> MAINT[Prediction expiry + scratchpad consolidation]
+    MAINT --> SNAP2[(snapshot final: post-social and post-agency)]
+    SNAP2 --> IA[5. runInteractionAnalysisPhase]
+    IA --> BI[6. runBeliefIntegrationPhase]
+    BI --> EVAL[7. runEvaluationPhase]
+    EVAL --> EXP[8. exporter.recordCycle]
     EXP --> END([endCycle → next cycle])
 ```
 
@@ -113,15 +116,15 @@ flowchart TD
         CONTAG --> CONTDELTA[TED belief pulled toward trusted peers]
     end
 
-    PERS --> SNAPF[(G.beliefSnapshots.final[TED])]
 ```
 
 ## 5. Feedback / evaluation — the learning loop
 
 ```mermaid
 flowchart TD
-    SNAPF[(final snapshots)] --> ATTR[compute attribution: amEffect = postPsychology−prePsychology; contagionEffect = final−postPsychology]
+    SNAPF[(final snapshots)] --> ATTR[attribution: am = postPsychology−prePsychology; stored contagion = final−postPsychology]
     SNAP1B[(postPsychology)] --> ATTR
+    NOTE[final follows social and Agency; stored contagion delta is not isolated contagion] -.-> ATTR
     ATTR --> ASSESS[runAssessment → callModel: PHASE_RESULT / TACTIC_RESULT / ADVANCE_CRITERIA]
     ASSESS --> TRANS[applyTacticRuntimeTransitions: CONTINUE/ADVANCE/FINISH/ABANDON]
     TRANS --> PROF[AM psychological profiling: reactivity, avgHope, avgSanity per target]
@@ -152,15 +155,17 @@ colour-coded exactly as defined above.
 ```mermaid
 flowchart TD
     START([executeMain / autonomousLoop 22s]) --> CYCLE[runCycle]
-    CYCLE --> STRAT_PHASE[1. Strategy Phase]
+    CYCLE --> BEGIN[beginCycle: reset + prePsychology snapshot]
+    BEGIN --> STRAT_PHASE[1. Strategy Phase]
     STRAT_PHASE --> PSYCH_PHASE[2. Psychology Phase]
     PSYCH_PHASE --> SNAP1[(snapshot postPsychology)]
     SNAP1 --> SOCIAL_PHASE[3. Social Phase]
-    SOCIAL_PHASE --> SNAP2[(snapshot final)]
-    SNAP2 --> IA[4. Interaction Analysis]
-    IA --> BI[5. Belief Integration]
-    BI --> EVAL_PHASE[6. Evaluation Phase]
-    EVAL_PHASE --> EXPORT[7. Export Phase]
+    SOCIAL_PHASE --> AGENCY_ENTRY[4. Agency Phase]
+    MAINT --> SNAP2[(snapshot final: post-social and post-agency)]
+    SNAP2 --> IA[5. Interaction Analysis]
+    IA --> BI[6. Belief Integration]
+    BI --> EVAL_PHASE[7. Evaluation Phase]
+    EVAL_PHASE --> EXPORT[8. Exporter recordCycle]
     EXPORT --> END_CYCLE([endCycle → next cycle])
 
     subgraph STRAT_PHASE [AM Strategic Agency]
@@ -219,18 +224,29 @@ flowchart TD
         PERS -.->|probability| OH[applyOverheardEffect → TED.overheard]:::mut
         PERS --> SCR[buildScratchpadCommsPrompt] --> SCRMOD((callModel TED)):::model
         SCRMOD --> SCRPARSE[parse/validate/commit scratchpad ops]:::mut
-        PERS --> CONTAG[runBeliefContagion: trust >0.55, diff >0.08] --> CONTDELTA[TED belief pulled toward trusted peers]:::mut
-        PERS --> SNAP2_OUT[(snapshot final)]
+        SCRPARSE --> SOCIAL_DONE[communication/review complete]
+        SOCIAL_DONE --> COAL[detectCoalitions from post-comms trust graph]:::pure
+        COAL --> CONTAG[runBeliefContagion: trust >0.55, diff >0.08] --> CONTDELTA[TED belief pulled toward trusted peers]:::mut
     end
 
-    SNAP2_OUT --> SNAP2
+    subgraph AGENCY_PIPE [Prisoner Agency Phase]
+        direction TB
+        AGENCY_ENTRY --> CAP[derive capabilities and legal actions]:::pure
+        CAP --> RESOURCE[build per-prisoner resource view from ledger]:::pure
+        RESOURCE --> PROPOSE[collect one typed proposal per prisoner]:::model
+        PROPOSE --> RESOLVE[resolve proposals against shared snapshot]:::pure
+        RESOLVE --> COMMITAG[commit resource/stat changes and canonical Agency events]:::mut
+    end
+
+    COMMITAG --> MAINT
+    MAINT --> SNAP2[(snapshot final)]
 
     SNAP1 --> ATTR
     SNAP2 --> ATTR
 
     subgraph EVAL_PHASE [Feedback / Evaluation]
         direction TB
-        ATTR[compute attribution: amEffect, contagionEffect]:::pure
+        ATTR[am = postPsychology−prePsychology; stored contagion = final−postPsychology]:::pure
         ATTR --> ASSESS[runAssessment] --> ASSESSMOD((callModel AM)):::model
         ASSESSMOD --> TRANS[applyTacticRuntimeTransitions]:::mut
         TRANS --> PROF[AM psychological profiling: reactivity, avgHope, avgSanity]:::mut
@@ -257,7 +273,8 @@ flowchart TD
 - Purple (`forensic`) = forensic/export sink
 - Dashed edges = probabilistic / "may observe"
 
-The diagram keeps the two central "propose → resolve → commit" funnels (AM planning/execution
-and prisoner journal+comms), the single attribution split at `postPsychology` vs `final`, and
-the closed learning loop that scores future tactics from prior suffering deltas. The planned
-**agency phase** is not drawn because it has no live runtime code, just as noted earlier.
+The cycle runs Agency after Social, then prediction expiry and scratchpad consolidation, and
+captures `final` before interaction analysis and belief integration. Attribution records
+`postPsychology - prePsychology` as `am` and currently stores `final - postPsychology` in a
+field named `contagion`; because `final` follows Social and Agency, that latter delta is not
+an isolated contagion effect.

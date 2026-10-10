@@ -4,9 +4,9 @@
 **Primary state constructor:** `js/core/utils.js::makeScratchpad()`
 **Runtime integration:** `js/engine/phases/communicationPhase.js`
 
-Last reconciled: 2026-09-26. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. Exporter decisions stream removed.
+Last reconciled: 2026-10-10. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. October 8 physical-limit and overhearing-reference bridge plus October 9-10 Agency event-review context reconciled. Exporter decisions stream removed.
 
-The wired suite passes **376 tests** with zero failures: 286 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. Scratchpad schema version `3`; communication protocol version `3`.
+The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. Scratchpad schema version `3`; communication protocol version `3`.
 
 ---
 
@@ -116,7 +116,7 @@ This phase order is authoritative for future rollback design because communicati
 - [x] ~~Track scratchpad revisions and successful communication-review progress.~~
 - [ ] **PARTIAL:** Persist free-form hypotheses about AM. The `hypothesesAboutAM` array exists, but the current communication-review protocol does not create or revise entries in it.
 - [ ] **SCAFFOLD:** Persist discarded hypotheses. `discardedHypotheses` exists but has no discovered mutation lifecycle.
-- [ ] **PARTIAL:** Add a general subjective-event evidence model beyond canonical communication records. Canonical overhearing events now exist with stable provenance, but the scratchpad review protocol still admits only canonical communication-message references.
+- [ ] **PARTIAL:** Add a general subjective-event evidence model beyond canonical communication records. Perceived overhearing event IDs can be validated and retained as note provenance, and canonical Agency events can be supplied as review context. Explicit overhearing-event prompt visibility and a shared evidence model for other world events remain open.
 
 ## 3.2 Runtime maintenance pipeline
 
@@ -135,7 +135,7 @@ This phase order is authoritative for future rollback design because communicati
 - [x] ~~Apply accepted mutations atomically to a clone before replacing persistent state.~~
 - [x] ~~Add periodic full consolidation.~~ `consolidate.js` runs on a fixed modulo cadence (`DEFAULT_CONSOLIDATION_CADENCE = 5`) after the social phase in `cycle.js`.
 - [x] ~~Use `lastConsolidatedCycle` in an actual consolidation scheduler.~~ (set by the consolidation hook when it runs)
-- [ ] **OPEN:** Trigger cognition maintenance from non-communication events such as AM interventions, constraint changes, betrayals, prediction outcomes, or agency events.
+- [ ] **OPEN:** Trigger additional cognition maintenance directly from non-communication events such as AM interventions, betrayals, or prediction outcomes. Eligible Agency events are supplied during the next scheduled communication review, but do not independently trigger a review.
 - [ ] **OPEN:** Define bounded retention, pruning, compaction, or archival rules for long-running scratchpads.
 - [ ] **OPEN:** Decide whether rejected operations from a partially accepted review should ever be reconsidered, because the current successful review advances beyond the complete evidence batch and does not automatically retry them.
 
@@ -178,7 +178,7 @@ The review cursor provides idempotent progress through canonical communication h
 - [x] ~~Cycle, speaker, channel, note, and confidence capture~~
 - [x] ~~Duplicate-note protection: only one note is stored per canonical message ID.~~
 - [ ] **OPEN:** Add note-revision or note-retraction semantics; a later `NOTE` operation for an already-noted message currently becomes a no-op.
-- [ ] **OPEN:** Add stable scratchpad evidence references to canonical overhearing events and fragments.
+- [x] ~~Add validated scratchpad references to perceived canonical overhearing event IDs and retain their event provenance on notes.~~ Explicit event visibility in the model prompt remains open (see §6.2).
 - [ ] **OPEN:** Add references to non-message observations and events.
 - [ ] **OPEN:** Define retention or consolidation policy for old message notes. (Consolidation now *deduplicates* notes by `messageId`, but no retention limit or pruning is implemented yet.)
 
@@ -397,14 +397,15 @@ NO_UPDATE
 
 - [x] ~~Give overheard records stable canonical event IDs, monotonic event sequences, and source-message references.~~
 - [x] ~~Record whether an overhearing event was full, fragmentary, or observed-only, including fragment character ranges where applicable.~~
-- [ ] **OPEN:** Admit canonical overhearing events into scratchpad review without leaking unperceived private-message content.
-- [ ] **OPEN:** Extend the scratchpad evidence-reference protocol and validator to accept canonical event references in addition to canonical message references.
+- [x] ~~Accept perceived canonical overhearing event IDs in scratchpad validation and preserve `sourceEventId` when a note cites one.~~
+- [ ] **OPEN:** Add canonical overhearing events and fragments to scratchpad review visibility and prompt context without exposing unperceived private-message content. The current visibility collector supplies canonical communication records, not the overhearing ledger.
+- [ ] **OPEN:** Wire `eventPermitsTextReference()` into a production consumer and verify end-to-end handling before overhearing events are exposed in prompts. The current commit projection stores `perceivedText: null` for `observed_only`, but this helper itself has no production callers.
 - [ ] **OPEN:** Translate overhearing outcome and perception fidelity into appropriately constrained subjective evidence context for the reviewing prisoner.
 - [ ] **OPEN:** Add subjective observations of AM interventions.
-- [ ] **OPEN:** Add subjective observations of constraints and future agency events.
+- [x] ~~Maintain capability-derived physical limitations in scratchpads and render them in outreach/reply context; provide eligible canonical Agency event summaries to the next scheduled scratchpad review.~~ Agency event summaries are review context, not yet a general event-reference namespace.
 - [ ] **OPEN:** Define one shared evidence-reference namespace for messages, observations, and world events.
 
-The exclusion of overheard fragments is a protocol-integration gap rather than a provenance gap: the overhearing subsystem already has stable canonical event IDs and source-message references, but scratchpad visibility, prompting, parsing, and validation still operate on communication-message references only.
+Overhearing provenance and event-reference validation are implemented, but event visibility in the review prompt is not. The standalone `eventPermitsTextReference()` helper has no production caller, so safe prompt exposure of full, fragmentary, and observed-only events remains unfinished.
 
 ---
 
@@ -549,7 +550,7 @@ The cognition overview derives live counts and confidence summaries for display.
 
 # 12. Testing status
 
-Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **376 tests** with zero failures: 286 Node/TAP tests, 85 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests.
+Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
 - [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ (16 and 23 cases)
@@ -761,10 +762,10 @@ Complete. The question and prediction lifecycle plan, including resolution, eval
 ## Priority 4 — Add non-message subjective evidence
 
 - [x] ~~Canonicalize overhearing events and fragments with stable event IDs, source-message references, outcome types, and fragment ranges.~~
-- [ ] Extend scratchpad visibility and evidence validation to admit those canonical overhearing events.
+- [x] ~~Accept perceived canonical overhearing event IDs in validation and retain event provenance on notes.~~
+- [ ] Add those canonical overhearing events to scratchpad visibility and prompt context; safely distinguish full, fragmentary, and observed-only outcomes.
 - [ ] Add observations of AM interventions.
-- [ ] Add observations of constraints.
-- [ ] Later add observations from the agency/event system.
+- [x] ~~Maintain capability-derived physical limitations in scratchpads and render them in outreach/reply context; supply eligible Agency event summaries to scheduled scratchpad reviews.~~
 - [ ] Unify evidence references across message and event types.
 
 ## Priority 5 — Build the goal system
