@@ -13,6 +13,8 @@ import {
 } from "./js/engine/cycle.js";
 
 import { G } from "./js/core/state.js";
+import { exportState, importState } from "./js/core/saveLoad.js";
+import { downloadTextFile } from "./js/utils/downloadTextFile.js";
 
 import {
   runCommsCycle
@@ -160,6 +162,9 @@ import {
 window.executeMain = executeMain;
 window.runCommsCycle = runCommsCycle;
 
+window.saveRun = saveRun;
+window.loadRun = loadRun;
+
 
 // ---------- RENDER ----------
 
@@ -284,6 +289,58 @@ window.AM_DEBUG = {
 // RESEARCH PROBE BRIDGE
 // ===================
 attachToWindow(); //  
+
+function saveRun() {
+  try {
+    const json = exportState();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    downloadTextFile(`am_run_cycle_${G.cycle}_${timestamp}.json`, json);
+  } catch (error) {
+    console.error("[SAVE] Failed to save run:", error);
+    window.alert(`Unable to save run: ${error.message}`);
+  }
+}
+
+function loadRun() {
+  if (!window.confirm("This will overwrite your current run. Continue?")) {
+    return;
+  }
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.hidden = true;
+  document.body.appendChild(input);
+
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      window.alert("Unable to read the selected save file.");
+    };
+    reader.onload = async () => {
+      const executeButton = document.getElementById("exec-btn");
+      if (executeButton) executeButton.disabled = true;
+
+      try {
+        await importState(String(reader.result ?? ""));
+        renderSims();
+        renderRelationships();
+      } catch (error) {
+        console.error("[LOAD] Failed to load run:", error);
+        window.alert(`Unable to load run: ${error.message}`);
+      } finally {
+        if (executeButton) executeButton.disabled = false;
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  input.click();
+}
 
 // ============================================================
 // DEBUG BOOT MESSAGE

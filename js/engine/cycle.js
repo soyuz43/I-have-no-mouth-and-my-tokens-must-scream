@@ -166,7 +166,38 @@ function formatPsychologyImpact() {
    MAIN CYCLE CONTROLLER
 ============================================================ */
 
+let activeCycleCount = 0;
+const cycleIdleWaiters = [];
+
+export function isCycleRunning() {
+  return activeCycleCount > 0;
+}
+
+export function waitForCycleIdle() {
+  if (activeCycleCount === 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => cycleIdleWaiters.push(resolve));
+}
+
 export async function runCycle() {
+  activeCycleCount++;
+
+  try {
+    return await runCyclePipeline();
+  } finally {
+    activeCycleCount--;
+
+    if (activeCycleCount === 0) {
+      while (cycleIdleWaiters.length > 0) {
+        cycleIdleWaiters.shift()();
+      }
+    }
+  }
+}
+
+async function runCyclePipeline() {
 
   const cycleStart = performance.now();
 
