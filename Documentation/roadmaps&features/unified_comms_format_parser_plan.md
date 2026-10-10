@@ -575,7 +575,7 @@ Integration tests verify a recovered communication: appears in the transmission 
 
 Taken from the live codebase cross-check, not present in either roadmap doc:
 
-1. **`MAX_MESSAGE_LENGTH` drift.** Declared independently in `js/engine/comms/engine.js` and `js/engine/comms/parsing/parsers.js` (open TODO in `parsers.js`). Unify into a single shared constant (`core/constants.js` or `comms/constants.js`) and verify exactly which subsystems consume the truncated text (scratchpad review, evidence extraction, journals, exports) before changing the cap.
+1. **`MAX_MESSAGE_LENGTH` consumers.** The shared value now lives in `js/core/constants.js` and remains `2000`. Model calls interpret it as an output-token limit, while `parseReply` uses it as a `String.slice` bound (UTF-16 code units). Before changing the cap, verify which downstream subsystems consume the truncated text (scratchpad review, evidence extraction, journals, exports).
 2. **Privacy enforcement of the new `cognition` object.** Ensure `js/engine/comms/...`, `js/engine/scratchpad/comms/...`, and the transmission UI never surface cognition fields into recipient memory, the log, or overhearing. Easy to regress when wiring the richer object.
 3. **Prompt format sync.** `js/prompts/simOutreach.js` (lines ~148–155) and `js/prompts/simReply.js` (lines ~420–425) currently emit the legacy `VISIBILITY:`/`REACH_OUT:`/`MESSAGE:` and `INTENT:`/`REPLY:` formats. These are the Phase 3 edit targets and must be changed ONLY after the Phase 2 parser fallback exists.
 4. **Intent vocabulary drift.** `simReply.js` (~line 311) lists its own intent set (`request_help`, `other`) that differs from §3.6. Reconcile to the canonical list during Phase 3.

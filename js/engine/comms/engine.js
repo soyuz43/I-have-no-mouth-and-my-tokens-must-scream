@@ -1,7 +1,7 @@
 // js/engine/comms/engine.js
 
 import { G } from "../../core/state.js";
-import { SIM_IDS } from "../../core/constants.js";
+import { MAX_MESSAGE_LENGTH, SIM_IDS } from "../../core/constants.js";
 
 import { callModel } from "../../models/callModel.js";
 
@@ -233,10 +233,6 @@ function logOverhearReaction(data) {
     console.log("[OVERHEAR EVENT]", data);
   }
 }
-
-// TODO(comms):
-// MAX_MESSAGE_LENGTH is currently declared in js/engine/comms/parsing/parsers.js as well, ivestigate and fix
-const MAX_MESSAGE_LENGTH = 2000;
 
 export async function step({ fromId, state, queue, modelCaller = callModel }) {
   const {

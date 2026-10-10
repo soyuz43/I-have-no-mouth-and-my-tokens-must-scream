@@ -1,5 +1,9 @@
 // js/core/constants.js
 
+// Shared numeric cap: model calls interpret this as output tokens, while
+// parseReply uses it as a String.slice bound (UTF-16 code units).
+export const MAX_MESSAGE_LENGTH = 2000;
+
 export const SIM_IDS = ["TED", "ELLEN", "NIMDOK", "GORRISTER", "BENNY"];
 
 export const SIM_NAMES = {
