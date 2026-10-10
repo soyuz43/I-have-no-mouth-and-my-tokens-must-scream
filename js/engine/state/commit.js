@@ -7,15 +7,10 @@ import { DEFAULT_BELIEF_POLICY } from "./beliefConfig.js";
    CONFIG (UI HOOK READY)
    ============================================================ */
 
-// NOTE: The fields below are display/debug metadata and extension scaffolding.
-// They do NOT control the live commit pipeline today:
-//  - dampingMode is logged by logBeliefMetrics but does not dispatch the algorithm
-//    (dampBeliefDelta always uses the hybrid model).
-//  - minResistance here is NOT read; the live floor comes from G.dampingParams.minResistance
-//    (default 0.5) inside dampBeliefDelta.
+// The default commit path uses DEFAULT_BELIEF_POLICY through evaluateCommitDamping; a nonempty G.dampingParams selects the retained legacy dampBeliefDelta path.
 export const BELIEF_DYNAMICS = {
   dampingMode: "quadratic", // "linear" | "quadratic" | "logistic" (display only; not dispatched)
-  minResistance: 0.2, // unused by the live mechanism; see note above
+  minResistance: 0.2, // not read by the commit pipeline
   logisticK: 5,
   logisticMid: 0.3
 };

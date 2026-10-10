@@ -293,7 +293,7 @@ function computeBeliefDelta(before, after) {
 }
 
 // Compute attribution-aware deltas for stats and beliefs
-function computeAttribution(id) {
+export function computeAttribution(id) {
   const prePsych = G.beliefSnapshots?.prePsychology?.[id] || {};
   const postPsych = G.beliefSnapshots?.postPsychology?.[id] || {};
   if (G.DEBUG_ATTRIBUTION) {
@@ -301,7 +301,7 @@ function computeAttribution(id) {
     console.log("[DEBUG] postPsych for", id, postPsych);
   }
   const finalBeliefs =
-    G.beliefSnapshots?.final?.[id] ||
+    G.beliefSnapshots?.final?.[id]?.beliefs ||
     G.sims[id]?.beliefs ||
     {};
 

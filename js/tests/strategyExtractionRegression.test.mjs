@@ -72,6 +72,7 @@ import {
 } from "../engine/analysis/assessment/assessmentTypes.js";
 
 import {
+  computeAttribution,
   parseTacticAssessment,
 } from "../engine/analysis/assessment.js";
 
@@ -3071,6 +3072,72 @@ function applyOneRuntimeAssessment(
 
   return transition;
 }
+
+test(
+  "assessment-attribution",
+  "computes contagion deltas from beliefs in cycle-shaped final snapshots",
+  () => {
+    const previousSnapshots =
+      G.beliefSnapshots;
+    const previousDebugAttribution =
+      G.DEBUG_ATTRIBUTION;
+
+    G.DEBUG_ATTRIBUTION = false;
+    G.beliefSnapshots = {
+      prePsychology: {
+        TED: {
+          hope: 40,
+          sanity: 60,
+          suffering: 20,
+          beliefs: {
+            escape_possible: 0.25,
+            others_trustworthy: 0.75,
+          },
+        },
+      },
+      postPsychology: {
+        TED: {
+          hope: 45,
+          sanity: 58,
+          suffering: 25,
+          beliefs: {
+            escape_possible: 0.5,
+            others_trustworthy: 0.5,
+          },
+        },
+      },
+      final: {
+        TED: {
+          hope: 47,
+          sanity: 57,
+          suffering: 27,
+          beliefs: {
+            escape_possible: 0.75,
+            others_trustworthy: 0.25,
+          },
+        },
+      },
+    };
+
+    try {
+      const attribution =
+        computeAttribution("TED");
+
+      assert.deepEqual(
+        attribution.beliefs.contagion,
+        {
+          escape_possible: 0.25,
+          others_trustworthy: -0.25,
+        }
+      );
+    } finally {
+      G.beliefSnapshots =
+        previousSnapshots;
+      G.DEBUG_ATTRIBUTION =
+        previousDebugAttribution;
+    }
+  }
+);
 
 test(
   "assessment-parser-contract",

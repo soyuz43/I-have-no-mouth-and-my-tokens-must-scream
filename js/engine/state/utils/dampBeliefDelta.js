@@ -16,10 +16,7 @@ so a LARGER value preserves MORE of the proposed delta (less damping),
 and a SMALLER value preserves LESS (more damping). Do not invert the
 semantics when reading this function.
 
-Override surface: the constants are read from G.dampingParams (currently
-unpopulated in production, so the ?? defaults below apply). Assigning
-G.dampingParams.{logisticK,logisticMid,hybridBlend,minResistance} would
-change the live equation.
+This helper retains the hybrid formula for the legacy G.dampingParams override path; the default commit path uses evaluateCommitDamping with DEFAULT_BELIEF_POLICY.
 
 Hybrid model:
 - Logistic -> transition shape (threshold near the adjusted midpoint)

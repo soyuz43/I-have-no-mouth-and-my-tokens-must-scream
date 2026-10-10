@@ -181,6 +181,8 @@ candidate preparation
 
 `G.amExecution` is therefore the closest thing in the repository to an existing action-resolution envelope.
 
+AM's planning prompt currently exposes active constraints but not the resource ledger or derived capability state. Whether AM should observe physical capabilities for psychological planning is deferred to a future design slice.
+
 ## AM’s current limitations
 
 AM does not yet choose among a general environment-level action set.

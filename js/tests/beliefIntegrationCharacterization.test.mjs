@@ -492,11 +492,12 @@ test("extractInteractionEvidence computes numeric deltas from cycle-shaped snaps
     },
   });
 
-  const marginalSection = capturedPrompt
-    .split("MARGINAL DELTAS (CONTAGION-ATTRIBUTED CHANGE ONLY)\n------------------------------------------------------------\n")[1]
-    .split("\n\nNOTE:")[0];
+  const marginalMatch = capturedPrompt.match(
+    /MARGINAL DELTAS \(CONTAGION-ATTRIBUTED CHANGE ONLY\)\s*-*\s*(\{[\s\S]*?\})/
+  );
 
-  assert.deepEqual(JSON.parse(marginalSection), {
+  assert.ok(marginalMatch, "prompt includes marginal delta JSON");
+  assert.deepEqual(JSON.parse(marginalMatch[1]), {
     escape_possible: 0.25,
     others_trustworthy: -0.25,
   });
