@@ -4,7 +4,7 @@
 **Primary state constructor:** `js/core/utils.js::makeScratchpad()`
 **Runtime integration:** `js/engine/phases/communicationPhase.js`
 
-Last reconciled: 2026-10-10. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. October 8 physical-limit and overhearing-reference bridge plus October 9-10 Agency event-review context reconciled. Exporter decisions stream removed.
+Last reconciled: 2026-10-11. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. Physical-limit, overhearing-reference, and Agency event-review bridges reconciled. Full-state Save/Load and Replay Tape status reconciled. Exporter decisions stream removed.
 
 The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. Scratchpad schema version `3`; communication protocol version `3`.
 
@@ -12,11 +12,11 @@ The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 No
 
 ## Status legend
 
-- [x] ~~Crossed-out item~~ — implemented and wired into the runtime path.
+- [x] ~~Crossed-out item~~ — **IMPLEMENTED** and wired into the runtime path, with relevant coverage.
 - [ ] **PARTIAL** — meaningful implementation exists, but the feature is incomplete or not behaviorally connected.
 - [ ] **SCAFFOLD** — state fields or UI support exist, but no complete producer/consumer lifecycle exists.
 - [ ] **OPEN** — no meaningful implementation was found in the reviewed source.
-- [x] ~~**SUPERSEDED:** original design item~~ — the original proposal was intentionally replaced by a different implemented design.
+- [x] ~~**SUPERSEDED / RETIRED:** original design item~~ — intentionally replaced or decommissioned; do not implement or revive it.
 - [ ] **VERIFY** — reconnaissance exposed a likely issue or ambiguity that should be checked directly before changing code.
 - [ ] **NOT ASSESSED** — intentionally excluded from the relevant reconnaissance pass.
 - [ ] **REQUIRED** — accepted design requirement that is not yet implemented.
@@ -24,7 +24,7 @@ The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 No
 
 A field existing in `makeScratchpad()` does **not** count as a completed subsystem. Completion requires a runtime producer, validation, mutation path, consumer, and observable behavior where appropriate.
 
-Throughout this roadmap, **persistent** means persistent across later phases and cycles during one active simulation run. It does **not** mean browser-reload persistence, save/load restoration, imported state, rollback, or deterministic replay.
+Throughout this roadmap, **persistent** means persistent across later phases and cycles during one active simulation run. Full-run save/load is separately implemented: `exportState()` serializes the saveable run-state payload from `G`, including each prisoner's Scratchpad (excluding credentials and runtime-only handles), and `importState()` restores it at an idle cycle boundary. Replay Tape records and replays matching model responses. Neither capability by itself means arbitrary phase-level rollback or replay.
 
 ---
 
@@ -32,7 +32,7 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
 
-It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, save/load system, or rollback/replay system. A first cognition-to-behavior loop exists for communication and journals: compact scratchpad context shapes outreach, reply, and journal prompts (see sections 3.3 and 9.3), but goal-driven behavior and measured behavioral effects remain open. An engine-owned consolidation path exists for message-note deduplication, resolved-question and resolved-prediction archival, prediction expiry, and read-only prediction evaluation (see section 3.2 / Original Phase 3).
+It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, or arbitrary simulation rollback/phase-replay system. Full-state Save/Load and a model-response Replay Tape are implemented: the saved `G` payload includes canonical per-prisoner Scratchpads, and the save also carries exporter, PRNG, and tape state. Replay Tape supplies recorded responses for matching model requests; it does not itself restore arbitrary earlier phase boundaries. A first cognition-to-behavior loop exists for communication and journals: compact scratchpad context shapes outreach, reply, and journal prompts (see sections 3.3 and 9.3), but goal-driven behavior and measured behavioral effects remain open. An engine-owned consolidation path exists for message-note deduplication, resolved-question and resolved-prediction archival, prediction expiry, and read-only prediction evaluation (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -398,20 +398,21 @@ NO_UPDATE
 - [x] ~~Give overheard records stable canonical event IDs, monotonic event sequences, and source-message references.~~
 - [x] ~~Record whether an overhearing event was full, fragmentary, or observed-only, including fragment character ranges where applicable.~~
 - [x] ~~Accept perceived canonical overhearing event IDs in scratchpad validation and preserve `sourceEventId` when a note cites one.~~
-- [ ] **OPEN:** Add canonical overhearing events and fragments to scratchpad review visibility and prompt context without exposing unperceived private-message content. The current visibility collector supplies canonical communication records, not the overhearing ledger.
+- [ ] **PARTIAL / OPEN:** Validation accepts perceived canonical overhearing event IDs and committed notes retain `sourceEventId`; the full bridge remains open because canonical overhearing events and fragments are not yet supplied in scratchpad-review visibility or prompt context. Any addition must avoid exposing unperceived private-message content.
 - [ ] **OPEN:** Wire `eventPermitsTextReference()` into a production consumer and verify end-to-end handling before overhearing events are exposed in prompts. The current commit projection stores `perceivedText: null` for `observed_only`, but this helper itself has no production callers.
 - [ ] **OPEN:** Translate overhearing outcome and perception fidelity into appropriately constrained subjective evidence context for the reviewing prisoner.
 - [ ] **OPEN:** Add subjective observations of AM interventions.
-- [x] ~~Maintain capability-derived physical limitations in scratchpads and render them in outreach/reply context; provide eligible canonical Agency event summaries to the next scheduled scratchpad review.~~ Agency event summaries are review context, not yet a general event-reference namespace.
+- [x] ~~**IMPLEMENTED — Physical Limitations Bridge:** Derive `physicalLimitations` from Agency Phase capability bands, persist them in the Scratchpad, and render them in outreach/reply context.~~
+- [x] ~~**IMPLEMENTED — Agency Event Review:** Supply eligible canonical Agency events to the next scheduled Scratchpad review.~~ These events are review context, not yet a general event-reference namespace.
 - [ ] **OPEN:** Define one shared evidence-reference namespace for messages, observations, and world events.
 
-Overhearing provenance and event-reference validation are implemented, but event visibility in the review prompt is not. The standalone `eventPermitsTextReference()` helper has no production caller, so safe prompt exposure of full, fragmentary, and observed-only events remains unfinished.
+The overhearing bridge is **PARTIAL**: event-reference validation and `sourceEventId` note provenance are live, but event visibility in the review prompt is not. The standalone `eventPermitsTextReference()` helper has no production caller, so safe prompt exposure of full, fragmentary, and observed-only events remains unfinished.
 
 ---
 
 # 7. Initialization status
 
-The original roadmap proposed a dedicated initialization call after cycle-zero communication producing a full structured initial social model and an initial goal. The current implementation instead creates an empty versioned schema at state construction and runs the ordinary sparse communication-review pipeline after cycle-zero communications.
+The original roadmap proposed a dedicated initialization call after cycle-zero communication producing a full structured initial social model and an initial goal. The current implementation instead creates an empty versioned schema at state construction and runs the ordinary sparse, validated operation protocol for Cycle 0 and every subsequent communication review.
 
 ## 7.1 Completed or superseded initialization work
 
@@ -420,7 +421,7 @@ The original roadmap proposed a dedicated initialization call after cycle-zero c
 - [x] ~~Limit initial evidence to messages visible to that prisoner.~~
 - [x] ~~Avoid seeding canonical AM surveillance truth.~~
 - [x] ~~**SUPERSEDED:** Require a one-shot complete JSON scratchpad initialization response.~~
-- [x] ~~Use the same sparse, validated operation protocol for initial and later communication-derived cognition.~~
+- [x] ~~Use the same sparse, validated operation protocol for Cycle 0 and all later communication-derived cognition.~~
 - [x] ~~Define `initialized` as successful review/initialization-commit state rather than proof of substantive cognition.~~
 - [x] ~~Allow valid `NO_UPDATE` on cycle zero to produce an initialized scratchpad without incrementing the substantive revision counter.~~
 - [x] ~~When an uninitialized prisoner has no visible cycle-zero evidence, perform engine-owned empty initialization without a model call.~~
@@ -524,8 +525,9 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 ## 11.1 Export
 
 - [x] ~~Export the separate operator-facing `AM SCRATCHPAD` textarea through the session export.~~
-- [ ] **OPEN — CORRECTED:** ~~Include scratchpad state in user-facing export/state output.~~ The previous completion claim was inaccurate: canonical per-prisoner `sim.scratchpad` state is not included in the session export or the main structured exporter streams.
-- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner scratchpads, but they are not a supported user-facing cognition export and do not provide an operation-level audit stream.
+- [x] ~~Persist canonical per-prisoner Scratchpads in full-run Save/Load.~~ `exportState()` serializes `G`, including `G.sims[*].scratchpad`; the save/load round-trip test covers populated Scratchpad state.
+- [ ] **OPEN:** Include canonical per-prisoner Scratchpad state in dedicated structured session/analysis exporter streams. The separate `AM SCRATCHPAD` textarea is not the canonical prisoner Scratchpad.
+- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner Scratchpads, but they are not a dedicated cognition export and do not provide an operation-level audit stream.
 - [ ] **OPEN:** Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.
 - [ ] **OPEN:** Export question and prediction lifecycle events.
 - [ ] **OPEN:** Export goal lifecycle events.
@@ -585,6 +587,8 @@ Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes *
 | 6 — Meta-awareness levels 1-2 | SCAFFOLD | Schema only. |
 | 7 — Explicit awareness levels 3-4 | SCAFFOLD | Not implemented beyond schema/UI placeholders. |
 | 8 — Advanced operations | OPEN | Not implemented; depends on goals and, preferably, a later agency/event layer. |
+
+**SUPERSEDED / RETIRED — Obsidian vault crawl for tactic generation.** The live tactic source is `js/engine/tactics/embeddedTactics.js`; the runtime has no vault dependency. Do not revive the crawl.
 
 ---
 
@@ -813,10 +817,11 @@ The scratchpad subsystem should not be considered complete merely because it sto
 - [x] ~~Visibility prevents private-message leakage.~~
 - [x] ~~UI exposes current state and recent changes.~~
 - [x] ~~Questions and predictions have complete lifecycles.~~ (Confidence adjustment is deferred pending accumulation of real outcome data; it remains a separate open calibration/feedback item.)
+- [x] ~~Canonical per-prisoner Scratchpads are included in full-state Save/Load.~~ Dedicated structured analysis export remains open.
 - [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection now live; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now deduplicates notes and archives resolved questions/predictions, but retention caps and deterministic pruning remain open)
 - [ ] Canonical non-message observations can become scratchpad evidence.
-- [ ] Canonical prisoner scratchpads are included in user-facing export.
+- [ ] Canonical per-prisoner Scratchpads are included in dedicated structured analysis exports.
 - [ ] Export supports operation-level audit.
 - [ ] Metrics distinguish creation, revision, resolution, and behavioral influence.
 - [ ] Dedicated tests verify visibility, provenance, mutation, and long-run stability.
@@ -829,9 +834,9 @@ Until the unchecked items above are satisfied, the current system is best descri
 
 # 18. Simulation rollback and phase replay
 
-Rollback is a planned engine capability, not an implemented subsystem.
+Full-run Save/Load and model-response Replay Tape are implemented; arbitrary simulation rollback and phase replay remain planned capabilities. At an idle cycle boundary, `exportState()` saves the JSON-compatible run-state payload from `G` (including Scratchpads, but excluding credentials and runtime-only handles), exporter state, PRNG streams, and Replay Tape; `importState()` restores that saved run. Replay Tape reuses responses for matching requests, but neither feature provides arbitrary phase-boundary rewind and rerun.
 
-The current repository contains diagnostic, attribution, and exporter snapshots, including `G.prevCycleSnapshot`, pre/post/final belief snapshots, and exporter comparison state. None is a complete restorable checkpoint. No whole-state restore function, phase-replay controller, rollback UI, model-queue invalidation mechanism, or rollback test suite was found.
+The repository also contains diagnostic, attribution, and exporter snapshots, including `G.prevCycleSnapshot`, pre/post/final belief snapshots, and exporter comparison state. `G.prevCycleSnapshot` is not a rollback checkpoint. No phase-replay controller, rollback UI, or rollback test suite was found.
 
 ## 18.1 Non-negotiable safety boundary
 
@@ -839,7 +844,8 @@ The current repository contains diagnostic, attribution, and exporter snapshots,
 - [ ] **REQUIRED:** Permit rollback only after the selected phase or cycle boundary has completed.
 - [ ] **REQUIRED:** Never restore state while a phase, model request, queued callback, commit, or autonomous-cycle transition can still mutate the active timeline.
 - [ ] **REQUIRED:** Halt or suspend autonomous execution before restoration.
-- [ ] **OPEN:** Add an authoritative engine-idle and completed-boundary state model.
+- [x] ~~Enforce an idle cycle boundary for full-run Save/Load.~~ `exportState()` rejects active cycles/model work; `importState()` waits for cycle and model-queue idleness.
+- [ ] **OPEN:** Define authoritative completed-boundary semantics for arbitrary phase-level rollback.
 
 The feature must not attempt to interrupt a phase halfway through and preserve whatever partial state happens to exist at that instant.
 
@@ -901,7 +907,7 @@ Downloaded export files and developer-console output cannot be withdrawn. The ap
 
 ## 18.5 Asynchronous model-work safety
 
-The current model queue has no public cancellation, idle, queue-clearing, or simulation-generation invalidation API.
+The model queue exposes status and an idle-wait path used by full-state loading. It does not expose cancellation or simulation-generation invalidation for arbitrary rollback.
 
 - [ ] **REQUIRED:** Prevent a model response created for a discarded timeline from committing into restored state.
 - [ ] **OPEN DESIGN:** Allow rollback only after the model queue is fully idle.
@@ -924,20 +930,20 @@ Counters must never be rewound independently of the records they identify.
 
 ## 18.7 Fresh rerun versus deterministic replay
 
-The present engine uses unseeded randomness, live model generation, timestamps, and queue scheduling. It does not support exact deterministic replay.
+Full-state Save/Load captures the engine, UI, and research PRNG states. Replay Tape records model responses against request hashes and replays those responses for matching requests; a cache miss fails closed. Together these support reproducible continuation/branching when the saved state and required request responses are available. A changed prompt produces a different request hash and needs its own recorded response. This is distinct from arbitrary phase rollback and rerun.
 
-- [ ] **OPEN DESIGN:** Treat rerun as a fresh attempt from the same restored state, allowing different random and model outcomes.
-- [ ] **OPEN DESIGN:** Later support deterministic replay through seeded randomness and recorded model responses.
-- [ ] **OPEN:** Decide whether both modes are useful.
-- [ ] **OPEN:** If deterministic replay is adopted, version the replay contract and record every external input needed for reproduction.
+- [x] ~~Save and restore full-run state, PRNG streams, exporter state, and Replay Tape at idle cycle boundaries.~~
+- [x] ~~Record and replay model responses for matching request hashes.~~
+- [ ] **OPEN DESIGN:** Define arbitrary rollback/phase-boundary rerun semantics separately from full-run Save/Load and request-level replay.
+- [ ] **OPEN:** Specify how branches capture or supply model responses for branch-specific requests and how external inputs are controlled.
 
-Until deterministic infrastructure exists, the accurate term is **rollback and fresh rerun**, not exact replay.
+Use **Save/Load** and **Replay Tape** for the implemented capabilities; **rollback and phase replay** remain open.
 
 ## 18.8 Checkpoint architecture
 
-- [ ] **OPEN:** Define a complete, versioned restore-state contract.
+- [ ] **OPEN:** Define rollback-specific phase/cycle checkpoints beyond the existing versioned full-run Save/Load envelope.
 - [ ] **OPEN:** Decide whether checkpoints copy the entire authoritative run state or use a validated event-log reconstruction model.
-- [ ] **OPEN:** Preserve the imported singleton identity of `G` or introduce a deliberate state-container abstraction.
+- [x] ~~Preserve the imported singleton identity of `G` during full-state import.~~
 - [ ] **OPEN:** Use a clone/serialization strategy that supports every authoritative runtime type.
 - [ ] **OPEN:** Add checkpoint compatibility and migration rules.
 - [ ] **OPEN:** Define checkpoint retention, memory limits, pruning, and user-visible availability.
@@ -986,3 +992,28 @@ When future scratchpad work lands:
 4. Mark architecture changes as **SUPERSEDED**, not merely "done."
 5. Add newly discovered implementation gaps under the relevant subsystem.
 6. Keep goal, meta-awareness, and future agency work separate unless they share an actual runtime path.
+
+## Goal System: Proposed Path Forward
+
+The following slices build on the existing `activeGoal` and `goalHistory` schema placeholders without treating those fields as a functioning lifecycle.
+
+### Slice 1 — Tier-1 Goal Bootstrap & Agency Context
+
+- **Objective:** Define a small goal-template contract, select and persist an initial Tier-1 goal, and present it explicitly in Agency proposal context before actions are proposed.
+- **Why it matters:** Gives each prisoner a covert motivation that can shape Agency proposals while leaving action validation and resolution engine-owned.
+- **Key Files:** Create `js/engine/agency/registry.js`; update `js/engine/phases/agencyPhase.js` and `js/prompts/agencyProposal.js`.
+- **Dependencies:** Agree on the minimal Tier-1 template and initial selection semantics, then persist the selected record in the existing `activeGoal` field. Full-state Save/Load already serializes the containing Scratchpad; no separate save/load work is needed unless goal state is moved elsewhere.
+
+### Slice 2 — Event-Grounded Goal Progression
+
+- **Objective:** Advance, complete, fail, or abandon active goals from canonical Agency outcomes and append terminal records to `goalHistory`.
+- **Why it matters:** Makes goals persist across cycles and respond to what prisoners actually do, rather than leaving them as static prompt flavor.
+- **Key Files:** Create `js/engine/agency/lifecycle.js`; update `js/engine/phases/agencyPhase.js` and `js/engine/agency/events.js`.
+- **Dependencies:** Slice 1 must establish active-goal representation and the Tier-1 contract; canonical Agency event outcome/status semantics must remain the lifecycle's evidence source.
+
+### Slice 3 — Behavioral Verification & Observability
+
+- **Objective:** Measure goal starts, transitions, and goal-aligned Agency action rates, then compare controlled branches with and without explicit goal context using Replay Tape.
+- **Why it matters:** Tests whether goals measurably influence emergent Agency behavior instead of merely appearing in prompts.
+- **Key Files:** Add goal-lifecycle and branch-comparison tests; add a goal metrics stream under `js/utils/exporter/streams/` and wire it through `js/utils/exporter/aggregate.js`; use the existing `js/core/replayTape.js` and `js/core/saveLoad.js` for controlled branches.
+- **Dependencies:** Slices 1 and 2 must provide stable goal and event semantics plus observable metrics. Replay Tape is request-hash-specific, so each branch must have recorded responses for its own proposal requests (including any changed prompts).
