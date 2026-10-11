@@ -7,7 +7,8 @@ const PROPOSAL_KEYS = new Set([
   "type",
   "mode",
   "resourceId",
-  "targetId"
+  "targetId",
+  "selected_objective"
 ]);
 
 function waitResult(reason, requestedType = null) {
@@ -37,6 +38,10 @@ export function validateAgencyProposal({
   budget,
   resourceView
 }) {
+  const selectedObjective =
+    proposal && typeof proposal === "object" && !Array.isArray(proposal)
+      ? proposal.selected_objective
+      : null;
   const requestedType =
     proposal && typeof proposal === "object" &&
     typeof proposal.type === "string"
@@ -45,7 +50,8 @@ export function validateAgencyProposal({
 
   const reject = (reason) => ({
     ...waitResult(reason, requestedType),
-    actorId
+    actorId,
+    selectedObjective
   });
 
   if (
@@ -135,7 +141,8 @@ export function validateAgencyProposal({
     cost,
     accepted: true,
     reason: null,
-    requestedType
+    requestedType,
+    selectedObjective
   };
 }
 

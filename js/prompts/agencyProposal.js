@@ -1,3 +1,5 @@
+import { TIER1_GOALS } from "../engine/scratchpad/goals/registry.js";
+
 export function buildAgencyProposalPrompt(
   sim,
   legalActions,
@@ -20,9 +22,19 @@ export function buildAgencyProposalPrompt(
     scratchpad: scratchpadWithoutGoals
   };
 
-  const covertObjective = activeGoal === null || activeGoal === undefined
-    ? "No active objective. Focus on survival."
-    : `${activeGoal.label}\n${activeGoal.description}`;
+  const tacticalMenu = [
+    "══════════════════════════════════════",
+    "TACTICAL MENU (COVERT OBJECTIVES)",
+    "══════════════════════════════════════",
+    "Choose ONE objective that best aligns with your current Drives and the physical reality of the vault:",
+    "",
+    ...TIER1_GOALS.flatMap((goal) => [
+      `${goal.id}: ${goal.label}`,
+      goal.description,
+      ""
+    ]),
+    "══════════════════════════════════════"
+  ].join("\n");
 
   const resources = Array.isArray(resourceView?.stacks)
     ? resourceView.stacks.map((stack) => ({
@@ -37,12 +49,13 @@ export function buildAgencyProposalPrompt(
   return [
     `You are ${sim.id}. Choose exactly one typed Agency action for this cycle.`,
     "Return one JSON object only. Do not narrate or predict the outcome.",
-    "The object must contain type and may contain mode, resourceId, and targetId.",
+    "The object must contain type and selected_objective, and may contain mode, resourceId, and targetId.",
+    `selected_objective must be one of: ${TIER1_GOALS.map((goal) => goal.id).join(", ")}.`,
     "Do not include any other keys or free-form action names.",
     "For TRANSFER, name one resourceId from your inventory and a different prisoner as targetId.",
     "For HIDE or REVEAL, name one resourceId from your inventory.",
     "An omitted mode selects the action's default form.",
-    "If you choose WAIT, return {\"type\":\"WAIT\"}.",
+    "If you choose WAIT, return {\"type\":\"WAIT\",\"selected_objective\":\"<id>\"}.",
     "",
     `Remaining action budget: ${budget}`,
     "Legal actions:",
@@ -50,11 +63,7 @@ export function buildAgencyProposalPrompt(
     "Your accessible resources:",
     JSON.stringify(resources, null, 2),
     "",
-    "══════════════════════════════════════",
-    "COVERT OBJECTIVE",
-    "══════════════════════════════════════",
-    covertObjective,
-    "══════════════════════════════════════",
+    tacticalMenu,
     "",
     "Your subjective state:",
     JSON.stringify(subjectiveState, null, 2)
