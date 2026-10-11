@@ -4,6 +4,9 @@ export function buildAgencyProposalPrompt(
   budget,
   resourceView = null
 ) {
+  const { activeGoal, goalHistory, ...scratchpadWithoutGoals } =
+    sim.scratchpad ?? {};
+
   const subjectiveState = {
     identity: sim.id,
     condition: {
@@ -14,8 +17,12 @@ export function buildAgencyProposalPrompt(
     drives: sim.drives ?? {},
     anchors: sim.anchors ?? [],
     beliefs: sim.beliefs ?? {},
-    scratchpad: sim.scratchpad ?? {}
+    scratchpad: scratchpadWithoutGoals
   };
+
+  const covertObjective = activeGoal === null || activeGoal === undefined
+    ? "No active objective. Focus on survival."
+    : `${activeGoal.label}\n${activeGoal.description}`;
 
   const resources = Array.isArray(resourceView?.stacks)
     ? resourceView.stacks.map((stack) => ({
@@ -42,6 +49,13 @@ export function buildAgencyProposalPrompt(
     JSON.stringify(legalActions, null, 2),
     "Your accessible resources:",
     JSON.stringify(resources, null, 2),
+    "",
+    "══════════════════════════════════════",
+    "COVERT OBJECTIVE",
+    "══════════════════════════════════════",
+    covertObjective,
+    "══════════════════════════════════════",
+    "",
     "Your subjective state:",
     JSON.stringify(subjectiveState, null, 2)
   ].join("\n");
