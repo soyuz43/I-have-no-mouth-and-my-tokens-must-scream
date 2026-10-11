@@ -622,7 +622,16 @@ body::after {
   opacity: 0.25;
   cursor: not-allowed;
 }
-
+.initialize-prison-btn {
+  background: #100900;
+  border-color: var(--amber);
+  color: var(--amber);
+  text-shadow: 0 0 8px var(--amber);
+}
+.initialize-prison-btn:hover {
+  background: #1a1000;
+  box-shadow: 0 0 20px rgba(255, 170, 0, 0.35);
+}
 .sp {
   font-size: 0.6rem;
   color: var(--green);
@@ -1583,6 +1592,82 @@ header {
   display: flex;
   gap: 3px;
 }
+.tape-file-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin: 4px 0 8px;
+}
+.tape-file-row #tape-entry-count {
+  flex: 1;
+  color: var(--amber);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.42rem;
+  text-align: right;
+}
+.control-feedback {
+  min-height: 1.4em;
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.44rem;
+  line-height: 1.35;
+}
+.control-feedback[data-kind="success"] {
+  color: var(--green);
+}
+.control-feedback[data-kind="warning"],
+.control-feedback[data-kind="error"] {
+  color: var(--amber);
+}
+.control-feedback[data-kind="error"] {
+  color: var(--red);
+}
+.control-dialog {
+  width: min(92vw, 440px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--amber);
+  background: rgba(7, 5, 2, 0.98);
+  color: var(--bone);
+  box-shadow: 0 0 28px rgba(255, 179, 0, 0.22);
+  font-family: "Share Tech Mono", monospace;
+}
+.control-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(2px);
+}
+.control-dialog-frame {
+  padding: 20px;
+}
+.control-dialog-tag {
+  margin-bottom: 10px;
+  color: var(--amber);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+}
+.control-dialog h2 {
+  margin-bottom: 10px;
+  color: var(--red);
+  font-family: "VT323", monospace;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+.control-dialog p {
+  color: var(--bone);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+.control-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.control-dialog-actions button {
+  min-width: 100px;
+  padding: 8px 12px;
+}
 .tape-control-row {
   display: flex;
   align-items: center;
@@ -1634,6 +1719,13 @@ header {
 }
 .save-load-btn:hover {
   background: #060200;
+}
+.save-load-btn:disabled,
+.tbt:disabled,
+.mbt:disabled,
+#ctrl-ta:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .exec-btn {

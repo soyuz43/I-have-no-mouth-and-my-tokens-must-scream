@@ -58,19 +58,23 @@ export function hashRequest(systemPrompt, messages, temperature, maxTokens) {
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-export function recordRequest(hash, response) {
+export function recordRequest(hash, response, metadata) {
   if (typeof hash !== "string" || !TAPE_HASH_PATTERN.test(hash)) {
     throw new TypeError("Replay tape hash must be an FNV-1a request hash.");
   }
   if (typeof response !== "string") {
     throw new TypeError("Replay tape responses must be strings.");
   }
-  tape.set(hash, response);
+  const entry = { response };
+  if (metadata !== undefined) {
+    entry.metadata = normalizeMetadata(metadata);
+  }
+  tape.set(hash, entry);
 }
 
 export function replayRequest(hash) {
   if (tape.has(hash)) {
-    return tape.get(hash);
+    return tape.get(hash).response;
   }
   throw new Error(
     `[REPLAY TAPE] Cache miss for hash ${hash}. Failing closed to preserve reproducibility.`,
@@ -80,15 +84,19 @@ export function replayRequest(hash) {
 export function exportTape() {
   return {
     version: TAPE_VERSION,
-    entries: Array.from(tape, ([hash, response]) => ({ hash, response })),
+    entries: Array.from(tape, ([hash, entry]) => ({
+      hash,
+      response: entry.response,
+      ...(entry.metadata ? { metadata: entry.metadata } : {}),
+    })),
   };
 }
 
 export function importTape(tapeData) {
   const importedEntries = parseTapeData(tapeData);
   tape.clear();
-  for (const [hash, response] of importedEntries) {
-    tape.set(hash, response);
+  for (const [hash, entry] of importedEntries) {
+    tape.set(hash, entry);
   }
 }
 
@@ -149,13 +157,44 @@ function parseTapeData(tapeData) {
       typeof entry.hash !== "string" ||
       !TAPE_HASH_PATTERN.test(entry.hash) ||
       typeof entry.response !== "string" ||
+      (Object.hasOwn(entry, "metadata") && !isValidMetadata(entry.metadata)) ||
       seenHashes.has(entry.hash)
     ) {
       throw new Error("Invalid replay tape entry.");
     }
     seenHashes.add(entry.hash);
-    importedEntries.push([entry.hash, entry.response]);
+    importedEntries.push([
+      entry.hash,
+      {
+        response: entry.response,
+        ...(Object.hasOwn(entry, "metadata")
+          ? { metadata: normalizeMetadata(entry.metadata) }
+          : {}),
+      },
+    ]);
   }
 
   return importedEntries;
+}
+
+function isValidMetadata(metadata) {
+  return Boolean(
+    metadata &&
+    typeof metadata === "object" &&
+    !Array.isArray(metadata),
+  );
+}
+
+function normalizeMetadata(metadata) {
+  if (!isValidMetadata(metadata)) {
+    throw new TypeError("Replay tape metadata must be an object.");
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(metadata));
+  } catch (error) {
+    throw new TypeError("Replay tape metadata must be JSON serializable.", {
+      cause: error,
+    });
+  }
 }

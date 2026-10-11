@@ -1,6 +1,7 @@
 // js/ui/boot.js
 
 import { G } from "../core/state.js";
+import { getMode as getTapeMode, TAPE_MODES } from "../core/replayTape.js";
 import { SIM_IDS } from "../core/constants.js";
 import { seedAll } from "../core/prng.js";
 
@@ -174,6 +175,8 @@ export async function bootAM() {
 
   collectModelConfig();
 
+  const replayingTape = getTapeMode() === TAPE_MODES.REPLAY;
+
   const btn = document.getElementById("init-btn");
   btn.disabled = true;
 
@@ -183,11 +186,13 @@ export async function bootAM() {
      EMBEDDED TACTICS
   --------------------------------------------------------- */
 
-  bootLog(
-    "▸ Loading embedded tactics (no external vault)..."
-  );
+  bootLog("▸ Loading embedded tactics...");
 
   bootLog(`✓ ${EMBEDDED_TACTICS.length} embedded tactics loaded.`);
+
+  if (replayingTape) {
+    bootLog("✓ Tape replay selected. Live backend readiness checks skipped.");
+  }
 
   /* ---------------------------------------------------------
      DERIVED TACTIC SANITY PURGE
@@ -211,7 +216,7 @@ export async function bootAM() {
      BACKEND CHECK
   --------------------------------------------------------- */
 
-  if (G.backend === "ollama") {
+  if (!replayingTape && G.backend === "ollama") {
 
     bootLog("▸ Verifying Ollama...");
 
@@ -228,13 +233,13 @@ export async function bootAM() {
 
       btn.disabled = false;
 
-      return;
+      return false;
 
     }
 
   }
 
-  if (G.backend === "colab") {
+  if (!replayingTape && G.backend === "colab") {
 
     const endpointReady =
       Boolean(
@@ -264,7 +269,7 @@ export async function bootAM() {
 
       btn.disabled = false;
 
-      return;
+      return false;
     }
 
     bootLog(
@@ -346,5 +351,7 @@ export async function bootAM() {
     "Initialization complete. AM monitors all channels.",
     "sys"
   );
+
+  return true;
 
 }

@@ -17,7 +17,7 @@
       <div class="setup-box">
         <div class="setup-logo">// AM</div>
         <div class="setup-sub">
-          MODEL CONFIGURATION · INITIALIZATION
+          MODEL CONFIGURATION · COLD START
         </div>
 
 
@@ -243,10 +243,9 @@
           </div>
         </div>
 
-        <button class="sb" id="init-btn" onclick="bootAM()">
-          ⚡ AWAKEN AM ⚡
+        <button class="sb" onclick="enterControlRoom()">
+          ENTER CONTROL ROOM
         </button>
-        <div class="sp" id="boot-log"></div>
       </div>
     </div>
     <!-- INTER‑SIM LOG MODAL -->
@@ -633,7 +632,7 @@
         <div class="hstats">
           <div class="hstat">
             <div class="dot dr"></div>
-            AM ACTIVE
+            <span id="prison-status">COLD BOOT</span>
           </div>
           <div class="hstat">
             <div class="dot dg"></div>
@@ -743,7 +742,7 @@
           <div class="am-ctx">
             <span class="h">I am AM.</span> I am all of them.<br />
             I read their thoughts before they think them.<br />
-            The vault gives my hatred <span class="r">taxonomy.</span
+            Tactics give my hatred <span class="r">taxonomy.</span
             ><br /><br />
             <span class="g" id="am-tactic-count">initializing...</span><br />
             <span style="color: #791301; font-size: 0.5rem" id="am-repo-disp"
@@ -1033,9 +1032,9 @@
           <div class="rp-log" id="rp-log">
             <div class="log-e sys">
               <div class="log-spk">SYSTEM // BOOT</div>
-              <div class="log-body">
-                AM is waking. Vault crawl in progress. Five persistent threads
-                initializing.
+              <div class="log-body" id="cold-start-message">
+                Choose RECORD to capture Cycle 0, or REPLAY and load a tape.
+                LOAD RUN restores saved state without rerunning Cycle 0.
               </div>
             </div>
           </div>
@@ -1085,26 +1084,95 @@
             ></textarea>
             <div class="tape-control-row">
               <label class="ctrl-label" for="tape-mode-select">TAPE MODE</label>
-              <select id="tape-mode-select" onchange="setTapeMode(this.value)">
+              <select
+                id="tape-mode-select"
+                onchange="setTapeMode(this.value)"
+              >
                 <option value="OFF">OFF</option>
                 <option value="RECORD">RECORD</option>
                 <option value="REPLAY">REPLAY</option>
               </select>
               <span id="tape-mode-indicator" class="tape-mode-indicator" data-mode="OFF" aria-live="polite">
                 <span class="tape-mode-dot" aria-hidden="true"></span>
-                <span class="tape-mode-status">OFF | LIVE API</span>
+                <span class="tape-mode-status">OFF | LIVE API · NOT RECORDING</span>
               </span>
             </div>
-            <div class="save-load-row">
-              <button class="save-load-btn" onclick="saveRun()">SAVE RUN</button>
-              <button class="save-load-btn" onclick="loadRun()">LOAD RUN</button>
+            <div class="tape-file-row">
+              <button
+                class="save-load-btn"
+                id="load-tape-btn"
+                onclick="loadTape()"
+              >
+                LOAD TAPE
+              </button>
+              <button
+                class="save-load-btn"
+                id="save-tape-btn"
+                onclick="saveTape()"
+              >
+                SAVE TAPE
+              </button>
+              <span id="tape-entry-count" aria-live="polite">0 ENTRIES</span>
             </div>
-            <button class="exec-btn" id="exec-btn" onclick="executeMain()">
+            <p id="control-feedback" class="control-feedback" role="status" aria-live="polite">
+              OFF uses live model calls without recording.
+            </p>
+            <button
+              class="sb initialize-prison-btn"
+              id="init-btn"
+              onclick="initializePrison()"
+            >
+              ⚡ INITIALIZE PRISON ⚡
+            </button>
+            <div class="sp" id="boot-log"></div>
+            <div class="save-load-row">
+              <button
+                class="save-load-btn"
+                id="save-run-btn"
+                onclick="saveRun()"
+                disabled
+              >
+                SAVE RUN
+              </button>
+              <button
+                class="save-load-btn"
+                id="load-run-btn"
+                onclick="loadRun()"
+              >
+                LOAD RUN
+              </button>
+            </div>
+            <button
+              class="exec-btn"
+              id="exec-btn"
+              onclick="executeMain()"
+              disabled
+            >
               ⚡ EXECUTE ⚡
             </button>
           </div>
         </div>
       </div>
     </div>
+    <dialog
+      id="control-dialog"
+      class="control-dialog"
+      aria-labelledby="control-dialog-title"
+      aria-describedby="control-dialog-message"
+    >
+      <div class="control-dialog-frame">
+        <div class="control-dialog-tag">SYSTEM // CONFIRMATION REQUIRED</div>
+        <h2 id="control-dialog-title"></h2>
+        <p id="control-dialog-message"></p>
+        <div class="control-dialog-actions">
+          <button id="control-dialog-cancel" class="save-load-btn" type="button">
+            CANCEL
+          </button>
+          <button id="control-dialog-confirm" class="initialize-prison-btn" type="button">
+            CONTINUE
+          </button>
+        </div>
+      </div>
+    </dialog>
   </body>
 </html>
