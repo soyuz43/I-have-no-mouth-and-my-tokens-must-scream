@@ -1,4 +1,9 @@
 import { createAgencyEvent } from "./events.js";
+import { engineRng } from "../../core/prng.js";
+import {
+  getTier1Goal,
+  selectTier1Goal
+} from "../scratchpad/goals/registry.js";
 
 const MUTABLE_STATS = new Set([
   "hope",
@@ -64,7 +69,11 @@ function applyOperation(instances, operation, eventId) {
   return null;
 }
 
-export function commitAgencyResolution(G, resolutions) {
+export function commitAgencyResolution(
+  G,
+  resolutions,
+  { goalSelections = [] } = {}
+) {
   if (!G.resources || !Array.isArray(G.resources.instances)) {
     G.resources = { instances: [] };
   }
@@ -125,6 +134,18 @@ export function commitAgencyResolution(G, resolutions) {
   }
   G.agency.events.push(...stagedEvents);
   G.agency.nextActionSequence = sequence;
+
+  for (const { actorId, selectedObjective } of goalSelections) {
+    const actor = G.sims?.[actorId];
+    if (!actor?.scratchpad || typeof actor.scratchpad !== "object") continue;
+
+    const goal = getTier1Goal(selectedObjective);
+    const assignedGoal = goal ?? selectTier1Goal(engineRng);
+    actor.scratchpad.activeGoal = assignedGoal;
+    console.debug(
+      `[AGENCY][${actorId}] objective ${goal ? "LLM-selected" : "Engine-fallback"}: ${assignedGoal.id}`
+    );
+  }
 
   return stagedEvents;
 }

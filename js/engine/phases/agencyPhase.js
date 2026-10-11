@@ -29,7 +29,6 @@
 
 import { G } from "../../core/state.js";
 import { SIM_IDS } from "../../core/constants.js";
-import { engineRng } from "../../core/prng.js";
 
 import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
@@ -48,7 +47,6 @@ import {
   resolveAgencyActions
 } from "../agency/resolve.js";
 import { commitAgencyResolution } from "../agency/commit.js";
-import { selectTier1Goal } from "../scratchpad/goals/registry.js";
 
 /* ============================================================
    PER-SIM DERIVATION
@@ -201,24 +199,6 @@ export async function runAgencyPhase({
     }
   }
 
-  for (const simId of SIM_IDS) {
-    const sim = G.sims?.[simId];
-    if (!sim?.scratchpad) {
-      continue;
-    }
-
-    if (
-      sim.scratchpad.activeGoal === null ||
-      sim.scratchpad.activeGoal === undefined
-    ) {
-      const selectedGoal = selectTier1Goal(engineRng);
-      sim.scratchpad.activeGoal = selectedGoal;
-      console.debug(
-        `[AGENCY][${simId}] assigned covert objective: ${selectedGoal.id}`
-      );
-    }
-  }
-
   const activeSims = SIM_IDS
     .map((simId) => G.sims?.[simId])
     .filter(Boolean);
@@ -237,7 +217,12 @@ export async function runAgencyPhase({
     snapshot,
     cycle: G.cycle
   });
-  commitAgencyResolution(G, resolutions);
+  commitAgencyResolution(G, resolutions, {
+    goalSelections: activeSims.map((sim, index) => ({
+      actorId: sim.id,
+      selectedObjective: proposals[index]?.selectedObjective
+    }))
+  });
 
   for (const simId of SIM_IDS) {
     if (G.sims?.[simId]) {

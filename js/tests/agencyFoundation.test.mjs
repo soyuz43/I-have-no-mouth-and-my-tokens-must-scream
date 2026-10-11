@@ -86,7 +86,8 @@ function waitProposal(sim) {
     cost: 0,
     accepted: true,
     reason: null,
-    requestedType: "WAIT"
+    requestedType: "WAIT",
+    selectedObjective: sim.scratchpad?.activeGoal?.id
   };
 }
 
