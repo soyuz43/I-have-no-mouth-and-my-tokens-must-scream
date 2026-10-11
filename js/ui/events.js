@@ -10,10 +10,11 @@ export function setTapeMode(mode) {
   if (indicator) {
     const statusElement = indicator.querySelector(".tape-mode-status");
     if (statusElement) {
-      const status =
-        selectedMode === "REPLAY"
-          ? "REPLAY | NO API"
-          : `${selectedMode} | LIVE API`;
+      const status = {
+        OFF: "OFF | LIVE API · NOT RECORDING",
+        RECORD: "RECORD | LIVE API + CAPTURE",
+        REPLAY: "REPLAY | TAPE ONLY · NO MODEL CALLS",
+      }[selectedMode];
       indicator.dataset.mode = selectedMode;
       statusElement.textContent = status;
     }

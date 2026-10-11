@@ -7,6 +7,7 @@ import {
   clearTape,
   exportTape,
   hashRequest,
+  importTape,
   recordRequest,
   replayRequest,
   setMode,
@@ -63,9 +64,19 @@ test("RECORD mode stores the validated callModel response by request hash", asyn
 
     assert.equal(response, "Mock recorded response");
     assert.equal(replayRequest(hash), "Mock recorded response");
-    assert.deepEqual(exportTape().entries, [
-      { hash, response: "Mock recorded response" },
-    ]);
+    const [entry] = exportTape().entries;
+    assert.equal(entry.hash, hash);
+    assert.equal(entry.response, "Mock recorded response");
+    assert.equal(entry.metadata.role, "AM");
+    assert.equal(entry.metadata.backend, "ollama");
+    assert.equal(entry.metadata.provider, "Ollama");
+    assert.equal(entry.metadata.adapter, "ollama-native");
+    assert.equal(entry.metadata.model, G.models.am);
+    assert.equal(entry.metadata.sampling.temperature, 0.31);
+    assert.equal(entry.metadata.sampling.maxTokens, 72);
+    assert.equal(Number.isNaN(Date.parse(entry.metadata.recordedAt)), false);
+    assert.equal(Object.hasOwn(entry.metadata, "endpoint"), false);
+    assert.equal(Object.hasOwn(entry.metadata, "apiKey"), false);
   } finally {
     globalThis.fetch = previousFetch;
     G.backend = previousBackend;
@@ -77,6 +88,35 @@ test("RECORD mode stores the validated callModel response by request hash", asyn
     clearTape();
     setMode(TAPE_MODES.OFF);
   }
+});
+
+test("tape import preserves optional call metadata and legacy entries", () => {
+  const tapeData = {
+    version: 1,
+    entries: [
+      {
+        hash: "fnv1a-00000001",
+        response: "Recorded response",
+        metadata: {
+          backend: "ollama",
+          provider: "Ollama",
+          model: "test-model",
+        },
+      },
+      {
+        hash: "fnv1a-00000002",
+        response: "Legacy response",
+      },
+    ],
+  };
+
+  clearTape();
+  importTape(tapeData);
+
+  assert.deepEqual(exportTape(), tapeData);
+  assert.equal(replayRequest("fnv1a-00000001"), "Recorded response");
+  assert.equal(replayRequest("fnv1a-00000002"), "Legacy response");
+  clearTape();
 });
 
 test("REPLAY returns cached text without executing the backend fetch", async () => {

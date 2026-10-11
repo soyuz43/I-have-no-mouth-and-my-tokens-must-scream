@@ -1624,7 +1624,34 @@ export async function callModel(
         });
 
         if (tapeMode === TAPE_MODES.RECORD) {
-          recordRequest(tapeHash, cleaned);
+          recordRequest(tapeHash, cleaned, {
+            recordedAt: new Date().toISOString(),
+            role: String(role),
+            backend: route.backend,
+            provider: route.provider,
+            adapter: route.adapter,
+            model: route.model,
+            sampling: {
+              policy: resolvedSampling?.policy ?? "backend-default",
+              temperature: route.temperature,
+              maxTokens: normalizedMaxTokens,
+            },
+            ...(route.backend === "ollama"
+              ? {
+                  providerSettings: {
+                    think: route.think,
+                    options: route.options,
+                  },
+                }
+              : {}),
+            ...(route.backend === "anthropic"
+              ? {
+                  providerSettings: {
+                    apiVersion: route.anthropicVersion,
+                  },
+                }
+              : {}),
+          });
         }
 
         return cleaned;
