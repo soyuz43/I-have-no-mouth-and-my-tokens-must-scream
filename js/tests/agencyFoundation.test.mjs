@@ -1409,16 +1409,31 @@ async function withPhase(options, body) {
 
   try {
     const { G } = await import("../core/state.js");
+    const { TIER1_GOALS } = await import(
+      "../engine/scratchpad/goals/registry.js"
+    );
     const { runAgencyPhase } =
       await import("../engine/phases/agencyPhase.js");
 
     const previousCycle = G.cycle;
     const previousConstraints = {};
+    const previousScratchpads = {};
     const previousEvents = G.agency.events.slice();
     const previousActionSequence = G.agency.nextActionSequence;
 
     for (const simId of SIM_IDS) {
       previousConstraints[simId] = G.sims[simId].constraints;
+      previousScratchpads[simId] = structuredClone(
+        G.sims[simId].scratchpad
+      );
+      if (
+        G.sims[simId].scratchpad.activeGoal === null ||
+        G.sims[simId].scratchpad.activeGoal === undefined
+      ) {
+        G.sims[simId].scratchpad.activeGoal = {
+          ...TIER1_GOALS[0]
+        };
+      }
       G.sims[simId].constraints = options.constraints ?? [];
     }
 
@@ -1456,6 +1471,7 @@ async function withPhase(options, body) {
 
       for (const simId of SIM_IDS) {
         G.sims[simId].constraints = previousConstraints[simId];
+        G.sims[simId].scratchpad = previousScratchpads[simId];
       }
 
       restoreDom();
