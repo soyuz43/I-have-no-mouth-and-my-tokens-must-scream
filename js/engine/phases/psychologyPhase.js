@@ -53,7 +53,7 @@ import {
 import {
   tickConstraints,
   CONSTRAINT_MAP,
-} from "../constraints.js";
+} from "../constraints/index.js";
 
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
 import { logBeliefDistance } from "../state/utils/beliefDistance.js";
@@ -2920,6 +2920,5 @@ function clamp(
     )
   );
 }
-
 
 

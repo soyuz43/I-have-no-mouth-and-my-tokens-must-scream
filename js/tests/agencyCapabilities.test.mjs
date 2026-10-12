@@ -20,7 +20,7 @@ import {
 import {
   CONSTRAINT_LIBRARY,
   CONSTRAINT_MAP,
-} from "../engine/constraints.js";
+} from "../engine/constraints/index.js";
 
 function simWith(constraints) {
   return {

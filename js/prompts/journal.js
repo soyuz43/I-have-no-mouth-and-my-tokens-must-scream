@@ -6,7 +6,7 @@ import { formatJournalScratchpadContext } from "./utils/formatJournalScratchpadC
 import { getMostRecentTerminalGoal } from "./utils/formatGoalHistoryContext.js";
 import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
-import { CONSTRAINT_MAP } from "../engine/constraints.js";
+import { CONSTRAINT_MAP } from "../engine/constraints/index.js";
 
 function describeConstraint(c) {
     const def = CONSTRAINT_MAP[c.id];

@@ -2,12 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  extractConstraintsFromText,
-  parseAMTargets
-} from "../engine/phases/strategyPhase.js";
+  extractConstraintsFromText
+} from "../engine/constraints/parser.js";
+import { parseAMTargets } from "../engine/phases/strategyPhase.js";
+
+const parserContext = {
+  cycle: 0,
+  resolveTargetId: (raw) =>
+    String(raw ?? "").trim().toUpperCase() === "TED" ? "TED" : null
+};
+
+function extractConstraints(input) {
+  return extractConstraintsFromText(input, parserContext);
+}
 
 function parseConstraint(record) {
-  const parsed = extractConstraintsFromText(
+  const parsed = extractConstraints(
     `[TARGET: TED]\n${record}\n[/TARGET]`
   );
 
@@ -49,7 +59,7 @@ test("recognizes NONE sentinel variants", () => {
 
   for (const sentinel of sentinels) {
     const parsed = withMutedConsole(() =>
-      extractConstraintsFromText(
+      extractConstraints(
         `[TARGET: TED]\n${sentinel}\n[/TARGET]`
       )
     );
@@ -150,7 +160,7 @@ test("warns and skips unknown constraint IDs", () => {
 
   let parsed;
   try {
-    parsed = extractConstraintsFromText(
+    parsed = extractConstraints(
       "[TARGET: TED]\nCONSTRAINT: xyz_constraint DURATION:2 INTENSITY:1\n[/TARGET]"
     );
   } finally {
