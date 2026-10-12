@@ -54,6 +54,7 @@ import {
   updateColabScanAvailability,
   invalidateColabConnection,
   syncSetupConfiguration,
+  initLogDialogs,
   selTarget,
   selMode,
   setTapeMode,
@@ -163,6 +164,8 @@ import {
 // GLOBAL BRIDGE
 // Allows inline HTML onclick handlers to access module functions
 // ============================================================
+
+initLogDialogs();
 
 
 // ---------- ENGINE ----------
@@ -346,7 +349,7 @@ function openControlDialog(title, message, {
 function completePrisonInitialization(statusText = "AM ACTIVE") {
   prisonInitialized = true;
   const button = document.getElementById("init-btn");
-  if (button) button.hidden = true;
+  button?.remove();
   setCycleControlsEnabled(true);
   const status = document.getElementById("prison-status");
   if (status) status.textContent = statusText;
@@ -562,9 +565,8 @@ function saveRun() {
 }
 
 function loadRun() {
-  const wasOnSetupScreen = !document
-    .getElementById("app")
-    ?.classList.contains("visible");
+  if (prisonInitialized) return;
+
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".json,application/json";
@@ -577,27 +579,20 @@ function loadRun() {
     if (!file) return;
 
     const confirmed = await openControlDialog(
-      "LOAD RUN",
-      `Load ${file.name}? This replaces the current run with its saved state. Cycle 0 will not be rerun.`,
-      { confirmLabel: "LOAD RUN" },
+      "START SESSION FROM SAVE",
+      `Start your session from ${file.name}? This restores the saved state, backend configuration, and tape.`,
+      { confirmLabel: "START SESSION" },
     );
     if (!confirmed) return;
 
-    const wasInitialized = prisonInitialized;
-    const initButton = document.getElementById("init-btn");
-    const loadButton = document.getElementById("load-run-btn");
     const setupLoadButton = document.getElementById("setup-load-run-btn");
-    if (initButton) initButton.disabled = true;
-    if (loadButton) loadButton.disabled = true;
     if (setupLoadButton) setupLoadButton.disabled = true;
     setCycleControlsEnabled(false);
     setTapeControlsEnabled(false);
 
     const restoreControls = () => {
-      setCycleControlsEnabled(wasInitialized);
+      setCycleControlsEnabled(false);
       setTapeControlsEnabled(true);
-      if (initButton && !wasInitialized) initButton.disabled = false;
-      if (loadButton) loadButton.disabled = false;
       if (setupLoadButton) setupLoadButton.disabled = false;
     };
 
@@ -614,15 +609,11 @@ function loadRun() {
         renderRelationships();
         updateVaultDisplay();
         updateTapeEntryCount();
-        if (wasOnSetupScreen) {
-          syncSetupConfiguration();
-          enterControlRoom();
-        }
+        syncSetupConfiguration();
+        enterControlRoom();
         completePrisonInitialization("RUN RESTORED");
         setControlFeedback(
-          wasOnSetupScreen
-            ? "Run restored. Set Tape Mode to REPLAY to replay recorded responses, or RECORD to continue."
-            : `Run restored at Cycle ${G.cycle}. Cycle 0 was not rerun.`,
+          "Run restored. Set Tape Mode to REPLAY to replay recorded responses, or RECORD to continue.",
           "success",
         );
         loaded = true;
@@ -633,7 +624,6 @@ function loadRun() {
         if (!loaded) restoreControls();
         else {
           setTapeControlsEnabled(true);
-          if (loadButton) loadButton.disabled = false;
           if (setupLoadButton) setupLoadButton.disabled = false;
         }
       }

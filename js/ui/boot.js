@@ -65,6 +65,41 @@ export function bootLog(msg, err = false) {
 
 }
 
+function waitForTransitionOrTimeout(element, timeoutMs) {
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let timeoutId;
+    const finish = () => {
+      clearTimeout(timeoutId);
+      element.removeEventListener("transitionend", handleTransitionEnd);
+      resolve();
+    };
+    const handleTransitionEnd = (event) => {
+      if (event.target === element && event.propertyName === "max-height") {
+        finish();
+      }
+    };
+
+    timeoutId = window.setTimeout(finish, timeoutMs);
+    element.addEventListener("transitionend", handleTransitionEnd);
+  });
+}
+
+async function collapseBootLog() {
+  const bootLogElement = document.getElementById("boot-log");
+  if (!bootLogElement) return;
+
+  bootLogElement.style.maxHeight = `${bootLogElement.scrollHeight}px`;
+  void bootLogElement.offsetHeight;
+  bootLogElement.classList.add("is-collapsing");
+  bootLogElement.style.maxHeight = "0px";
+
+  await waitForTransitionOrTimeout(bootLogElement, 260);
+}
+
 /* ============================================================
    OLLAMA PING
 ============================================================ */
@@ -317,6 +352,7 @@ export async function bootAM() {
      UI ACTIVATE
   --------------------------------------------------------- */
 
+  await collapseBootLog();
   document.getElementById("setup").style.display = "none";
 
   document.getElementById("app").classList.add("visible");

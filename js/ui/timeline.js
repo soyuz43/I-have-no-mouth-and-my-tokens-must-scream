@@ -92,8 +92,8 @@ export function timelineEvent(label) {
   }
 
   // 2. Update the UI
-  const body = document.getElementById("timeline-body");
-  if (!body) {
+  const scrollContainer = document.getElementById("timeline-body");
+  if (!scrollContainer) {
     if (!window._timelineMissing) {
       console.warn("timeline-body element not found");
       window._timelineMissing = true;
@@ -148,15 +148,15 @@ export function timelineEvent(label) {
   row.appendChild(time);
   row.appendChild(labelContainer);
 
-  body.appendChild(row);
+  scrollContainer.appendChild(row);
 
   // Trim excess rows
-  while (body.children.length > MAX_ROWS) {
-    body.removeChild(body.firstChild);
+  while (scrollContainer.children.length > MAX_ROWS) {
+    scrollContainer.removeChild(scrollContainer.firstChild);
   }
 
-  // Auto‑scroll
-  body.scrollTop = body.scrollHeight;
+  // Keep the newest event visible in the element that owns vertical overflow.
+  scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
 /**

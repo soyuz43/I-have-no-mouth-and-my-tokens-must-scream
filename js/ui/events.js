@@ -4,6 +4,138 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { setMode as setReplayTapeMode } from "../core/replayTape.js";
 
+const LOG_ENTRY_TYPES = new Set(["am", "sim", "sys", "chat", "agency"]);
+
+function formatLogTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "UNKNOWN TIME"
+    : date.toTimeString().slice(0, 8);
+}
+
+function appendLogField(parent, className, value) {
+  const element = document.createElement("div");
+  element.className = className;
+  element.textContent = String(value ?? "");
+  parent.appendChild(element);
+}
+
+function renderTransmissionLog(container) {
+  container.replaceChildren();
+
+  const entries = Array.isArray(G.transmissionLog) ? G.transmissionLog : [];
+  if (entries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "log-dialog-empty";
+    empty.textContent = "No transmission entries recorded.";
+    container.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((record) => {
+    const entry = record && typeof record === "object" ? record : {};
+    const row = document.createElement("article");
+    const type = LOG_ENTRY_TYPES.has(entry.type) ? entry.type : "sys";
+    row.className = `log-e ${type}`;
+
+    appendLogField(row, "log-spk", entry.speaker || "UNKNOWN");
+    appendLogField(row, "log-body", entry.body ?? "");
+
+    if (entry.tactic) {
+      appendLogField(row, "log-tactic", `▸ ${entry.tactic}`);
+    }
+
+    appendLogField(
+      row,
+      "log-ts",
+      `CYCLE ${entry.cycle ?? "?"} // ${formatLogTime(entry.ts)}`,
+    );
+    container.appendChild(row);
+  });
+}
+
+function renderTimeline(container) {
+  container.replaceChildren();
+
+  const entries = Array.isArray(G.timeline) ? G.timeline : [];
+  if (entries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "log-dialog-empty";
+    empty.textContent = "No cycle events recorded.";
+    container.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((record) => {
+    const entry = record && typeof record === "object" ? record : {};
+    const row = document.createElement("div");
+    const label = String(entry.label ?? "");
+    const isMarker =
+      label.startsWith("=====") ||
+      label.startsWith(">>>") ||
+      label.startsWith("//") ||
+      label.startsWith("!!");
+    row.className = isMarker
+      ? "timeline-row timeline-marker"
+      : "timeline-row";
+
+    const cycle = document.createElement("span");
+    cycle.className = "timeline-cycle";
+    cycle.textContent = `C${entry.cycle ?? "?"}`;
+
+    const time = document.createElement("span");
+    time.className = "timeline-step";
+    time.textContent = formatLogTime(entry.time);
+
+    const description = document.createElement("span");
+    description.className = "timeline-label";
+    description.textContent = ` → ${label}`;
+
+    row.append(cycle, document.createTextNode(" "), time, description);
+    container.appendChild(row);
+  });
+}
+
+export function initLogDialogs() {
+  const dialogConfigs = [
+    {
+      buttonId: "expand-transmission-log",
+      dialogId: "transmission-log-dialog",
+      contentId: "transmission-log-dialog-content",
+      render: renderTransmissionLog,
+    },
+    {
+      buttonId: "expand-timeline",
+      dialogId: "timeline-dialog",
+      contentId: "timeline-dialog-content",
+      render: renderTimeline,
+    },
+  ];
+
+  dialogConfigs.forEach(({ buttonId, dialogId, contentId, render }) => {
+    const button = document.getElementById(buttonId);
+    const dialog = document.getElementById(dialogId);
+    const content = document.getElementById(contentId);
+    if (!button || !dialog || !content || typeof dialog.showModal !== "function") {
+      return;
+    }
+
+    button.addEventListener("click", () => {
+      render(content);
+      if (!dialog.open) dialog.showModal();
+      button.setAttribute("aria-expanded", "true");
+    });
+
+    dialog.querySelectorAll("[data-log-dialog-close]").forEach((closeButton) => {
+      closeButton.addEventListener("click", () => dialog.close());
+    });
+
+    dialog.addEventListener("close", () => {
+      button.setAttribute("aria-expanded", "false");
+    });
+  });
+}
+
 export function setTapeMode(mode) {
   const selectedMode = setReplayTapeMode(mode);
   const indicator = document.getElementById("tape-mode-indicator");
