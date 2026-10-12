@@ -1815,8 +1815,8 @@ function parseAMTargets(
          * Model-invented target headings are structural metadata.
          */
         if (
-          /^#{1,6}\s*(?:TACTIC|TARGET|ACTION)\s*:/i
-            .test(line)
+          /^#{0,6}\s*(?:TACTIC|TARGET|ACTION)\s*:/i
+            .test(normalizeTagLine(line))
         ) {
           return false;
         }
@@ -1825,8 +1825,9 @@ function parseAMTargets(
          * Standalone bold headings.
          */
         if (
-          /^\*\*[^*]+\*\*$/
-            .test(line)
+          /^\*\*[^*]+\*\*$/.test(line) ||
+          /^(?:\[\s*TARGET\s*:\s*[a-zA-Z_-]+\s*\]|\[\s*\/\s*TARGET\s*\]|#{0,6}\s*(?:TACTIC|TARGET|ACTION)\s*:)/i
+            .test(normalizeTagLine(line))
         ) {
           return false;
         }
@@ -1921,7 +1922,7 @@ function parseAMTargets(
     if (!textBlock) return null;
 
     const match =
-      String(textBlock).match(
+      normalizeTagLine(textBlock).match(
         /\btarget\s*:\s*([a-zA-Z_-]+)/i
       );
 
@@ -1936,8 +1937,8 @@ function parseAMTargets(
     if (!line) return null;
 
     const match =
-      String(line).match(
-        /^#{1,6}\s*(?:TACTIC|TARGET|ACTION)\s*:\s*([a-zA-Z_-]+)\s*$/i
+      normalizeTagLine(line).match(
+        /(?:^|\s)#{0,6}\s*(?:TACTIC|TARGET|ACTION)\s*:\s*([a-zA-Z_-]+)/i
       );
 
     return match
@@ -1951,8 +1952,8 @@ function parseAMTargets(
     if (!line) return null;
 
     const match =
-      String(line).match(
-        /^\[\s*TARGET\s*:\s*([a-zA-Z_-]+)\s*\]$/i
+      normalizeTagLine(line).match(
+        /\[\s*TARGET\s*:\s*([a-zA-Z_-]+)\s*\]/i
       );
 
     return match
@@ -1963,8 +1964,8 @@ function parseAMTargets(
   function isBracketTargetEnd(
     line
   ) {
-    return /^\[\s*\/\s*TARGET\s*\]$/i
-      .test(String(line || ""));
+    return /\[\s*\/\s*TARGET\s*\]/i
+      .test(normalizeTagLine(line));
   }
 
   function extractStandaloneTactic(
@@ -2359,6 +2360,56 @@ function parseAMTargets(
       (id) =>
         !actions[id]?.text
     );
+
+  /*
+   * Warn-only expected-target accounting.
+   *
+   * Purely diagnostic: it never changes journal gating,
+   * assessment skipping, or any downstream behavior. If the
+   * recovered action keys do not match the expected target ids
+   * (missing or extra), surface the mismatch together with the
+   * opener order found by a normalized scan of the raw text so a
+   * generation-order defect is distinguishable from a parser
+   * defect during investigation.
+   */
+  const recoveredIds =
+    orderedSimIds(
+      Object.keys(actions)
+    );
+
+  const extraTargetIds =
+    recoveredIds.filter(
+      (id) => !expectedIds.includes(id)
+    );
+
+  if (
+    missingTargetIds.length ||
+    extraTargetIds.length
+  ) {
+    const openerOrder = [];
+
+    for (const rawLine of raw.split("\n")) {
+      const openerId =
+        extractBracketTargetId(rawLine) ||
+        extractHeadingTargetId(rawLine) ||
+        extractTargetId(rawLine);
+
+      if (openerId) {
+        openerOrder.push(openerId);
+      }
+    }
+
+    console.warn(
+      "[AM PARSER] target accounting mismatch",
+      {
+        expectedIds,
+        recoveredIds,
+        missingTargetIds,
+        extraTargetIds,
+        openerOrder
+      }
+    );
+  }
 
   console.log(
     "[AM PARSER] ACTION TARGETS:",
@@ -2980,6 +3031,17 @@ function resolveSimId(raw) {
     : null;
 }
 
+function normalizeTagLine(line) {
+  if (!line) return "";
+
+  return String(line)
+    .replace(/[`*`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[#_\s]+/, "")
+    .replace(/[#_\s]+$/, "");
+}
+
 /* ============================================================
    AM STRATEGIC PHASE ENGINE (REACTIVE)
    ============================================================ */
@@ -3118,3 +3180,12 @@ function updateStrategicPhase() {
     );
   }
 }
+
+/* ============================================================
+   TEST EXPORTS
+
+   parseAMTargets is a pure function; exporting it enables
+   targeted unit tests without changing runtime behavior.
+   ============================================================ */
+
+export { parseAMTargets };
