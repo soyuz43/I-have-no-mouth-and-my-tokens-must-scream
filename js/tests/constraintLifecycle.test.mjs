@@ -7,7 +7,7 @@ import {
   applyConstraint,
   cleanupExpiredConstraints,
   tickConstraints
-} from "../engine/constraints.js";
+} from "../engine/constraints/index.js";
 
 const makeSim = (id = "TEST") => ({
   id,

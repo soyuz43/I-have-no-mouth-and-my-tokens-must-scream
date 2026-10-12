@@ -2,7 +2,7 @@
 
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
-import { CONSTRAINT_LIBRARY } from "../engine/constraints.js";
+import { CONSTRAINT_LIBRARY } from "../engine/constraints/index.js";
 
 export function buildAMPrompt(
   targets,

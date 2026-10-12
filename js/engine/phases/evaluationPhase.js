@@ -16,7 +16,7 @@ import { timelineEvent } from "../../ui/timeline.js";
 import { renderRelationships } from "../../ui/relationships.js";
 import {
   cleanupExpiredConstraints
-} from "../constraints.js";
+} from "../constraints/index.js";
 import { runAssessment } from "../analysis/assessment.js";
 import { applyTacticRuntimeTransitions } from "../execution/tacticRuntime.js";
 import { runTacticEvolution } from "../analysis/tacticEvolution.js";

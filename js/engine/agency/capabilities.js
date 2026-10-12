@@ -75,7 +75,7 @@
 // `tickConstraints()`; whether it should also scale capability
 // restriction is an open design decision and is not guessed at here.
 
-import { CONSTRAINT_MAP } from "../constraints.js";
+import { CONSTRAINT_MAP } from "../constraints/index.js";
 
 /* ============================================================
    CAPABILITY KEYS
