@@ -4,6 +4,9 @@ import {
   getTier1Goal,
   selectTier1Goal
 } from "../scratchpad/goals/registry.js";
+import { evaluateGoalTransitions } from "../scratchpad/goals/evaluator.js";
+
+const MAX_GOAL_HISTORY = 5;
 
 const MUTABLE_STATS = new Set([
   "hope",
@@ -124,6 +127,42 @@ export function commitAgencyResolution(
     sequence += 1;
   }
 
+  const resolvedGoalSelections = [];
+  for (const { actorId, selectedObjective } of goalSelections) {
+    const actor = G.sims?.[actorId];
+    if (!actor?.scratchpad || typeof actor.scratchpad !== "object") continue;
+
+    const selectedGoal = getTier1Goal(selectedObjective, G.cycle);
+    const assignedGoal = selectedGoal ?? selectTier1Goal(engineRng, G.cycle);
+    resolvedGoalSelections.push({
+      actorId,
+      selectedObjective: assignedGoal.id
+    });
+    console.debug(
+      `[AGENCY][${actorId}] objective ${selectedGoal ? "LLM-selected" : "Engine-fallback"}: ${assignedGoal.id}`
+    );
+  }
+
+  const goalTransitions = evaluateGoalTransitions({
+    sims: G.sims,
+    events: stagedEvents,
+    goalSelections: resolvedGoalSelections,
+    cycle: G.cycle
+  });
+
+  for (const transition of goalTransitions) {
+    const scratchpad = G.sims?.[transition.actorId]?.scratchpad;
+    if (!scratchpad || typeof scratchpad !== "object") continue;
+    if (!Array.isArray(scratchpad.goalHistory)) scratchpad.goalHistory = [];
+
+    if (transition.terminalGoal) {
+      scratchpad.goalHistory.push(transition.terminalGoal);
+      scratchpad.goalHistory = scratchpad.goalHistory.slice(-MAX_GOAL_HISTORY);
+    }
+
+    scratchpad.activeGoal = transition.nextActiveGoal;
+  }
+
   G.resources.instances = stagedInstances;
   for (const [actorId, effects] of stagedStats) {
     const actor = G.sims?.[actorId];
@@ -134,18 +173,6 @@ export function commitAgencyResolution(
   }
   G.agency.events.push(...stagedEvents);
   G.agency.nextActionSequence = sequence;
-
-  for (const { actorId, selectedObjective } of goalSelections) {
-    const actor = G.sims?.[actorId];
-    if (!actor?.scratchpad || typeof actor.scratchpad !== "object") continue;
-
-    const goal = getTier1Goal(selectedObjective);
-    const assignedGoal = goal ?? selectTier1Goal(engineRng);
-    actor.scratchpad.activeGoal = assignedGoal;
-    console.debug(
-      `[AGENCY][${actorId}] objective ${goal ? "LLM-selected" : "Engine-fallback"}: ${assignedGoal.id}`
-    );
-  }
 
   return stagedEvents;
 }
