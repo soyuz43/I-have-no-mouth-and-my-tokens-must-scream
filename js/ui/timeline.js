@@ -92,6 +92,8 @@ export function timelineEvent(label) {
   }
 
   // 2. Update the UI
+  if (typeof document === "undefined") return;
+
   const scrollContainer = document.getElementById("timeline-body");
   if (!scrollContainer) {
     if (!window._timelineMissing) {

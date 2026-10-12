@@ -1,6 +1,18 @@
 import { G } from "../../core/state.js";
 import { clamp } from "../../core/utils.js";
+import { timelineEvent } from "../../ui/timeline.js";
 import { getConstraintDef } from "./definitions.js";
+
+function formatSignedDelta(value) {
+  const rounded = Number(Number(value ?? 0).toFixed(2));
+  return `${rounded >= 0 ? "+" : ""}${rounded}`;
+}
+
+function emitConstraintApplied(sim, constraint) {
+  timelineEvent(
+    `// CONSTRAINT ${constraint.id} applied → ${sim.id} (dur: ${constraint.remaining}, int: ${constraint.intensity})`
+  );
+}
 
 function resolveEffect(base) {
   return base; // deterministic for now
@@ -141,6 +153,7 @@ export function applyConstraint(sim, constraintId, options = {}) {
         });
       }
 
+      emitConstraintApplied(sim, existing);
       return;
     }
 
@@ -174,6 +187,7 @@ export function applyConstraint(sim, constraintId, options = {}) {
         });
       }
 
+      emitConstraintApplied(sim, existing);
       return;
     }
 
@@ -226,6 +240,8 @@ export function applyConstraint(sim, constraintId, options = {}) {
 
     lastAppliedCycle: G.cycle
   });
+
+  emitConstraintApplied(sim, sim.constraints.at(-1));
 
   if (getConstraintDebugEnabled()) {
     console.debug("[CONSTRAINT][NEW]", {
@@ -515,6 +531,10 @@ export function tickConstraints(sim) {
       }
     };
 
+    timelineEvent(
+      `// CONSTRAINT ${def.id} ticked → ${sim.id} (suf: ${formatSignedDelta(c.lastTick.deltas.suffering)}, hop: ${formatSignedDelta(c.lastTick.deltas.hope)}, rem: ${c.lastTick.remainingAfter})`
+    );
+
     if (getConstraintDebugEnabled()) {
       console.debug(
         "[CONSTRAINT][PHYSICAL STRESS]",
@@ -610,6 +630,12 @@ export function cleanupExpiredConstraints(
     sim.constraints.filter(
       shouldRemove
     );
+
+  for (const constraint of removed) {
+    timelineEvent(
+      `// CONSTRAINT ${constraint.id} released → ${sim.id} (decision: rel)`
+    );
+  }
 
   sim.constraints =
     sim.constraints.filter(
