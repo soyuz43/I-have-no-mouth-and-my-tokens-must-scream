@@ -166,7 +166,7 @@ test("summary omits BLOCKED/CONSTR when those lists are empty", () => {
     ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
   );
   assert.equal(lines.length, 2, "empty sections should not add summary lines");
-  assert.equal(lines[0], "LEGAL: WAIT, OBSERVE, SMOKE, TRANSFER, HIDE");
+  assert.equal(lines[0], "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE");
   assert.equal(
     lines[1],
     "BANDS: mob:NORM sta:NORM hd:NORM con:NORM rei:NORM"
@@ -196,7 +196,7 @@ test("the band line is fixed-width and ordered, not Object.keys order", () => {
 
   assert.equal(
     summary,
-    "LEGAL: WAIT\nBANDS: mob:NORM sta:NORM hd:IMP con:SEV rei:UNAV",
+    "AVAILABLE (legal): WAIT\nBANDS: mob:NORM sta:NORM hd:IMP con:SEV rei:UNAV",
     "insertion order must not change the rendered column order"
   );
 });
@@ -209,7 +209,7 @@ test("BLOCKED appears only when the list is non-empty", () => {
     SYNTHETIC_BLOCKED
   );
 
-  assert.ok(withBlocked.includes("BLOCKED:"));
+  assert.ok(withBlocked.includes("BLOCKED (unavailable):"));
   assert.ok(
     withBlocked.includes("concentration(0.5)"),
     "the DECLARED threshold is shown, not the capability value"
@@ -295,7 +295,7 @@ test("an empty legal set renders a dash rather than a bare label", () => {
     []
   );
 
-  assert.ok(summary.includes("LEGAL: —"));
+  assert.ok(summary.includes("AVAILABLE (legal): —"));
 });
 
 test("a missing envelope reports the agent rather than throwing", () => {
@@ -318,7 +318,7 @@ test("non-array action arguments degrade instead of throwing", () => {
     42
   );
 
-  assert.ok(summary.startsWith("LEGAL: —"));
+  assert.ok(summary.startsWith("AVAILABLE (legal): —"));
   assert.ok(!summary.includes("BLOCKED"));
   assert.ok(!summary.includes("undefined"));
 });
@@ -1060,8 +1060,8 @@ test("real derivation flows through both new surfaces unchanged", () => {
    */
   assert.equal(
     summary,
-    "LEGAL: WAIT, OBSERVE\n" +
-    "BLOCKED: SMOKE handUse(0.2), interactionReach(0.2) " +
+    "AVAILABLE (legal): WAIT, OBSERVE\n" +
+    "BLOCKED (unavailable): SMOKE handUse(0.2), interactionReach(0.2) " +
     "modes:strained|deliberate, " +
     "TRANSFER handUse(0.3), interactionReach(0.3), " +
     "HIDE handUse(0.3), interactionReach(0.3)\n" +

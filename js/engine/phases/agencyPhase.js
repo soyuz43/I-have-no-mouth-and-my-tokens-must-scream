@@ -42,6 +42,7 @@ import {
 import { formatAgencySummary } from "../agency/formatAgencySummary.js";
 import { deriveActionBudget } from "../agency/budget.js";
 import { collectAgencyProposal } from "../agency/proposal.js";
+import { getTier1Goal } from "../scratchpad/goals/registry.js";
 import {
   createAgencySnapshot,
   resolveAgencyActions
@@ -217,12 +218,76 @@ export async function runAgencyPhase({
     snapshot,
     cycle: G.cycle
   });
+  const goalStateBefore = Object.fromEntries(
+    activeSims.map((sim) => [
+      sim.id,
+      {
+        activeGoalId: sim.scratchpad?.activeGoal?.id ?? null,
+        goalHistory: new Set(
+          Array.isArray(sim.scratchpad?.goalHistory)
+            ? sim.scratchpad.goalHistory
+            : []
+        )
+      }
+    ])
+  );
   commitAgencyResolution(G, resolutions, {
     goalSelections: activeSims.map((sim, index) => ({
       actorId: sim.id,
       selectedObjective: proposals[index]?.selectedObjective
     }))
   });
+
+  const proposalsByActor = new Map(
+    proposals.map((proposal) => [proposal.actorId, proposal])
+  );
+  for (const simId of SIM_IDS) {
+    const sim = G.sims?.[simId];
+    if (!sim) continue;
+
+    const goalState = goalStateBefore[simId];
+    const newTerminalGoals = Array.isArray(sim.scratchpad?.goalHistory)
+      ? sim.scratchpad.goalHistory.filter(
+        (goal) => !goalState?.goalHistory.has(goal)
+      )
+      : [];
+
+    for (const goal of newTerminalGoals) {
+      if (goal.status !== "completed" && goal.status !== "abandoned") continue;
+      timelineEvent(
+        `>>> GOAL: ${simId} [${goal.status}: ${goal.id}, reason: ${goal.terminalReason ?? "unknown"}] cyc ${G.cycle}`
+      );
+    }
+
+    const activeGoal = sim.scratchpad?.activeGoal;
+    if (activeGoal?.id && activeGoal.id !== goalState?.activeGoalId) {
+      const selectedObjective = proposalsByActor.get(simId)?.selectedObjective;
+      const origin = getTier1Goal(selectedObjective, G.cycle) ? "LLM" : "fallback";
+      timelineEvent(
+        `>>> GOAL: ${simId} [new: ${activeGoal.id}, ${origin}] cyc ${G.cycle}`
+      );
+    }
+  }
+
+  for (const simId of SIM_IDS) {
+    const event = G.agency.events.filter(
+      (agencyEvent) =>
+        agencyEvent?.cycle === G.cycle && agencyEvent.actorId === simId
+    )[0];
+    if (!event) continue;
+
+    const actionType = event.actionType ?? "WAIT";
+    const actionLabel = actionType === "WAIT" ? "WAIT (no-op)" : actionType;
+    const resources = Array.isArray(event.provenance?.resourceIds)
+      ? event.provenance.resourceIds.filter(Boolean).join(", ")
+      : event.provenance?.resourceId ?? "";
+
+    addLog(
+      `AGENCY // ${simId}`,
+      `Chose: ${actionLabel}\nAction type: ${actionType}\nStatus: ${event.status ?? "unknown"}\nReason: ${event.provenance?.resolutionReason ?? "—"}\nTarget: ${event.provenance?.targetId ?? "—"}\nResource: ${resources || "—"}`,
+      "agency"
+    );
+  }
 
   for (const simId of SIM_IDS) {
     if (G.sims?.[simId]) {

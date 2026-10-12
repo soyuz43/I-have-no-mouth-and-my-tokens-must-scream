@@ -276,6 +276,22 @@ export async function runEvaluationPhase() {
     assessmentOutput =
       result;
 
+    for (const assessment of assessmentOutput.constraintAssessments) {
+      const explanation = String(assessment.explanation ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const snippet = explanation.length > 72
+        ? `${explanation.slice(0, 69)}…`
+        : explanation || "—";
+      const decision = assessment.constraintDecision === "RELEASE"
+        ? "rel"
+        : "cont";
+
+      timelineEvent(
+        `// CONSTRAINT ${assessment.constraintId ?? "?"} assessed → ${assessment.targetId ?? "?"} (${decision}: ${snippet})`
+      );
+    }
+
     console.log(
       "[ASSESSMENT][CURRENT CYCLE RECORDS]",
       snapshotForConsole(

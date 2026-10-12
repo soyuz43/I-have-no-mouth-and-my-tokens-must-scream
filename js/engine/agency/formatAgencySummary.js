@@ -233,13 +233,13 @@ export function formatAgencySummary(
    */
   lines.push(
     legalList.length > 0
-      ? `LEGAL: ${legalList
+      ? `AVAILABLE (legal): ${legalList
           .map(
             (entry) => entry?.type
           )
           .filter(Boolean)
           .join(", ")}`
-      : "LEGAL: —"
+      : "AVAILABLE (legal): —"
   );
 
   /*
@@ -250,7 +250,7 @@ export function formatAgencySummary(
    */
   if (blockedList.length > 0) {
     lines.push(
-      `BLOCKED: ${blockedList
+      `BLOCKED (unavailable): ${blockedList
         .map(
           formatBlockedEntry
         )
