@@ -55,6 +55,54 @@ function formatPromptValue(value) {
   return text || "(none)";
 }
 
+export function collectAssessmentTextEvidence(id) {
+  const amExecutionMessage =
+    G.amExecution?.cycle === G.cycle
+      ? G.amExecution.actions?.[id]?.text
+      : null;
+
+  const journalExcerpt =
+    G.journals?.[id]?.slice(-1)?.[0]?.text;
+
+  const replyExcerpt =
+    (Array.isArray(G.comms?.lastCycle)
+      ? G.comms.lastCycle
+      : [])
+      .filter(
+        (message) =>
+          message?.cycle === G.cycle &&
+          message.kind === "REPLY" &&
+          message.from === id
+      )
+      .map(
+        (message) =>
+          String(message.text ?? "").trim()
+      )
+      .filter(Boolean)
+      .join("\n");
+
+  return {
+    amExecutionMessage,
+    journalExcerpt,
+    replyExcerpt
+  };
+}
+
+export function formatAssessmentTextEvidence({
+  amExecutionMessage,
+  journalExcerpt,
+  replyExcerpt
+} = {}) {
+  return `AM_EXECUTION_MESSAGE:
+${formatPromptValue(amExecutionMessage)}
+
+PRISONER_JOURNAL_EXCERPT:
+${formatPromptValue(journalExcerpt)}
+
+PRISONER_REPLY_EXCERPT:
+${formatPromptValue(replyExcerpt)}`;
+}
+
 function normalizeExecutionLimit(
   value,
   fallback
@@ -1178,6 +1226,9 @@ Classify the current phase outcome separately from the whole tactic outcome usin
             trend
         };
 
+        const textEvidence =
+          collectAssessmentTextEvidence(id);
+
         const prompt = `Evaluate one completed application of an assigned tactic phase. Do not generate new actions.
 
 TARGET: ${id}
@@ -1206,6 +1257,8 @@ ${applicationMode}
 
 OBSERVED_EVIDENCE:
 ${JSON.stringify(assessmentEvidence)}
+
+${formatAssessmentTextEvidence(textEvidence)}
 
 PHASE ASSESSMENT RULES:
 - PHASE_RESULT describes only the current phase.
@@ -1301,7 +1354,10 @@ EXPLANATION: <one concise evidence-based sentence>`;
             },
             {
               hasNextPhase:
-                nextPhaseExists
+                nextPhaseExists,
+              targetId:
+                id,
+              textEvidence
             }
           );
 
@@ -1334,7 +1390,10 @@ EXPLANATION: <one concise evidence-based sentence>`;
           );
         }
 
-        if (!semanticValidation.valid) {
+        if (
+          !semanticValidation.valid ||
+          semanticValidation.warnings.length > 0
+        ) {
           console.warn(
             "[ASSESSMENT][SEMANTIC INCONSISTENCY]",
             id,
