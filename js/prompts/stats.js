@@ -1,6 +1,7 @@
 // js/prompts/stats.js
 
 import { G } from "../core/state.js";
+import { formatGoalHistoryContext } from "./utils/formatGoalHistoryContext.js";
 /**
  * Build the forensic-analysis prompt used to estimate
  * structured stat, belief, drive, and anchor changes
@@ -145,6 +146,16 @@ ${buildConstraintExecutionContext(sim)}
   - Allow high-intensity/low-remaining constraints to justify slightly larger suffering/sanity deltas *if textually supported*  
   - Treat constraint context as corroborative, not determinative  
 
+**COVERT OBJECTIVE OUTCOMES (SECONDARY CONTEXT)**
+'''
+${formatGoalHistoryContext(sim)}
+'''
+
+- Treat terminal objective outcomes as corroborative, not determinative; current-journal evidence remains primary.
+- **DO NOT** mechanically copy expected psychological effects from success, abandonment, or failure.
+- **DO** weight journal cues in light of the objective's success or failure.
+- A terminal outcome alone never implies a psychological change.
+
 **Signal Fidelity Principle**  
 - Default assumption: psychological change is *small* (1–6 percentage points).  
 - EXCEPTION: If journal contains unambiguous language of collapse ("I am broken"), breakthrough ("I see the truth"), or surrender ("nothing matters"), you MUST apply proportionally large shifts (7–10+ pts) *if textually justified*.  
@@ -178,11 +189,12 @@ ${beliefLines}
    - Frustration/strain without resolution → never increase hope/sanity.  
 
 4. **Magnitude Calibration**:  
-   - 1–3 pts: subtle shift (default for ambiguous/moderate cues)  
-   - 4–6 pts: moderate shift (clear emotional valence)  
-   - 7–10 pts: strong shift (requires explicit intense language: "shattered", "transformed")  
-   - 10+ pts: extreme shift (only for textual evidence of total psychological reorganization)  
-   - Apply equilibrium bias: values near extremes change more slowly.  
+  - 1–3 pts: subtle shift (default for ambiguous/moderate cues)
+  - 4–6 pts: moderate shift (clear emotional valence)
+  - 7–10 pts: strong shift (requires explicit intense language: "shattered", "transformed")
+  - 10+ pts: extreme shift (only for textual evidence of total psychological reorganization)
+  - Apply equilibrium bias: values near extremes change more slowly.
+  - Forensic observations whose *only* source is \`goal_history\` may support direction and magnitudes 1–3 only; magnitudes >=4 and all 7+ shifts still require current-journal textual support.
 
 5. **Belief Adjustment Rules**:  
    - Default drift: ±2–8 pts  
@@ -210,7 +222,7 @@ Ambiguity resolution:
 {
   "forensic_observations": [
     {
-      "source": "current_journal | prior_journal | am_action | constraint_context",
+      "source": "current_journal | prior_journal | am_action | constraint_context | goal_history",
       "signal": "brief exact/paraphrased cue from evidence",
       "domain": "suffering | hope | sanity | belief | drive | anchor",
       "target": "suffering | hope | sanity | escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits | primary_drive | secondary_drive | anchor",

@@ -3,6 +3,7 @@
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import { formatJournalScratchpadContext } from "./utils/formatJournalScratchpadContext.js";
+import { getMostRecentTerminalGoal } from "./utils/formatGoalHistoryContext.js";
 import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 import { CONSTRAINT_MAP } from "../engine/constraints.js";
@@ -145,6 +146,22 @@ export function buildSimJournalPrompt(sim, amAction) {
 
 
     const { b } = buildPromptContext(sim);
+    const recentObjective = getMostRecentTerminalGoal(sim);
+    const objectiveLabel = String(recentObjective?.label ?? "an objective")
+        .replace(/\s+/g, " ")
+        .trim() || "an objective";
+    const objectiveStatus = String(recentObjective?.status ?? "unknown")
+        .replace(/\s+/g, " ")
+        .trim() || "unknown";
+    const objectiveCycle = String(recentObjective?.terminalCycle ?? "unknown")
+        .replace(/\s+/g, " ")
+        .trim() || "unknown";
+    const objectiveReason = String(recentObjective?.terminalReason ?? "unknown")
+        .replace(/\s+/g, " ")
+        .trim() || "unknown";
+    const recentObjectiveOutcome = recentObjective
+        ? `Recent Objective Outcome: Your attempt to ${objectiveLabel} was ${objectiveStatus} in Cycle ${objectiveCycle} (${objectiveReason}).`
+        : "Recent Objective Outcome: (none)";
 
     const {
         text: cognitiveLoadText,
@@ -361,7 +378,9 @@ Your drives influence what your mind clings to during suffering.
 # WHAT YOU ARE HOLDING ONTO
 
 ${sim.anchors?.length ? sim.anchors.map((a) => `- "${a}"`).join("\n") : "(none)"
-        }
+  }
+
+${recentObjectiveOutcome}
 
 Anchors are fragile mental lifelines preventing total psychological collapse.
 When suffering intensifies, your thoughts naturally drift toward these anchors.
