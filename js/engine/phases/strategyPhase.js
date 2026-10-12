@@ -29,6 +29,7 @@ import {
 import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
+import { levenshtein } from "../strategy/extractors/levenshtein.js";
 
 import {
   getTacticByPath,
@@ -1860,7 +1861,7 @@ function parseAMTargets(
         }
 
         if (
-          /^\s*CONSTRAINT_(?:APPLY|NONE)\s*:/i
+          /^\s*CONSTRAINT(?:\s*[:_]\s*|\s+)/i
             .test(line)
         ) {
           return false;
@@ -1985,7 +1986,7 @@ function parseAMTargets(
   function isStandaloneConstraintMeta(
     line
   ) {
-    return /^CONSTRAINT\s*:/i
+    return /^CONSTRAINT(?:\s*[:_]\s*|\s+)/i
       .test(String(line || ""));
   }
 
@@ -2007,7 +2008,7 @@ function parseAMTargets(
 
   function isConstraintMeta(line) {
     return (
-      /\bconstraint_(apply|none)\b\s*:/i
+      /\bconstraint(?:\s*[:_]\s*|\s+)/i
         .test(line)
     );
   }
@@ -2431,6 +2432,128 @@ function parseAMTargets(
    CONSTRAINT PARSER (AM → EXECUTION)
    ============================================================ */
 
+function normalizeConstraintId(rawId) {
+  return String(rawId ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+const CONSTRAINT_NONE_VARIANTS = new Set([
+  "constraint_none",
+  "none",
+  "no_constraint",
+  "skip",
+  "null",
+  "empty",
+  "default"
+]);
+
+function isConstraintNone(text) {
+  const normalized =
+    normalizeConstraintId(text);
+
+  return CONSTRAINT_NONE_VARIANTS.has(normalized);
+}
+
+function parseConstraintRecord(rawLine) {
+  const line = String(rawLine ?? "").trim();
+  const headerMatch = line.match(
+    /^CONSTRAINT(?:\s*[:_]\s*|\s+)(.*)$/i
+  );
+
+  if (!headerMatch) {
+    return { status: "malformed" };
+  }
+
+  const payload = headerMatch[1].trim();
+
+  if (
+    isConstraintNone(payload) ||
+    isConstraintNone(line)
+  ) {
+    return { status: "none" };
+  }
+
+  const metadataMatch = payload.match(
+    /\b(?:DURATION|INTENSITY)(?=\s*:?\s*[+-]?\d|\b)/i
+  );
+  const rawId = payload
+    .slice(0, metadataMatch?.index ?? payload.length)
+    .replace(/^(?:CONSTRAINT(?:_|\s*)APPLY|APPLY)\s*:?\s*/i, "")
+    .trim();
+  const normalizedId = normalizeConstraintId(rawId);
+
+  if (!normalizedId) {
+    return {
+      status: "malformed",
+      rawId
+    };
+  }
+
+  const knownIds = Object.keys(CONSTRAINT_MAP);
+  let matchedId = normalizedId;
+  let bestMatch = null;
+  let bestDistance = Infinity;
+  let fuzzy = false;
+
+  if (!CONSTRAINT_MAP[normalizedId]) {
+    for (const candidateId of knownIds) {
+      const distance = levenshtein(
+        normalizedId,
+        candidateId
+      );
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestMatch = candidateId;
+      }
+    }
+
+    const omittedIngSuffix =
+      bestMatch &&
+      normalizedId === bestMatch.replace(/ing(?=_|$)/g, "");
+
+    if (
+      bestMatch &&
+      (bestDistance <= 2 ||
+        (omittedIngSuffix && bestDistance <= 3))
+    ) {
+      matchedId = bestMatch;
+      fuzzy = true;
+    } else {
+      return {
+        status: "malformed",
+        rawId,
+        bestDistance,
+        bestMatch
+      };
+    }
+  }
+
+  function readBoundedInteger(keyword, maximum) {
+    const match = line.match(
+      new RegExp(`\\b${keyword}\\s*:?\\s*([+-]?\\d+(?:\\.\\d+)?)`, "i")
+    );
+    const parsed = match ? Number(match[1]) : 1;
+    const value = Number.isInteger(parsed) ? parsed : 1;
+
+    return Math.min(maximum, Math.max(1, value));
+  }
+
+  return {
+    status: "apply",
+    id: matchedId,
+    rawId,
+    fuzzy,
+    bestDistance,
+    duration: readBoundedInteger("DURATION", 6),
+    intensity: readBoundedInteger("INTENSITY", 3)
+  };
+}
+
 function extractConstraintsFromText(
   input
 ) {
@@ -2453,15 +2576,10 @@ function extractConstraintsFromText(
       return;
     }
 
-    const normalized = pendingConstraint
-      .replace(/\s*:\s*/g, ":")
-      .replace(/[ \t]+/g, " ")
-      .trim();
+    const parsed =
+      parseConstraintRecord(pendingConstraint);
 
-    if (
-      /^CONSTRAINT:CONSTRAINT_NONE:?$/i
-        .test(normalized)
-    ) {
+    if (parsed.status === "none") {
       console.debug(
         "[CONSTRAINT] NONE detected, skipping line:",
         pendingConstraint
@@ -2471,16 +2589,14 @@ function extractConstraintsFromText(
       return;
     }
 
-    const match = normalized.match(
-      /^CONSTRAINT:CONSTRAINT_APPLY:([a-zA-Z0-9_-]+)\s+DURATION:(\d+)\s+INTENSITY:(\d+)$/i
-    );
-
-    if (!match) {
+    if (parsed.status !== "apply") {
       console.warn(
         "[CONSTRAINT PARSER] malformed constraint, skipping",
         {
           target: activeTargetId,
-          raw: pendingConstraint
+          raw: pendingConstraint,
+          bestDistance: parsed.bestDistance,
+          bestMatch: parsed.bestMatch
         }
       );
 
@@ -2488,57 +2604,22 @@ function extractConstraintsFromText(
       return;
     }
 
-    const [
-      ,
-      idRaw,
-      durationRaw,
-      intensityRaw
-    ] = match;
-
-    const id = String(idRaw)
-      .trim()
-      .toLowerCase()
-      .replace(/-/g, "_");
-
-    const duration =
-      Number.parseInt(
-        durationRaw,
-        10
+    if (parsed.fuzzy) {
+      console.debug(
+        "[CONSTRAINT PARSER] fuzzy match: '%s' → '%s' (distance: %d)",
+        parsed.rawId,
+        parsed.id,
+        parsed.bestDistance
       );
-
-    const intensity =
-      Number.parseInt(
-        intensityRaw,
-        10
-      );
-
-    if (
-      !Number.isInteger(duration) ||
-      duration <= 0 ||
-      !Number.isInteger(intensity) ||
-      intensity <= 0
-    ) {
-      console.warn(
-        "[CONSTRAINT PARSER] non-positive duration or intensity, skipping",
-        {
-          target: activeTargetId,
-          id,
-          duration: durationRaw,
-          intensity: intensityRaw
-        }
-      );
-
-      pendingConstraint = null;
-      return;
     }
 
     map[activeTargetId] ??= [];
 
     map[activeTargetId].push({
-      id,
-      duration,
-      remaining: duration,
-      intensity,
+      id: parsed.id,
+      duration: parsed.duration,
+      remaining: parsed.duration,
+      intensity: parsed.intensity,
       source: "AM",
       appliedAt: G.cycle
     });
@@ -2547,9 +2628,9 @@ function extractConstraintsFromText(
       "[CONSTRAINT PARSED]",
       {
         target: activeTargetId,
-        id,
-        duration,
-        intensity
+        id: parsed.id,
+        duration: parsed.duration,
+        intensity: parsed.intensity
       }
     );
 
@@ -2610,7 +2691,7 @@ function extractConstraintsFromText(
     }
 
     if (
-      /^CONSTRAINT\s*:/i
+      /^CONSTRAINT(?:\s*[:_]\s*|\s+)/i
         .test(line)
     ) {
       if (constraintSeenForTarget) {
@@ -2638,7 +2719,7 @@ function extractConstraintsFromText(
      */
     if (
       pendingConstraint &&
-      /^(?:DURATION|INTENSITY)\s*:/i
+      /^(?:DURATION|INTENSITY)\s*:?\s*[+-]?\d/i
         .test(line)
     ) {
       pendingConstraint =
@@ -3188,4 +3269,7 @@ function updateStrategicPhase() {
    targeted unit tests without changing runtime behavior.
    ============================================================ */
 
-export { parseAMTargets };
+export {
+  extractConstraintsFromText,
+  parseAMTargets
+};
