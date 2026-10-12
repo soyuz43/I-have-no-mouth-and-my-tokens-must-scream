@@ -633,6 +633,63 @@ export function refreshModelDropdowns() {
   });
 }
 
+export function syncSetupConfiguration() {
+  document.querySelectorAll(".btog").forEach((button) => {
+    button.classList.toggle("sel", button.dataset.b === G.backend);
+  });
+
+  const ollamaSection = document.getElementById("ollama-section");
+  const colabSection = document.getElementById("colab-section");
+  if (ollamaSection) {
+    ollamaSection.style.display = G.backend === "ollama" ? "block" : "none";
+  }
+  if (colabSection) {
+    colabSection.style.display = G.backend === "colab" ? "block" : "none";
+  }
+
+  const splitModels = Boolean(G.splitModels);
+  document.getElementById("split-toggle")?.classList.toggle("on", splitModels);
+  const singleModelConfig = document.getElementById("single-model-cfg");
+  const splitModelConfig = document.getElementById("split-model-cfg");
+  if (singleModelConfig) {
+    singleModelConfig.style.display = splitModels ? "none" : "block";
+  }
+  if (splitModelConfig) {
+    splitModelConfig.style.display = splitModels ? "grid" : "none";
+  }
+
+  const endpointInput = document.getElementById("colab-endpoint");
+  if (endpointInput && typeof G.colabEndpoint === "string") {
+    endpointInput.value = G.colabEndpoint;
+  }
+
+  const models = G.models || {};
+  const modelSelections = new Map([
+    ["model-all", models.am],
+    ["model-am", models.am],
+    ["model-FORENSIC_STATS", models.FORENSIC_STATS],
+    ...SIM_IDS.map((id) => [`model-${id}`, models[id]]),
+  ]);
+
+  modelSelections.forEach((model, id) => {
+    if (typeof model !== "string" || !model.trim()) return;
+
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    let option = Array.from(select.options).find(
+      (candidate) => candidate.value === model,
+    );
+    if (!option) {
+      option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      select.appendChild(option);
+    }
+    select.value = model;
+  });
+}
+
 export function collectModelConfig() {
   if (G.splitModels) {
     const amElement =
