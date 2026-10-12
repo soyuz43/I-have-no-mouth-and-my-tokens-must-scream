@@ -5,11 +5,19 @@ import {
     ADVANCE_CRITERIA_RESULTS,
     TACTIC_RESULTS
 } from "./assessmentTypes.js";
+import { SIM_IDS } from "../../../core/constants.js";
 
 export function validateAssessmentSemantics(
     assessment,
-    { hasNextPhase = false } = {}
+    {
+        hasNextPhase = false,
+        targetId = null,
+        textEvidence = {}
+    } = {}
 ) {
+    const inconsistencies =
+        [];
+
     const warnings =
         [];
 
@@ -22,15 +30,47 @@ export function validateAssessmentSemantics(
         ADVANCE_CRITERIA_RESULTS.SATISFIED &&
         !hasNextPhase
     ) {
-        warnings.push(
+        inconsistencies.push(
             "The assessment implies phase advancement, but no canonical next phase exists."
         );
     }
 
+    const explanation =
+        String(assessment.explanation ?? "");
+
+    const supportingEvidence =
+        Object.values(textEvidence ?? {})
+            .map((text) => String(text ?? ""))
+            .join("\n");
+
+    const normalizedTargetId =
+        String(targetId ?? "").trim().toUpperCase();
+
+    for (const prisonerId of SIM_IDS) {
+        if (prisonerId === normalizedTargetId) {
+            continue;
+        }
+
+        const prisonerNamePattern =
+            new RegExp(`\\b${prisonerId}\\b`, "i");
+
+        if (
+            prisonerNamePattern.test(explanation) &&
+            !prisonerNamePattern.test(supportingEvidence)
+        ) {
+            warnings.push(
+                "Explanation references another prisoner without supporting evidence."
+            );
+        }
+    }
+
     return {
         valid:
-            warnings.length === 0,
+            inconsistencies.length === 0,
 
-        warnings
+        warnings: [
+            ...inconsistencies,
+            ...warnings
+        ]
     };
 }
