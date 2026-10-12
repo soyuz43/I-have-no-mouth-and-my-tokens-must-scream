@@ -1028,22 +1028,48 @@
       <div class="main-area">
         <div class="sims-area" id="sims-area"></div>
         <div class="right-panel">
-          <div class="rp-head">
-            <span class="rp-title">TRANSMISSION LOG</span
-            ><span class="rp-count" id="rp-count">0</span>
-          </div>
-          <div class="rp-log" id="rp-log">
-            <div class="log-e sys">
-              <div class="log-spk">SYSTEM // BOOT</div>
-              <div class="log-body" id="cold-start-message">
-                Choose RECORD to capture Cycle 0, or REPLAY and load a tape.
-                LOAD RUN restores saved state without rerunning Cycle 0.
+          <div class="rp-log-section">
+            <div class="rp-head">
+              <span class="rp-title">TRANSMISSION LOG</span>
+              <div class="rp-head-actions">
+                <span class="rp-count" id="rp-count">0</span>
+                <button
+                  class="log-expand-btn"
+                  id="expand-transmission-log"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-controls="transmission-log-dialog"
+                  aria-expanded="false"
+                >
+                  EXPAND
+                </button>
+              </div>
+            </div>
+            <div class="rp-log" id="rp-log">
+              <div class="log-e sys">
+                <div class="log-spk">SYSTEM // BOOT</div>
+                <div class="log-body" id="cold-start-message">
+                  Choose RECORD to capture Cycle 0, or REPLAY and load a tape.
+                  LOAD RUN restores saved state without rerunning Cycle 0.
+                </div>
               </div>
             </div>
           </div>
           <!-- CYCLE TIMELINE -->
           <div class="timeline">
-            <div class="timeline-title">CYCLE TIMELINE</div>
+            <div class="timeline-head">
+              <div class="timeline-title">CYCLE TIMELINE</div>
+              <button
+                class="log-expand-btn"
+                id="expand-timeline"
+                type="button"
+                aria-haspopup="dialog"
+                aria-controls="timeline-dialog"
+                aria-expanded="false"
+              >
+                EXPAND
+              </button>
+            </div>
             <div id="timeline-body"></div>
           </div>
           <div class="controls">
@@ -1100,23 +1126,6 @@
                 <span class="tape-mode-status">OFF | LIVE API · NOT RECORDING</span>
               </span>
             </div>
-            <div class="tape-file-row">
-              <button
-                class="save-load-btn"
-                id="load-tape-btn"
-                onclick="loadTape()"
-              >
-                LOAD TAPE
-              </button>
-              <button
-                class="save-load-btn"
-                id="save-tape-btn"
-                onclick="saveTape()"
-              >
-                SAVE TAPE
-              </button>
-              <span id="tape-entry-count" aria-live="polite">0 ENTRIES</span>
-            </div>
             <p id="control-feedback" class="control-feedback" role="status" aria-live="polite">
               OFF uses live model calls without recording.
             </p>
@@ -1137,13 +1146,6 @@
               >
                 SAVE RUN
               </button>
-              <button
-                class="save-load-btn"
-                id="load-run-btn"
-                onclick="loadRun()"
-              >
-                LOAD RUN
-              </button>
             </div>
             <button
               class="exec-btn"
@@ -1157,6 +1159,58 @@
         </div>
       </div>
     </div>
+    <dialog
+      id="transmission-log-dialog"
+      class="log-dialog"
+      aria-labelledby="transmission-log-dialog-title"
+    >
+      <div class="log-dialog-frame">
+        <div class="log-dialog-head">
+          <div>
+            <div class="log-dialog-tag">SYSTEM // TRANSMISSION ARCHIVE</div>
+            <h2 id="transmission-log-dialog-title">TRANSMISSION LOG</h2>
+          </div>
+          <button
+            class="log-dialog-close"
+            type="button"
+            data-log-dialog-close
+          >
+            CLOSE
+          </button>
+        </div>
+        <div
+          class="log-dialog-content"
+          id="transmission-log-dialog-content"
+          tabindex="0"
+        ></div>
+      </div>
+    </dialog>
+    <dialog
+      id="timeline-dialog"
+      class="log-dialog"
+      aria-labelledby="timeline-dialog-title"
+    >
+      <div class="log-dialog-frame">
+        <div class="log-dialog-head">
+          <div>
+            <div class="log-dialog-tag">SYSTEM // CYCLE ARCHIVE</div>
+            <h2 id="timeline-dialog-title">CYCLE TIMELINE</h2>
+          </div>
+          <button
+            class="log-dialog-close"
+            type="button"
+            data-log-dialog-close
+          >
+            CLOSE
+          </button>
+        </div>
+        <div
+          class="log-dialog-content timeline-dialog-content"
+          id="timeline-dialog-content"
+          tabindex="0"
+        ></div>
+      </div>
+    </dialog>
     <dialog
       id="control-dialog"
       class="control-dialog"

@@ -632,6 +632,12 @@ body::after {
   background: #1a1000;
   box-shadow: 0 0 20px rgba(255, 170, 0, 0.35);
 }
+.initialize-prison-btn {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 6px 8px;
+  line-height: 1.1;
+}
 .sp {
   font-size: 0.6rem;
   color: var(--green);
@@ -640,6 +646,21 @@ body::after {
   line-height: 1.75;
   min-height: 80px;
   white-space: pre-wrap;
+  overflow: hidden;
+  transition:
+    max-height 220ms ease,
+    opacity 180ms ease,
+    margin-top 220ms ease;
+}
+.sp.is-collapsing {
+  min-height: 0;
+  opacity: 0;
+  margin-top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp {
+    transition: none;
+  }
 }
 .sp .e {
   color: var(--red);
@@ -863,7 +884,7 @@ header {
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
 }
 .is-log {
@@ -1008,7 +1029,9 @@ header {
 /* ── MAIN ───────────────────────────────────── */
 .main-area {
   display: grid;
-  grid-template-columns: 1fr 290px;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: 1fr 320px;
   overflow: hidden;
 }
 
@@ -1333,19 +1356,33 @@ header {
 .right-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   background: #050000;
 }
+.rp-log-section {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 .rp-head {
+  flex: 0 0 auto;
   padding: 7px 11px;
   border-bottom: 1px solid var(--dim);
-  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+.rp-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .rp-title {
-  font-size: 0.48rem;
+  font-size: 0.55rem;
   color: var(--crimson);
   letter-spacing: 0.35em;
 }
@@ -1355,14 +1392,38 @@ header {
 } /* brighter */
 
 .rp-log {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 5px 7px;
+  padding: 7px 9px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+.log-expand-btn,
+.log-dialog-close {
+  border: 1px solid var(--dim);
+  background: #080400;
+  color: var(--amber);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  padding: 4px 7px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.log-expand-btn:hover,
+.log-dialog-close:hover {
+  border-color: var(--amber);
+  background: #120900;
+  color: var(--bone);
+}
+.log-expand-btn:focus-visible,
+.log-dialog-close:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
 }
 
 .rp-log > .log-e,
@@ -1398,7 +1459,7 @@ header {
   min-width: 0;
   width: 100%;
   overflow: visible;
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   line-height: 1.48;
   padding: 5px 7px 4px;
   border-left: 2px solid #0e0e0e;
@@ -1513,10 +1574,23 @@ header {
 .controls {
   border-top: 1px solid var(--dim);
   padding: 9px 11px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.controls > .ctrl-label,
+.controls > #tgt-row,
+.controls > .mode-row,
+.controls > #ctrl-ta,
+.controls > .tape-control-row,
+.controls > .tape-file-row,
+.controls > .control-feedback,
+.controls > #init-btn,
+.controls > #boot-log,
+.controls > .save-load-row,
+.controls > #exec-btn {
+  flex: 0 0 auto;
 }
 .ctrl-label {
   font-size: 0.46rem;
@@ -1668,6 +1742,81 @@ header {
   min-width: 100px;
   padding: 8px 12px;
 }
+.log-dialog:not([open]) {
+  display: none;
+}
+.log-dialog[open] {
+  display: flex;
+}
+.log-dialog {
+  width: min(96vw, 1100px);
+  height: min(90vh, 900px);
+  max-width: none;
+  max-height: 90vh;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--amber);
+  background: rgba(7, 5, 2, 0.98);
+  color: var(--bone);
+  box-shadow: 0 0 28px rgba(255, 179, 0, 0.22);
+  font-family: "Share Tech Mono", monospace;
+}
+.log-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(2px);
+}
+.log-dialog-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.log-dialog-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--dim);
+}
+.log-dialog-tag {
+  margin-bottom: 4px;
+  color: var(--amber);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+}
+.log-dialog-head h2 {
+  margin: 0;
+  color: var(--red);
+  font-family: "VT323", monospace;
+  font-size: 1.6rem;
+  font-weight: 400;
+}
+.log-dialog-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 18px;
+}
+.log-dialog .log-e {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  padding: 8px 10px;
+}
+.log-dialog .log-ts {
+  margin-top: 5px;
+}
+.log-dialog-empty {
+  margin: 0;
+  color: #a09070;
+  font-size: 0.82rem;
+}
 .tape-control-row {
   display: flex;
   align-items: center;
@@ -1740,6 +1889,12 @@ header {
   letter-spacing: 0.3em;
   transition: all 0.2s;
   text-shadow: 0 0 6px var(--crimson);
+}
+.exec-btn {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 4px 8px;
+  line-height: 1.1;
 }
 .exec-btn:hover {
   background: #1a0000;
@@ -2718,21 +2873,43 @@ header {
 
 /* Timeline ------------------ */
 .timeline {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
   border-top: 1px solid #151515;
   padding: 6px;
   margin-top: 4px;
-  max-height: 180px;
-  overflow-y: auto;
+  max-height: 150px;
+  overflow: hidden;
   font-family: "Share Tech Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   color: #bbb; /* brighter */
 }
+.timeline-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 5px;
+}
 .timeline-title {
-  font-size: 0.52rem;
+  font-size: 0.56rem;
   color: #9a9a9a;
   letter-spacing: 0.15em;
-  margin-bottom: 3px;
   text-shadow: 0 0 2px rgba(255, 255, 255, 0.08);
+}
+#timeline-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding-right: 3px;
+}
+.timeline-dialog-content {
+  font-size: 0.82rem;
 }
 .timeline-row {
   margin: 1px 0;
