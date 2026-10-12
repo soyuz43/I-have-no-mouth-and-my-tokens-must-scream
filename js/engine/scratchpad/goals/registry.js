@@ -29,12 +29,22 @@ export const TIER1_GOALS = Object.freeze(
   TIER1_GOAL_CATALOG.map((goal) => Object.freeze(goal))
 );
 
-export function getTier1Goal(id) {
-  const goal = TIER1_GOALS.find((entry) => entry.id === id);
-  return goal ? { ...goal } : null;
+function instantiateGoal(goal, cycle) {
+  return {
+    ...goal,
+    status: "active",
+    progress: 0,
+    startedCycle: cycle,
+    evidenceEventIds: []
+  };
 }
 
-export function selectTier1Goal(rng) {
+export function getTier1Goal(id, cycle) {
+  const goal = TIER1_GOALS.find((entry) => entry.id === id);
+  return goal ? instantiateGoal(goal, cycle) : null;
+}
+
+export function selectTier1Goal(rng, cycle) {
   const index = Math.floor(rng.next() * TIER1_GOALS.length);
-  return { ...TIER1_GOALS[index] };
+  return instantiateGoal(TIER1_GOALS[index], cycle);
 }

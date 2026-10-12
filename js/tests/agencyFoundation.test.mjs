@@ -1557,19 +1557,49 @@ test("the phase stores the full derive envelope, not just the five floats", () =
   );
 });
 
-test("WAIT proposals leave every sim unchanged", async () => {
+test("WAIT proposals only mutate goal lifecycle state", async () => {
   return withPhase(
     { cycle: 15, constraints: [restraint("squat_hold")] },
     async ({ G, runAgencyPhase }) => {
-      const before = JSON.stringify(G.sims);
+      const before = structuredClone(G.sims);
 
       await runAgencyPhase({ proposalCollector: waitProposal });
 
-      assert.equal(
-        JSON.stringify(G.sims),
-        before,
-        "a WAIT resolution must not mutate sim state"
-      );
+      for (const simId of SIM_IDS) {
+        const beforeSim = before[simId];
+        const afterSim = G.sims[simId];
+        const event = G.agency.events.find((entry) =>
+          entry.actorId === simId && entry.cycle === G.cycle
+        );
+        const priorGoal = beforeSim.scratchpad.activeGoal;
+        const expectedGoal = {
+          ...priorGoal,
+          status: "active",
+          progress: Number.isSafeInteger(priorGoal.progress)
+            ? priorGoal.progress + 1
+            : 1,
+          startedCycle: Number.isSafeInteger(priorGoal.startedCycle)
+            ? priorGoal.startedCycle
+            : G.cycle,
+          evidenceEventIds: [
+            ...(Array.isArray(priorGoal.evidenceEventIds)
+              ? priorGoal.evidenceEventIds
+              : []),
+            event.eventId
+          ]
+        };
+
+        assert.ok(event, `${simId} has no successful WAIT event`);
+        assert.deepEqual(afterSim.scratchpad.activeGoal, expectedGoal);
+
+        const beforeNonGoalState = structuredClone(beforeSim);
+        const afterNonGoalState = structuredClone(afterSim);
+        delete beforeNonGoalState.scratchpad.activeGoal;
+        delete beforeNonGoalState.scratchpad.goalHistory;
+        delete afterNonGoalState.scratchpad.activeGoal;
+        delete afterNonGoalState.scratchpad.goalHistory;
+        assert.deepEqual(afterNonGoalState, beforeNonGoalState);
+      }
     }
   );
 });

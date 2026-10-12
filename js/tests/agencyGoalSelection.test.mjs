@@ -83,7 +83,7 @@ test("Tier-1 selector returns copies from the frozen four-goal catalog", () => {
   assert.equal(TIER1_GOALS.length, 4);
   assert.equal(Object.isFrozen(TIER1_GOALS), true);
 
-  const selected = selectTier1Goal(createRng(KNOWN_RNG_STATE));
+  const selected = selectTier1Goal(createRng(KNOWN_RNG_STATE), 0);
   assert.ok(TIER1_GOALS.some((goal) => goal.id === selected.id));
   assert.notStrictEqual(
     selected,
@@ -136,7 +136,13 @@ test("Agency commit stores the LLM-selected full goal object", async () => {
       console.debug = previousDebug;
     }
 
-    const expectedGoal = TIER1_GOALS.find((goal) => goal.id === "protect_ally");
+    const expectedGoal = {
+      ...TIER1_GOALS.find((goal) => goal.id === "protect_ally"),
+      status: "active",
+      progress: 0,
+      startedCycle: G.cycle,
+      evidenceEventIds: []
+    };
     assert.deepEqual(G.sims.TED.scratchpad.activeGoal, expectedGoal);
     assert.notStrictEqual(G.sims.TED.scratchpad.activeGoal, expectedGoal);
     assert.ok(logs.includes("[AGENCY][TED] objective LLM-selected: protect_ally"));
@@ -150,8 +156,8 @@ test("invalid or missing LLM objectives use the engine RNG fallback", async () =
 
     const expectedRng = createRng(KNOWN_RNG_STATE);
     const expectedFallbacks = [
-      selectTier1Goal(expectedRng),
-      selectTier1Goal(expectedRng)
+      selectTier1Goal(expectedRng, G.cycle),
+      selectTier1Goal(expectedRng, G.cycle)
     ];
     const logs = [];
     const previousDebug = console.debug;
