@@ -1145,8 +1145,31 @@ function renderSparkline(
     `;
   }
 
+  const numericValues =
+    values
+      .map(finiteOrNull)
+      .filter(
+        (value) =>
+          value !== null
+      );
+
+  const change =
+    numericValues.at(-1) -
+    numericValues[0];
+
+  const direction =
+    change === 0
+      ? "neutral"
+      : (
+        (metric === "suffering"
+          ? change < 0
+          : change > 0)
+          ? "positive"
+          : "negative"
+      );
+
   return `
-    <div class="cog-sparkline">
+    <div class="cog-sparkline cog-sparkline--${direction}">
       <svg
         viewBox="0 0 100 24"
         preserveAspectRatio="none"
@@ -1223,6 +1246,17 @@ function renderMetricRow(
   value,
   trend
 ) {
+  const numericValue =
+    finiteOrNull(value);
+
+  const boundedValue =
+    numericValue === null
+      ? 0
+      : Math.max(
+        0,
+        Math.min(100, numericValue)
+      );
+
   const trendNumber =
     finiteOrNull(trend) ?? 0;
 
@@ -1233,27 +1267,52 @@ function renderMetricRow(
         ? "down"
         : "flat";
 
+  const trendImpact =
+    trendNumber === 0
+      ? "neutral"
+      : (
+        (metric === "SUFFERING"
+          ? trendNumber < 0
+          : trendNumber > 0)
+          ? "positive"
+          : "negative"
+      );
+
   return `
-    <div class="cog-pulse-metric">
-      <span class="cog-pulse-metric-label">
-        ${escapeHtml(metric)}
-      </span>
+    <div class="cog-pulse-metric cog-pulse-metric--${metric.toLowerCase()}">
+      <div class="cog-pulse-metric-heading">
+        <span class="cog-pulse-metric-label">
+          ${escapeHtml(metric)}
+        </span>
 
-      <span class="cog-pulse-metric-value">
-        ${formatNumber(value)}
-      </span>
+        <span class="cog-pulse-metric-value">
+          ${formatNumber(value)}
+        </span>
 
-      <span class="cog-pulse-trend cog-pulse-trend--${trendClass}">
-        ${trendNumber > 0
+        <span class="cog-pulse-trend cog-pulse-trend--${trendClass} cog-pulse-trend--${trendImpact}">
+          ${trendNumber > 0
       ? "▲"
       : trendNumber < 0
         ? "▼"
         : "•"
     }
-        ${formatSigned(
+          ${formatSigned(
       trendNumber
     )}
-      </span>
+        </span>
+      </div>
+
+      <div
+        class="cog-pulse-meter"
+        role="meter"
+        aria-label="${escapeHtml(metric)}"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="${boundedValue}"
+        aria-valuetext="${escapeHtml(formatNumber(value))}"
+      >
+        <span style="width: ${boundedValue}%"></span>
+      </div>
     </div>
   `;
 }
@@ -1754,11 +1813,9 @@ function renderCognitivePressure(model) {
                   </td>
 
                   <td>
-                    ${escapeHtml(
-            formatPercent(
-              sim.scratchpad
-                .averageConfidence
-            )
+                    ${renderAverageConfidence(
+            sim.scratchpad
+              .averageConfidence
           )}
                   </td>
 
@@ -1774,6 +1831,44 @@ function renderCognitivePressure(model) {
       .join("")}
         </tbody>
       </table>
+    </div>
+  `;
+}
+
+function renderAverageConfidence(value) {
+  const normalized =
+    normalizeConfidence(value);
+
+  if (normalized === null) {
+    return `
+      <div class="cog-pressure-confidence cog-pressure-confidence--empty">
+        <span class="cog-pressure-confidence-track" aria-hidden="true">
+          <span></span>
+        </span>
+        <span class="cog-pressure-confidence-value">—</span>
+      </div>
+    `;
+  }
+
+  const percent =
+    Math.round(normalized * 100);
+  const label =
+    formatPercent(value);
+
+  return `
+    <div
+      class="cog-pressure-confidence"
+      role="meter"
+      aria-label="Average confidence"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow="${percent}"
+      aria-valuetext="${label}"
+    >
+      <span class="cog-pressure-confidence-track" aria-hidden="true">
+        <span style="width: ${percent}%"></span>
+      </span>
+      <span class="cog-pressure-confidence-value">${label}</span>
     </div>
   `;
 }

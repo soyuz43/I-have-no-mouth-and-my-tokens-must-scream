@@ -6,7 +6,7 @@
  * Mechanical differences involving capitalization, whitespace,
  * punctuation, hyphens, and repeated underscores are handled by
  * normalizeKeyToken() in normalizeKeys.js.
- *
+*
  * Keep this table for genuine naming substitutions produced by
  * models, not every possible formatting variation.
  */
@@ -23,6 +23,13 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["prisoner_id", "id"],
   ["subject_id", "id"],
   ["character_id", "id"],
+  // Small-model common synonyms
+  ["sim", "id"],
+  ["sim_id", "id"],
+  ["agent", "id"],
+  ["agent_id", "id"],
+  ["name", "id"],
+  ["prisoner_name", "id"],
 
   /* ============================================================
      EVIDENCE
@@ -43,17 +50,29 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["supporting_facts", "evidence"],
   ["known_facts", "evidence"],
   ["evidence_basis", "evidence"],
+  // Small-model common synonyms
+  ["context", "evidence"],
+  ["background", "evidence"],
+  ["situation", "evidence"],
+  ["current_situation", "evidence"],
+  ["recent_event", "evidence"],
+  ["trigger_event", "evidence"],
+  ["observed_fact", "evidence"],
+  ["facts", "evidence"],
 
   /* ============================================================
      WHY_NOW
   ============================================================ */
 
   ["why_now", "why_now"],
+  ["why_", "why_now"],
+  ["why_our_now", "why_now"],
   ["why_this_now", "why_now"],
   ["why_at_this_time", "why_now"],
   ["why_at_this_moment", "why_now"],
   ["why_currently", "why_now"],
   ["why_immediately", "why_now"],
+  ["why_urgently", "why_now"],
   ["timing", "why_now"],
   ["timing_reason", "why_now"],
   ["timing_rationale", "why_now"],
@@ -68,6 +87,16 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["opportunity_window", "why_now"],
   ["window_of_opportunity", "why_now"],
   ["strategic_timing", "why_now"],
+  // Small-model common synonyms
+  ["urgency", "why_now"],
+  ["urgent_reason", "why_now"],
+  ["why_today", "why_now"],
+  ["catalyst", "why_now"],
+  ["trigger", "why_now"],
+  ["opportunity", "why_now"],
+  ["window", "why_now"],
+  ["reason", "why_now"],
+  ["rationale", "why_now"],
 
   /* ============================================================
      OBJECTIVE
@@ -97,6 +126,15 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["behavioral_goal", "objective"],
   ["behavioural_goal", "objective"],
   ["change_goal", "objective"],
+  // Small-model common synonyms
+  ["mission", "objective"],
+  ["primary_goal", "objective"],
+  ["main_goal", "objective"],
+  ["end_goal", "objective"],
+  ["target_state", "objective"],
+  ["desired_state", "objective"],
+  ["plan", "objective"],
+  ["purpose", "objective"],
 
   /* ============================================================
      HYPOTHESIS
@@ -126,6 +164,15 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["behaviour_prediction", "hypothesis"],
   ["if_then", "hypothesis"],
   ["if_then_statement", "hypothesis"],
+  // Small-model common synonyms
+  ["expected_outcome", "hypothesis"],
+  ["mechanism", "hypothesis"],
+  ["logic", "hypothesis"],
+  ["theory", "hypothesis"],
+  ["expected_result", "hypothesis"],
+  ["reasoning", "hypothesis"],
+  ["expected_behavior", "hypothesis"],
+  ["expected_behaviour", "hypothesis"],
 
   /* ============================================================
      TACTIC_PATH
@@ -147,6 +194,14 @@ export const KEY_ALIAS_ENTRIES = Object.freeze([
   ["tactic_reference", "tactic_path"],
   ["embedded_tactic", "tactic_path"],
   ["embedded_tactic_path", "tactic_path"],
+  // Small-model common synonyms
+  ["tactic_label", "tactic_path"],
+  ["tactic_type", "tactic_path"],
+  ["approach", "tactic_path"],
+  ["method", "tactic_path"],
+  ["strategy", "tactic_path"],
+  ["chosen_approach", "tactic_path"],
+  ["plan_type", "tactic_path"],
 ]);
 
 export const CANONICAL_TARGET_KEYS = Object.freeze([
