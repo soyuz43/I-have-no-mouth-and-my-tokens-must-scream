@@ -21,7 +21,6 @@ test("prior-cycle agency outcomes reach actor and recipient through Social revie
     coalitions: G.coalitions,
     beliefSnapshots: G.beliefSnapshots,
     prevCycleSnapshot: G.prevCycleSnapshot,
-    pendingBeliefEvidence: G.pendingBeliefEvidence,
     pendingPsychEvidence: G.pendingPsychEvidence,
     pendingEvidence: G.pendingEvidence,
     backend: G.backend,
@@ -99,7 +98,6 @@ test("prior-cycle agency outcomes reach actor and recipient through Social revie
     G.timeline = [];
     G.coalitions = { cycle: null, groups: [] };
     G.beliefSnapshots = {};
-    G.pendingBeliefEvidence = {};
     G.pendingPsychEvidence = {};
     G.pendingEvidence = {
       journal: {},
@@ -172,7 +170,6 @@ test("prior-cycle agency outcomes reach actor and recipient through Social revie
     G.coalitions = saved.coalitions;
     G.beliefSnapshots = saved.beliefSnapshots;
     G.prevCycleSnapshot = saved.prevCycleSnapshot;
-    G.pendingBeliefEvidence = saved.pendingBeliefEvidence;
     G.pendingPsychEvidence = saved.pendingPsychEvidence;
     G.pendingEvidence = saved.pendingEvidence;
     G.backend = saved.backend;

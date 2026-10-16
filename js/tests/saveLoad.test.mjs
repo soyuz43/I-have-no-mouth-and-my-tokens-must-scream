@@ -168,7 +168,6 @@ test("heavy populated simulation state and exporter telemetry round-trip intact"
     const exporterSingleton = Exporter;
     const originalSave = JSON.parse(exportState());
 
-    assert.equal(Object.getPrototypeOf(G.pendingBeliefEvidence), null);
     await importState(JSON.stringify(originalSave));
 
     const restoredSave = JSON.parse(exportState());
@@ -178,12 +177,6 @@ test("heavy populated simulation state and exporter telemetry round-trip intact"
     assert.strictEqual(Exporter, exporterSingleton);
     assert.equal(Exporter.runId, "heavy-round-trip-run-0042");
     assert.deepEqual(Exporter.buffers, originalSave.Exporter.buffers);
-    assert.deepEqual(G.pendingBeliefEvidence, {
-      TED: {
-        "escape_possible": ["C42-M000118", "C42-O000041"],
-        "am_has_limits": ["restraint_report"],
-      },
-    });
   } finally {
     restoreOwnProperties(G, originalGameProperties);
     restoreOwnProperties(Exporter, originalExporterProperties);
@@ -464,12 +457,6 @@ function populateHeavyState() {
     lastCycle: [fullEvent, fragmentEvent],
     nextEventSequence: 43,
   };
-  G.pendingBeliefEvidence = Object.create(null);
-  G.pendingBeliefEvidence.TED = {
-    escape_possible: ["C42-M000118", "C42-O000041"],
-    am_has_limits: ["restraint_report"],
-  };
-
   Exporter.runId = "heavy-round-trip-run-0042";
   Exporter.buffers = {
     ...structuredClone(Exporter.buffers),

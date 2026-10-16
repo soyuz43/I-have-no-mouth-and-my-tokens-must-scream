@@ -98,27 +98,26 @@ beginCycle()
    scratchpads review visible communications
    belief contagion runs
 
-4. runInteractionAnalysisPhase()
-   communication evidence is extracted
+4. runAgencyPhase()
+   action proposals are resolved and canonical events are committed
+   prediction expiry and scratchpad consolidation run
+   the final attribution snapshot is captured
 
-5. runBeliefIntegrationPhase()
-   communication-derived belief changes are committed
-
-6. runEvaluationPhase()
+5. runEvaluationPhase()
    AM tactics are assessed
    tactic runtime advances/finishes/abandons
    constraints are assessed
    profiles are updated
 
-7. exporter records cycle streams
+6. exporter records cycle streams
 ```
 
-That sequence already gives you a clean initial insertion point:
+The current controller places Agency after Social:
 
 ```text
 runSocialPhase()
 → runAgencyPhase()
-→ runInteractionAnalysisPhase()
+→ runEvaluationPhase()
 ```
 
 This is preferable to placing agency before communication because prisoners can first react privately to AM, communicate, revise their private social models, and then choose consequential actions using the newest information available.
@@ -132,7 +131,6 @@ AM intervention
 → prisoner action proposals
 → authoritative action resolution
 → action observations and evidence
-→ belief/social integration
 → evaluation
 ```
 
@@ -584,7 +582,6 @@ You already maintain:
 
 ```text
 pendingEvidence
-pendingBeliefEvidence
 pendingPsychEvidence
 evidenceArchive
 debugTrace

@@ -26,7 +26,6 @@ test("beginCycle clears agency views but preserves event history and sequence", 
     agency: G.agency,
     prevCycleSnapshot: G.prevCycleSnapshot,
     beliefSnapshots: G.beliefSnapshots,
-    pendingBeliefEvidence: G.pendingBeliefEvidence,
     pendingPsychEvidence: G.pendingPsychEvidence,
     pendingEvidence: G.pendingEvidence,
     timeline: G.timeline,
@@ -48,7 +47,6 @@ test("beginCycle clears agency views but preserves event history and sequence", 
     G.cycle = 8;
     G.agency = agency;
     G.beliefSnapshots = {};
-    G.pendingBeliefEvidence = {};
     G.pendingPsychEvidence = {};
     G.pendingEvidence = {
       journal: {},
@@ -75,7 +73,6 @@ test("beginCycle clears agency views but preserves event history and sequence", 
     G.agency = saved.agency;
     G.prevCycleSnapshot = saved.prevCycleSnapshot;
     G.beliefSnapshots = saved.beliefSnapshots;
-    G.pendingBeliefEvidence = saved.pendingBeliefEvidence;
     G.pendingPsychEvidence = saved.pendingPsychEvidence;
     G.pendingEvidence = saved.pendingEvidence;
     G.timeline = saved.timeline;

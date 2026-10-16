@@ -78,25 +78,7 @@ flowchart TD
     end
 
     AG6 --> FS[Capture final snapshot after social and Agency]
-    FS --> InteractionAnalysis
-
-    subgraph InteractionAnalysis["Interaction Analysis"]
-        IA1[runInteractionAnalysisPhase]
-        IA1 --> IA2[read canonical communication history]
-        IA2 --> IA3[extract interaction evidence]
-        IA3 --> IA4[write pendingBeliefEvidence]
-    end
-
-    IA4 --> IntegrationPhase
-
-    subgraph IntegrationPhase["Belief Integration"]
-        I1[runBeliefIntegrationPhase]
-        I1 --> I2[Consolidate pending evidence]
-        I2 --> I3[Apply final deltas]
-        I3 --> I4[Clamp beliefs]
-    end
-
-    I4 --> EvaluationPhase
+    FS --> EvaluationPhase
 
     subgraph EvaluationPhase["Evaluation Phase"]
         E1[runEvaluationPhase]
@@ -149,8 +131,8 @@ flowchart TD
     classDef errorNode stroke:#f87171,fill:#fef2f2
     classDef terminalNode stroke:#4ade80,fill:#f0fdf4
     
-    class StrategyPhase,PsychologyPhase,SocialPhase,AgencyPhase,InteractionAnalysis,IntegrationPhase,EvaluationPhase,Finalization,ExportLayer,Comms,Scratchpad,Assessment phaseGroup
-    class S1,S2,S3,S4,S5,S8,S9,S10,P1,P2,P3,P4,P5,P6,P7,P8,SO1,SO2,SO4,SO5,C1,C2,C3,C4,C5,C6,SP1,SP2,SP3,SP4,SP5,SP6,SP7,AG1,AG2,AG3,AG4,AG5,AG6,FS,IA1,IA2,IA3,IA4,I1,I2,I3,I4,E1,E2,A1,A2,A3,A4,A5,A6,A7,E3,E4,E5,E6,E7,F1,F2,F3,F4,F5,X1,X2,X3,X4,X5 processNode
+    class StrategyPhase,PsychologyPhase,SocialPhase,AgencyPhase,EvaluationPhase,Finalization,ExportLayer,Comms,Scratchpad,Assessment phaseGroup
+    class S1,S2,S3,S4,S5,S8,S9,S10,P1,P2,P3,P4,P5,P6,P7,P8,SO1,SO2,SO4,SO5,C1,C2,C3,C4,C5,C6,SP1,SP2,SP3,SP4,SP5,SP6,SP7,AG1,AG2,AG3,AG4,AG5,AG6,FS,E1,E2,A1,A2,A3,A4,A5,A6,A7,E3,E4,E5,E6,E7,F1,F2,F3,F4,F5,X1,X2,X3,X4,X5 processNode
     class S6,L decisionNode
     class S7 errorNode
     class Z,W terminalNode
