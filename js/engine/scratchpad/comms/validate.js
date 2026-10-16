@@ -269,9 +269,26 @@ function parseReferenceList(
   const rawReferences =
     source
       .split(",")
-      .map((reference) =>
-        reference.trim()
-      )
+      .map((rawReference) => {
+        const cleanReference =
+          attributeName === "refs"
+            ? rawReference.replace(/\s+/g, "")
+            : rawReference.trim();
+
+        if (
+          attributeName === "refs" &&
+          rawReference !== cleanReference
+        ) {
+          console.debug(
+            "[SCRATCHPAD PARSE] normalized spaced ref:",
+            rawReference,
+            "→",
+            cleanReference
+          );
+        }
+
+        return cleanReference;
+      })
       .filter(Boolean);
 
   const references =
@@ -1893,7 +1910,6 @@ export function getRejectedScratchpadReasons(
         : []
   );
 }
-
 
 
 
