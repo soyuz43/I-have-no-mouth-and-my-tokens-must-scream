@@ -8,15 +8,14 @@
 // 3. Social Phase (communication, scratchpad review, coalitions, contagion)
 // 4. Agency Phase (capability derivation, proposal, resolution, commit)
 // 5. Scratchpad maintenance (prediction expiry + consolidation)
-// 6. Interaction Analysis Phase
-// 7. Belief Integration Phase
-// 8. Evaluation Phase (assessment + tactic evolution)
-// 9. Metrics and exporter finalization
+// 6. Final attribution snapshot capture
+// 7. Evaluation Phase (assessment + tactic evolution)
+// 8. Metrics and exporter finalization
 //
 // Attribution-aware belief snapshots:
 // - prePsychology: beliefs before AM input (start of cycle)
 // - postPsychology: beliefs after AM journal input, before comms/contagion
-// - final: beliefs after contagion (end of social phase)
+// - final: beliefs after social contagion, agency, and scratchpad maintenance
 //
 // Attribution deltas:
 // - amEffect = postPsychology - prePsychology
@@ -33,12 +32,10 @@ import { runAgencyPhase } from "./phases/agencyPhase.js";
 import { expirePredictions } from "./scratchpad/expirePredictions.js";
 import { runScratchpadConsolidation } from "./scratchpad/consolidate.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
-import { runBeliefIntegrationPhase } from "./phases/beliefIntegrationPhase.js";
 import {
   resetCycleEvidence,
 } from "./phases/helpers/resetCycleEvidence.js";
 import { logBeliefMetrics, logBeliefDynamics } from "./state/commit.js";
-import { extractInteractionEvidence } from "./comms/analysis/extractInteractionEvidence.js";
 import { resetObservabilityLogging } from "./strategy/hypothesis/observability.js";
 import { resetObservabilityExport } from "./metrics/exportMetrics.js";
 
@@ -569,26 +566,6 @@ async function runCyclePipeline() {
   console.warn("[PIPELINE] EXIT SOCIAL");
 
   /* ------------------------------------------------------------
-     INTERACTION ANALYSIS (AFTER COMMS)
-  ------------------------------------------------------------ */
-
-  console.warn("[PIPELINE] ENTER INTERACTION ANALYSIS");
-
-  await runInteractionAnalysisPhase();
-
-  console.warn("[PIPELINE] EXIT INTERACTION ANALYSIS");
-
-  /* ------------------------------------------------------------
-     BELIEF INTEGRATION 
-  ------------------------------------------------------------ */
-
-  console.warn("[PIPELINE] ENTER BELIEF INTEGRATION");
-
-  runBeliefIntegrationPhase();
-
-  console.warn("[PIPELINE] EXIT BELIEF INTEGRATION");
-
-  /* ------------------------------------------------------------
      EVALUATION
   ------------------------------------------------------------ */
 
@@ -982,106 +959,4 @@ async function autonomousLoop() {
       22000
     );
   }
-}
-
-/* ============================================================
-   INTERACTION ANALYSIS PHASE
-============================================================ */
-
-async function runInteractionAnalysisPhase() {
-
-  timelineEvent("[INTERACTION] analysis start");
-
-  /* ------------------------------------------------------------
-   INTERACTION ANALYSIS (FIXED LIFECYCLE)
------------------------------------------------------------- */
-
-  const nextEvidence = {};
-
-  for (const sim of Object.values(G.sims)) {
-
-    console.debug(`[INTERACTION LOOP] processing ${sim.id}`);
-
-    // ------------------------------------------------------------
-    // SELECT CANONICAL MESSAGE SOURCE
-    // ------------------------------------------------------------
-
-    /*
-     * G.comms.history contains the canonical records persisted from
-     * G.interSimLog. Concatenating both stores would analyze every
-     * persisted communication twice.
-     *
-     * G.interSimLog remains a compatibility fallback for older state
-     * that does not yet contain canonical communication history.
-     */
-    const sourceLog =
-      Array.isArray(G.comms?.history) &&
-        G.comms.history.length > 0
-        ? G.comms.history
-        : Array.isArray(G.interSimLog)
-          ? G.interSimLog
-          : [];
-
-    // ------------------------------------------------------------
-    // FILTER RELEVANT EVENTS SAFELY
-    // ------------------------------------------------------------
-
-    const episodesRaw = sourceLog
-      .filter(e => {
-        if (!e || typeof e !== "object") return false;
-
-        const fromMatch = e.from === sim.id;
-
-        const toMatch =
-          e.to === sim.id ||
-          (Array.isArray(e.to) && e.to.includes(sim.id));
-
-        return fromMatch || toMatch;
-      })
-      .slice(-Math.max(6, G.simCount || 5)); // scales window with system size
-
-    console.debug(`[INTERACTION RAW COUNT] ${sim.id}`, episodesRaw.length);
-
-    if (!episodesRaw.length) continue;
-
-    const episodes = [episodesRaw];
-
-    const baseline = G.beliefSnapshots?.postPsychology?.[sim.id];
-    const current = G.beliefSnapshots?.final?.[sim.id];
-
-    if (!baseline || !current) {
-      console.warn(`[INTERACTION] missing attribution snapshots for ${sim.id} — skipping`);
-      nextEvidence[sim.id] = [];
-      continue;
-    }
-
-    const perturbations = await extractInteractionEvidence({
-      simId: sim.id,
-      episodes,
-      trajectory: G.trajectory?.[sim.id] || null,
-      baselineBeliefs: baseline,
-      currentBeliefs: current
-    });
-
-    console.debug(`[INTERACTION RESULT] ${sim.id}`, perturbations);
-
-    // ALWAYS store result — even empty
-    nextEvidence[sim.id] = perturbations || [];
-
-    if (!perturbations?.length) {
-      console.debug(`[INTERACTION EMPTY] ${sim.id}`);
-    } else {
-      console.debug(`[COMMS EVIDENCE] ${sim.id}`, perturbations);
-    }
-  }
-
-  /* ------------------------------------------------------------
-      COMMIT AFTER LOOP
-  ----------------------------------------------------------- */
-
-  G.pendingBeliefEvidence = nextEvidence;
-
-  console.debug("[INTERACTION FINAL STORE]", G.pendingBeliefEvidence);
-
-  timelineEvent("[INTERACTION] analysis complete");
 }

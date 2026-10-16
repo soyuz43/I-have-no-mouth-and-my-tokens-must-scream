@@ -1,7 +1,6 @@
 import { G } from "../../../core/state.js";
 
 export function resetCycleEvidence() {
-  G.pendingBeliefEvidence = Object.create(null);
   G.pendingPsychEvidence = Object.create(null);
 
   G.pendingEvidence ??= {

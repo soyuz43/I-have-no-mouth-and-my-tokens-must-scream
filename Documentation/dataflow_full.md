@@ -15,10 +15,8 @@ flowchart TD
     SOC --> AGENCY[4. runAgencyPhase: propose -> resolve -> commit]
     AGENCY --> MAINT[Prediction expiry + scratchpad consolidation]
     MAINT --> SNAP2[(snapshot final: post-social and post-agency)]
-    SNAP2 --> IA[5. runInteractionAnalysisPhase]
-    IA --> BI[6. runBeliefIntegrationPhase]
-    BI --> EVAL[7. runEvaluationPhase]
-    EVAL --> EXP[8. exporter.recordCycle]
+    SNAP2 --> EVAL[5. runEvaluationPhase]
+    EVAL --> EXP[6. exporter.recordCycle]
     EXP --> END([endCycle → next cycle])
 ```
 
@@ -162,10 +160,8 @@ flowchart TD
     SNAP1 --> SOCIAL_PHASE[3. Social Phase]
     SOCIAL_PHASE --> AGENCY_ENTRY[4. Agency Phase]
     MAINT --> SNAP2[(snapshot final: post-social and post-agency)]
-    SNAP2 --> IA[5. Interaction Analysis]
-    IA --> BI[6. Belief Integration]
-    BI --> EVAL_PHASE[7. Evaluation Phase]
-    EVAL_PHASE --> EXPORT[8. Exporter recordCycle]
+    SNAP2 --> EVAL_PHASE[5. Evaluation Phase]
+    EVAL_PHASE --> EXPORT[6. Exporter recordCycle]
     EXPORT --> END_CYCLE([endCycle → next cycle])
 
     subgraph STRAT_PHASE [AM Strategic Agency]
@@ -274,7 +270,7 @@ flowchart TD
 - Dashed edges = probabilistic / "may observe"
 
 The cycle runs Agency after Social, then prediction expiry and scratchpad consolidation, and
-captures `final` before interaction analysis and belief integration. Attribution records
+captures `final` before evaluation. Attribution records
 `postPsychology - prePsychology` as `am` and currently stores `final - postPsychology` in a
 field named `contagion`; because `final` follows Social and Agency, that latter delta is not
 an isolated contagion effect.

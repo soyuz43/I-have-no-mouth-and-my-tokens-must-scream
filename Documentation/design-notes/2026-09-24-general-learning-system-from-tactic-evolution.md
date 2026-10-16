@@ -439,7 +439,7 @@ Exact counterfactuals are impossible when model generation is stochastic and soc
 
 The current phase snapshots should remain useful. They provide a coarse attribution split between post-psychology and post-social movement. The general system should preserve that evidence while adding explicit uncertainty and coverage fields.
 
-It should record which portions of the cycle were observed, which phases were skipped, which model calls failed, whether the final snapshot preceded later belief integration, and whether the candidate was active for the entire treatment window.
+It should record which portions of the cycle were observed, which phases were skipped, which model calls failed, which phases occurred after the final snapshot, and whether the candidate was active for the entire treatment window.
 
 ### 8.4 Multi-objective scoring
 

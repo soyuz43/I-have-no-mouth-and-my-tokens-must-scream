@@ -13,9 +13,7 @@ flowchart TD
     STRAT --> PSY[runPsychologyPhase]
     PSY --> SOCIAL[runSocialPhase]
     SOCIAL --> AGENCY[runAgencyPhase]
-    AGENCY --> IA[runInteractionAnalysisPhase]
-    IA --> BI[runBeliefIntegrationPhase]
-    BI --> EVAL[runEvaluationPhase]
+    AGENCY --> EVAL[runEvaluationPhase]
     EVAL --> FINAL[recordCycle and endCycle]
 
     G <--> BEGIN
@@ -23,8 +21,6 @@ flowchart TD
     G <--> PSY
     G <--> SOCIAL
     G <--> AGENCY
-    G <--> IA
-    G <--> BI
     G <--> EVAL
     G <--> FINAL
 
@@ -68,19 +64,6 @@ flowchart TD
         EXTRACT --> VALIDATE[validate state block]
         VALIDATE --> COMMITSTATE[apply belief, drive, and anchor updates]
         VALIDATE --> TICKCONS[tickConstraints]
-    end
-
-    subgraph Interaction_Analysis
-        IA --> SRCLOG[read canonical communication history]
-        SRCLOG --> FILTER[filter per-sim episodes]
-        FILTER --> IAMODEL[extractInteractionEvidence]
-        IAMODEL --> PBE[write pendingBeliefEvidence]
-    end
-
-    subgraph Belief_Integration
-        BI --> READPBE[read pendingBeliefEvidence]
-        READPBE --> REDUCE[aggregate and clamp deltas]
-        REDUCE --> APPLYBEL[applyBeliefUpdates]
     end
 
     subgraph Evaluation

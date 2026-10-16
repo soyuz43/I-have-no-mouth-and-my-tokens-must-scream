@@ -284,13 +284,7 @@ export const G = {
   },
 
   /* ============================================================
-   DERIVED (PER-CYCLE) BELIEF EVIDENCE
-  ============================================================ */
-
-  pendingBeliefEvidence: Object.create(null),
-
-  /* ============================================================
-   DERIVED (PER-CYCLE) PSYCHOLOGICAL / FORENSIC EVIDENCE
+     DERIVED (PER-CYCLE) PSYCHOLOGICAL / FORENSIC EVIDENCE
   ============================================================ */
 
   pendingPsychEvidence: Object.create(null),

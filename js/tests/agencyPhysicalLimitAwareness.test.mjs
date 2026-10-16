@@ -28,7 +28,6 @@ test("beginCycle's Social-order scratchpad commit tolerates missing and uses ava
     agency: G.agency,
     prevCycleSnapshot: G.prevCycleSnapshot,
     beliefSnapshots: G.beliefSnapshots,
-    pendingBeliefEvidence: G.pendingBeliefEvidence,
     pendingPsychEvidence: G.pendingPsychEvidence,
     pendingEvidence: G.pendingEvidence,
     timeline: G.timeline,
@@ -50,7 +49,6 @@ test("beginCycle's Social-order scratchpad commit tolerates missing and uses ava
       },
     };
     G.beliefSnapshots = {};
-    G.pendingBeliefEvidence = {};
     G.pendingPsychEvidence = {};
     G.pendingEvidence = {
       journal: {},
@@ -94,7 +92,6 @@ test("beginCycle's Social-order scratchpad commit tolerates missing and uses ava
     G.agency = saved.agency;
     G.prevCycleSnapshot = saved.prevCycleSnapshot;
     G.beliefSnapshots = saved.beliefSnapshots;
-    G.pendingBeliefEvidence = saved.pendingBeliefEvidence;
     G.pendingPsychEvidence = saved.pendingPsychEvidence;
     G.pendingEvidence = saved.pendingEvidence;
     G.timeline = saved.timeline;

@@ -77,7 +77,7 @@ bootAM()
 → seal pre-torment initialization
 ```
 
-Cycle zero does **not** run the normal torment-cycle strategy, psychology/journal, contagion, interaction-analysis, belief-integration, evaluation, or finalization phases.
+Cycle zero does **not** run the normal torment-cycle strategy, psychology/journal, contagion, evaluation, or finalization phases.
 
 The ordinary cycle order is:
 
@@ -92,8 +92,6 @@ begin cycle
   → belief contagion
 → scratchpad prediction expiry (engine-owned, every cycle)
 → scratchpad consolidation (engine-owned, modulo cadence)
-→ interaction analysis
-→ belief integration
 → evaluation and tactic evolution
 → metrics and export
 → cycle finalization
@@ -868,8 +866,6 @@ retain completed strategy, journals, psychology mutations, and constraint progre
 → generate a new communication pass
 → rerun scratchpad review
 → rerun belief contagion
-→ rerun interaction analysis
-→ rerun belief integration
 → rerun evaluation, metrics, export, and finalization
 ```
 
@@ -900,7 +896,7 @@ Restoring only `G.sims`, only communication history, or only visible UI records 
 - [ ] **REQUIRED:** Restore overhearing histories and their event counters together.
 - [ ] **REQUIRED:** Restore scratchpad content and review cursors together.
 - [ ] **REQUIRED:** Restore model threads together with the communication state they encode.
-- [ ] **REQUIRED:** Recompute or restore belief contagion, interaction evidence, integrated beliefs, assessments, tactic transitions, metrics, and exports after communication is replaced.
+- [ ] **REQUIRED:** Recompute or restore belief contagion, assessments, tactic transitions, metrics, and exports after communication is replaced.
 - [ ] **REQUIRED:** Rebuild the active UI from restored canonical state rather than leaving incrementally appended records from a discarded attempt visible as current truth.
 
 Downloaded export files and developer-console output cannot be withdrawn. The application must therefore distinguish active canonical history from any external or forensic records created by a discarded attempt.
