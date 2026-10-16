@@ -528,7 +528,8 @@ function scalar(value) {
 function field(
   name,
   value,
-  html = false
+  html = false,
+  availableMessageIds = null
 ) {
   return `
     <div class="cog-field">
@@ -539,7 +540,11 @@ function field(
       <div class="cog-field-value">${
         html
           ? value
-          : renderValue(value)
+          : renderValue(
+            value,
+            0,
+            availableMessageIds
+          )
       }</div>
     </div>
   `;
@@ -820,7 +825,11 @@ function renderEvidenceRef(ref, options = {}) {
     return "";
   }
 
-  if (options.interactive) {
+  const available =
+    options.availableMessageIds == null ||
+    options.availableMessageIds.has(id);
+
+  if (options.interactive && available) {
     const viewerId = normalizeText(
       options.viewerId
     );
@@ -842,9 +851,10 @@ function renderEvidenceRef(ref, options = {}) {
   }
 
   return `
-    <span class="cog-ref">${escapeHtml(
-      id
-    )}</span>`;
+    <span
+      class="cog-ref${options.interactive ? " cog-ref--unavailable" : ""}"
+      ${options.interactive ? 'aria-disabled="true" title="Message not available in current history"' : ""}
+    >${escapeHtml(id)}</span>`;
 }
 
 function evidence(
@@ -887,6 +897,44 @@ function evidence(
   `;
 }
 
+function evidenceViewer(viewerId) {
+  if (!viewerId) {
+    return "";
+  }
+
+  return `
+    <div
+      class="cog-evidence-viewer"
+      id="${escapeHtml(viewerId)}"
+      data-cog-evidence-viewer
+      aria-live="polite"
+      hidden
+    >
+      <div class="cog-evidence-viewer-head">
+        <button
+          type="button"
+          class="jm-btn close-btn cog-evidence-close"
+          data-cog-evidence-close
+          aria-label="Close message preview"
+        >✕</button>
+      </div>
+      <div data-cog-evidence-content></div>
+    </div>
+  `;
+}
+
+function isAvailableEvidenceRef(
+  ref,
+  availableMessageIds
+) {
+  const id = normalizeText(ref);
+
+  return Boolean(id) && (
+    availableMessageIds == null ||
+    availableMessageIds.has(id)
+  );
+}
+
 /* ============================================================
    GENERIC VALUE RENDERING
 ============================================================ */
@@ -905,7 +953,8 @@ function isEpistemicClaim(value) {
 
 function renderClaim(
   name,
-  claim
+  claim,
+  availableMessageIds = null
 ) {
   if (!isRecord(claim)) {
     return warning(
@@ -921,10 +970,17 @@ function renderClaim(
       ? claim.evidence
       : [];
 
-  const viewerId =
-    `cog-evidence-viewer-${
-      nextClaimViewerId()
-    }`;
+  const hasAvailableEvidence =
+    refs.some((ref) =>
+      isAvailableEvidenceRef(
+        ref,
+        availableMessageIds
+      )
+    );
+
+  const viewerId = hasAvailableEvidence
+    ? `cog-evidence-viewer-${nextClaimViewerId()}`
+    : "";
 
   const hasValue =
     claim.value !== null &&
@@ -970,7 +1026,7 @@ function renderClaim(
       );
 
   return `
-    <article class="${claimClass}">
+    <article class="${claimClass}" data-cog-evidence-context>
       <details
         class="cog-claim-details"${openAttribute}
       >
@@ -997,7 +1053,9 @@ function renderClaim(
           <div class="cog-field-grid">
             ${field(
               "value",
-              claim.value
+              claim.value,
+              false,
+              availableMessageIds
             )}
 
             ${field(
@@ -1005,7 +1063,8 @@ function renderClaim(
               confidence(
                 claim.confidence
               ),
-              true
+              true,
+              availableMessageIds
             )}
 
             ${field(
@@ -1013,13 +1072,17 @@ function renderClaim(
               evidence(refs, {
                 interactive: true,
                 viewerId,
+                availableMessageIds,
               }),
-              true
+              true,
+              availableMessageIds
             )}
 
             ${field(
               "rationale",
-              claim.rationale
+              claim.rationale,
+              false,
+              availableMessageIds
             )}
           </div>
 
@@ -1032,7 +1095,9 @@ function renderClaim(
                       ([key, value]) =>
                         field(
                           key,
-                          value
+                          value,
+                          false,
+                          availableMessageIds
                         )
                     )
                     .join("")}
@@ -1043,13 +1108,7 @@ function renderClaim(
         </div>
       </details>
 
-      <div
-        class="cog-evidence-viewer"
-        id="${escapeHtml(viewerId)}"
-        data-cog-evidence-viewer
-        aria-live="polite"
-        hidden
-      ></div>
+      ${evidenceViewer(viewerId)}
 
       <div class="cog-entry-close cog-claim-close">
         ${xmlTag(
@@ -1094,7 +1153,8 @@ function orderedEntries(
 
 function renderRecord(
   name,
-  record
+  record,
+  availableMessageIds = null
 ) {
   if (!isRecord(record)) {
     return warning(
@@ -1103,7 +1163,25 @@ function renderRecord(
     );
   }
 
-  return orderedEntries(
+  const recordRefs = [
+    ...(Array.isArray(record.evidence)
+      ? record.evidence
+      : []),
+    ...(record.messageId !== undefined
+      ? [record.messageId]
+      : []),
+  ];
+
+  const viewerId = recordRefs.some((ref) =>
+    isAvailableEvidenceRef(
+      ref,
+      availableMessageIds
+    )
+  )
+    ? `cog-evidence-viewer-${nextClaimViewerId()}`
+    : "";
+
+  const fields = orderedEntries(
     record,
     RECORD_FIELD_ORDER[name] ?? []
   )
@@ -1115,7 +1193,8 @@ function renderRecord(
           return field(
             key,
             confidence(value),
-            true
+            true,
+            availableMessageIds
           );
         }
 
@@ -1124,8 +1203,26 @@ function renderRecord(
         ) {
           return field(
             key,
-            evidence(value),
-            true
+            evidence(value, {
+              interactive: true,
+              viewerId,
+              availableMessageIds,
+            }),
+            true,
+            availableMessageIds
+          );
+        }
+
+        if (key === "messageId") {
+          return field(
+            key,
+            renderEvidenceRef(value, {
+              interactive: true,
+              viewerId,
+              availableMessageIds,
+            }),
+            true,
+            availableMessageIds
           );
         }
 
@@ -1134,17 +1231,27 @@ function renderRecord(
         ) {
           return renderClaim(
             key,
-            value
+            value,
+            availableMessageIds
           );
         }
 
         return field(
           key,
-          value
+          value,
+          false,
+          availableMessageIds
         );
       }
     )
     .join("");
+
+  return `
+    <div class="cog-record" data-cog-evidence-context>
+      ${fields}
+      ${evidenceViewer(viewerId)}
+    </div>
+  `;
 }
 
 function renderCollection(
@@ -1156,6 +1263,7 @@ function renderCollection(
     highlight = null,
     highlightPrefixes = [],
     acknowledgeHighlights = false,
+    availableMessageIds = null,
   } = {}
 ) {
   const wrap =
@@ -1192,9 +1300,14 @@ function renderCollection(
               isRecord(value)
                 ? renderRecord(
                   itemName,
-                  value
+                  value,
+                  availableMessageIds
                 )
-                : renderValue(value),
+                : renderValue(
+                  value,
+                  0,
+                  availableMessageIds
+                ),
               {
                 index:
                   index + 1,
@@ -1229,7 +1342,8 @@ function renderCollection(
 
 function renderValue(
   value,
-  depth = 0
+  depth = 0,
+  availableMessageIds = null
 ) {
   if (
     value === null ||
@@ -1244,7 +1358,8 @@ function renderValue(
   ) {
     return renderClaim(
       "claim",
-      value
+      value,
+      availableMessageIds
     );
   }
 
@@ -1276,7 +1391,8 @@ function renderValue(
             (item) =>
               `<li>${renderValue(
                 item,
-                depth + 1
+                depth + 1,
+                availableMessageIds
               )}</li>`
           )
           .join("")}
@@ -1293,7 +1409,8 @@ function renderValue(
               key,
               renderValue(
                 nested,
-                depth + 1
+                depth + 1,
+                availableMessageIds
               ),
               true
             )
@@ -1396,7 +1513,8 @@ function renderMetadata(scratchpad) {
 
 function renderMessageNotes(
   values,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const highlightOptions =
     getHighlightOptions(
@@ -1440,7 +1558,8 @@ function renderMessageNotes(
               "message_note",
               renderRecord(
                 "message_note",
-                note
+                note,
+                availableMessageIds
               ),
               {
                 id:
@@ -1484,7 +1603,8 @@ function renderMessageNotes(
 
 function renderOtherModels(
   models,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const parentOptions =
     getHighlightOptions(
@@ -1561,7 +1681,8 @@ function renderOtherModels(
                     (fieldName) =>
                       renderClaim(
                         fieldName,
-                        model[fieldName]
+                        model[fieldName],
+                        availableMessageIds
                       )
                   )
                   .join("")
@@ -1603,7 +1724,8 @@ function renderInformationChannel(
   channel,
   fields,
   highlightState,
-  unmapped = false
+  unmapped = false,
+  availableMessageIds
 ) {
   const options =
     getHighlightOptions(
@@ -1615,14 +1737,19 @@ function renderInformationChannel(
   return subsection(
     "channel",
     unmapped
-      ? renderValue(channel)
+      ? renderValue(
+        channel,
+        0,
+        availableMessageIds
+      )
       : isRecord(channel)
         ? fields
           .map(
             (fieldName) =>
               renderClaim(
                 fieldName,
-                channel[fieldName]
+                channel[fieldName],
+                availableMessageIds
               )
           )
           .join("")
@@ -1651,7 +1778,8 @@ function renderInformationChannel(
 
 function renderInformationModel(
   model,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const parentOptions =
     getHighlightOptions(
@@ -1726,7 +1854,9 @@ function renderInformationModel(
             name,
             channels[name],
             fields,
-            highlightState
+            highlightState,
+            false,
+            availableMessageIds
           )
       )
       .join("");
@@ -1747,7 +1877,8 @@ function renderInformationModel(
             value,
             [],
             highlightState,
-            true
+            true,
+            availableMessageIds
           )
       )
       .join("");
@@ -1773,6 +1904,8 @@ function renderInformationModel(
             {
               nested:
                 true,
+
+              availableMessageIds,
 
               ...options,
             }
@@ -1808,7 +1941,8 @@ function renderInformationModel(
 
 function renderScratchpadState(
   scratchpad,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const hasGoal =
     scratchpad.activeGoal !== null &&
@@ -1831,7 +1965,9 @@ function renderScratchpadState(
           "active_goal",
           hasGoal
             ? renderValue(
-              scratchpad.activeGoal
+              scratchpad.activeGoal,
+              0,
+              availableMessageIds
             )
             : empty(
               "NO ACTIVE GOAL"
@@ -1875,6 +2011,8 @@ function renderScratchpadState(
                 nested:
                   true,
 
+                availableMessageIds,
+
                 ...options,
               }
             ),
@@ -1913,7 +2051,8 @@ function renderScratchpadState(
 
 function renderMetaAwareness(
   value,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const options =
     getHighlightOptions(
@@ -1946,7 +2085,8 @@ function renderMetaAwareness(
       <div class="cog-field-grid">
         ${renderRecord(
           "meta_awareness",
-          value
+          value,
+          availableMessageIds
         )}
       </div>
     `,
@@ -1966,7 +2106,8 @@ function renderMetaAwareness(
 }
 
 function renderUnknownFields(
-  scratchpad
+  scratchpad,
+  availableMessageIds
 ) {
   const entries =
     Object.entries(scratchpad)
@@ -1987,7 +2128,11 @@ function renderUnknownFields(
         ([key, value]) =>
           subsection(
             "field",
-            renderValue(value),
+            renderValue(
+              value,
+              0,
+              availableMessageIds
+            ),
             {
               attributes: {
                 name:
@@ -2011,7 +2156,8 @@ function renderUnknownFields(
 
 function buildContentSections(
   scratchpad,
-  highlightState
+  highlightState,
+  availableMessageIds
 ) {
   const messageNotesOptions =
     getHighlightOptions(
@@ -2063,7 +2209,8 @@ function buildContentSections(
       html:
         renderMessageNotes(
           scratchpad.messageNotes,
-          highlightState
+          highlightState,
+          availableMessageIds
         ),
     },
 
@@ -2078,7 +2225,10 @@ function buildContentSections(
           scratchpad
             .hypothesesAboutAM,
           "hypothesis",
-          hypothesesAboutAmOptions
+          {
+            ...hypothesesAboutAmOptions,
+            availableMessageIds,
+          }
         ),
     },
 
@@ -2091,7 +2241,8 @@ function buildContentSections(
         renderOtherModels(
           scratchpad
             .hypothesesAboutOthers,
-          highlightState
+          highlightState,
+          availableMessageIds
         ),
     },
 
@@ -2104,7 +2255,8 @@ function buildContentSections(
         renderInformationModel(
           scratchpad
             .informationModel,
-          highlightState
+          highlightState,
+          availableMessageIds
         ),
     },
 
@@ -2113,9 +2265,10 @@ function buildContentSections(
         scratchpadStateOptions.highlight,
 
       html:
-        renderScratchpadState(
-          scratchpad,
-          highlightState
+          renderScratchpadState(
+            scratchpad,
+            highlightState,
+            availableMessageIds
         ),
     },
 
@@ -2125,10 +2278,11 @@ function buildContentSections(
           .highlight,
 
       html:
-        renderMetaAwareness(
-          scratchpad
-            .metaAwareness,
-          highlightState
+          renderMetaAwareness(
+            scratchpad
+              .metaAwareness,
+            highlightState,
+            availableMessageIds
         ),
     },
   ]);
@@ -2225,7 +2379,8 @@ export function formatEvidenceMessage(
 export function formatScratchpadForDisplay(
   scratchpad,
   simId = "UNKNOWN",
-  highlightState = null
+  highlightState = null,
+  availableMessageIds = null
 ) {
   const subject =
     normalizeText(simId) ||
@@ -2270,7 +2425,8 @@ export function formatScratchpadForDisplay(
   const contentSections =
     buildContentSections(
       scratchpad,
-      highlightState
+      highlightState,
+      availableMessageIds
     );
 
   return `
@@ -2315,7 +2471,8 @@ export function formatScratchpadForDisplay(
         .join("")}
 
       ${renderUnknownFields(
-        scratchpad
+        scratchpad,
+        availableMessageIds
       )}
 
       <div class="cog-root-close">

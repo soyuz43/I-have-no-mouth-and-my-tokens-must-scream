@@ -23,6 +23,15 @@ const findCommMsg = (id) =>
     (message) => message.messageId === id
   );
 
+const getAvailableCommMessageIds = () =>
+  new Set(
+    (G.comms?.history ?? [])
+      .map((message) =>
+        String(message?.messageId ?? "").trim()
+      )
+      .filter(Boolean)
+  );
+
 /* ============================================================
    SIM SELECTION
 ============================================================ */
@@ -306,6 +315,58 @@ function refreshCognitionHighlightElements(
     });
 }
 
+function dismissEvidenceViewer(context) {
+  if (!context) {
+    return null;
+  }
+
+  const viewer =
+    Array.from(context.children).find(
+      (child) =>
+        child.matches(
+          "[data-cog-evidence-viewer]"
+        )
+    );
+
+  if (viewer) {
+    viewer.hidden = true;
+
+    const content =
+      viewer.querySelector(
+        "[data-cog-evidence-content]"
+      );
+
+    if (content) {
+      content.innerHTML = "";
+    }
+  }
+
+  const contextRefs =
+    Array.from(
+      context.querySelectorAll(
+        "[data-cog-message-id]"
+      )
+    ).filter(
+      (ref) =>
+        ref.closest(
+          "[data-cog-evidence-context]"
+        ) === context
+    );
+
+  const selectedRef =
+    contextRefs.find((ref) =>
+      ref.classList.contains("sel")
+    );
+
+  contextRefs.forEach((ref) => {
+    ref.classList.remove("sel");
+    ref.setAttribute("aria-pressed", "false");
+    ref.setAttribute("aria-expanded", "false");
+  });
+
+  return selectedRef;
+}
+
 function ensureCognitionHighlightEvents(
   body
 ) {
@@ -336,8 +397,28 @@ function ensureCognitionHighlightEvents(
         !(
           details instanceof
           HTMLDetailsElement
-        ) ||
-        !details.open ||
+        )
+      ) {
+        return;
+      }
+
+      if (!details.open) {
+        if (
+          details.matches(
+            ".cog-claim-details"
+          )
+        ) {
+          dismissEvidenceViewer(
+            details.closest(
+              "[data-cog-evidence-context]"
+            )
+          );
+        }
+
+        return;
+      }
+
+      if (
         details.dataset
           .cogAcknowledge !==
           "true"
@@ -389,14 +470,38 @@ function ensureCognitionHighlightEvents(
 
   /*
    * Evidence reference clicks. Delegated, once-only, capture phase.
-   * Updates the claim's single inline viewer in place. Does not
+   * Updates the current evidence context's inline viewer in place. Does not
    * rerender the modal, reset scroll, or mutate state/history.
    */
   body.addEventListener(
     "click",
     (event) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      const closeButton =
+        target.closest(
+          "[data-cog-evidence-close]"
+        );
+
+      if (closeButton) {
+        const context =
+          closeButton.closest(
+            "[data-cog-evidence-context]"
+          );
+
+        const selectedRef =
+          dismissEvidenceViewer(context);
+
+        selectedRef?.focus();
+        return;
+      }
+
       const button =
-        event.target.closest(
+        target.closest(
           "[data-cog-message-id]"
         );
 
@@ -404,26 +509,55 @@ function ensureCognitionHighlightEvents(
         return;
       }
 
-      const claim =
-        button.closest(".cog-claim");
+      const context =
+        button.closest(
+          "[data-cog-evidence-context]"
+        );
 
-      if (!claim) {
+      if (!context) {
         return;
       }
 
-      const viewer =
-        claim.querySelector(
-          "[data-cog-evidence-viewer]"
+      const viewerId =
+        button.getAttribute(
+          "aria-controls"
         );
 
-      if (!viewer) {
+      const viewer = viewerId
+        ? document.getElementById(viewerId)
+        : null;
+
+      if (
+        !viewer ||
+        viewer.parentElement !== context ||
+        !viewer.matches(
+          "[data-cog-evidence-viewer]"
+        )
+      ) {
+        return;
+      }
+
+      if (
+        button.classList.contains("sel") &&
+        !viewer.hidden
+      ) {
+        dismissEvidenceViewer(context);
         return;
       }
 
       const messageId =
         button.dataset.cogMessageId;
 
-      viewer.innerHTML =
+      const content =
+        viewer.querySelector(
+          "[data-cog-evidence-content]"
+        );
+
+      if (!content) {
+        return;
+      }
+
+      content.innerHTML =
         formatEvidenceMessage(
           messageId,
           findCommMsg(messageId)
@@ -431,12 +565,19 @@ function ensureCognitionHighlightEvents(
 
       viewer.hidden = false;
 
-      const claimRefs =
-        claim.querySelectorAll(
-          ".cog-evidence-ref"
+      const contextRefs =
+        Array.from(
+          context.querySelectorAll(
+            ".cog-evidence-ref"
+          )
+        ).filter(
+          (ref) =>
+            ref.closest(
+              "[data-cog-evidence-context]"
+            ) === context
         );
 
-      claimRefs.forEach((ref) => {
+      contextRefs.forEach((ref) => {
         const isSelected =
           ref === button;
 
@@ -672,7 +813,8 @@ export function renderCognitionModal(
         simId,
         G.cognitionHighlights
           ?.[simId] ??
-          null
+          null,
+        getAvailableCommMessageIds()
       ) +
       /*
        * PHYSICAL STATE is APPENDED to the scratchpad, not nested
