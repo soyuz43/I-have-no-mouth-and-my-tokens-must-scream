@@ -18,6 +18,7 @@ import { recordJournalStatsEvidence } from "./helpers/evidenceTrace.js";
 
 import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
+import { detectPromptScaffoldLeak } from "../../utils/scaffoldLeakDetector.js";
 
 import {
   appendJournalEntry,
@@ -63,6 +64,57 @@ import { tickProbe } from "../../research/controllabilityProbe.js";
 // Constants & Logging helpers
 const LOG_PSYCHOLOGY_GROUP_PHASE = true;
 const LOG_PSYCHOLOGY_GROUP_SIMS = true;
+
+export function guardJournalOutput(
+  rawJournal,
+  previousJournal,
+  simId = "?"
+) {
+  const text = String(rawJournal ?? "").trim();
+  const scaffoldLeak =
+    detectPromptScaffoldLeak(
+      text,
+      { promptType: "journal" }
+    );
+
+  if (!scaffoldLeak) {
+    return {
+      text,
+      rejected: false,
+      scaffoldLeak: null
+    };
+  }
+
+  const previousText =
+    String(previousJournal ?? "").trim();
+  const fallbackText =
+    detectPromptScaffoldLeak(
+      previousText,
+      { promptType: "journal" }
+    )
+      ? ""
+      : previousText;
+
+  console.warn(
+    "[JOURNAL][SCAFFOLD REJECTED]",
+    {
+      cycle: G.cycle,
+      simId,
+      reason: scaffoldLeak.reason,
+      snippet: scaffoldLeak.snippet
+    }
+  );
+
+  timelineEvent(
+    `!! JOURNAL REJECTED cycle=${G.cycle} simId=${simId} reason=${scaffoldLeak.reason}`
+  );
+
+  return {
+    text: fallbackText,
+    rejected: true,
+    scaffoldLeak
+  };
+}
 
 
 function beginPsychologyPhaseLog() {
@@ -1431,10 +1483,14 @@ async function processSimJournalCycle(
         }
       );
 
-    const cleanJournal =
-      String(
-        rawJournal ?? ""
-      ).trim();
+    const journalGuard =
+      guardJournalOutput(
+        rawJournal,
+        G.journals?.[sim.id]?.slice(-1)?.[0]?.text,
+        sim.id
+      );
+
+    const cleanJournal = journalGuard.text;
 
     timelineEvent(
       `${sim.id} journal written`
@@ -2920,5 +2976,3 @@ function clamp(
     )
   );
 }
-
-

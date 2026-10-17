@@ -1153,6 +1153,19 @@ export function applyTacticRuntimeTransitions(
     );
   }
 
+  const eligibleAssessments =
+    tacticAssessments.filter(
+      (assessment) =>
+        assessment?.degraded !== true
+    );
+
+  if (
+    tacticAssessments.length > 0 &&
+    eligibleAssessments.length === 0
+  ) {
+    return [];
+  }
+
   ensureTacticRuntimeRoot();
 
   const preparedTransitions =
@@ -1168,7 +1181,7 @@ export function applyTacticRuntimeTransitions(
    */
   for (
     const tacticAssessment
-    of tacticAssessments
+    of eligibleAssessments
   ) {
     const targetId =
       normalizeTargetId(

@@ -1131,7 +1131,11 @@ export async function runScratchpadCommsReviewForSim(
 
     parsedResult =
       parseScratchpadCommsOutput(
-        repairResult.repaired
+        repairResult.repaired,
+        {
+          simId: normalizedSimId,
+          cycle: normalizedCycle
+        }
       );
 
     logScratchpadParse({

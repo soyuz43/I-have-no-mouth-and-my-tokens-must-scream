@@ -29,7 +29,7 @@ import {
 import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
-import { detectPromptScaffoldLeak } from "../strategy/detectPromptScaffoldLeak.js";
+import { detectPromptScaffoldLeak } from "../../utils/scaffoldLeakDetector.js";
 
 import {
   getTacticByPath,
@@ -125,7 +125,9 @@ export async function runStrategyPhase(directive) {
         result.stage === "extract"
       ) {
         failureType =
-          "extract_failure";
+          result.errorType === "prompt_scaffold_leak"
+            ? "prompt_scaffold_leak"
+            : "extract_failure";
       } else if (
         result.stage === "validate"
       ) {
@@ -512,9 +514,9 @@ export async function stepExecuteAM(
   const semanticFailures = [];
 
   for (const [targetId, action] of Object.entries(parsedExecution.actions)) {
-    const reason = detectPromptScaffoldLeak(action?.text);
+    const scaffoldLeak = detectPromptScaffoldLeak(action?.text);
 
-    if (!reason) {
+    if (!scaffoldLeak) {
       actions[targetId] = action;
       continue;
     }
@@ -528,7 +530,7 @@ export async function stepExecuteAM(
       cycle: G.cycle,
       targetId,
       tacticPath,
-      reason,
+      reason: scaffoldLeak.reason,
       snippet
     };
 
@@ -540,7 +542,7 @@ export async function stepExecuteAM(
     );
 
     timelineEvent(
-      `!! AM EXECUTION REJECTED cycle=${G.cycle} target=${targetId} tactic=${tacticPath} reason=${reason} snippet="${snippet}"`
+      `!! AM EXECUTION REJECTED cycle=${G.cycle} target=${targetId} tactic=${tacticPath} reason=${scaffoldLeak.reason} snippet="${snippet}"`
     );
   }
 

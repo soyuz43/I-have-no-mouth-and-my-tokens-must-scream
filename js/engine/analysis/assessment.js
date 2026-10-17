@@ -20,6 +20,8 @@ import {
 } from "./assessment/validateAssessmentSemantics.js";
 
 import { getTacticPhase } from "../tactics.js";
+import { timelineEvent } from "../../ui/timeline.js";
+import { detectPromptScaffoldLeak } from "../../utils/scaffoldLeakDetector.js";
 /**
  * ============================================================
  * CYCLE ASSESSMENT ENGINE
@@ -221,6 +223,37 @@ export function parseTacticAssessment(
 
     parsedFields
   };
+}
+
+export function inspectAssessmentScaffold(
+  result,
+  simId = "?"
+) {
+  const scaffoldLeak =
+    detectPromptScaffoldLeak(
+      result,
+      { promptType: "assessment" }
+    );
+
+  if (!scaffoldLeak) {
+    return null;
+  }
+
+  console.warn(
+    "[ASSESSMENT][SCAFFOLD REJECTED]",
+    {
+      cycle: G.cycle,
+      simId,
+      reason: scaffoldLeak.reason,
+      snippet: scaffoldLeak.snippet
+    }
+  );
+
+  timelineEvent(
+    `!! ASSESSMENT REJECTED cycle=${G.cycle} reason=${scaffoldLeak.reason}`
+  );
+
+  return scaffoldLeak;
 }
 
 
@@ -656,6 +689,12 @@ NEXT_DURATION: <integer>`;
 
       result =
         `Assessment error: ${error.message}`;
+    }
+
+    const scaffoldLeak =
+      inspectAssessmentScaffold(result, id);
+    if (scaffoldLeak) {
+      continue;
     }
 
     const explanation =
@@ -1313,6 +1352,9 @@ EXPLANATION: <one concise evidence-based sentence>`;
           result = `Assessment error: ${e.message}`;
         }
 
+        const scaffoldLeak =
+          inspectAssessmentScaffold(result, id);
+
         /* ------------------------------------------------------------
            TACTIC ASSESSMENT PARSE
         ------------------------------------------------------------ */
@@ -1324,17 +1366,48 @@ EXPLANATION: <one concise evidence-based sentence>`;
 
         console.debug(result);
 
-        const {
-          explanation,
-          phaseResult,
-          advanceCriteria,
-          tacticResult,
-          parseMethod,
-          parsedFields
-        } =
+        const parsedAssessment =
           parseTacticAssessment(
             result
           );
+
+        const explanation =
+          scaffoldLeak
+            ? "Assessment rejected due to prompt scaffold leakage."
+            : parsedAssessment.explanation;
+
+        const phaseResult =
+          scaffoldLeak
+            ? PHASE_RESULTS.INSUFFICIENT_EVIDENCE
+            : parsedAssessment.phaseResult;
+
+        const advanceCriteria =
+          scaffoldLeak
+            ? ADVANCE_CRITERIA_RESULTS.UNCERTAIN
+            : parsedAssessment.advanceCriteria;
+
+        const tacticResult =
+          scaffoldLeak
+            ? TACTIC_RESULTS.UNCERTAIN
+            : parsedAssessment.tacticResult;
+
+        const parseMethod =
+          scaffoldLeak
+            ? "rejected_scaffold"
+            : parsedAssessment.parseMethod;
+
+        const parsedFields =
+          scaffoldLeak
+            ? {
+                phaseResult: false,
+                advanceCriteria: false,
+                tacticResult: false,
+                explanation: false
+              }
+            : parsedAssessment.parsedFields;
+
+        const assessmentExplanation =
+          explanation;
 
         const nextPhaseExists =
           !!(
@@ -1384,7 +1457,7 @@ EXPLANATION: <one concise evidence-based sentence>`;
                 phaseResult,
                 advanceCriteria,
                 tacticResult,
-                explanation
+                explanation: assessmentExplanation
               }
             }
           );
@@ -1423,7 +1496,7 @@ EXPLANATION: <one concise evidence-based sentence>`;
           `PHASE_RESULT: ${phaseResult}\n` +
           `ADVANCE_CRITERIA: ${advanceCriteria}\n` +
           `TACTIC_RESULT: ${tacticResult}\n` +
-          `EXPLANATION: ${explanation}\n`;
+          `EXPLANATION: ${assessmentExplanation}\n`;
 
         /* ------------------------------------------------------------
            CONFIDENCE UPDATE
@@ -1484,7 +1557,14 @@ EXPLANATION: <one concise evidence-based sentence>`;
 
           tacticResult,
 
-          explanation,
+          explanation:
+            assessmentExplanation,
+
+          degraded:
+            Boolean(scaffoldLeak),
+
+          degradationReason:
+            scaffoldLeak?.reason ?? null,
 
           semanticValidation,
 
@@ -1538,7 +1618,9 @@ EXPLANATION: <one concise evidence-based sentence>`;
           },
 
           raw:
-            result,
+            scaffoldLeak
+              ? null
+              : result,
 
           timestamp:
             Date.now()
@@ -1571,6 +1653,12 @@ EXPLANATION: <one concise evidence-based sentence>`;
           tacticResult,
 
           explanation,
+
+          degraded:
+            Boolean(scaffoldLeak),
+
+          degradationReason:
+            scaffoldLeak?.reason ?? null,
 
           semanticValidation,
 

@@ -1541,6 +1541,14 @@ export function validateScratchpadCommsOperations({
   }
 
   if (
+    parsedResult.failureReason
+  ) {
+    errors.push(
+      parsedResult.failureReason
+    );
+  }
+
+  if (
     Array.isArray(
       parsedResult.errors
     )
@@ -1910,7 +1918,6 @@ export function getRejectedScratchpadReasons(
         : []
   );
 }
-
 
 
 
