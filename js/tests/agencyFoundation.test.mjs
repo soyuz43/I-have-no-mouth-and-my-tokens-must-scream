@@ -116,17 +116,17 @@ function blockedByType(result) {
 }
 
 /*
- * A resource view standing for "holds a cigarette AND an ignition
- * source".
+ * A resource view standing for "holds a cigarette, an ignition
+ * source, and dirty water".
  *
  * Hand-built rather than derived from the seed ledger so these
  * assertions stay about the ENUMERATOR's rules. The ledger, its
  * seeding, and buildResourceView() are covered in
  * agencyResourceLedger.test.mjs.
  *
- * This is the only shape that can make SMOKE legal, and it is exactly
- * the dependency the slice exists to prove: cigarettes alone are not
- * enough, and neither are matches alone.
+ * The cigarette and match entries make SMOKE legal; dirty water makes
+ * CONSUME legal. These are the possession dependencies exercised by
+ * the fully supplied action-enumeration cases.
  */
 function fullResourceView() {
   return {
@@ -137,16 +137,21 @@ function fullResourceView() {
       ],
       match: [
         { resourceId: "match_stack_01", quantity: 2 }
+      ],
+      dirty_water: [
+        { resourceId: "dirty_water_01", quantity: 1 }
       ]
     },
     affordances: {
       cigarette: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
-      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
+      dirty_water: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
     },
     hasIgnition: true,
     stacks: [
       { resourceId: "cigarette_stack_01", quantity: 3 },
-      { resourceId: "match_stack_01", quantity: 2 }
+      { resourceId: "match_stack_01", quantity: 2 },
+      { resourceId: "dirty_water_01", quantity: 1 }
     ]
   };
 }
@@ -192,7 +197,7 @@ function modedRegistry(extra = {}) {
 test("the registry contains the floor, sensory, and first physical actions", () => {
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
   );
 });
 
@@ -332,7 +337,7 @@ test("getAllActionTypes returns a fresh array each call", () => {
 
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
   );
 });
 
@@ -342,14 +347,13 @@ test("getAllActionTypes returns a fresh array each call", () => {
 
 test("an unconstrained prisoner can take every registered action", () => {
   /*
-   * SMOKE, TRANSFER, and HIDE declare resource requirements, so this
-   * test must supply a resource view. Passing none would fail them
-   * closed - correctly - and the assertion below would then be
-   * testing the fail-closed path rather than the unrestrained one.
+   * SMOKE, TRANSFER, HIDE, and CONSUME declare resource requirements,
+   * so this test must supply a resource view. Passing none would fail
+   * them closed and test the fail-closed path instead.
    *
    * `fullResourceView()` is a view, not a ledger: it stands for "this
-   * prisoner holds a cigarette and an ignition source", which is the
-   * possession half of "unconstrained".
+   * prisoner holds a cigarette, an ignition source, and dirty water",
+   * which is the possession half of "unconstrained".
    */
   const result = enumerateLegalActions(
     simWith([]),
@@ -362,7 +366,7 @@ test("an unconstrained prisoner can take every registered action", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
   );
 
   const legal = legalByType(result);
@@ -404,7 +408,7 @@ test("a fully unconstrained sim agrees with the real deriver", () => {
     fullResourceView()
   );
 
-  assert.equal(result.legal.length, 5);
+  assert.equal(result.legal.length, 7);
   assert.equal(result.blocked.length, 0);
 });
 
@@ -557,11 +561,11 @@ test("concentration 0.05 leaves only WAIT legal", () => {
   const blocked = blockedByType(result);
 
   /*
-   * OBSERVE closes on concentration. The three physical actions close
-   * on RESOURCES, because no view was supplied and they each declare
-   * a requirement. Same legal set, four distinct refusals.
+   * OBSERVE and SEARCH close on concentration. SMOKE, TRANSFER, and
+   * HIDE close on RESOURCES; CONSUME has adequate capabilities but no
+   * supplied dirty water. All six non-WAIT actions are refused.
    */
-  assert.equal(blocked.size, 4);
+  assert.equal(blocked.size, 6);
 
   assert.deepEqual(
     blocked.get("OBSERVE").missingRequirements,
@@ -666,9 +670,9 @@ test("a blocked entry carries neither cost nor availableModes", () => {
 
 test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", () => {
   /*
-   * This posture derives concentration 0.2, which clears OBSERVE's 0.1
-   * gate. Its zero handUse and interactionReach block the three physical
-   * actions on capability before their resource requirements are checked.
+   * This posture derives concentration 0.2, which clears OBSERVE and
+   * SEARCH's concentration gates. Its zero handUse and interactionReach
+   * block the physical actions before their resource checks.
    */
   const sim = simWith([restraint("palestinian_chair")]);
 
@@ -696,15 +700,15 @@ test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", (
 
   /*
    * This posture drives handUse and interactionReach to 0, so the
-   * three physical actions are refused on CAPABILITY even when the
-   * prisoner is well stocked. The capability gate runs first, which
-   * is why supplying a full resource view here would not rescue them.
+   * physical actions are refused on CAPABILITY even when well stocked.
+   * The capability gate runs first, so a full resource view cannot
+   * rescue them.
    */
   const blocked = blockedByType(result);
 
-  assert.equal(blocked.size, 3);
+  assert.equal(blocked.size, 5);
 
-  for (const type of ["SMOKE", "TRANSFER", "HIDE"]) {
+  for (const type of ["SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]) {
     assert.equal(
       blocked.get(type).reason,
       "capability_below_minimum",
@@ -713,10 +717,10 @@ test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", (
   }
 });
 
-test("overhead_restraint also leaves the full legal set open", () => {
+test("overhead_restraint allows SEARCH and blocks other physical actions", () => {
   /*
-   * concentration 0.3 under this posture. Both floor actions clear
-   * their gates, so the pairing the old mode ladder produced is gone.
+   * Concentration 0.3 clears the OBSERVE and SEARCH gates. CONSUME
+   * remains blocked because this posture removes hand use.
    */
   const sim = simWith([restraint("overhead_restraint")]);
 
@@ -732,10 +736,10 @@ test("overhead_restraint also leaves the full legal set open", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE"]
+    ["WAIT", "OBSERVE", "SEARCH"]
   );
 
-  assert.deepEqual(result.blocked.length, 3);
+  assert.deepEqual(result.blocked.length, 4);
 });
 
 test("overhead_restraint blocks SMOKE on capability, not on resources", () => {
@@ -1146,11 +1150,10 @@ test("a missing capabilities object blocks everything except WAIT", () => {
   );
 
   /*
-   * Four refusals: OBSERVE for capability, and the three physical
-   * actions for resources (no view supplied). Both gates fail closed,
-   * which is the point - a malformed input grants nothing.
+   * Six non-WAIT actions are refused when required capabilities and
+   * the resource view are absent; malformed input grants nothing.
    */
-  assert.equal(result.blocked.length, 4);
+  assert.equal(result.blocked.length, 6);
 });
 
 test("an absent capability key is unmet, not full", () => {
@@ -1528,7 +1531,7 @@ test("the phase derives against capabilities, not the derive envelope", async ()
        */
       assert.deepEqual(
         legal.map((entry) => entry.type),
-        ["WAIT", "OBSERVE"]
+        ["WAIT", "OBSERVE", "SEARCH"]
       );
     }
   );
@@ -1810,7 +1813,11 @@ test("the phase accepts a sim with undefined constraints", async () => {
       await runAgencyPhase({ proposalCollector: waitProposal });
 
       const unresourceGatedTypes = Object.values(ACTION_DEFINITIONS)
-        .filter((definition) => !definition.resourceRequirements)
+        .filter(
+          (definition) =>
+            !definition.resourceRequirements ||
+            Object.keys(definition.resourceRequirements).length === 0
+        )
         .map((definition) => definition.type);
 
       assert.deepEqual(

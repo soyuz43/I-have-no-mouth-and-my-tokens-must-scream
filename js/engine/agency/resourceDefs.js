@@ -96,6 +96,70 @@ const RESOURCE_DEFINITIONS = Object.freeze({
   }),
 
   /*
+   * Rain-damp cigarettes cannot be smoked or used until they dry.
+   * Ledger maintenance counts down two cycle starts, then changes the
+   * instance to the canonical cigarette definition so its ordinary
+   * affordances and smoking effects become available.
+   */
+  wet_cigarette: Object.freeze({
+    definitionId: "wet_cigarette",
+    title: "Wet cigarette",
+    stackable: true,
+    consumable: false,
+    ignitionSource: false,
+
+    affordances: Object.freeze([
+      "HIDE",
+      "TRANSFER"
+    ]),
+
+    dryingTurns: 2,
+
+    requirements: Object.freeze({
+      consume: Object.freeze({
+        handUse: 0.5,
+        interactionReach: 0.5
+      })
+    }),
+
+    effects: Object.freeze({})
+  }),
+
+  /*
+   * Dirty water offers an immediate survival tradeoff: drinking it
+   * reduces suffering slightly but also harms sanity.
+   */
+  dirty_water: Object.freeze({
+    definitionId: "dirty_water",
+    title: "Dirty water",
+    stackable: false,
+    consumable: true,
+    ignitionSource: false,
+
+    affordances: Object.freeze([
+      "CONSUME",
+      "TRANSFER",
+      "HIDE",
+      "REVEAL",
+      "DESTROY"
+    ]),
+
+    requirements: Object.freeze({
+      consume: Object.freeze({
+        handUse: 0.5,
+        interactionReach: 0.5
+      })
+    }),
+
+    effects: Object.freeze({
+      consume: Object.freeze({
+        suffering: -1.5,
+        sanity: -0.5
+      })
+    })
+  }),
+
+  /*
    * Matches are the enabling half of the pair: a prisoner may hold
    * cigarettes and still be unable to smoke. Striking a match is
    * deliberately NOT a separate action - SMOKE consumes one

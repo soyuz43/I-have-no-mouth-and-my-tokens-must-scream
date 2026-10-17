@@ -128,6 +128,12 @@ export function validateAgencyProposal({
       return reject("resource_unavailable");
     }
     action.resourceId = proposal.resourceId;
+  } else if (proposal.type === "CONSUME") {
+    const stack = findAccessibleStack(resourceView, proposal.resourceId);
+    if (stack?.definitionId !== "dirty_water") {
+      return reject("resource_unavailable");
+    }
+    action.resourceId = proposal.resourceId;
   } else if (
     proposal.resourceId !== undefined ||
     proposal.targetId !== undefined

@@ -5,6 +5,7 @@ import {
   selectTier1Goal
 } from "../scratchpad/goals/registry.js";
 import { evaluateGoalTransitions } from "../scratchpad/goals/evaluator.js";
+import { getResourceDefinition } from "./resourceDefs.js";
 
 const MAX_GOAL_HISTORY = 5;
 const RESOURCE_DISCOVERY_CHANCE = 0.3;
@@ -28,7 +29,41 @@ function clampStat(value) {
   return Math.max(0, Math.min(100, value));
 }
 
-function applyOperation(instances, operation, eventId) {
+function applyOperation(
+  instances,
+  operation,
+  eventId,
+  actorId,
+  cycle,
+  searchSequence,
+  sequenceIndex
+) {
+  if (operation.type === "find") {
+    const definition = getResourceDefinition(operation.definitionId);
+    const quantity = Number(operation.quantity);
+    if (!definition || !Number.isFinite(quantity) || quantity <= 0) return null;
+
+    const resourceId = `${operation.definitionId}_found_${searchSequence}_${sequenceIndex}`;
+    instances.push({
+      resourceId,
+      definitionId: operation.definitionId,
+      quantity,
+      holderId: actorId,
+      locationId: null,
+      accessible: true,
+      concealed: false,
+      provenance: {
+        source: "environment_search",
+        cycle
+      },
+      dryingTurns: operation.definitionId === "wet_cigarette" ? 2 : 0
+    });
+    console.debug(
+      `[AGENCY] ${actorId} found ${quantity} ${operation.definitionId} via SEARCH`
+    );
+    return resourceId;
+  }
+
   const instance = instances.find(
     (candidate) => candidate?.resourceId === operation.resourceId
   );
@@ -92,8 +127,10 @@ export function commitAgencyResolution(
   const stagedInstances = G.resources.instances.map(cloneInstance);
   const stagedStats = new Map();
   const stagedWaitStreaks = new Map();
+  const stagedSearchCycles = new Map();
   const stagedEvents = [];
   let sequence = nextSequence;
+  let operationSequenceIndex = 0;
 
   for (const resolution of resolutions) {
     const event = createAgencyEvent(
@@ -104,6 +141,10 @@ export function commitAgencyResolution(
     const committedResourceIds = [];
     const actor = G.sims?.[resolution.actorId];
     const actionType = resolution.action?.type ?? "WAIT";
+
+    if (actor && resolution.provenance?.searchAttempted === true) {
+      stagedSearchCycles.set(resolution.actorId, G.cycle);
+    }
 
     if (actor) {
       const currentWaitStreak = stagedWaitStreaks.get(resolution.actorId) ??
@@ -138,8 +179,13 @@ export function commitAgencyResolution(
         const resourceId = applyOperation(
           stagedInstances,
           operation,
-          event.eventId
+          event.eventId,
+          resolution.actorId,
+          G.cycle,
+          Number(G.agency.nextActionSequence) || G.cycle,
+          operationSequenceIndex
         );
+        operationSequenceIndex += 1;
         if (resourceId) committedResourceIds.push(resourceId);
       }
 
@@ -239,6 +285,10 @@ export function commitAgencyResolution(
   for (const [actorId, waitStreak] of stagedWaitStreaks) {
     const actor = G.sims?.[actorId];
     if (actor) actor.waitStreak = waitStreak;
+  }
+  for (const [actorId, lastSearchCycle] of stagedSearchCycles) {
+    const actor = G.sims?.[actorId];
+    if (actor) actor.lastSearchCycle = lastSearchCycle;
   }
   G.agency.events.push(...stagedEvents);
   G.agency.nextActionSequence = sequence;

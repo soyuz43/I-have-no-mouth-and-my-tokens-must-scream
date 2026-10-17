@@ -1,4 +1,5 @@
 // js/engine/agency/legalActions.js
+import { SEARCH_COOLDOWN_CYCLES } from "./actionDefs.js";
 //
 // Legal-action enumeration for the Agency Foundation.
 //
@@ -51,8 +52,8 @@
 //
 // PURITY CONTRACT
 // ---------------
-// No mutation of any argument, no reads from `G`, no `Math.random()`,
-// no `Date` access, no I/O. Same arguments in, structurally equal
+// No mutation of any argument, no reads from `G`, no nondeterministic
+// random source, no `Date` access, no I/O. Same arguments in, structurally equal
 // result out, every time. The resource view is PASSED IN, never read
 // from global state, precisely to keep this contract true.
 
@@ -358,7 +359,8 @@ export function enumerateLegalActions(
   sim,
   capabilities,
   registry,
-  resourceView = null
+  resourceView = null,
+  cycle = sim?.cycle ?? 0
 ) {
   const empty = { legal: [], blocked: [] };
 
@@ -401,6 +403,14 @@ export function enumerateLegalActions(
     if (
       !definition ||
       typeof definition !== "object"
+    ) {
+      continue;
+    }
+
+    const lastSearch = sim.lastSearchCycle ?? -999;
+    if (
+      type === "SEARCH" &&
+      (Number(cycle) - Number(lastSearch)) < SEARCH_COOLDOWN_CYCLES
     ) {
       continue;
     }
@@ -546,4 +556,3 @@ export function enumerateLegalActions(
 
   return { legal, blocked };
 }
-

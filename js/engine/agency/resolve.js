@@ -1,6 +1,13 @@
 import { SIM_IDS } from "../../core/constants.js";
-import { ACTION_DEFINITIONS } from "./actionDefs.js";
+import { engineRng } from "../../core/prng.js";
+import {
+  ACTION_DEFINITIONS,
+  SEARCH_COOLDOWN_CYCLES
+} from "./actionDefs.js";
 import { getResourceDefinition } from "./resourceDefs.js";
+import { deriveCapabilities } from "./capabilities.js";
+
+const SEARCH_SUCCESS_CHANCE = 0.35;
 
 const MUTABLE_STATS = new Set([
   "hope",
@@ -66,6 +73,14 @@ function collectEffects(actionType, operations) {
   return effects;
 }
 
+function meetsActionRequirements(actionType, sim) {
+  const requirements = ACTION_DEFINITIONS[actionType]?.requirements ?? {};
+  const capabilities = deriveCapabilities(sim).capabilities;
+  return Object.entries(requirements).every(([key, minimum]) =>
+    Number(capabilities[key]) >= Number(minimum)
+  );
+}
+
 function normalizeProposals(proposals) {
   return (Array.isArray(proposals) ? proposals : [])
     .filter((proposal) => SIM_IDS.includes(proposal?.actorId))
@@ -85,7 +100,7 @@ function normalizeProposals(proposals) {
     });
 }
 
-function resolveOne(proposal, snapshot, claims) {
+function resolveOne(proposal, snapshot, claims, cycle) {
   const { actorId, accepted, action } = proposal;
   const actionType = typeof action.type === "string" ? action.type : "WAIT";
   const base = {
@@ -115,6 +130,92 @@ function resolveOne(proposal, snapshot, claims) {
   }
 
   if (actionType === "WAIT" || actionType === "OBSERVE") {
+    return base;
+  }
+
+  if (actionType === "SEARCH") {
+    const sim = snapshot.sims?.[actorId];
+    if (!meetsActionRequirements(actionType, sim)) {
+      base.status = "blocked";
+      base.reason = "capability_below_minimum";
+      return base;
+    }
+
+    const lastSearch = sim.lastSearchCycle ?? -999;
+    if (
+      Number(cycle ?? snapshot.cycle) - Number(lastSearch) <
+      SEARCH_COOLDOWN_CYCLES
+    ) {
+      base.status = "blocked";
+      base.reason = "search_cooldown";
+      return base;
+    }
+
+    base.provenance.searchAttempted = true;
+    const roll = engineRng.next();
+    if (roll >= SEARCH_SUCCESS_CHANCE) {
+      base.reason = "environment_unyielding";
+      return base;
+    }
+
+    const resourceRoll = engineRng.next();
+    let definitionId;
+    let quantity = 1;
+    if (resourceRoll < 0.55) {
+      definitionId = "cigarette";
+    } else if (resourceRoll <= 0.85) {
+      definitionId = "wet_cigarette";
+    } else {
+      definitionId = "match";
+      if (engineRng.next() > 0.7) quantity = 2;
+    }
+
+    base.operations = [{ type: "find", definitionId, quantity }];
+    return base;
+  }
+
+  if (actionType === "CONSUME") {
+    const sim = snapshot.sims?.[actorId];
+    if (!meetsActionRequirements(actionType, sim)) {
+      base.status = "blocked";
+      base.reason = "capability_below_minimum";
+      return base;
+    }
+
+    const requirement = ACTION_DEFINITIONS.CONSUME.resourceRequirements
+      ?.consume?.[0];
+    const instance = findActorResource(
+      snapshot.resources.instances,
+      actorId,
+      action.resourceId
+    );
+    const definition = getResourceDefinition(instance?.definitionId);
+    if (
+      !requirement ||
+      instance?.definitionId !== requirement.definitionId ||
+      Number(instance.quantity) < Number(requirement.quantity) ||
+      definition?.consumable !== true ||
+      !definition.affordances.includes("CONSUME")
+    ) {
+      base.status = "blocked";
+      base.reason = "resource_unavailable";
+      return base;
+    }
+
+    const operations = [{
+      kind: "consume",
+      resourceId: instance.resourceId,
+      definitionId: instance.definitionId,
+      quantity: Number(requirement.quantity)
+    }];
+    if (hasResourceConflict(operations, snapshot, claims)) {
+      base.status = "blocked";
+      base.reason = "conflict";
+      return base;
+    }
+    reserveResources(operations, claims);
+    base.operations = operations;
+    base.effects = collectEffects(actionType, operations);
     return base;
   }
 
@@ -286,7 +387,8 @@ export function createAgencySnapshot(G) {
 
   return {
     sims,
-    resources
+    resources,
+    cycle: G?.cycle
   };
 }
 
@@ -323,7 +425,7 @@ export function resolveAgencyActions({
       continue;
     }
     resolved.push({
-      ...resolveOne(proposal, safeSnapshot, claims),
+      ...resolveOne(proposal, safeSnapshot, claims, cycle),
       cycle
     });
   }

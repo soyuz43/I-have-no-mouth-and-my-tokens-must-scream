@@ -84,16 +84,21 @@ function fullResourceView() {
       ],
       match: [
         { resourceId: "match_stack_01", quantity: 2 }
+      ],
+      dirty_water: [
+        { resourceId: "dirty_water_01", quantity: 1 }
       ]
     },
     affordances: {
       cigarette: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
-      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
+      match: ["IGNITE", "TRANSFER", "HIDE", "REVEAL", "DESTROY"],
+      dirty_water: ["CONSUME", "TRANSFER", "HIDE", "REVEAL", "DESTROY"]
     },
     hasIgnition: true,
     stacks: [
       { resourceId: "cigarette_stack_01", quantity: 3 },
-      { resourceId: "match_stack_01", quantity: 2 }
+      { resourceId: "match_stack_01", quantity: 2 },
+      { resourceId: "dirty_water_01", quantity: 1 }
     ]
   };
 }
@@ -163,10 +168,13 @@ test("summary omits BLOCKED/CONSTR when those lists are empty", () => {
 
   assert.deepEqual(
     legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
   );
   assert.equal(lines.length, 2, "empty sections should not add summary lines");
-  assert.equal(lines[0], "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE");
+  assert.equal(
+    lines[0],
+    "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, SEARCH, CONSUME"
+  );
   assert.equal(
     lines[1],
     "BANDS: mob:NORM sta:NORM hd:NORM con:NORM rei:NORM"
@@ -1053,10 +1061,9 @@ test("real derivation flows through both new surfaces unchanged", () => {
 
   /*
    * palestinian_chair drives handUse and interactionReach to 0, so the
-   * three physical actions now appear in BLOCKED. No resource view is
+   * five physical actions now appear in BLOCKED. No resource view is
    * supplied here, but the capability gate runs first and refuses them
-   * before resources are ever consulted - which is why they are
-   * reported with capability thresholds rather than resource reasons.
+   * before resources are consulted.
    */
   assert.equal(
     summary,
@@ -1064,7 +1071,9 @@ test("real derivation flows through both new surfaces unchanged", () => {
     "BLOCKED (unavailable): SMOKE handUse(0.2), interactionReach(0.2) " +
     "modes:strained|deliberate, " +
     "TRANSFER handUse(0.3), interactionReach(0.3), " +
-    "HIDE handUse(0.3), interactionReach(0.3)\n" +
+    "HIDE handUse(0.3), interactionReach(0.3), " +
+    "SEARCH interactionReach(0.1), " +
+    "CONSUME handUse(0.5), interactionReach(0.5)\n" +
     "BANDS: mob:UNAV sta:SEV hd:UNAV con:SEV rei:UNAV\n" +
     "CONSTR: palestinian_chair",
     "the real palestinian_chair envelope should render exactly this"

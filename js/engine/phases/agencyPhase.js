@@ -92,7 +92,8 @@ function deriveForSim(sim) {
     sim,
     derived.capabilities,
     ACTION_DEFINITIONS,
-    resourceView
+    resourceView,
+    G.cycle
   );
 
   G.agency.capabilities[sim.id] = derived;

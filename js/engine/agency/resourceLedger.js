@@ -26,7 +26,7 @@
 // PURITY
 // ------
 // `buildResourceView()` is pure: no G read, no mutation of the
-// ledger, no I/O, no Math.random(). Same arguments in, structurally
+// ledger, no I/O, no nondeterministic random source. Same arguments in, structurally
 // equal result out, every time.
 
 import { getResourceDefinition } from "./resourceDefs.js";
@@ -257,4 +257,20 @@ export function heldQuantity(view, definitionId) {
   }
 
   return total;
+}
+
+export function maintainResourceDrying(G) {
+  const instances = G?.resources?.instances;
+  if (!Array.isArray(instances)) return;
+
+  for (const instance of instances) {
+    const dryingTurns = Number(instance?.dryingTurns);
+    if (!Number.isFinite(dryingTurns) || dryingTurns <= 0) continue;
+
+    instance.dryingTurns = Math.max(0, dryingTurns - 1);
+    if (instance.dryingTurns !== 0) continue;
+
+    instance.definitionId = "cigarette";
+    delete instance.dryingTurns;
+  }
 }
