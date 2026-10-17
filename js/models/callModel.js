@@ -1541,6 +1541,9 @@ export async function callModel(
             ? result.cleaned
             : raw;
 
+        const suppressResponseBodyLogs =
+          requestMetadata.suppressResponseBodyLogs === true;
+
         const requestDurationMs =
           calculateDurationMs(
             requestStartTime
@@ -1591,26 +1594,35 @@ export async function callModel(
                 cleaned.length,
 
               response_was_cleaned:
-                raw !== cleaned
+                raw !== cleaned,
+
+              response_body_suppressed:
+                suppressResponseBodyLogs
             }
           );
 
-          console.debug(
-            "RAW MODEL RESPONSE:",
-            raw
-          );
-
-          if (cleaned !== raw) {
+          if (suppressResponseBodyLogs) {
             console.debug(
-              "CLEANED MODEL RESPONSE:",
-              cleaned
+              "MODEL RESPONSE BODY: [suppressed for this call]"
+            );
+          } else {
+            console.debug(
+              "RAW MODEL RESPONSE:",
+              raw
+            );
+
+            if (cleaned !== raw) {
+              console.debug(
+                "CLEANED MODEL RESPONSE:",
+                cleaned
+              );
+            }
+
+            console.debug(
+              "RAW PROVIDER RESPONSE:",
+              result.providerResponse
             );
           }
-
-          console.debug(
-            "RAW PROVIDER RESPONSE:",
-            result.providerResponse
-          );
 
           console.groupEnd();
         }
