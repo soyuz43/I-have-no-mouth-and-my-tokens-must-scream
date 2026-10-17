@@ -2171,6 +2171,62 @@ header {
     0 0 6px rgba(0, 229, 255, 0.12);
 }
 
+.cog-visibility-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--cog-line);
+  color: var(--cog-muted);
+  background: rgba(0, 16, 19, 0.3);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.58rem;
+  line-height: 1.4;
+}
+
+.cog-visibility-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cog-visibility-legend .cog-visibility {
+  margin-left: 0;
+}
+
+.cog-visibility {
+  display: inline-flex;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+
+.cog-visibility--visible {
+  color: var(--cog-accent);
+}
+
+.cog-visibility--hidden {
+  color: var(--red);
+}
+
+.cog-visibility__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cog-visibility--hidden .cog-visibility__eye {
+  opacity: 0.55;
+}
+
 #cognition-body {
   min-height: 0;
   padding: 14px 16px 20px;
@@ -2601,9 +2657,13 @@ header {
   overflow-wrap: anywhere;
 }
 
-.cog-field-label::after {
+.cog-field-name::after {
   content: " :";
   color: #315b5f;
+}
+
+.cog-field-name {
+  overflow-wrap: anywhere;
 }
 
 .cog-field-value {
@@ -2620,6 +2680,35 @@ header {
   margin-top: 7px;
   padding-top: 5px;
   border-top: 1px solid #10292d;
+}
+
+.cog-system-metadata {
+  margin-top: 9px;
+  padding: 7px 8px 5px;
+  border: 1px solid rgba(255, 26, 26, 0.22);
+  background: rgba(64, 0, 0, 0.08);
+}
+
+.cog-system-metadata__heading {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+  color: var(--cog-muted);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.58rem;
+  font-weight: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cog-system-metadata__heading .cog-visibility {
+  margin-left: 0;
+  color: var(--red);
+}
+
+.cog-system-metadata__fields {
+  opacity: 0.78;
 }
 
 .cog-text {
@@ -3522,6 +3611,10 @@ header {
   color: var(--cog-accent-dim);
   text-transform: uppercase;
   font-family: "Share Tech Mono", monospace;
+}
+
+.cog-evidence-key .cog-visibility {
+  margin-left: 0.2rem;
 }
 
 .cog-evidence-val {

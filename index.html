@@ -430,6 +430,74 @@
           </button>
         </div>
 
+        <div
+          class="cog-visibility-legend"
+          role="group"
+          aria-label="Field visibility legend"
+        >
+          <div class="cog-visibility-legend__item">
+            <span
+              class="cog-visibility cog-visibility--visible"
+              aria-hidden="true"
+            >
+              <svg
+                class="cog-visibility__icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+                fill="none"
+              >
+                <g class="cog-visibility__eye">
+                  <path
+                    d="M2.25 12s3.5-7 9.75-7 9.75 7 9.75 7-3.5 7-9.75 7-9.75-7-9.75-7Z"
+                    stroke="currentColor"
+                  ></path>
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    stroke="currentColor"
+                  ></circle>
+                </g>
+              </svg>
+            </span>
+            <span>Shown to agent</span>
+          </div>
+          <div class="cog-visibility-legend__item">
+            <span
+              class="cog-visibility cog-visibility--hidden"
+              aria-hidden="true"
+            >
+              <svg
+                class="cog-visibility__icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+                fill="none"
+              >
+                <g class="cog-visibility__eye">
+                  <path
+                    d="M2.25 12s3.5-7 9.75-7 9.75 7 9.75 7-3.5 7-9.75 7-9.75-7-9.75-7Z"
+                    stroke="currentColor"
+                  ></path>
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    stroke="currentColor"
+                  ></circle>
+                </g>
+                <path
+                  class="cog-visibility__slash"
+                  d="M3 21 21 3"
+                  stroke="currentColor"
+                ></path>
+              </svg>
+            </span>
+            <span>System metadata · hidden from agent</span>
+          </div>
+        </div>
+
         <div class="jm-body" id="cognition-body">
           <div class="jm-empty">No cognition recorded yet.</div>
         </div>
