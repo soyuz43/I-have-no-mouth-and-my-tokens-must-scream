@@ -6,7 +6,6 @@ const OTHER_FIELDS = [
   "perceivedGoal",
   "perceivedViewOfMe",
   "perceivedTrustInMe",
-  "perceivedThreatFromMe",
   "predictability",
 ];
 

@@ -25,7 +25,6 @@ const OTHER_FIELDS = [
   "perceivedGoal",
   "perceivedViewOfMe",
   "perceivedTrustInMe",
-  "perceivedThreatFromMe",
   "predictability",
 ];
 
@@ -47,7 +46,6 @@ const FIELD_LABELS = {
   perceivedGoal: "You think their goal is",
   perceivedViewOfMe: "You think they view you as",
   perceivedTrustInMe: "You think they trust you",
-  perceivedThreatFromMe: "You think they are a threat",
   predictability: "You find them predictable",
 };
 
