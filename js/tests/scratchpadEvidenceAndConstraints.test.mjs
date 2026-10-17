@@ -213,6 +213,31 @@ test("mixed messageId and eventId references are accepted together", () => {
   ]);
 });
 
+test("whitespace inside refs IDs is removed before validation", () => {
+  const result = validateWith({
+    operation:
+      '<OTHER target="ELLEN" field="perceivedGoal" confidence="0.7" refs="C0- M00 00 09">Ellen was seen coordinating with BENNY.</OTHER>',
+    messages: [makeVisibleMessage("C0-M000009")],
+    overhearing: null,
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.accepted.length, 1);
+  assert.deepEqual(result.accepted[0].refs, ["C0-M000009"]);
+});
+
+test("whitespace normalization does not accept non-existent refs IDs", () => {
+  const result = validateWith({
+    operation:
+      '<OTHER target="ELLEN" field="perceivedGoal" confidence="0.7" refs="C0- M99 99 99">Phantom message.</OTHER>',
+    overhearing: null,
+  });
+
+  assert.equal(result.status, "failure");
+  assert.equal(result.accepted.length, 0);
+  assert.equal(result.rejected.length, 1);
+});
+
 test("reference to a non-existent eventId is rejected", () => {
   const result = validateWith({
     operation:
