@@ -2,6 +2,10 @@ import { G } from "../../../core/state.js";
 
 export function resetCycleEvidence() {
   G.pendingPsychEvidence = Object.create(null);
+  G.recentResourceDiscoveries = Array.isArray(G.pendingResourceDiscoveries)
+    ? G.pendingResourceDiscoveries.map((discovery) => ({ ...discovery }))
+    : [];
+  G.pendingResourceDiscoveries = [];
 
   G.pendingEvidence ??= {
     journal: Object.create(null),

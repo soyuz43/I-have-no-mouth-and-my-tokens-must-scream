@@ -43,6 +43,40 @@ import { enumerateLegalActions } from "../engine/agency/legalActions.js";
 import { deriveCapabilities } from "../engine/agency/capabilities.js";
 import { createAgencyState } from "../engine/agency/state/createAgencyState.js";
 import { G } from "../core/state.js";
+import { engineRng } from "../core/prng.js";
+import { commitAgencyResolution } from "../engine/agency/commit.js";
+import { resetCycleEvidence } from "../engine/phases/helpers/resetCycleEvidence.js";
+
+function discoveryGame(concealed = false) {
+  return {
+    cycle: 3,
+    sims: {
+      TED: { id: "TED", waitStreak: 0 }
+    },
+    resources: {
+      instances: [{
+        resourceId: "cigarette_stack_01",
+        definitionId: "cigarette",
+        quantity: 2,
+        holderId: "TED",
+        concealed
+      }]
+    },
+    agency: createAgencyState(),
+    pendingResourceDiscoveries: []
+  };
+}
+
+function commitDiscoveryGame(game) {
+  return commitAgencyResolution(game, [{
+    cycle: game.cycle,
+    actorId: "TED",
+    action: { type: "USE" },
+    status: "success",
+    operations: [],
+    provenance: { source: "agency_resolver" }
+  }]);
+}
 import { SIM_IDS } from "../core/constants.js";
 
 /* ============================================================
@@ -976,4 +1010,70 @@ test("enumerating actions never mutates the authoritative ledger", () => {
   }
 
   assert.equal(JSON.stringify(ledger), before);
+});
+
+test("agency commit can discover an openly held resource without removing it", () => {
+  const game = discoveryGame();
+  const originalNext = engineRng.next;
+  engineRng.next = () => 0;
+
+  try {
+    commitDiscoveryGame(game);
+
+    assert.deepEqual(game.pendingResourceDiscoveries, [{
+      cycle: 3,
+      actorId: "TED",
+      resourceId: "cigarette_stack_01",
+      definitionId: "cigarette"
+    }]);
+    assert.equal(game.resources.instances.length, 1);
+    assert.equal(game.resources.instances[0].quantity, 2);
+  } finally {
+    engineRng.next = originalNext;
+  }
+});
+
+test("agency commit never discovers a concealed resource", () => {
+  const game = discoveryGame(true);
+  const originalNext = engineRng.next;
+  let rolls = 0;
+  engineRng.next = () => {
+    rolls += 1;
+    return 0;
+  };
+
+  try {
+    commitDiscoveryGame(game);
+
+    assert.deepEqual(game.pendingResourceDiscoveries, []);
+    assert.equal(rolls, 0);
+    assert.equal(game.resources.instances.length, 1);
+  } finally {
+    engineRng.next = originalNext;
+  }
+});
+
+test("cycle evidence reset clears current discoveries and carries prior ones to AM", () => {
+  const previousPending = G.pendingResourceDiscoveries;
+  const previousRecent = G.recentResourceDiscoveries;
+  const discovery = {
+    cycle: 2,
+    actorId: "TED",
+    resourceId: "cigarette_stack_01",
+    definitionId: "cigarette"
+  };
+
+  try {
+    G.pendingResourceDiscoveries = [discovery];
+    G.recentResourceDiscoveries = [];
+
+    resetCycleEvidence();
+
+    assert.deepEqual(G.pendingResourceDiscoveries, []);
+    assert.deepEqual(G.recentResourceDiscoveries, [discovery]);
+    assert.notEqual(G.recentResourceDiscoveries[0], discovery);
+  } finally {
+    G.pendingResourceDiscoveries = previousPending;
+    G.recentResourceDiscoveries = previousRecent;
+  }
 });

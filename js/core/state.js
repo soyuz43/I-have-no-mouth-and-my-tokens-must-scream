@@ -288,6 +288,8 @@ export const G = {
   ============================================================ */
 
   pendingPsychEvidence: Object.create(null),
+  pendingResourceDiscoveries: [],
+  recentResourceDiscoveries: [],
 
   pendingEvidence: {
     journal: Object.create(null),
