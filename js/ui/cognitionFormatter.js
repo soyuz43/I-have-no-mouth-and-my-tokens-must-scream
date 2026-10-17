@@ -126,6 +126,24 @@ const RECORD_FIELD_ORDER = {
   ],
 };
 
+const FIELD_VISIBILITY_ALLOWLISTS = Object.freeze({
+  messageNote: new Set([
+    "message_id",
+    "speaker",
+    "note",
+    "confidence",
+  ]),
+  evidenceMessage: new Set([
+    "message_id",
+    "sender",
+    "from",
+    "recipients",
+    "to",
+    "visibility",
+    "text",
+  ]),
+});
+
 const HIGHLIGHT_PRIORITY = Object.freeze({
   new: 2,
   updated: 1,
@@ -145,6 +163,68 @@ function isRecord(value) {
 
 function normalizeText(value) {
   return String(value ?? "").trim();
+}
+
+function isFieldVisibleToAgent(name, view) {
+  return Boolean(
+    FIELD_VISIBILITY_ALLOWLISTS[view]
+      ?.has(toSnakeCase(name))
+  );
+}
+
+function renderVisibilityIcon(
+  visible,
+  decorative = false
+) {
+  const status =
+    visible
+      ? "visible"
+      : "hidden";
+
+  const accessibleName =
+    visible
+      ? "Shown to agent"
+      : "System metadata, not shown to agent";
+
+  return `
+    <span class="cog-visibility cog-visibility--${status}"${
+      decorative
+        ? ' aria-hidden="true"'
+        : ` role="img" aria-label="${accessibleName}"`
+    }>
+      <svg
+        class="cog-visibility__icon"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+        fill="none"
+      >
+        <g class="cog-visibility__eye">
+          <path
+            d="M2.25 12s3.5-7 9.75-7 9.75 7 9.75 7-3.5 7-9.75 7-9.75-7-9.75-7Z"
+            stroke="currentColor"
+          ></path>
+          <circle
+            cx="12"
+            cy="12"
+            r="3"
+            stroke="currentColor"
+          ></circle>
+        </g>
+        ${
+          visible
+            ? ""
+            : `
+              <path
+                class="cog-visibility__slash"
+                d="M3 21 21 3"
+                stroke="currentColor"
+              ></path>
+            `
+        }
+      </svg>
+    </span>
+  `;
 }
 
 function toSnakeCase(value) {
@@ -529,13 +609,23 @@ function field(
   name,
   value,
   html = false,
-  availableMessageIds = null
+  availableMessageIds = null,
+  visibilityView = null
 ) {
   return `
     <div class="cog-field">
-      <div class="cog-field-label">${escapeHtml(
+      <div class="cog-field-label"><span class="cog-field-name">${escapeHtml(
         toSnakeCase(name)
-      )}</div>
+      )}</span>${
+        visibilityView
+          ? renderVisibilityIcon(
+            isFieldVisibleToAgent(
+              name,
+              visibilityView
+            )
+          )
+          : ""
+      }</div>
 
       <div class="cog-field-value">${
         html
@@ -954,7 +1044,8 @@ function isEpistemicClaim(value) {
 function renderClaim(
   name,
   claim,
-  availableMessageIds = null
+  availableMessageIds = null,
+  visibilityView = null
 ) {
   if (!isRecord(claim)) {
     return warning(
@@ -1046,7 +1137,16 @@ function renderClaim(
                 status,
               }
             )}
-          </span>
+          </span>${
+            visibilityView
+              ? renderVisibilityIcon(
+                isFieldVisibleToAgent(
+                  name,
+                  visibilityView
+                )
+              )
+              : ""
+          }
         </summary>
 
         <div class="cog-claim-body">
@@ -1181,10 +1281,17 @@ function renderRecord(
     ? `cog-evidence-viewer-${nextClaimViewerId()}`
     : "";
 
-  const fields = orderedEntries(
+  const visibilityView =
+    name === "message_note"
+      ? "messageNote"
+      : null;
+
+  const entries = orderedEntries(
     record,
     RECORD_FIELD_ORDER[name] ?? []
-  )
+  );
+
+  const renderFields = (fieldEntries) => fieldEntries
     .map(
       ([key, value]) => {
         if (
@@ -1194,7 +1301,8 @@ function renderRecord(
             key,
             confidence(value),
             true,
-            availableMessageIds
+            availableMessageIds,
+            visibilityView
           );
         }
 
@@ -1209,7 +1317,8 @@ function renderRecord(
               availableMessageIds,
             }),
             true,
-            availableMessageIds
+            availableMessageIds,
+            visibilityView
           );
         }
 
@@ -1222,7 +1331,8 @@ function renderRecord(
               availableMessageIds,
             }),
             true,
-            availableMessageIds
+            availableMessageIds,
+            visibilityView
           );
         }
 
@@ -1232,7 +1342,8 @@ function renderRecord(
           return renderClaim(
             key,
             value,
-            availableMessageIds
+            availableMessageIds,
+            visibilityView
           );
         }
 
@@ -1240,11 +1351,51 @@ function renderRecord(
           key,
           value,
           false,
-          availableMessageIds
+          availableMessageIds,
+          visibilityView
         );
       }
     )
     .join("");
+
+  const visibleEntries = visibilityView
+    ? entries.filter(([key]) =>
+      isFieldVisibleToAgent(
+        key,
+        visibilityView
+      )
+    )
+    : entries;
+
+  const hiddenEntries = visibilityView
+    ? entries.filter(([key]) =>
+      !isFieldVisibleToAgent(
+        key,
+        visibilityView
+      )
+    )
+    : [];
+
+  const fields =
+    renderFields(visibleEntries) +
+    (
+      hiddenEntries.length
+        ? `
+          <section
+            class="cog-system-metadata"
+            aria-label="System metadata, not shown to agent"
+          >
+            <h4 class="cog-system-metadata__heading">
+              ${renderVisibilityIcon(false, true)}
+              <span>System metadata · not shown to agent</span>
+            </h4>
+            <div class="cog-system-metadata__fields">
+              ${renderFields(hiddenEntries)}
+            </div>
+          </section>
+        `
+        : ""
+    );
 
   return `
     <div class="cog-record" data-cog-evidence-context>
@@ -2304,7 +2455,15 @@ function formatEvidenceRow(label, value) {
   return (
     '<div class="cog-evidence-row">' +
       '<span class="cog-evidence-key">' +
+      '<span class="cog-evidence-field-name">' +
       escapeHtml(toSnakeCase(label)) +
+      '</span>' +
+      renderVisibilityIcon(
+        isFieldVisibleToAgent(
+          label,
+          "evidenceMessage"
+        )
+      ) +
       "</span>" +
       '<span class="cog-evidence-val">' +
       escapeHtml(value) +

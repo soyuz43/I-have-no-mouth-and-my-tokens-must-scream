@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   formatScratchpadForDisplay,
@@ -231,6 +232,142 @@ test("formatEvidenceMessage escapes HTML in message-derived values", () => {
   assert.ok(!html.includes("<b>x"));
   assert.ok(html.includes("&quot;&gt;"));
   assert.ok(!html.includes("<img"));
+});
+
+test("message-note visibility allowlist and hidden metadata grouping are explicit", () => {
+  const scratchpad = buildScratchWithClaim();
+  scratchpad.messageNotes = [
+    {
+      messageId: "C0-M000005",
+      speaker: "TED",
+      note: "A visible note",
+      confidence: 0.8,
+      intent: "OUTREACH",
+      cycle: 3,
+      sequence: 5,
+      channel: "private",
+      kind: "message",
+      engineDetail: "unknown fields default hidden",
+    },
+  ];
+
+  const html = formatScratchpadForDisplay(
+    scratchpad,
+    "TED",
+    null,
+    new Set(["C0-M000005"])
+  );
+
+  for (const fieldName of ["message_id", "speaker", "note", "confidence"]) {
+    assert.match(
+      html,
+      new RegExp(
+        `class="cog-field-name">${fieldName}<\\/span>\\s*` +
+          `<span class="cog-visibility cog-visibility--visible"`
+      )
+    );
+  }
+
+  for (const fieldName of [
+    "intent",
+    "cycle",
+    "sequence",
+    "channel",
+    "kind",
+    "engine_detail",
+  ]) {
+    assert.match(
+      html,
+      new RegExp(
+        `class="cog-field-name">${fieldName}<\\/span>\\s*` +
+          `<span class="cog-visibility cog-visibility--hidden"`
+      )
+    );
+  }
+
+  const visibleNotePosition = html.indexOf(
+    'class="cog-field-name">note</span>'
+  );
+  const metadataSectionPosition = html.indexOf(
+    'class="cog-system-metadata__fields"'
+  );
+  const hiddenIntentPosition = html.indexOf(
+    'class="cog-field-name">intent</span>'
+  );
+
+  assert.match(html, /System metadata · not shown to agent/);
+  assert.ok(visibleNotePosition >= 0);
+  assert.ok(metadataSectionPosition > visibleNotePosition);
+  assert.ok(hiddenIntentPosition > metadataSectionPosition);
+  assert.match(
+    html,
+    /class="cog-system-metadata"[\s\S]*?aria-label="System metadata, not shown to agent"/
+  );
+  assert.match(html, /role="img" aria-label="Shown to agent"/);
+  assert.match(
+    html,
+    /role="img" aria-label="System metadata, not shown to agent"/
+  );
+  assert.doesNotMatch(html, /\p{Extended_Pictographic}/u);
+});
+
+test("evidence message visibility icons mark only prompt-visible allowlisted fields", () => {
+  const html = formatEvidenceMessage("C0-M000005", {
+    messageId: "C0-M000005",
+    cycle: 3,
+    visibility: "private",
+    from: "TED",
+    to: ["ELLEN"],
+    intent: "OUTREACH",
+    text: "Can we talk?",
+  });
+
+  for (const fieldName of [
+    "message_id",
+    "visibility",
+    "sender",
+    "recipients",
+    "text",
+  ]) {
+    assert.match(
+      html,
+      new RegExp(
+        `class="cog-evidence-field-name">${fieldName}<\\/span>\\s*` +
+          `<span class="cog-visibility cog-visibility--visible"`
+      )
+    );
+  }
+
+  for (const fieldName of ["cycle", "intent"]) {
+    assert.match(
+      html,
+      new RegExp(
+        `class="cog-evidence-field-name">${fieldName}<\\/span>\\s*` +
+          `<span class="cog-visibility cog-visibility--hidden"`
+      )
+    );
+  }
+
+  assert.doesNotMatch(html, /\p{Extended_Pictographic}/u);
+});
+
+test("cognition modal keeps the SVG field-visibility legend in its shell", () => {
+  const modalMarkup = readFileSync(
+    new URL("../../index.html", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(modalMarkup, /class="cog-visibility-legend"/);
+  assert.match(modalMarkup, /Shown to agent/);
+  assert.match(modalMarkup, /System metadata · hidden from agent/);
+  assert.equal(
+    (modalMarkup.match(/class="cog-visibility__eye"/g) || []).length,
+    2
+  );
+  assert.match(modalMarkup, /class="cog-visibility cog-visibility--visible"/);
+  assert.match(modalMarkup, /class="cog-visibility cog-visibility--hidden"/);
+  assert.match(modalMarkup, /stroke="currentColor"/);
+  assert.match(modalMarkup, /aria-label="Field visibility legend"/);
 });
 
 test("formatEvidenceMessage renders a not-found card for missing message", () => {
