@@ -402,6 +402,7 @@ export function buildTacticPlanningContext({
   requiredTargetIds,
   tacticCandidatesByTarget,
   tacticRuntimeByTarget = {},
+  resourceDiscoveries = [],
   cycle,
   simIds
 }) {
@@ -549,7 +550,22 @@ export function buildTacticPlanningContext({
             )
       );
 
+  const resourceDiscoverySection =
+    resourceDiscoveries.length > 0
+      ? [
+          "[RECENT RESOURCE DISCOVERIES]",
+          "AM has detected the following items in prisoner possession:",
+          ...resourceDiscoveries.map(
+            ({ actorId, definitionId, cycle: discoveryCycle }) =>
+              `- ${actorId}: ${definitionId} (Cycle ${discoveryCycle})`
+          ),
+          "Use this intelligence to tailor your psychological pressure or constraints."
+        ].join("\n")
+      : "";
+
   return {
+    resourceDiscoverySection,
+
     tacticLibrarySection:
       catalogEntries
         .map(

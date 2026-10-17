@@ -7,6 +7,7 @@ import {
 import { evaluateGoalTransitions } from "../scratchpad/goals/evaluator.js";
 
 const MAX_GOAL_HISTORY = 5;
+const RESOURCE_DISCOVERY_CHANCE = 0.3;
 
 const MUTABLE_STATS = new Set([
   "hope",
@@ -82,6 +83,9 @@ export function commitAgencyResolution(
   }
   if (!G.agency || !Array.isArray(G.agency.events)) {
     throw new TypeError("Agency state must contain an events array.");
+  }
+  if (!Array.isArray(G.pendingResourceDiscoveries)) {
+    G.pendingResourceDiscoveries = [];
   }
 
   const nextSequence = Number(G.agency.nextActionSequence) || 1;
@@ -192,6 +196,36 @@ export function commitAgencyResolution(
     }
 
     scratchpad.activeGoal = transition.nextActiveGoal;
+  }
+
+  const actorIds = [...new Set(resolutions.map(({ actorId }) => actorId))]
+    .filter((actorId) => G.sims?.[actorId])
+    .sort();
+
+  for (const actorId of actorIds) {
+    const heldResources = stagedInstances
+      .filter((instance) =>
+        instance.holderId === actorId &&
+        instance.concealed === false &&
+        Number(instance.quantity) > 0
+      )
+      .sort((left, right) =>
+        String(left.resourceId).localeCompare(String(right.resourceId))
+      );
+
+    for (const instance of heldResources) {
+      if (engineRng.next() >= RESOURCE_DISCOVERY_CHANCE) continue;
+
+      G.pendingResourceDiscoveries.push({
+        cycle: G.cycle,
+        actorId,
+        resourceId: instance.resourceId,
+        definitionId: instance.definitionId
+      });
+      console.debug(
+        `[AGENCY] AM discovered ${instance.definitionId} held by ${actorId}`
+      );
+    }
   }
 
   G.resources.instances = stagedInstances;

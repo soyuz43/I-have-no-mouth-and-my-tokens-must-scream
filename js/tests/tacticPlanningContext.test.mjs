@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { G } from "../core/state.js";
+import { buildAMPlanningPrompt } from "../prompts/amPlan.js";
 import {
   buildTacticPlanningContext
 } from "../prompts/amPlan/buildTacticPlanningContext.js";
@@ -586,4 +588,82 @@ test("old-format derived tactic still fails the planning gate", () => {
       simIds: ["TED"]
     });
   });
+});
+
+test("AM context formats recent resource discoveries", () => {
+  const result = buildTacticPlanningContext({
+    requiredTargetIds: ["TED"],
+    tacticCandidatesByTarget: { TED: [tacticA] },
+    tacticRuntimeByTarget: {},
+    resourceDiscoveries: [{
+      cycle: 4,
+      actorId: "TED",
+      resourceId: "cigarette_stack_01",
+      definitionId: "cigarette"
+    }],
+    cycle: 5,
+    simIds: ["TED"]
+  });
+
+  assert.equal(
+    result.resourceDiscoverySection,
+    [
+      "[RECENT RESOURCE DISCOVERIES]",
+      "AM has detected the following items in prisoner possession:",
+      "- TED: cigarette (Cycle 4)",
+      "Use this intelligence to tailor your psychological pressure or constraints."
+    ].join("\n")
+  );
+});
+
+test("AM context omits the resource discovery section when empty", () => {
+  const result = buildTacticPlanningContext({
+    requiredTargetIds: ["TED"],
+    tacticCandidatesByTarget: { TED: [tacticA] },
+    tacticRuntimeByTarget: {},
+    resourceDiscoveries: [],
+    cycle: 5,
+    simIds: ["TED"]
+  });
+
+  assert.equal(result.resourceDiscoverySection, "");
+});
+
+test("AM strategy prompt includes discoveries only when present", () => {
+  const previousRecentDiscoveries = G.recentResourceDiscoveries;
+
+  try {
+    G.recentResourceDiscoveries = [{
+      cycle: 4,
+      actorId: "TED",
+      resourceId: "cigarette_stack_01",
+      definitionId: "cigarette"
+    }];
+
+    const promptWithDiscovery = buildAMPlanningPrompt(
+      "TED",
+      "test directive",
+      {},
+      {},
+      "",
+      { TED: [tacticA] }
+    );
+
+    assert.ok(promptWithDiscovery.includes("[RECENT RESOURCE DISCOVERIES]"));
+    assert.ok(promptWithDiscovery.includes("- TED: cigarette (Cycle 4)"));
+
+    G.recentResourceDiscoveries = [];
+    const promptWithoutDiscovery = buildAMPlanningPrompt(
+      "TED",
+      "test directive",
+      {},
+      {},
+      "",
+      { TED: [tacticA] }
+    );
+
+    assert.ok(!promptWithoutDiscovery.includes("[RECENT RESOURCE DISCOVERIES]"));
+  } finally {
+    G.recentResourceDiscoveries = previousRecentDiscoveries;
+  }
 });
