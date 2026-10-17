@@ -29,6 +29,7 @@ import {
 import { callModel } from "../../models/callModel.js";
 
 import { runStrategyPipeline } from "../strategy/strategyPipeline.js";
+import { detectPromptScaffoldLeak } from "../strategy/detectPromptScaffoldLeak.js";
 
 import {
   getTacticByPath,
@@ -264,7 +265,9 @@ export async function runStrategyPhase(directive) {
       );
 
     timelineEvent(
-      `// AM EXECUTION COMPLETE`
+      execution?.amExecution?.executionStatus === "degraded"
+        ? `!! AM EXECUTION DEGRADED (prompt_scaffold_leak)`
+        : `// AM EXECUTION COMPLETE`
     );
   } catch (error) {
     console.error(
@@ -386,7 +389,7 @@ async function stepPlanAM(
    STEP 2 — AM EXECUTION
    ============================================================ */
 
-async function stepExecuteAM(
+export async function stepExecuteAM(
   directive,
   targets,
   tacticAssignmentsByTarget
@@ -465,7 +468,11 @@ async function stepExecuteAM(
             `Execute torment cycle ${G.cycle}.`
         }
       ],
-      1800
+      1800,
+      {
+        purpose: "AM_EXECUTION",
+        suppressResponseBodyLogs: true
+      }
     );
 
     // console.log(
@@ -482,16 +489,6 @@ async function stepExecuteAM(
   /* ------------------------------------------------------------
      PARSE RAW EXECUTION OUTPUT
   ------------------------------------------------------------ */
-
-  const parsedConstraintMap =
-    extractConstraintsFromText(amResponse);
-
-  if (G.DEBUG_CONSTRAINTS) {
-    console.log(
-      "[AFTER AM CONSTRAINT PARSE]",
-      parsedConstraintMap
-    );
-  }
 
   /*
    * The validated strategy determines which targets AM was
@@ -511,8 +508,51 @@ async function stepExecuteAM(
     expectedTargetIds
   );
 
-  const actions =
-    parsedExecution.actions;
+  const actions = {};
+  const semanticFailures = [];
+
+  for (const [targetId, action] of Object.entries(parsedExecution.actions)) {
+    const reason = detectPromptScaffoldLeak(action?.text);
+
+    if (!reason) {
+      actions[targetId] = action;
+      continue;
+    }
+
+    const tacticPath =
+      tacticAssignmentsByTarget?.[targetId]?.tactic?.path ||
+      G.amTacticRuntime?.targets?.[targetId]?.path ||
+      "(unresolved)";
+    const snippet = sanitizeScaffoldDiagnosticSnippet(action?.text);
+    const failure = {
+      cycle: G.cycle,
+      targetId,
+      tacticPath,
+      reason,
+      snippet
+    };
+
+    semanticFailures.push(failure);
+
+    console.warn(
+      "[AM EXECUTION][SEMANTIC REJECTION]",
+      failure
+    );
+
+    timelineEvent(
+      `!! AM EXECUTION REJECTED cycle=${G.cycle} target=${targetId} tactic=${tacticPath} reason=${reason} snippet="${snippet}"`
+    );
+  }
+
+  const parsedConstraintMap =
+    extractConstraintsFromText(amResponse);
+
+  if (G.DEBUG_CONSTRAINTS) {
+    console.log(
+      "[AFTER AM CONSTRAINT PARSE]",
+      parsedConstraintMap
+    );
+  }
 
   const actionTargetIds = orderedSimIds(
     Object.keys(actions)
@@ -641,8 +681,23 @@ async function stepExecuteAM(
      * Expected targets for which no usable AM action was parsed.
      */
     missingTargetIds:
-      parsedExecution.missingTargetIds
+      orderedSimIds([
+        ...parsedExecution.missingTargetIds,
+        ...semanticFailures.map((failure) => failure.targetId)
+      ])
   };
+
+  if (semanticFailures.length) {
+    amExecution.semanticFailures = semanticFailures;
+  }
+
+  if (
+    semanticFailures.length &&
+    actionTargetIds.length === 0
+  ) {
+    amExecution.executionStatus = "degraded";
+    amExecution.failureReason = "prompt_scaffold_leak";
+  }
 
   /*
    * Canonical current-cycle execution state.
@@ -741,9 +796,13 @@ async function stepExecuteAM(
 
   console.groupEnd();
 
+  const loggedAMResponse = semanticFailures.length
+    ? buildRedactedAMExecutionLog(actions, semanticFailures)
+    : amResponse;
+
   addLog(
     `AM // CYCLE ${G.cycle}`,
-    amResponse,
+    loggedAMResponse,
     "am"
   );
 
@@ -752,16 +811,46 @@ async function stepExecuteAM(
    * the sanitized whole-response representation.
    */
   const simSeesAM =
-    sanitizeAMOutput(amResponse);
+    sanitizeAMOutput(loggedAMResponse);
 
   return {
-    amResponse,
+    amResponse: loggedAMResponse,
     simSeesAM,
     targets,
     tacticMap,
     constraintMap: parsedConstraintMap,
     amExecution
   };
+}
+
+function sanitizeScaffoldDiagnosticSnippet(text) {
+  return String(text ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/</g, "‹")
+    .replace(/>/g, "›")
+    .trim()
+    .slice(0, 120);
+}
+
+function buildRedactedAMExecutionLog(actions, semanticFailures) {
+  const sections = [
+    "[AM execution response redacted after prompt scaffold rejection]"
+  ];
+
+  for (const [targetId, action] of Object.entries(actions)) {
+    sections.push(
+      `[ACCEPTED TARGET: ${targetId}]\n${action.text}`
+    );
+  }
+
+  for (const failure of semanticFailures) {
+    sections.push(
+      `[REJECTED TARGET: ${failure.targetId}] ${failure.reason} (${failure.tacticPath})`
+    );
+  }
+
+  return sections.join("\n\n");
 }
 
 /* ============================================================

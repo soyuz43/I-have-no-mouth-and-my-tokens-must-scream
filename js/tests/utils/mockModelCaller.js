@@ -30,19 +30,20 @@ export function mockCallModel(
   return strategyResponse ?? `MOCK_RESPONSE_${promptHash}`;
 }
 
-export function createMockModelFetch() {
+export function createMockModelFetch({ responseForRequest } = {}) {
   let callCount = 0;
 
   return {
     fetch: async (_url, options = {}) => {
       const request = JSON.parse(options.body ?? "{}");
       callCount++;
-      const responseText = mockCallModel(
-        "MOCK_MODEL",
-        request.system,
-        request.messages,
-        request.max_tokens,
-      );
+      const responseText = responseForRequest?.(request, callCount) ??
+        mockCallModel(
+          "MOCK_MODEL",
+          request.system,
+          request.messages,
+          request.max_tokens,
+        );
 
       return {
         ok: true,
