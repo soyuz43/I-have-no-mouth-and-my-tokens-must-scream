@@ -690,9 +690,6 @@ export function makeScratchpad(id) {
             perceivedTrustInMe:
               makeEpistemicClaim(),
 
-            perceivedThreatFromMe:
-              makeEpistemicClaim(),
-
             predictability:
               makeEpistemicClaim(),
           },

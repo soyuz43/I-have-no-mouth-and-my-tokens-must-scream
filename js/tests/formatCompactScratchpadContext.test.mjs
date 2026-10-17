@@ -6,6 +6,7 @@ import {
   formatCompactScratchpadContextWithSections,
 } from "../prompts/utils/formatCompactScratchpadContext.js";
 import { logScratchpadContextInjection } from "../prompts/utils/scratchpadContextLog.js";
+import { buildScratchpadCommsPrompt } from "../prompts/scratchpadComms.js";
 
 function makeClaim(value, confidence) {
   return { value, confidence, evidence: [], rationale: null };
@@ -20,15 +21,13 @@ function makeScratchpad() {
       ELLEN: {
         perceivedGoal: makeClaim("escape", 0.9),
         perceivedViewOfMe: makeClaim("useful", 0.5),
-        perceivedTrustInMe: null,
-        perceivedThreatFromMe: makeClaim(false, 0.2),
+        perceivedTrustInMe: makeClaim(false, 0.2),
         predictability: makeClaim(0.7, 0.6),
       },
       TED: {
         perceivedGoal: makeClaim("survive alone", 0.8),
         perceivedViewOfMe: makeClaim("threat", 0.9),
         perceivedTrustInMe: makeClaim(false, 0.7),
-        perceivedThreatFromMe: makeClaim(true, 0.6),
         predictability: makeClaim(0.3, 0.4),
       },
     },
@@ -89,6 +88,20 @@ function makeSim() {
   return { scratchpad: makeScratchpad() };
 }
 
+test("scratchpad comms prompt clarifies field semantics without few-shots", () => {
+  const prompt = buildScratchpadCommsPrompt({ id: "ELLEN" }, []);
+
+  assert.ok(prompt.length < 10000);
+  assert.ok(prompt.indexOf("FIELD SEMANTICS") < prompt.indexOf("OUTPUT FORMAT"));
+  assert.match(prompt, /<OTHER>: Tag text IS the value \(the theory\)\. There is no rationale\./);
+  assert.match(prompt, /<SCORE>: The value attribute is a number \(0\.0-1\.0\)\. Tag text is the REASON for that number\./);
+  assert.match(prompt, /<CHANNEL>: The value attribute is true\/false\. Tag text is the REASON\./);
+  assert.match(prompt, /<QUESTION>: Tag text is the question itself\./);
+  assert.doesNotMatch(prompt, /perceivedThreatFromMe/);
+  assert.doesNotMatch(prompt, /<OTHER target="ELLEN"/);
+  assert.match(prompt, /<SCRATCHPAD_UPDATES>\s*<NO_UPDATE\/>\s*<\/SCRATCHPAD_UPDATES>/);
+});
+
 test("returns empty string for uninitialized scratchpad", () => {
   const sim = makeSim();
   sim.scratchpad.initialized = false;
@@ -140,11 +153,10 @@ test("WithSections reports only rendered person-model fields (targetId)", () => 
   assert.ok(person, "expected an ELLEN personModel section");
   assert.deepEqual(person.fields.sort(), [
     "perceivedGoal",
-    "perceivedThreatFromMe",
+    "perceivedTrustInMe",
     "perceivedViewOfMe",
     "predictability",
   ]);
-  assert.ok(!person.fields.includes("perceivedTrustInMe"));
 });
 
 test("WithSections reports channel scopes and rendered field keys", () => {

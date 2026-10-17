@@ -72,7 +72,6 @@ export const SCRATCHPAD_OTHER_FIELDS = Object.freeze([
 
 export const SCRATCHPAD_SCORE_FIELDS = Object.freeze([
   "perceivedTrustInMe",
-  "perceivedThreatFromMe",
   "predictability",
 ]);
 
