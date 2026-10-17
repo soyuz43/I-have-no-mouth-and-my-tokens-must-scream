@@ -5,6 +5,7 @@ import {
   getScratchpadOperationDefinition,
   normalizeScratchpadOperationTag,
 } from "./protocol.js";
+import { detectPromptScaffoldLeak } from "../../../utils/scaffoldLeakDetector.js";
 
 /*
 ============================================================
@@ -648,7 +649,8 @@ function extractOperationsFromInnerText(
 ============================================================ */
 
 export function parseScratchpadCommsOutput(
-  repairedOutput
+  repairedOutput,
+  { simId = "?", cycle = "?" } = {}
 ) {
   const source =
     repairedOutput == null
@@ -821,7 +823,7 @@ export function parseScratchpadCommsOutput(
     );
   }
 
-  return {
+  const parsedResult = {
     status,
 
     source,
@@ -883,6 +885,36 @@ export function parseScratchpadCommsOutput(
         wrapper.suffix.length,
     },
   };
+
+  const scaffoldLeak =
+    detectPromptScaffoldLeak(
+      source,
+      { promptType: "scratchpadComms" }
+    );
+
+  if (scaffoldLeak) {
+    parsedResult.status = "failure";
+    parsedResult.operations = [];
+    parsedResult.unknownTags = [];
+    parsedResult.noUpdate = false;
+    parsedResult.hasOperations = false;
+    parsedResult.failureReason = scaffoldLeak.reason;
+    parsedResult.scaffoldLeak = scaffoldLeak;
+    parsedResult.errors.push(scaffoldLeak.reason);
+    parsedResult.diagnostics.scaffoldLeak = true;
+
+    console.warn(
+      "[SCRATCHPAD][SCAFFOLD REJECTED]",
+      {
+        cycle,
+        simId,
+        reason: scaffoldLeak.reason,
+        snippet: scaffoldLeak.snippet
+      }
+    );
+  }
+
+  return parsedResult;
 }
 
 /* ============================================================

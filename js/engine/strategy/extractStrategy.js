@@ -7,6 +7,8 @@ import { repairTargetsExtractor } from "./extractors/repairTargetsExtractor.js";
 import { classifyJsonError } from "./extractors/classifyJsonError.js";
 import { extractLabeledTargets } from "./extractors/extractLabeledTargets.js";
 import { extractLooseTargets } from "./extractors/extractLooseTargets.js";
+import { timelineEvent } from "../../ui/timeline.js";
+import { detectPromptScaffoldLeak } from "../../utils/scaffoldLeakDetector.js";
 
 // ========== GLOBAL LOGGING CONTROL ==========
 const LOG_EXTRACT_FLOW = true;           // High-level: start, success/failure, merged count
@@ -386,6 +388,44 @@ export function extractStrategy(input, { DEBUG = true, DEBUG_EXTRACT = false } =
       ...v.data,
       _fieldSources: v.fieldSources || {}
     }));
+
+    const scaffoldLeak =
+      detectPromptScaffoldLeak(
+        JSON.stringify(merged),
+        { promptType: "amPlan" }
+      );
+
+    if (scaffoldLeak) {
+      const errorType = scaffoldLeak.reason;
+      metrics.failures = (metrics.failures || 0) + 1;
+      metrics.pipelineFailures = (metrics.pipelineFailures || 0) + 1;
+      metrics.errorTypes[errorType] =
+        (metrics.errorTypes[errorType] || 0) + 1;
+      G.parserMetrics.totals.failures =
+        (G.parserMetrics.totals.failures || 0) + 1;
+      G.parserMetrics.totals.pipelineFailures =
+        (G.parserMetrics.totals.pipelineFailures || 0) + 1;
+      G.parserMetrics.totals.errorTypes[errorType] =
+        (G.parserMetrics.totals.errorTypes[errorType] || 0) + 1;
+      G.lastExtractedTargets = [];
+
+      logError("rejecting strategy containing prompt scaffold", {
+        cycle,
+        reason: errorType,
+        snippet: scaffoldLeak.snippet
+      });
+
+      timelineEvent(
+        `!! AM PLAN REJECTED cycle=${cycle} reason=${errorType}`
+      );
+
+      return {
+        status: "failure",
+        errorType,
+        scaffoldLeak,
+        extractorAttempts
+      };
+    }
 
     logFlow(`merged ${merged.length} targets from ${successfulResults.length} extractors`);
     if (LOG_EXTRACT_MERGE && mergeLog.length) {

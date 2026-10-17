@@ -17,7 +17,7 @@ import {
 } from "../engine/phases/strategyPhase.js";
 import {
   detectPromptScaffoldLeak
-} from "../engine/strategy/detectPromptScaffoldLeak.js";
+} from "../utils/scaffoldLeakDetector.js";
 import {
   createMockModelFetch
 } from "./utils/mockModelCaller.js";
@@ -159,11 +159,16 @@ async function runMockExecution(targetIds, responseText) {
 }
 
 test("scaffold detector rejects prompt instructions without flagging dialogue", () => {
-  assert.equal(
+  assert.deepEqual(
     detectPromptScaffoldLeak(
       "<exactly 2-3 complete sentences spoken by AM directly to TED; TED is the listener, never the speaker; do not write TED's response>"
     ),
-    "prompt_scaffold_leak"
+    {
+      detected: true,
+      reason: "prompt_scaffold_leak",
+      snippet:
+        "<exactly 2-3 complete sentences spoken by AM directly to TED; TED is the listener, never the speaker; do not write TED's response>"
+    }
   );
   assert.equal(
     detectPromptScaffoldLeak(
