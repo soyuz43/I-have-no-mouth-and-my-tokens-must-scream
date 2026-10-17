@@ -97,7 +97,9 @@ function resolveOne(proposal, snapshot, claims) {
     operations: [],
     effects: {},
     provenance: {
-      source: "agency_resolver",
+      source: actionType === "WAIT" && accepted === true
+        ? "agency_proposal"
+        : "agency_resolver",
       proposalAccepted: accepted === true,
       requestedType: proposal.requestedType ?? actionType,
       validationReason: proposal.reason ?? null
@@ -108,6 +110,7 @@ function resolveOne(proposal, snapshot, claims) {
     base.action = { type: "WAIT" };
     base.reason = proposal.reason ?? "invalid_proposal";
     base.provenance.requestedType = proposal.requestedType ?? null;
+    base.provenance.source = "agency_resolver";
     return base;
   }
 

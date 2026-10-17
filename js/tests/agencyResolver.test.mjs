@@ -265,6 +265,136 @@ test("SMOKE consumes cigarette and match and applies only mutable effects", () =
   assert.equal(game.sims.TED.stability, 0.4);
 });
 
+test("voluntary WAIT streaks apply escalating stat penalties", () => {
+  const game = createGame([]);
+  const waitProposal = validateAgencyProposal({
+    proposal: { type: "WAIT" },
+    actorId: "TED",
+    legalActions: [legalEntry("WAIT")],
+    budget: 3,
+    resourceView: buildResourceView(game.resources, "TED")
+  });
+
+  for (let waitStreak = 1; waitStreak <= 3; waitStreak += 1) {
+    const [resolution] = resolveAgencyActions({
+      proposals: [waitProposal],
+      snapshot: createAgencySnapshot(game),
+      cycle: game.cycle
+    });
+    game.cycle += 1;
+    commitAgencyResolution(game, [resolution]);
+
+    assert.equal(game.sims.TED.waitStreak, waitStreak);
+    assert.equal(game.agency.events.at(-1).provenance.source, "agency_proposal");
+    if (waitStreak === 1) {
+      assert.equal(game.sims.TED.suffering, 10);
+      assert.equal(game.sims.TED.hope, 50);
+      assert.equal(game.agency.events.at(-1).provenance.waitPenalty, undefined);
+    } else {
+      assert.deepEqual(game.agency.events.at(-1).provenance.waitPenalty, {
+        suffering: waitStreak,
+        hope: -waitStreak * 0.5
+      });
+    }
+  }
+
+  assert.equal(game.sims.TED.suffering, 15);
+  assert.equal(game.sims.TED.hope, 47.5);
+  assert.equal(game.sims.TED.sanity, 60);
+});
+
+test("resolver fallback WAITs do not advance or penalize the voluntary streak", async () => {
+  const game = createGame([]);
+  game.sims.TED.waitStreak = 1;
+  const resourceView = buildResourceView(game.resources, "TED");
+  const fallbackProposals = [
+    await collectAgencyProposal(
+      game.sims.TED,
+      {
+        budget: 3,
+        legalActions: [legalEntry("WAIT")],
+        resourceView,
+        modelCall: async () => "not json"
+      }
+    ),
+    validateAgencyProposal({
+      proposal: { type: "WAIT", explanation: "invalid" },
+      actorId: "TED",
+      legalActions: [legalEntry("WAIT")],
+      budget: 3,
+      resourceView
+    }),
+    validateAgencyProposal({
+      proposal: { type: "SMOKE" },
+      actorId: "TED",
+      legalActions: [legalEntry("WAIT")],
+      budget: 3,
+      resourceView
+    })
+  ];
+
+  for (const proposal of fallbackProposals) {
+    const [resolution] = resolveAgencyActions({
+      proposals: [proposal],
+      snapshot: createAgencySnapshot(game),
+      cycle: game.cycle
+    });
+    game.cycle += 1;
+    commitAgencyResolution(game, [resolution]);
+    assert.equal(game.sims.TED.waitStreak, 1);
+    assert.equal(game.agency.events.at(-1).actionType, "WAIT");
+    assert.equal(game.agency.events.at(-1).provenance.source, "agency_resolver");
+    assert.equal(game.agency.events.at(-1).provenance.waitPenalty, undefined);
+  }
+
+  assert.equal(game.sims.TED.suffering, 10);
+  assert.equal(game.sims.TED.hope, 50);
+});
+
+test("non-WAIT actions reset streak and WAIT penalties clamp mutable stats", () => {
+  const game = createGame([]);
+  game.sims.TED.waitStreak = 4;
+  const observe = validateAgencyProposal({
+    proposal: { type: "OBSERVE" },
+    actorId: "TED",
+    legalActions: [legalEntry("OBSERVE")],
+    budget: 3,
+    resourceView: buildResourceView(game.resources, "TED")
+  });
+  const [observeResolution] = resolveAgencyActions({
+    proposals: [observe],
+    snapshot: createAgencySnapshot(game),
+    cycle: game.cycle
+  });
+  commitAgencyResolution(game, [observeResolution]);
+
+  assert.equal(game.sims.TED.waitStreak, 0);
+
+  game.sims.TED.hope = 0.5;
+  game.sims.TED.suffering = 99.5;
+  const wait = validateAgencyProposal({
+    proposal: { type: "WAIT" },
+    actorId: "TED",
+    legalActions: [legalEntry("WAIT")],
+    budget: 3,
+    resourceView: buildResourceView(game.resources, "TED")
+  });
+
+  for (let index = 0; index < 2; index += 1) {
+    const [resolution] = resolveAgencyActions({
+      proposals: [wait],
+      snapshot: createAgencySnapshot(game),
+      cycle: game.cycle
+    });
+    game.cycle += 1;
+    commitAgencyResolution(game, [resolution]);
+  }
+
+  assert.equal(game.sims.TED.waitStreak, 2);
+  assert.equal(game.sims.TED.hope, 0);
+  assert.equal(game.sims.TED.suffering, 100);
+});
+
 test("commit creates canonical events and exporter records them separately", () => {
   const game = createGame([
     resource("cigarette-1", "cigarette", 1, "TED"),
