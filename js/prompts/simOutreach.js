@@ -4,6 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { engineRng } from "../core/prng.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatResourceSummary } from "./utils/formatResourceSummary.js";
 import {
   formatCompactScratchpadContextWithSections,
 } from "./utils/formatCompactScratchpadContext.js";
@@ -12,6 +13,10 @@ import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 export function buildSimOutreachPrompt(sim, state = null) {
  const { b, others, reactiveIntel, perceivedCoalitions } = buildPromptContext(sim, state);
+  const resourceSummary = formatResourceSummary(
+    G.resources?.instances,
+    sim.id
+  );
   if (reactiveIntel && state?.pendingReactiveIntel) {
     state.pendingReactiveIntel.delete(sim.id);
   }
@@ -113,6 +118,13 @@ RECENT MESSAGES YOU HAVE SEEN (last 6–8):
 ${relevantMessages || "(none – you have not seen any messages from others recently)"}
 
 **IMPORTANT:** The list above shows every message you are aware of. If it says "(none)", then you have not seen or sent any messages recently. Do NOT invent any past conversations, apologies, or references to messages that are not listed. Your outreach must be based only on your current state and drives, not on imaginary prior exchanges.
+
+---
+
+YOUR INVENTORY
+
+${resourceSummary}
+Each entry is item type: total units you hold. Mention, offer, request, conceal, or ignore this context as you choose.
 
 ---
 

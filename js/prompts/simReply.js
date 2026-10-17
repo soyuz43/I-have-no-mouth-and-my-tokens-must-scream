@@ -17,6 +17,7 @@
 
 import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
+import { formatResourceSummary } from "./utils/formatResourceSummary.js";
 import {
   formatCompactScratchpadContextWithSections,
 } from "./utils/formatCompactScratchpadContext.js";
@@ -37,6 +38,10 @@ export function buildSimReplyPrompt(
 
 
   const { b, perceivedCoalitions } = buildPromptContext(sim);
+  const resourceSummary = formatResourceSummary(
+    G.resources?.instances,
+    sim.id
+  );
 
   const visLabel =
     visibility === "public"
@@ -308,6 +313,13 @@ Visibility: ${visLabel}
 ---
 
 • Do NOT repeat the message you are replying to. Your reply should be original and show your own perspective.
+---
+
+YOUR INVENTORY
+
+${resourceSummary}
+Each entry is item type: total units you hold. Mention, offer, request, conceal, or ignore this context as you choose.
+
 ---
 
 ## IMMEDIATE COMMUNICATION DECISION
