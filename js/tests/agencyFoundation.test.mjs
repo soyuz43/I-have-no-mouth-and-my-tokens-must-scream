@@ -1557,7 +1557,7 @@ test("the phase stores the full derive envelope, not just the five floats", () =
   );
 });
 
-test("WAIT proposals only mutate goal lifecycle state", async () => {
+test("WAIT proposals advance goals and apply voluntary streak costs", async () => {
   return withPhase(
     { cycle: 15, constraints: [restraint("squat_hold")] },
     async ({ G, runAgencyPhase }) => {
@@ -1571,6 +1571,7 @@ test("WAIT proposals only mutate goal lifecycle state", async () => {
         const event = G.agency.events.find((entry) =>
           entry.actorId === simId && entry.cycle === G.cycle
         );
+        const expectedWaitStreak = (Number(beforeSim.waitStreak) || 0) + 1;
         const priorGoal = beforeSim.scratchpad.activeGoal;
         const expectedGoal = {
           ...priorGoal,
@@ -1590,7 +1591,20 @@ test("WAIT proposals only mutate goal lifecycle state", async () => {
         };
 
         assert.ok(event, `${simId} has no successful WAIT event`);
+        assert.equal(event.provenance.source, "agency_proposal");
+        assert.equal(afterSim.waitStreak, expectedWaitStreak);
         assert.deepEqual(afterSim.scratchpad.activeGoal, expectedGoal);
+        const waitPenalty = expectedWaitStreak >= 2
+          ? expectedWaitStreak
+          : 0;
+        assert.equal(
+          afterSim.suffering,
+          Math.max(0, Math.min(100, beforeSim.suffering + waitPenalty))
+        );
+        assert.equal(
+          afterSim.hope,
+          Math.max(0, Math.min(100, beforeSim.hope - waitPenalty * 0.5))
+        );
 
         const beforeNonGoalState = structuredClone(beforeSim);
         const afterNonGoalState = structuredClone(afterSim);
@@ -1598,6 +1612,12 @@ test("WAIT proposals only mutate goal lifecycle state", async () => {
         delete beforeNonGoalState.scratchpad.goalHistory;
         delete afterNonGoalState.scratchpad.activeGoal;
         delete afterNonGoalState.scratchpad.goalHistory;
+        delete beforeNonGoalState.waitStreak;
+        delete afterNonGoalState.waitStreak;
+        delete beforeNonGoalState.hope;
+        delete afterNonGoalState.hope;
+        delete beforeNonGoalState.suffering;
+        delete afterNonGoalState.suffering;
         assert.deepEqual(afterNonGoalState, beforeNonGoalState);
       }
     }

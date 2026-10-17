@@ -87,6 +87,7 @@ export function commitAgencyResolution(
   const nextSequence = Number(G.agency.nextActionSequence) || 1;
   const stagedInstances = G.resources.instances.map(cloneInstance);
   const stagedStats = new Map();
+  const stagedWaitStreaks = new Map();
   const stagedEvents = [];
   let sequence = nextSequence;
 
@@ -97,6 +98,36 @@ export function commitAgencyResolution(
       sequence
     );
     const committedResourceIds = [];
+    const actor = G.sims?.[resolution.actorId];
+    const actionType = resolution.action?.type ?? "WAIT";
+
+    if (actor) {
+      const currentWaitStreak = stagedWaitStreaks.get(resolution.actorId) ??
+        Math.max(0, Math.floor(Number(actor.waitStreak) || 0));
+
+      if (
+        actionType === "WAIT" &&
+        event.provenance.source !== "agency_resolver"
+      ) {
+        const waitStreak = currentWaitStreak + 1;
+        stagedWaitStreaks.set(resolution.actorId, waitStreak);
+        event.provenance.waitStreak = waitStreak;
+
+        if (waitStreak >= 2) {
+          const penalty = {
+            suffering: waitStreak,
+            hope: -waitStreak * 0.5
+          };
+          const pending = stagedStats.get(resolution.actorId) ?? {};
+          pending.suffering = (pending.suffering ?? 0) + penalty.suffering;
+          pending.hope = (pending.hope ?? 0) + penalty.hope;
+          stagedStats.set(resolution.actorId, pending);
+          event.provenance.waitPenalty = penalty;
+        }
+      } else if (actionType !== "WAIT") {
+        stagedWaitStreaks.set(resolution.actorId, 0);
+      }
+    }
 
     if (resolution.status === "success") {
       for (const operation of resolution.operations ?? []) {
@@ -170,6 +201,10 @@ export function commitAgencyResolution(
     for (const [stat, delta] of Object.entries(effects)) {
       actor[stat] = clampStat(Number(actor[stat] ?? 0) + delta);
     }
+  }
+  for (const [actorId, waitStreak] of stagedWaitStreaks) {
+    const actor = G.sims?.[actorId];
+    if (actor) actor.waitStreak = waitStreak;
   }
   G.agency.events.push(...stagedEvents);
   G.agency.nextActionSequence = sequence;
