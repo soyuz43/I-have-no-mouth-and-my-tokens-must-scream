@@ -29,6 +29,7 @@ import { runStrategyPhase } from "./phases/strategyPhase.js";
 import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runAgencyPhase } from "./phases/agencyPhase.js";
+import { maintainResourceDrying } from "./agency/resourceLedger.js";
 import { expirePredictions } from "./scratchpad/expirePredictions.js";
 import { runScratchpadConsolidation } from "./scratchpad/consolidate.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
@@ -609,6 +610,7 @@ async function runCyclePipeline() {
 export function beginCycle() {
 
   G.cycle++;
+  maintainResourceDrying(G);
 
   resetCycleEvidence();
 

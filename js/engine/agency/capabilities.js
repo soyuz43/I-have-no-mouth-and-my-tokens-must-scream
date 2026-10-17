@@ -52,7 +52,7 @@
 //
 //    `deriveCapabilities()` never mutates `sim`, never mutates
 //    `CONSTRAINT_MAP` or any definition object, never writes to `G`,
-//    and never calls `Math.random()`.
+//    and never calls a nondeterministic random source.
 //
 //    NOTE: `CONSTRAINT_MAP` holds live references to the definition
 //    objects rather than copies. Posture is returned as a ONE-LEVEL

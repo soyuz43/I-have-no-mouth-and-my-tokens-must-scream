@@ -124,10 +124,10 @@ function blockedByType(result) {
    A) RESOURCE DEFINITIONS
 ============================================================ */
 
-test("the catalogue defines exactly the first dependency pair", () => {
+test("the catalogue includes the first dependency pair and search resources", () => {
   assert.deepEqual(
     getAllResourceDefinitionIds(),
-    ["cigarette", "match"]
+    ["cigarette", "wet_cigarette", "dirty_water", "match"]
   );
 });
 

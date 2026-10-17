@@ -41,6 +41,8 @@
    THE CATALOGUE
 ============================================================ */
 
+export const SEARCH_COOLDOWN_CYCLES = 4;
+
 const ACTION_DEFINITIONS = Object.freeze({
 
   /*
@@ -217,6 +219,49 @@ const ACTION_DEFINITIONS = Object.freeze({
     }),
     executionModes: Object.freeze({})
   }),
+
+  /*
+   * SEARCH scavenges the immediate environment and never targets
+   * another prisoner. Every valid attempt starts a four-cycle
+   * cooldown, regardless of whether anything is found.
+   */
+  SEARCH: Object.freeze({
+    type: "SEARCH",
+    title: "Search the area",
+    baseCost: 1,
+    requirements: Object.freeze({
+      concentration: 0.15,
+      interactionReach: 0.1
+    }),
+    effortDomains: Object.freeze(["physical"]),
+    resourceRequirements: Object.freeze({}),
+    executionModes: Object.freeze({})
+  }),
+
+  /*
+   * CONSUME is limited to dirty water in this phase. Cigarettes
+   * remain consumable only through SMOKE, which also validates
+   * ignition and preserves its existing paired-resource behavior.
+   */
+  CONSUME: Object.freeze({
+    type: "CONSUME",
+    title: "Drink dirty water",
+    baseCost: 1,
+    requirements: Object.freeze({
+      handUse: 0.5,
+      interactionReach: 0.5
+    }),
+    effortDomains: Object.freeze(["physical"]),
+    resourceRequirements: Object.freeze({
+      consume: Object.freeze([
+        Object.freeze({
+          definitionId: "dirty_water",
+          quantity: 1
+        })
+      ])
+    }),
+    executionModes: Object.freeze({})
+  }),
 });
 
 /* ============================================================
@@ -251,7 +296,8 @@ export function getActionDefinition(type) {
  *
  * A fresh array each call, so a consumer that sorts or splices the
  * result cannot reorder the shared registry. The order is
- * declaration order: WAIT, OBSERVE. That order is the
+ * declaration order: WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, SEARCH,
+ * CONSUME. That order is the
  * enumeration order the legal-action list will preserve.
  */
 export function getAllActionTypes() {
