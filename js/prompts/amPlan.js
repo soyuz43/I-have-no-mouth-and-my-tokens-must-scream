@@ -310,6 +310,7 @@ ${indent(prisonerBlock)}
   const {
     tacticLibrarySection,
     targetTacticSection,
+    objectiveResourceLedgerSection,
     resourceDiscoverySection
   } =
     buildTacticPlanningContext({
@@ -320,6 +321,10 @@ ${indent(prisonerBlock)}
       tacticRuntimeByTarget:
         amTacticRuntime?.targets ??
         {},
+
+      resourceInstances:
+        G.resources?.instances ??
+        [],
 
       resourceDiscoveries:
         G.recentResourceDiscoveries ??
@@ -498,6 +503,8 @@ HOW TO INTERPRET PRIOR TACTIC RESULTS:
 # TARGET STATE
 
 ${allIntel}${COALITION_INTEL_SECTION}
+
+${objectiveResourceLedgerSection}
 
 ${resourceDiscoverySection}
 

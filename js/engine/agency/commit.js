@@ -252,7 +252,6 @@ export function commitAgencyResolution(
     const heldResources = stagedInstances
       .filter((instance) =>
         instance.holderId === actorId &&
-        instance.concealed === false &&
         Number(instance.quantity) > 0
       )
       .sort((left, right) =>
@@ -269,7 +268,7 @@ export function commitAgencyResolution(
         definitionId: instance.definitionId
       });
       console.debug(
-        `[AGENCY] AM discovered ${instance.definitionId} held by ${actorId}`
+        `[AGENCY] AM attention drawn to ${instance.definitionId} held by ${actorId}`
       );
     }
   }

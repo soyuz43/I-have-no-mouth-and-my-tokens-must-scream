@@ -1012,7 +1012,7 @@ test("enumerating actions never mutates the authoritative ledger", () => {
   assert.equal(JSON.stringify(ledger), before);
 });
 
-test("agency commit can discover an openly held resource without removing it", () => {
+test("agency commit flags an openly held resource without removing it", () => {
   const game = discoveryGame();
   const originalNext = engineRng.next;
   engineRng.next = () => 0;
@@ -1033,8 +1033,17 @@ test("agency commit can discover an openly held resource without removing it", (
   }
 });
 
-test("agency commit never discovers a concealed resource", () => {
-  const game = discoveryGame(true);
+test("agency commit rolls attention for concealed and unconcealed held resources", () => {
+  const game = discoveryGame();
+  game.resources.instances[0].accessible = true;
+  game.resources.instances.push({
+    resourceId: "match_stack_00",
+    definitionId: "match",
+    quantity: 1,
+    holderId: "TED",
+    accessible: false,
+    concealed: true
+  });
   const originalNext = engineRng.next;
   let rolls = 0;
   engineRng.next = () => {
@@ -1045,11 +1054,58 @@ test("agency commit never discovers a concealed resource", () => {
   try {
     commitDiscoveryGame(game);
 
-    assert.deepEqual(game.pendingResourceDiscoveries, []);
-    assert.equal(rolls, 0);
-    assert.equal(game.resources.instances.length, 1);
+    assert.deepEqual(game.pendingResourceDiscoveries, [
+      {
+        cycle: 3,
+        actorId: "TED",
+        resourceId: "cigarette_stack_01",
+        definitionId: "cigarette"
+      },
+      {
+        cycle: 3,
+        actorId: "TED",
+        resourceId: "match_stack_00",
+        definitionId: "match"
+      }
+    ]);
+    assert.equal(rolls, 2);
+    assert.equal(game.resources.instances.length, 2);
   } finally {
     engineRng.next = originalNext;
+  }
+});
+
+test("same engine RNG state and ledger produce identical attention flags", () => {
+  const previousRngState = engineRng.getState();
+
+  const runAttentionSweep = () => {
+    const game = discoveryGame();
+    game.resources.instances.push({
+      resourceId: "match_stack_00",
+      definitionId: "match",
+      quantity: 1,
+      holderId: "TED",
+      accessible: true,
+      concealed: true
+    });
+
+    commitDiscoveryGame(game);
+    return {
+      flags: game.pendingResourceDiscoveries,
+      rngState: engineRng.getState()
+    };
+  };
+
+  try {
+    engineRng.setState({ state: 135791113 });
+    const firstRun = runAttentionSweep();
+
+    engineRng.setState({ state: 135791113 });
+    const secondRun = runAttentionSweep();
+
+    assert.deepEqual(secondRun, firstRun);
+  } finally {
+    engineRng.setState(previousRngState);
   }
 });
 

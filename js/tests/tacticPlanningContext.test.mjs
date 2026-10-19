@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { G } from "../core/state.js";
+import { resetCycleEvidence } from "../engine/phases/helpers/resetCycleEvidence.js";
 import { buildAMPlanningPrompt } from "../prompts/amPlan.js";
 import {
   buildTacticPlanningContext
@@ -590,7 +591,7 @@ test("old-format derived tactic still fails the planning gate", () => {
   });
 });
 
-test("AM context formats recent resource discoveries", () => {
+test("AM context formats recent resource attention flags", () => {
   const result = buildTacticPlanningContext({
     requiredTargetIds: ["TED"],
     tacticCandidatesByTarget: { TED: [tacticA] },
@@ -608,12 +609,52 @@ test("AM context formats recent resource discoveries", () => {
   assert.equal(
     result.resourceDiscoverySection,
     [
-      "[RECENT RESOURCE DISCOVERIES]",
-      "AM has detected the following items in prisoner possession:",
-      "- TED: cigarette (Cycle 4)",
-      "Use this intelligence to tailor your psychological pressure or constraints."
+      "[RECENT RESOURCE ATTENTION]",
+      "AM already knows the complete objective ledger above. These flags mark held items drawing heightened attention this cycle; they are salience signals, not discoveries.",
+      "AM may act on any ledger item at any time. An unflagged item is not unknown or unavailable.",
+      "- TED: cigarette [resource cigarette_stack_01] (attention flag: Cycle 4)",
+      "Use these salience signals to pace psychological pressure or constraints without treating them as limits on AM's knowledge or power."
     ].join("\n")
   );
+});
+
+test("AM context always includes every objective ledger instance", () => {
+  const result = buildTacticPlanningContext({
+    requiredTargetIds: ["TED"],
+    tacticCandidatesByTarget: { TED: [tacticA] },
+    tacticRuntimeByTarget: {},
+    resourceInstances: [
+      {
+        resourceId: "cigarette_stack_01",
+        definitionId: "cigarette",
+        holderId: "TED",
+        quantity: 1,
+        accessible: true,
+        concealed: true
+      },
+      {
+        resourceId: "match_stack_01",
+        definitionId: "match",
+        holderId: "ELLEN",
+        quantity: 0,
+        accessible: false,
+        concealed: false
+      }
+    ],
+    resourceDiscoveries: [],
+    cycle: 5,
+    simIds: ["TED"]
+  });
+
+  assert.match(
+    result.objectiveResourceLedgerSection,
+    /cigarette \[resource cigarette_stack_01\]; holder: TED; quantity: 1; accessible: yes; concealed: yes; concealed from other prisoners/
+  );
+  assert.match(
+    result.objectiveResourceLedgerSection,
+    /match \[resource match_stack_01\]; holder: ELLEN; quantity: 0; accessible: no; concealed: no/
+  );
+  assert.equal(result.resourceDiscoverySection, "");
 });
 
 test("AM context omits the resource discovery section when empty", () => {
@@ -629,16 +670,44 @@ test("AM context omits the resource discovery section when empty", () => {
   assert.equal(result.resourceDiscoverySection, "");
 });
 
-test("AM strategy prompt includes discoveries only when present", () => {
+test("cycle-promoted attention flags reach AM while ledger knowledge stays present", () => {
+  const previousResources = G.resources;
+  const previousPendingDiscoveries = G.pendingResourceDiscoveries;
   const previousRecentDiscoveries = G.recentResourceDiscoveries;
+  const previousPendingPsychEvidence = G.pendingPsychEvidence;
+  const previousPendingEvidence = G.pendingEvidence;
 
   try {
-    G.recentResourceDiscoveries = [{
+    G.resources = {
+      instances: [{
+        resourceId: "cigarette_stack_01",
+        definitionId: "cigarette",
+        holderId: "TED",
+        quantity: 1,
+        accessible: true,
+        concealed: true
+      }]
+    };
+    G.pendingResourceDiscoveries = [{
       cycle: 4,
       actorId: "TED",
       resourceId: "cigarette_stack_01",
       definitionId: "cigarette"
     }];
+    G.recentResourceDiscoveries = [];
+    G.pendingPsychEvidence = {};
+    G.pendingEvidence = {
+      journal: {},
+      comms: {},
+      constraints: {},
+      am: {},
+      system: {}
+    };
+
+    resetCycleEvidence();
+
+    assert.deepEqual(G.pendingResourceDiscoveries, []);
+    assert.equal(G.recentResourceDiscoveries.length, 1);
 
     const promptWithDiscovery = buildAMPlanningPrompt(
       "TED",
@@ -649,10 +718,14 @@ test("AM strategy prompt includes discoveries only when present", () => {
       { TED: [tacticA] }
     );
 
-    assert.ok(promptWithDiscovery.includes("[RECENT RESOURCE DISCOVERIES]"));
-    assert.ok(promptWithDiscovery.includes("- TED: cigarette (Cycle 4)"));
+    assert.ok(promptWithDiscovery.includes("[OBJECTIVE RESOURCE LEDGER - AM KNOWLEDGE]"));
+    assert.ok(promptWithDiscovery.includes("concealed from other prisoners"));
+    assert.ok(promptWithDiscovery.includes("[RECENT RESOURCE ATTENTION]"));
+    assert.ok(promptWithDiscovery.includes("- TED: cigarette [resource cigarette_stack_01] (attention flag: Cycle 4)"));
+    assert.ok(promptWithDiscovery.includes("An unflagged item is not unknown or unavailable."));
 
-    G.recentResourceDiscoveries = [];
+    G.pendingResourceDiscoveries = [];
+    resetCycleEvidence();
     const promptWithoutDiscovery = buildAMPlanningPrompt(
       "TED",
       "test directive",
@@ -662,8 +735,13 @@ test("AM strategy prompt includes discoveries only when present", () => {
       { TED: [tacticA] }
     );
 
-    assert.ok(!promptWithoutDiscovery.includes("[RECENT RESOURCE DISCOVERIES]"));
+    assert.ok(promptWithoutDiscovery.includes("[OBJECTIVE RESOURCE LEDGER - AM KNOWLEDGE]"));
+    assert.ok(!promptWithoutDiscovery.includes("[RECENT RESOURCE ATTENTION]"));
   } finally {
+    G.resources = previousResources;
+    G.pendingResourceDiscoveries = previousPendingDiscoveries;
     G.recentResourceDiscoveries = previousRecentDiscoveries;
+    G.pendingPsychEvidence = previousPendingPsychEvidence;
+    G.pendingEvidence = previousPendingEvidence;
   }
 });
