@@ -57,9 +57,14 @@ import {
   commitResourceInterventions
 } from "../analysis/commitResourceInterventions.js";
 import {
-  parseResourceInterventions,
-  splitAMExecutionOutput
+  shouldAssessPrisoner,
+  requestPrisonerAssessment
+} from "../analysis/assessResourceInterventions.js";
+import {
+  dialogueReferencesResource,
+  hasTargetDialogue
 } from "../analysis/parseResourceInterventions.js";
+import { getResourceDefinition } from "../agency/resourceDefs.js";
 
 /* ============================================================
    OBSERVATION POLICY
@@ -255,9 +260,13 @@ export async function runStrategyPhase(directive) {
   ------------------------------------------------------------ */
 
   try {
-    timelineEvent(
-      `>>> AM EXECUTION`
+    timelineEvent(`>>> AM RESOURCE ASSESSMENT`);
+
+    const interventionPreparation = await prepareResourceInterventions(
+      orderedSimIds(Object.keys(G.amStrategy?.targets ?? {}))
     );
+
+    timelineEvent(`>>> AM EXECUTION`);
 
     /*
      * The committed strategy and the canonical resolved assignments
@@ -270,20 +279,28 @@ export async function runStrategyPhase(directive) {
       await stepExecuteAM(
         directive,
         targets,
-        tacticAssignmentsByTarget
+        tacticAssignmentsByTarget,
+        {
+          committed: interventionPreparation.committed,
+          pendingTaunts: interventionPreparation.pendingTaunts
+        }
       );
 
-    const interventionCommit = commitResourceInterventions(
+    const tauntCommit = commitPendingResourceTaunts(
       G,
-      execution?.resourceInterventions ?? []
+      interventionPreparation.pendingTaunts,
+      execution?.amExecution?.actions ?? {}
     );
-    execution.resourceInterventions = interventionCommit.committed;
+    execution.resourceInterventions = [
+      ...interventionPreparation.committed,
+      ...tauntCommit.committed
+    ];
     execution.resourceInterventionRejections = [
-      ...(execution.resourceInterventionRejections ?? []),
-      ...interventionCommit.rejected
+      ...interventionPreparation.rejected,
+      ...tauntCommit.rejected
     ];
     if (execution.amExecution) {
-      execution.amExecution.resourceInterventions = interventionCommit.committed;
+      execution.amExecution.resourceInterventions = execution.resourceInterventions;
       execution.amExecution.resourceInterventionRejections =
         execution.resourceInterventionRejections;
     }
@@ -312,6 +329,108 @@ export async function runStrategyPhase(directive) {
   }
 
   return execution;
+}
+
+export async function prepareResourceInterventions(prisonerIds, modelCall = callModel) {
+  const proposedInterventions = [];
+  const pendingTaunts = [];
+  const rejected = [];
+
+  for (const prisonerId of orderedSimIds(prisonerIds)) {
+    if (!shouldAssessPrisoner(prisonerId, G)) continue;
+
+    const assessment = await requestPrisonerAssessment(prisonerId, G, modelCall);
+    if (!assessment || assessment.intervention === "none") {
+      timelineEvent(`// AM RESOURCE ASSESSMENT — ${prisonerId}: none`);
+      continue;
+    }
+
+    const resource = G.resources?.instances?.find(
+      (instance) =>
+        instance?.resourceId === assessment.resource_id &&
+        instance.holderId === prisonerId &&
+        instance.quantity > 0
+    );
+    if (!resource) {
+      rejected.push({
+        index: proposedInterventions.length + pendingTaunts.length,
+        reason: `Resource ${assessment.resource_id} is not held by ${prisonerId}.`,
+        intervention: assessment
+      });
+      timelineEvent(
+        `!! AM RESOURCE ASSESSMENT REJECTED cycle=${G.cycle} prisoner=${prisonerId} resource=${assessment.resource_id}`
+      );
+      continue;
+    }
+
+    const tacticPath = G.amTacticRuntime?.targets?.[prisonerId]?.path ?? null;
+    const intervention = {
+      ...assessment,
+      provenance: {
+        cycle: G.cycle,
+        tacticPath,
+        rationale: assessment.rationale
+      },
+      definitionTitle:
+        getResourceDefinition(resource.definitionId)?.title ??
+        resource.definitionId ??
+        resource.resourceId
+    };
+
+    if (intervention.intervention_type === "taunt") {
+      pendingTaunts.push(intervention);
+    } else {
+      proposedInterventions.push(intervention);
+    }
+    timelineEvent(
+      `// AM RESOURCE ASSESSMENT — ${prisonerId}: ${intervention.intervention_type} ${intervention.resource_id}`
+    );
+  }
+
+  const preExecutionCommit = commitResourceInterventions(G, proposedInterventions);
+  return {
+    committed: preExecutionCommit.committed,
+    pendingTaunts,
+    rejected: [...rejected, ...preExecutionCommit.rejected]
+  };
+}
+
+export function commitPendingResourceTaunts(G, pendingTaunts, actions) {
+  const committed = [];
+  const rejected = [];
+
+  for (const [index, taunt] of (pendingTaunts ?? []).entries()) {
+    if (!hasTargetDialogue(actions, taunt.target_id)) {
+      rejected.push({
+        index,
+        reason: `Taunt target ${taunt.target_id} has no accepted execution dialogue.`,
+        intervention: taunt
+      });
+      continue;
+    }
+
+    const resource = G.resources?.instances?.find(
+      (instance) => instance?.resourceId === taunt.resource_id
+    );
+    if (!resource || !dialogueReferencesResource(actions[taunt.target_id].text, resource)) {
+      rejected.push({
+        index,
+        reason: `Accepted dialogue for ${taunt.target_id} does not reference resource ${taunt.resource_id}.`,
+        intervention: taunt
+      });
+      continue;
+    }
+
+    const result = commitResourceInterventions(G, [taunt]);
+    committed.push(...result.committed);
+    rejected.push(...result.rejected.map((entry) => ({
+      ...entry,
+      index,
+      intervention: taunt
+    })));
+  }
+
+  return { committed, rejected };
 }
 
 /* ============================================================
@@ -423,7 +542,8 @@ async function stepPlanAM(
 export async function stepExecuteAM(
   directive,
   targets,
-  tacticAssignmentsByTarget
+  tacticAssignmentsByTarget,
+  resourceInterventionContext = {}
 ) {
   /*
    * Compatibility adapter:
@@ -486,7 +606,8 @@ export async function stepExecuteAM(
       tacticMap,
       directive,
       validatedTargets,
-      strategyTargetIds
+      strategyTargetIds,
+      resourceInterventionContext
     );
 
     amResponse = await callModel(
@@ -534,8 +655,7 @@ export async function stepExecuteAM(
       : targets.map((sim) => sim?.id)
   );
 
-  const separatedExecution = splitAMExecutionOutput(amResponse);
-  const executionText = separatedExecution.executionText;
+  const executionText = String(amResponse ?? "").replace(/\r/g, "");
 
   const parsedExecution = parseAMTargets(
     executionText,
@@ -590,20 +710,6 @@ export async function stepExecuteAM(
 
   const actionTargetIds = orderedSimIds(
     Object.keys(actions)
-  );
-
-  const parsedResourceInterventions = parseResourceInterventions(
-    separatedExecution.interventionSection,
-    {
-      sectionError: separatedExecution.sectionError,
-      resources: G.resources,
-      sims: G.sims,
-      actions,
-      cycle: G.cycle,
-      tacticAssignmentsByTarget,
-      amTacticRuntime: G.amTacticRuntime,
-      amStrategy: G.amStrategy
-    }
   );
 
   recordTacticRuntimeExecutions(
@@ -681,8 +787,8 @@ export async function stepExecuteAM(
      * Actual parsed actions only.
      */
     actions,
-    resourceInterventions: parsedResourceInterventions.interventions,
-    resourceInterventionRejections: parsedResourceInterventions.rejections,
+    resourceInterventions: resourceInterventionContext.committed ?? [],
+    resourceInterventionRejections: [],
 
     /*
      * Sims with actual parsed action records.
@@ -869,8 +975,8 @@ export async function stepExecuteAM(
     targets,
     tacticMap,
     constraintMap: parsedConstraintMap,
-    resourceInterventions: parsedResourceInterventions.interventions,
-    resourceInterventionRejections: parsedResourceInterventions.rejections,
+    resourceInterventions: resourceInterventionContext.committed ?? [],
+    resourceInterventionRejections: [],
     amExecution
   };
 }

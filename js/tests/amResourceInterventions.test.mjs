@@ -4,10 +4,10 @@ import test from "node:test";
 import { G } from "../core/state.js";
 import { commitResourceInterventions } from "../engine/analysis/commitResourceInterventions.js";
 import {
-  parseResourceInterventions,
-  splitAMExecutionOutput
+  dialogueReferencesResource,
+  hasTargetDialogue
 } from "../engine/analysis/parseResourceInterventions.js";
-import { INTERVENTION_TYPES } from "../engine/analysis/resourceInterventions.js";
+import { validateResourceIntervention } from "../engine/analysis/resourceInterventions.js";
 import { buildAMPrompt } from "../prompts/amAttack.js";
 import { buildScratchpadCommsPrompt } from "../prompts/scratchpadComms.js";
 import { formatScratchpadContext } from "../prompts/utils/formatScratchpadContext.js";
@@ -53,11 +53,7 @@ function makeState(resources = makeLedger()) {
   };
 }
 
-function interventionSection(interventions) {
-  return `[RESOURCE INTERVENTIONS]\n${JSON.stringify(interventions)}\n[/RESOURCE INTERVENTIONS]`;
-}
-
-test("AM execution prompt explains resource intervention output", () => {
+test("AM execution prompt includes pre-decided interventions without JSON generation", () => {
   const previousStrategy = G.amStrategy;
   const previousResources = G.resources;
   const previousDiscoveries = G.recentResourceDiscoveries;
@@ -86,18 +82,33 @@ test("AM execution prompt explains resource intervention output", () => {
       { TED: [tactic] },
       "Use the assigned tactic.",
       [{ id: "TED", objective: "Apply pressure.", hypothesis: "The resource matters." }],
-      ["TED"]
+      ["TED"],
+      {
+        committed: [{
+          interventionType: "confiscate",
+          resourceId: "cigarette_stack_01",
+          definitionTitle: "Cigarette",
+          fromHolderId: "TED",
+          quantity: 1
+        }],
+        pendingTaunts: [{
+          intervention_type: "taunt",
+          resource_id: "cigarette_stack_01",
+          definitionTitle: "Cigarette",
+          target_id: "TED"
+        }]
+      }
     );
 
-    assert.match(prompt, /# OBJECTIVE RESOURCE LEDGER/);
+    assert.match(prompt, /# OBJECTIVE RESOURCE LEDGER \(CONTEXT ONLY\)/);
     assert.match(prompt, /cigarette_stack_01/);
     assert.match(prompt, /concealed yes/);
     assert.match(prompt, /attention flag Cycle 5/);
-    assert.match(prompt, /\[RESOURCE INTERVENTIONS\]/);
-    assert.match(prompt, /"intervention_type":"taunt"/);
-    assert.match(prompt, /"intervention_type":"transfer"/);
-    assert.match(prompt, /CONFISCATE permanently moves units/);
-    assert.match(prompt, /reference it naturally in your execution dialogue/);
+    assert.match(prompt, /\[RESOURCE INTERVENTIONS THIS CYCLE\]/);
+    assert.match(prompt, /You confiscated 1 unit of Cigarette from TED/);
+    assert.match(prompt, /Taunt TED about their hidden cigarette/);
+    assert.doesNotMatch(prompt, /^\[RESOURCE INTERVENTIONS\]$/m);
+    assert.doesNotMatch(prompt, /Output a JSON array/);
   } finally {
     G.amStrategy = previousStrategy;
     G.resources = previousResources;
@@ -105,43 +116,14 @@ test("AM execution prompt explains resource intervention output", () => {
   }
 });
 
-test("parser separates execution blocks and validates interventions with provenance", () => {
-  const executionBlock = "[TARGET: TED]\nYour cigarette will not protect you.\n[/TARGET]";
-  const response = `${executionBlock}\n${interventionSection([
-    {
-      intervention_type: INTERVENTION_TYPES.TAUNT,
-      resource_id: "cigarette_stack_01",
-      target_id: "TED",
-      rationale: "Undermine his sense of security."
-    },
-    {
-      intervention_type: INTERVENTION_TYPES.TRANSFER,
-      resource_id: "match_stack_02",
-      holder_id: "ELLEN",
-      target_holder_id: "TED",
-      rationale: "Create conflict between them."
-    }
-  ])}`;
-  const split = splitAMExecutionOutput(response);
-  const parsed = parseResourceInterventions(split.interventionSection, {
-    sectionError: split.sectionError,
-    resources: makeLedger(),
-    sims,
-    actions: { TED: { text: "Your cigarette will not protect you." } },
-    cycle: 5,
-    tacticAssignmentsByTarget: {
-      TED: { tactic: { path: "test/tactic" } },
-      ELLEN: { tactic: { path: "test/other-tactic" } }
-    }
-  });
+test("taunt dialogue utilities recognize accepted actions and resource references", () => {
+  const actions = { TED: { text: "Your cigarette will not protect you." } };
+  const resource = makeLedger().instances[0];
 
-  assert.equal(split.executionText, executionBlock);
-  assert.equal(parsed.interventions.length, 2);
-  assert.deepEqual(parsed.rejections, []);
-  assert.equal(parsed.interventions[0].provenance.cycle, 5);
-  assert.equal(parsed.interventions[0].provenance.tacticPath, "test/tactic");
-  assert.equal(parsed.interventions[0].provenance.rationale, "Undermine his sense of security.");
-  assert.equal(parsed.interventions[1].quantity, 2);
+  assert.equal(hasTargetDialogue(actions, "TED"), true);
+  assert.equal(hasTargetDialogue(actions, "ELLEN"), false);
+  assert.equal(dialogueReferencesResource(actions.TED.text, resource), true);
+  assert.equal(dialogueReferencesResource("You are not safe.", resource), false);
 });
 
 test("CONFISCATE moves a partial stack to AM and records holder awareness", () => {
@@ -266,39 +248,31 @@ test("TAUNT records awareness without changing the ledger", () => {
   }
 });
 
-test("parser rejects nonexistent resources and quantities beyond the held stack", () => {
-  const parsed = parseResourceInterventions(JSON.stringify([
-    {
-      intervention_type: "destroy",
-      resource_id: "missing_resource",
-      rationale: "Attempt a nonexistent item."
-    },
-    {
-      intervention_type: "confiscate",
-      resource_id: "cigarette_stack_01",
-      holder_id: "TED",
-      quantity: 4,
-      rationale: "Take too many."
-    },
-    {
-      intervention_type: "transfer",
-      resource_id: "match_stack_02",
-      holder_id: "ELLEN",
-      target_holder_id: "UNKNOWN",
-      rationale: "Transfer to a nonexistent holder."
-    }
-  ]), {
-    resources: makeLedger(),
-    sims,
-    actions: {},
-    cycle: 5
-  });
+test("existing validators reject invalid resources, quantities, and transfer holders", () => {
+  const context = { resources: makeLedger(), sims };
+  const missingResource = validateResourceIntervention({
+    intervention_type: "destroy",
+    resource_id: "missing_resource"
+  }, context);
+  const excessiveQuantity = validateResourceIntervention({
+    intervention_type: "confiscate",
+    resource_id: "cigarette_stack_01",
+    holder_id: "TED",
+    quantity: 4
+  }, context);
+  const unknownTarget = validateResourceIntervention({
+    intervention_type: "transfer",
+    resource_id: "match_stack_02",
+    holder_id: "ELLEN",
+    target_holder_id: "UNKNOWN"
+  }, context);
 
-  assert.equal(parsed.interventions.length, 0);
-  assert.equal(parsed.rejections.length, 3);
-  assert.match(parsed.rejections[0].reason, /does not exist/);
-  assert.match(parsed.rejections[1].reason, /only 3 are held/);
-  assert.match(parsed.rejections[2].reason, /Target holder UNKNOWN does not exist/);
+  assert.equal(missingResource.valid, false);
+  assert.match(missingResource.reason, /does not exist/);
+  assert.equal(excessiveQuantity.valid, false);
+  assert.match(excessiveQuantity.reason, /only 3 are held/);
+  assert.equal(unknownTarget.valid, false);
+  assert.match(unknownTarget.reason, /Target holder UNKNOWN does not exist/);
 });
 
 test("prisoner context includes resource intervention events", () => {

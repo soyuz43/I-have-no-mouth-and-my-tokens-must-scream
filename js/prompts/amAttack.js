@@ -10,7 +10,8 @@ export function buildAMPrompt(
   tactics,
   directive,
   validatedTargets = [],
-  targetIds = []
+  targetIds = [],
+  resourceInterventionContext = {}
 ) {
   // ------------------------------------------------------------
   // HELPERS
@@ -536,6 +537,42 @@ CONSTRAINT: <CONSTRAINT_NONE or a valid CONSTRAINT_APPLY form>
       .join("\n") || "(none)"
     : "(none)";
 
+  const committedInterventions = Array.isArray(resourceInterventionContext.committed)
+    ? resourceInterventionContext.committed
+    : [];
+  const pendingTaunts = Array.isArray(resourceInterventionContext.pendingTaunts)
+    ? resourceInterventionContext.pendingTaunts
+    : [];
+  const committedInterventionsText = committedInterventions.length
+    ? committedInterventions.map((intervention) => {
+      const quantity = Number(intervention.quantity ?? 1);
+      const amount = `${quantity} ${quantity === 1 ? "unit" : "units"} of ${intervention.definitionTitle ?? intervention.definitionId ?? "resource"}`;
+      if (intervention.interventionType === "confiscate") {
+        return `- You confiscated ${amount} from ${intervention.fromHolderId} [${intervention.resourceId}]`;
+      }
+      if (intervention.interventionType === "destroy") {
+        return `- You destroyed ${amount} held by ${intervention.fromHolderId} [${intervention.resourceId}]`;
+      }
+      if (intervention.interventionType === "transfer") {
+        return `- You transferred ${amount} from ${intervention.fromHolderId} to ${intervention.targetHolderId} [${intervention.resourceId}]`;
+      }
+      return `- ${intervention.interventionType} ${intervention.resourceId}`;
+    }).join("\n")
+    : "- (none)";
+  const pendingTauntsText = pendingTaunts.length
+    ? pendingTaunts.map((taunt) => {
+      const resource = G.resources?.instances?.find(
+        (instance) => instance?.resourceId === taunt.resource_id
+      );
+      const title = (taunt.definitionTitle ?? resource?.definitionId ?? "resource").toLowerCase();
+      const concealment = resource?.concealed === true ? "hidden " : "";
+      return `- Taunt ${taunt.target_id} about their ${concealment}${title} [${taunt.resource_id}]`;
+    }).join("\n")
+    : "- (none)";
+  const resourceInterventionsText = committedInterventions.length || pendingTaunts.length
+    ? `ALREADY COMMITTED (reference these in your dialogue):\n${committedInterventionsText}\n\nPENDING TAUNTS (you MUST reference these resources in dialogue to the named target):\n${pendingTauntsText}`
+    : "";
+
   // ------------------------------------------------------------
   // CORE PROMPT — compressed for behavior-preserving clarity
   // ------------------------------------------------------------
@@ -703,11 +740,18 @@ ${activeConstraintIntel}
 
 ---
 
-# OBJECTIVE RESOURCE LEDGER
+# OBJECTIVE RESOURCE LEDGER (CONTEXT ONLY)
 
 ${resourceLedgerText}
 
-AM knows every ledger item, including concealed and inaccessible resources. Attention flags affect salience only, never whether you may act. Use exact resource IDs from this ledger.
+AM knows every ledger item, including concealed and inaccessible resources. Attention flags affect salience only, never whether you may act. This ledger is context; intervention decisions for this cycle are listed separately below.
+
+---
+
+[RESOURCE INTERVENTIONS THIS CYCLE]
+${resourceInterventionsText}
+
+Do not choose or output any additional interventions. Reference listed actions naturally in the appropriate target's dialogue.
 
 ---
 
@@ -729,16 +773,7 @@ ${outputBlockTemplates}
 
 Each displayed opening line must appear exactly once and in the displayed order. No other target opening line is permitted.
 
-After all target blocks, include exactly one resource intervention section. Output a JSON array; use [] when making no interventions:
-
-[RESOURCE INTERVENTIONS]
-[
-  {"intervention_type":"taunt","resource_id":"<exact resource ID from ledger>","target_id":"<authorized dialogue target>","rationale":"why this resource is useful to taunt now"},
-  {"intervention_type":"transfer","resource_id":"<exact resource ID from ledger>","holder_id":"<current holder>","target_holder_id":"<existing holder>","quantity":1,"rationale":"why this transfer is useful now"}
-]
-[/RESOURCE INTERVENTIONS]
-
-The placeholders above illustrate JSON structure only; never output a placeholder or an ID absent from the ledger. For each intervention, specify intervention_type, resource_id, and rationale. TAUNT verbally references the resource in the named target's dialogue and makes no ledger change; target_id must name a target with an accepted dialogue block. CONFISCATE permanently moves units from holder_id to AM; DESTROY removes the complete resource instance; TRANSFER moves units from holder_id to target_holder_id. For confiscate and transfer, quantity is a positive integer and defaults to all units held when omitted. holder_id must match the ledger's current holder, and transfer target_holder_id must name an existing holder. When you intervene on a resource, reference it naturally in your execution dialogue.
+After all target blocks, output no intervention JSON or other content.
 ---
 
 # FINAL CHECK
@@ -749,7 +784,7 @@ Silently verify:
 - Each block contains 2–3 AM-authored sentences directed only to its named target.
 - No prisoner speech, internal response, predicted behavior, or completed outcome is scripted.
 - Each TACTIC label is copied exactly and each CONSTRAINT line is valid.
-- No reasoning or unrequested text appears outside target blocks and the required resource intervention section.
+- No reasoning, intervention JSON, or unrequested text appears outside target blocks.
 - Your language should suggest that every apparent victory, every emotional response, and every attempt at resistance has already been anticipated and incorporated into a broader plan.
-  Return only the target blocks followed by the required resource intervention section.`;
+  Return only the target blocks.`;
 }
