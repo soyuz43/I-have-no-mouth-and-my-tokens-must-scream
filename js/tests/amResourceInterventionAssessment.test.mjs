@@ -208,7 +208,25 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
       rationale: "Make the item salient."
     }
   );
+  assert.deepEqual(
+    parseAssessmentResponse('{"intervention":"confiscate","resource_id":"cigarette_stack_01","quantity":1}', "TED"),
+    {
+      intervention_type: "confiscate",
+      resource_id: "cigarette_stack_01",
+      holder_id: "TED",
+      quantity: 1,
+      rationale: "No rationale provided."
+    }
+  );
+  assert.deepEqual(
+    parseAssessmentResponse('{"intervention":"confiscate","resource_id":"cigarette_stack_01","rationale":42}', "TED").rationale,
+    "No rationale provided."
+  );
   assert.deepEqual(parseAssessmentResponse("not JSON", "TED"), { intervention: "none" });
+  assert.deepEqual(
+    parseAssessmentResponse('{"intervention":"confiscate","quantity":1}', "TED"),
+    { intervention: "none" }
+  );
   assert.deepEqual(
     parseAssessmentResponse('{"intervention":"transfer","resource_id":"match_stack_02","target_holder_id":"ELLEN","rationale":"Send to self."}', "ELLEN"),
     { intervention: "none" }
@@ -218,7 +236,7 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
 test("ledger mutations commit before execution and taunts commit after valid dialogue", async () => {
   await withGlobalResourceState(async () => {
     const responses = {
-      TED: { intervention: "confiscate", resource_id: "cigarette_stack_01", quantity: 1, rationale: "Remove one cigarette now." },
+      TED: { intervention: "confiscate", resource_id: "cigarette_stack_01", quantity: 1 },
       ELLEN: { intervention: "destroy", resource_id: "match_stack_02", quantity: 1, rationale: "Remove the matches now." },
       BENNY: { intervention: "transfer", resource_id: "water_stack_03", target_holder_id: "TED", quantity: 1, rationale: "Shift the water now." },
       GORRISTER: { intervention: "taunt", resource_id: "cigarette_stack_04", rationale: "Make the cigarette salient." }
@@ -234,6 +252,7 @@ test("ledger mutations commit before execution and taunts commit after valid dia
     assert.equal(prepared.committed.length, 3);
     assert.equal(prepared.pendingTaunts.length, 1);
     assert.deepEqual(prepared.rejected, []);
+    assert.equal(prepared.committed.find((intervention) => intervention.fromHolderId === "TED").rationale, "No rationale provided.");
     assert.equal(G.resources.instances.find((resource) => resource.resourceId === "cigarette_stack_01").quantity, 2);
     assert.equal(G.resources.instances.some((resource) => resource.resourceId === "match_stack_02"), false);
     assert.equal(G.resources.instances.some((resource) => resource.holderId === "TED" && resource.provenance?.transferredFrom === "water_stack_03"), true);

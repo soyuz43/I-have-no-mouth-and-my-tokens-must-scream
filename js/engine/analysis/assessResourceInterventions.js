@@ -106,8 +106,10 @@ export function parseAssessmentResponse(responseText, prisonerId) {
   if (!VALID_INTERVENTIONS.has(parsed.intervention)) return { ...NONE_INTERVENTION };
 
   const resourceId = typeof parsed.resource_id === "string" ? parsed.resource_id.trim() : "";
-  const rationale = typeof parsed.rationale === "string" ? parsed.rationale.trim() : "";
-  if (!resourceId || !rationale || typeof prisonerId !== "string" || !prisonerId) {
+  const rationale = typeof parsed.rationale === "string" && parsed.rationale.trim()
+    ? parsed.rationale.trim()
+    : "No rationale provided.";
+  if (!resourceId || typeof prisonerId !== "string" || !prisonerId) {
     return { ...NONE_INTERVENTION };
   }
   if (parsed.quantity !== undefined &&
