@@ -12,8 +12,10 @@ export function resetCycleEvidence() {
     comms: Object.create(null),
     constraints: Object.create(null),
     am: Object.create(null),
+    resourceInterventions: Object.create(null),
     system: Object.create(null),
   };
+  G.pendingEvidence.resourceInterventions ??= Object.create(null);
 
   for (const key of Object.keys(G.pendingEvidence)) {
     G.pendingEvidence[key] = Object.create(null);

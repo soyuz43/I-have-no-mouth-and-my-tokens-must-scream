@@ -1001,6 +1001,11 @@ export async function runScratchpadCommsReviewForSim(
       normalizedSimId,
       normalizedCycle
     );
+    const resourceInterventionEvents = Array.isArray(
+      G.pendingEvidence?.resourceInterventions?.[normalizedSimId]
+    )
+      ? G.pendingEvidence.resourceInterventions[normalizedSimId]
+      : [];
 
     reviewGroupOpened =
       beginScratchpadReviewLog({
@@ -1017,7 +1022,11 @@ export async function runScratchpadCommsReviewForSim(
       evidence,
     });
 
-    if (evidence.messages.length === 0 && agencyEvents.length === 0) {
+    if (
+      evidence.messages.length === 0 &&
+      agencyEvents.length === 0 &&
+      resourceInterventionEvents.length === 0
+    ) {
       if (
         sim.scratchpad.initialized
       ) {
