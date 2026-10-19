@@ -1,4 +1,5 @@
 import { timelineEvent } from "../../ui/timeline.js";
+import { addLog } from "../../ui/logs.js";
 import { validateResourceIntervention } from "./resourceInterventions.js";
 
 function cloneInstance(instance) {
@@ -77,8 +78,70 @@ function getAffectedPrisoners(intervention, previousHolderId) {
   }
 }
 
+function formatResourceName(title, quantity) {
+  const singular = String(title ?? "resource").toLowerCase();
+  const plural = singular.endsWith(" water")
+    ? singular
+    : /(?:ch|s|sh|x|z)$/.test(singular)
+      ? `${singular}es`
+      : `${singular}s`;
+  return { singular, plural: quantity === 1 ? singular : plural };
+}
+
+function formatQuantityLabel(title, quantity, quantityBefore, plural) {
+  const singular = String(title ?? "resource").toLowerCase();
+  if (singular.endsWith(" water")) {
+    const amount = quantity === quantityBefore && quantity > 1
+      ? `all ${quantity} units`
+      : `${quantity} unit${quantity === 1 ? "" : "s"}`;
+    return `${amount} of ${singular}`;
+  }
+  return quantity === quantityBefore && quantity > 1
+    ? `all ${quantity} ${plural}`
+    : `${quantity} ${plural}`;
+}
+
+function formatInterventionSummary(intervention) {
+  const quantity = Number(intervention.quantity ?? 0);
+  const quantityBefore = Number(intervention.quantityBefore ?? quantity);
+  const { singular, plural } = formatResourceName(
+    intervention.definitionTitle,
+    quantity
+  );
+  const quantityLabel = formatQuantityLabel(
+    intervention.definitionTitle,
+    quantity,
+    quantityBefore,
+    plural
+  );
+  const fromHolderId = intervention.fromHolderId ?? "unknown holder";
+
+  if (intervention.interventionType === "confiscate") {
+    const remainder = quantity < quantityBefore && intervention.remainingQuantity > 0
+      ? ` (${intervention.remainingQuantity} remaining)`
+      : "";
+    return `AM confiscated ${quantityLabel} from ${fromHolderId}${remainder}`;
+  }
+  if (intervention.interventionType === "destroy") {
+    return `AM destroyed ${fromHolderId}'s ${singular} stack`;
+  }
+  if (intervention.interventionType === "transfer") {
+    const remainder = quantity < quantityBefore && intervention.remainingQuantity > 0
+      ? ` (${intervention.remainingQuantity} remain with ${fromHolderId})`
+      : "";
+    return `AM transferred ${quantityLabel} from ${fromHolderId} to ${intervention.targetHolderId ?? "unknown holder"}${remainder}`;
+  }
+  if (intervention.interventionType === "taunt") {
+    const concealment = intervention.concealed ? "hidden " : "";
+    const targetId = intervention.targetHolderId ?? fromHolderId;
+    return `AM taunted ${targetId} about their ${concealment}${singular}`;
+  }
+  return `AM intervened on ${intervention.resourceId}`;
+}
+
 function applyLedgerMutation(instances, instance, intervention, cycle, index) {
   const previousHolderId = instance.holderId ?? null;
+  const quantityBefore = Number(instance.quantity);
   const affectedQuantity = Number(intervention.quantity ?? instance.quantity);
   let resultingResourceId = instance.resourceId;
 
@@ -131,6 +194,15 @@ function applyLedgerMutation(instances, instance, intervention, cycle, index) {
   return {
     previousHolderId,
     resultingResourceId,
+    quantityBefore,
+    remainingQuantity:
+      intervention.intervention_type === "taunt"
+        ? null
+        : intervention.intervention_type === "destroy"
+          ? 0
+          : affectedQuantity < quantityBefore
+            ? Number(instance.quantity)
+            : 0,
     affectedQuantity:
       intervention.intervention_type === "taunt"
         ? null
@@ -155,13 +227,34 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
   const rejected = [];
 
   for (const [index, proposed] of proposedInterventions.entries()) {
+    const interventionId = proposed?.interventionId ??
+      `intervention_${G.cycle ?? "unknown"}_${proposed?.holder_id ?? "unknown"}_${index}`;
     const validation = validateResourceIntervention(proposed, {
       resources: { instances: stagedInstances },
       sims: G.sims
     });
 
     if (!validation.valid) {
-      rejected.push({ index, reason: validation.reason, intervention: proposed });
+      const rejection = {
+        index,
+        interventionId,
+        reason: validation.reason,
+        intervention: proposed
+      };
+      console.warn("[AM RESOURCE INTERVENTION][COMMIT REJECTED]", {
+        cycle: G.cycle ?? "unknown",
+        interventionId,
+        interventionType: proposed?.intervention_type ?? null,
+        resourceId: proposed?.resource_id ?? null,
+        fromHolderId: proposed?.holder_id ?? null,
+        targetHolderId: proposed?.target_holder_id ?? proposed?.target_id ?? null,
+        quantity: proposed?.quantity ?? null,
+        rationale: proposed?.provenance?.rationale ?? proposed?.rationale ?? null,
+        tacticPath: proposed?.provenance?.tacticPath ?? null,
+        intervention: proposed,
+        reason: validation.reason
+      });
+      rejected.push(rejection);
       continue;
     }
 
@@ -177,6 +270,7 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
 
     const event = {
       cycle: G.cycle,
+      interventionId,
       interventionType: intervention.intervention_type,
       resourceId: intervention.resource_id,
       resultingResourceId: mutation.resultingResourceId,
@@ -188,6 +282,9 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
           ? "AM"
           : intervention.target_holder_id ?? null,
       quantity: mutation.affectedQuantity,
+      quantityBefore: mutation.quantityBefore,
+      remainingQuantity: mutation.remainingQuantity,
+      concealed: instance.concealed === true,
       tacticPath: intervention.provenance?.tacticPath ?? null,
       rationale: intervention.provenance?.rationale ?? intervention.rationale
     };
@@ -209,12 +306,43 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
   G.pendingEvidence.resourceInterventions = stagedEvidence;
 
   for (const intervention of committed) {
-    const summary =
-      `${intervention.interventionType} ${intervention.resourceId}` +
-      ` cycle=${intervention.cycle}` +
-      ` affected=${intervention.affectedPrisoners.join(",") || "none"}`;
-    console.debug(`[AM RESOURCE INTERVENTION] ${summary}`);
-    timelineEvent(`// AM RESOURCE INTERVENTION — ${summary}`);
+    const summary = formatInterventionSummary(intervention);
+    const details = {
+      cycle: intervention.cycle,
+      interventionId: intervention.interventionId,
+      type: intervention.interventionType,
+      resourceId: intervention.resourceId,
+      resultingResourceId: intervention.resultingResourceId,
+      quantity: intervention.quantity,
+      quantityBefore: intervention.quantityBefore,
+      remainingQuantity: intervention.remainingQuantity,
+      fromHolderId: intervention.fromHolderId,
+      toHolderId: intervention.targetHolderId,
+      rationale: intervention.rationale,
+      tacticPath: intervention.tacticPath,
+      affectedPrisoners: intervention.affectedPrisoners,
+      summary
+    };
+    console.debug("[AM RESOURCE INTERVENTION][COMMITTED]", details);
+    if (
+      (intervention.interventionType === "confiscate" ||
+        intervention.interventionType === "transfer") &&
+      intervention.quantity < intervention.quantityBefore
+    ) {
+      console.debug("[AM RESOURCE INTERVENTION][STACK SPLIT]", {
+        interventionId: intervention.interventionId,
+        originalResourceId: intervention.resourceId,
+        resultingResourceId: intervention.resultingResourceId,
+        splitQuantity: intervention.quantity,
+        remainingQuantity: intervention.remainingQuantity,
+        remainingHolderId: intervention.fromHolderId,
+        resultingHolderId: intervention.targetHolderId
+      });
+    }
+    timelineEvent(
+      `// AM RESOURCE INTERVENTION — ${summary} [${intervention.interventionId}]`
+    );
+    if (typeof document !== "undefined") addLog("AM", summary, "am");
   }
 
   return { committed, rejected };

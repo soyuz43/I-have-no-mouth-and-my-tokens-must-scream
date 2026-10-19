@@ -3,26 +3,56 @@ import { callModel } from "../../models/callModel.js";
 const NONE_INTERVENTION = Object.freeze({ intervention: "none" });
 const VALID_INTERVENTIONS = new Set(["taunt", "confiscate", "destroy", "transfer"]);
 
-export function shouldAssessPrisoner(prisonerId, G) {
+export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = null) {
   const heldResources = Array.isArray(G?.resources?.instances)
     ? G.resources.instances.filter(
       (resource) => resource?.holderId === prisonerId && resource.quantity > 0
     )
     : [];
-  if (!heldResources.length) return false;
-
   const heldResourceIds = new Set(
     heldResources
       .map((resource) => resource.resourceId)
       .filter((resourceId) => typeof resourceId === "string" && resourceId.length > 0)
   );
-  if (heldResourceIds.size === 0) return false;
-  return Array.isArray(G?.recentResourceDiscoveries) &&
-    G.recentResourceDiscoveries.some(
+  const matchingAttentionFlags = Array.isArray(G?.recentResourceDiscoveries)
+    ? G.recentResourceDiscoveries.filter(
       (discovery) =>
         typeof discovery?.resourceId === "string" &&
         heldResourceIds.has(discovery.resourceId)
-    );
+    )
+    : [];
+  const shouldAssess = heldResourceIds.size > 0 && matchingAttentionFlags.length > 0;
+  const reason = shouldAssess
+    ? "held resources have recent attention flags"
+    : heldResources.length === 0
+      ? "no held resources"
+      : heldResourceIds.size === 0
+        ? "held resources have no usable resource IDs"
+        : "no matching recent attention flags";
+  const gate = {
+    cycle: G?.cycle ?? "unknown",
+    interventionId,
+    prisonerId,
+    heldResources: heldResources.map((resource) => ({
+      resourceId: resource.resourceId ?? null,
+      definitionId: resource.definitionId ?? null,
+      quantity: resource.quantity,
+      concealed: resource.concealed === true
+    })),
+    matchingAttentionFlags: matchingAttentionFlags.map((discovery) => ({
+      resourceId: discovery.resourceId,
+      cycle: discovery.cycle ?? null,
+      actorId: discovery.actorId ?? null
+    })),
+    outcome: shouldAssess ? "assess" : "skip",
+    reason
+  };
+  console.debug("[AM RESOURCE ASSESSMENT][GATE]", gate);
+  return { ...gate, shouldAssess };
+}
+
+export function shouldAssessPrisoner(prisonerId, G) {
+  return evaluatePrisonerAssessmentGate(prisonerId, G).shouldAssess;
 }
 
 export function buildAssessmentPrompt(prisonerId, G) {
@@ -101,20 +131,51 @@ function parseResponseObject(responseText) {
 }
 
 export function parseAssessmentResponse(responseText, prisonerId) {
+  return parseAssessmentResponseDetails(responseText, prisonerId).assessment;
+}
+
+function parseAssessmentResponseDetails(responseText, prisonerId) {
   const parsed = parseResponseObject(responseText);
-  if (!parsed || parsed.intervention === "none") return { ...NONE_INTERVENTION };
-  if (!VALID_INTERVENTIONS.has(parsed.intervention)) return { ...NONE_INTERVENTION };
+  if (!parsed) {
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "rejected",
+      parseReason: "response is not a JSON object"
+    };
+  }
+  if (parsed.intervention === "none") {
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "valid-none",
+      parseReason: null
+    };
+  }
+  if (!VALID_INTERVENTIONS.has(parsed.intervention)) {
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "rejected",
+      parseReason: `unsupported intervention: ${String(parsed.intervention)}`
+    };
+  }
 
   const resourceId = typeof parsed.resource_id === "string" ? parsed.resource_id.trim() : "";
   const rationale = typeof parsed.rationale === "string" && parsed.rationale.trim()
     ? parsed.rationale.trim()
     : "No rationale provided.";
   if (!resourceId || typeof prisonerId !== "string" || !prisonerId) {
-    return { ...NONE_INTERVENTION };
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "rejected",
+      parseReason: !resourceId ? "resource_id is missing" : "prisoner ID is missing"
+    };
   }
   if (parsed.quantity !== undefined &&
     (!Number.isSafeInteger(parsed.quantity) || parsed.quantity < 1)) {
-    return { ...NONE_INTERVENTION };
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "rejected",
+      parseReason: "quantity must be a positive safe integer"
+    };
   }
 
   const intervention = {
@@ -131,20 +192,38 @@ export function parseAssessmentResponse(responseText, prisonerId) {
     const targetHolderId = typeof parsed.target_holder_id === "string"
       ? parsed.target_holder_id.trim()
       : "";
-    if (!targetHolderId || targetHolderId === prisonerId) return { ...NONE_INTERVENTION };
+    if (!targetHolderId || targetHolderId === prisonerId) {
+      return {
+        assessment: { ...NONE_INTERVENTION },
+        parseStatus: "rejected",
+        parseReason: !targetHolderId
+          ? "transfer target_holder_id is missing"
+          : "transfer target must differ from the source prisoner"
+      };
+    }
     intervention.target_holder_id = targetHolderId;
   }
 
-  return intervention;
+  return { assessment: intervention, parseStatus: "valid-decision", parseReason: null };
 }
 
-export async function requestPrisonerAssessment(prisonerId, G, modelCall = callModel) {
+export async function requestPrisonerAssessment(
+  prisonerId,
+  G,
+  modelCall = callModel,
+  interventionId = null
+) {
   const prompt = buildAssessmentPrompt(prisonerId, G);
   const messages = [{
     role: "user",
     content: `Assess ${prisonerId}'s resources for cycle ${G?.cycle ?? "unknown"}.`
   }];
-  console.debug(`[AM RESOURCE ASSESSMENT] cycle=${G?.cycle ?? "unknown"} prisoner=${prisonerId} started`);
+  console.debug("[AM RESOURCE ASSESSMENT][MODEL CALL]", {
+    cycle: G?.cycle ?? "unknown",
+    interventionId,
+    prisonerId,
+    status: "started"
+  });
 
   try {
     const responseText = await modelCall(
@@ -158,14 +237,50 @@ export async function requestPrisonerAssessment(prisonerId, G, modelCall = callM
         suppressResponseBodyLogs: true
       }
     );
-    const parsed = parseAssessmentResponse(responseText, prisonerId);
-    if (parsed.intervention === "none" && parseResponseObject(responseText)?.intervention !== "none") {
-      console.warn(`[AM RESOURCE ASSESSMENT] cycle=${G?.cycle ?? "unknown"} prisoner=${prisonerId} invalid response; treating as none`);
+    const result = parseAssessmentResponseDetails(responseText, prisonerId);
+    const parsed = result.assessment;
+    const interventionType = parsed.intervention_type ?? parsed.intervention;
+    const heldResource = parsed.resource_id
+      ? G?.resources?.instances?.find(
+        (resource) =>
+          resource?.resourceId === parsed.resource_id &&
+          resource.holderId === prisonerId
+      )
+      : null;
+    const logContext = {
+      cycle: G?.cycle ?? "unknown",
+      interventionId,
+      prisonerId,
+      interventionType,
+      resourceId: parsed.resource_id ?? null,
+      targetId: parsed.target_holder_id ?? parsed.target_id ?? null,
+      quantity: parsed.quantity ?? heldResource?.quantity ?? null,
+      quantityMode: parsed.intervention_type && parsed.intervention_type !== "taunt"
+        ? parsed.quantity === undefined
+          ? "all held units (default)"
+          : "explicit"
+        : null,
+      rationale: parsed.rationale ?? null,
+      parseStatus: result.parseStatus,
+      parseReason: result.parseReason
+    };
+    if (result.parseStatus === "rejected") {
+      console.warn("[AM RESOURCE ASSESSMENT][PARSE REJECTED]", {
+        ...logContext,
+        responsePreview: String(responseText ?? "").slice(0, 300)
+      });
     }
-    console.debug(`[AM RESOURCE ASSESSMENT] cycle=${G?.cycle ?? "unknown"} prisoner=${prisonerId} decision=${parsed.intervention ?? parsed.intervention_type}`);
+    console.debug("[AM RESOURCE ASSESSMENT][MODEL RESULT]", logContext);
+    if (parsed.intervention_type) parsed.interventionId = interventionId;
     return parsed;
   } catch (error) {
-    console.warn(`[AM RESOURCE ASSESSMENT] cycle=${G?.cycle ?? "unknown"} prisoner=${prisonerId} failed; treating as none`, error);
+    console.warn("[AM RESOURCE ASSESSMENT][MODEL FAILURE]", {
+      cycle: G?.cycle ?? "unknown",
+      interventionId,
+      prisonerId,
+      reason: error?.message ?? String(error),
+      error
+    });
     return { ...NONE_INTERVENTION };
   }
 }
