@@ -176,7 +176,8 @@ export function buildScratchpadCommsPrompt(
   const formattedCurrentScratchpad =
     formatScratchpadContext(
       sim,
-      others
+      others,
+      state?.pendingEvidence?.resourceInterventions?.[sim.id]
     );
 
   const formattedDrives = [

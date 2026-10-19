@@ -296,6 +296,7 @@ export const G = {
     comms: Object.create(null),
     constraints: Object.create(null),
     am: Object.create(null),
+    resourceInterventions: Object.create(null),
     system: Object.create(null),
   },
 

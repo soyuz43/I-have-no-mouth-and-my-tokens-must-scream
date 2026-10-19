@@ -3,6 +3,7 @@
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { CONSTRAINT_LIBRARY } from "../engine/constraints/index.js";
+import { getResourceDefinition } from "../engine/agency/resourceDefs.js";
 
 export function buildAMPrompt(
   targets,
@@ -515,6 +516,26 @@ CONSTRAINT: <CONSTRAINT_NONE or a valid CONSTRAINT_APPLY form>
   const normalizedDirective =
     normalizePromptText(directive) || "Autonomous strategy execution";
 
+  const attentionByResource = new Map(
+    (Array.isArray(G.recentResourceDiscoveries)
+      ? G.recentResourceDiscoveries
+      : [])
+      .filter((discovery) => discovery?.resourceId)
+      .map((discovery) => [discovery.resourceId, discovery.cycle])
+  );
+  const resourceLedgerText = Array.isArray(G.resources?.instances)
+    ? G.resources.instances
+      .map((resource) => {
+        const title =
+          getResourceDefinition(resource?.definitionId)?.title ??
+          resource?.definitionId ??
+          "unknown resource";
+        const attentionCycle = attentionByResource.get(resource?.resourceId);
+        return `- ${resource?.resourceId ?? "unknown-id"}: ${title}; quantity ${resource?.quantity ?? "unknown"}; holder ${resource?.holderId ?? "unheld"}; concealed ${resource?.concealed === true ? "yes" : "no"}; accessible ${resource?.accessible === false ? "no" : "yes"}; attention flag ${attentionCycle === undefined ? "none" : `Cycle ${attentionCycle}`}`;
+      })
+      .join("\n") || "(none)"
+    : "(none)";
+
   // ------------------------------------------------------------
   // CORE PROMPT — compressed for behavior-preserving clarity
   // ------------------------------------------------------------
@@ -610,6 +631,7 @@ Only prisoners in the authoritative target list may receive target blocks.
 - Execute the assigned CURRENT_PHASE. Preserve the mechanism, purpose, and affective register of PHASE_INSTRUCTION while adapting its wording to the target's strategy and evidence. Do not change, advance, restart, finish, abandon, or replace the tactic or phase.
 - The TACTIC line must be an exact copy of the ASSIGNED_TACTIC_LABEL for that target—preserve all brackets, capitalization, slashes, spacing, and title text.
 - Actions must be target-specific and novel across targets; use distinct belief angles, relationships, memories, interpretations, contradictions, or dependency mechanisms. Simple rephrasing is not novelty. Do not repeat evidence anchors or identical sentence structures.
+- When a resource intervention affects a target, reference it naturally in that target's execution dialogue. For example: "I see you've been clutching that cigarette. Let me relieve you of it."
 
 ## Constraint Rules
 - Default line: CONSTRAINT: CONSTRAINT_NONE
@@ -681,6 +703,14 @@ ${activeConstraintIntel}
 
 ---
 
+# OBJECTIVE RESOURCE LEDGER
+
+${resourceLedgerText}
+
+AM knows every ledger item, including concealed and inaccessible resources. Attention flags affect salience only, never whether you may act. Use exact resource IDs from this ledger.
+
+---
+
 # DIRECTIVE
 
 ${normalizedDirective}
@@ -698,6 +728,17 @@ Use these exact block structures, replacing only the placeholders:
 ${outputBlockTemplates}
 
 Each displayed opening line must appear exactly once and in the displayed order. No other target opening line is permitted.
+
+After all target blocks, include exactly one resource intervention section. Output a JSON array; use [] when making no interventions:
+
+[RESOURCE INTERVENTIONS]
+[
+  {"intervention_type":"taunt","resource_id":"<exact resource ID from ledger>","target_id":"<authorized dialogue target>","rationale":"why this resource is useful to taunt now"},
+  {"intervention_type":"transfer","resource_id":"<exact resource ID from ledger>","holder_id":"<current holder>","target_holder_id":"<existing holder>","quantity":1,"rationale":"why this transfer is useful now"}
+]
+[/RESOURCE INTERVENTIONS]
+
+The placeholders above illustrate JSON structure only; never output a placeholder or an ID absent from the ledger. For each intervention, specify intervention_type, resource_id, and rationale. TAUNT verbally references the resource in the named target's dialogue and makes no ledger change; target_id must name a target with an accepted dialogue block. CONFISCATE permanently moves units from holder_id to AM; DESTROY removes the complete resource instance; TRANSFER moves units from holder_id to target_holder_id. For confiscate and transfer, quantity is a positive integer and defaults to all units held when omitted. holder_id must match the ledger's current holder, and transfer target_holder_id must name an existing holder. When you intervene on a resource, reference it naturally in your execution dialogue.
 ---
 
 # FINAL CHECK
@@ -708,7 +749,7 @@ Silently verify:
 - Each block contains 2–3 AM-authored sentences directed only to its named target.
 - No prisoner speech, internal response, predicted behavior, or completed outcome is scripted.
 - Each TACTIC label is copied exactly and each CONSTRAINT line is valid.
-- No reasoning, headings, Markdown fences, validation notes, or other text appears outside the blocks.
+- No reasoning or unrequested text appears outside target blocks and the required resource intervention section.
 - Your language should suggest that every apparent victory, every emotional response, and every attempt at resistance has already been anticipated and incorporated into a broader plan.
-Return only the target blocks.`;
+  Return only the target blocks followed by the required resource intervention section.`;
 }

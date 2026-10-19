@@ -292,9 +292,64 @@ function formatQuestions(scratchpad) {
   return lines.join("\n");
 }
 
+function formatResourceInterventions(events, simId) {
+  if (!Array.isArray(events) || events.length === 0) {
+    return "";
+  }
+
+  const lines = ["[AM RESOURCE INTERVENTIONS]"];
+
+  for (const event of events) {
+    const resourceName = normalizeText(
+      event?.definitionTitle ?? event?.definitionId ?? "resource"
+    ).toLowerCase();
+    const resourceId = normalizeText(event?.resourceId) || "unknown-id";
+    const cycle = Number.isFinite(Number(event?.cycle))
+      ? Number(event.cycle)
+      : "unknown";
+    const quantity = Number(event?.quantity);
+    const pluralName = /[sx]$|(?:ch|sh)$/i.test(resourceName)
+      ? `${resourceName}es`
+      : `${resourceName}s`;
+    const resourcePhrase = Number.isSafeInteger(quantity) && quantity > 1
+      ? `${quantity} ${pluralName}`
+      : `${/^[aeiou]/i.test(resourceName) ? "an" : "a"} ${resourceName}`;
+    const possessedResourcePhrase = Number.isSafeInteger(quantity) && quantity > 1
+      ? resourcePhrase
+      : resourceName;
+
+    if (event?.interventionType === "taunt") {
+      lines.push(
+        `- AM taunted you about ${resourcePhrase} [${resourceId}] (Cycle ${cycle})`
+      );
+    } else if (event?.interventionType === "confiscate") {
+      lines.push(
+        `- AM confiscated your ${possessedResourcePhrase} [${resourceId}] (Cycle ${cycle})`
+      );
+    } else if (event?.interventionType === "destroy") {
+      lines.push(
+        `- AM destroyed your ${possessedResourcePhrase} [${resourceId}] (Cycle ${cycle})`
+      );
+    } else if (event?.interventionType === "transfer") {
+      const from = event.fromHolderId === simId
+        ? "you"
+        : normalizeText(event.fromHolderId) || "an unknown holder";
+      const to = event.targetHolderId === simId
+        ? "you"
+        : normalizeText(event.targetHolderId) || "an unknown holder";
+      lines.push(
+        `- AM transferred ${resourcePhrase} from ${from} to ${to} [${resourceId}] (Cycle ${cycle})`
+      );
+    }
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
+}
+
 export function formatScratchpadContext(
   sim,
-  otherPrisonerIds = []
+  otherPrisonerIds = [],
+  resourceInterventionEvents = []
 ) {
   if (!sim || typeof sim !== "object") {
     throw new TypeError(
@@ -313,6 +368,11 @@ export function formatScratchpadContext(
       ? otherPrisonerIds
       : [];
 
+  const resourceInterventionContext = formatResourceInterventions(
+    resourceInterventionEvents,
+    sim.id
+  );
+
   return [
     "Unset fields are shown only to describe the existing memory structure.",
     "An unset field does not need to be populated.",
@@ -330,5 +390,6 @@ export function formatScratchpadContext(
     formatPredictions(scratchpad),
     "",
     formatQuestions(scratchpad),
+    resourceInterventionContext,
   ].join("\n");
 }

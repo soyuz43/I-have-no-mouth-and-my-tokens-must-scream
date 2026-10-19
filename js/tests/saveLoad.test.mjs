@@ -172,6 +172,10 @@ test("heavy populated simulation state and exporter telemetry round-trip intact"
 
     const restoredSave = JSON.parse(exportState());
     assert.deepEqual(restoredSave.G, originalSave.G);
+    assert.deepEqual(
+      restoredSave.G.pendingEvidence.resourceInterventions,
+      originalSave.G.pendingEvidence.resourceInterventions
+    );
     assert.deepEqual(restoredSave.Exporter, originalSave.Exporter);
     assert.strictEqual(G, gameSingleton);
     assert.strictEqual(Exporter, exporterSingleton);
@@ -446,6 +450,20 @@ function populateHeavyState() {
         provenance: { source: "environmental_event", cycle: 40 },
       },
     ],
+  };
+  G.pendingEvidence.resourceInterventions = {
+    TED: [{
+      cycle,
+      interventionType: "confiscate",
+      resourceId: "cigarette_stack_01",
+      definitionId: "cigarette",
+      fromHolderId: "TED",
+      targetHolderId: "AM",
+      quantity: 1,
+      tacticPath: "test/tactic",
+      rationale: "Test save/load persistence.",
+      prisonerId: "TED",
+    }],
   };
   G.comms = {
     history: messageHistory,

@@ -53,6 +53,13 @@ import {
 import {
   extractConstraintsFromText as parseConstraintsFromText
 } from "../constraints/parser.js";
+import {
+  commitResourceInterventions
+} from "../analysis/commitResourceInterventions.js";
+import {
+  parseResourceInterventions,
+  splitAMExecutionOutput
+} from "../analysis/parseResourceInterventions.js";
 
 /* ============================================================
    OBSERVATION POLICY
@@ -265,6 +272,28 @@ export async function runStrategyPhase(directive) {
         targets,
         tacticAssignmentsByTarget
       );
+
+    const interventionCommit = commitResourceInterventions(
+      G,
+      execution?.resourceInterventions ?? []
+    );
+    execution.resourceInterventions = interventionCommit.committed;
+    execution.resourceInterventionRejections = [
+      ...(execution.resourceInterventionRejections ?? []),
+      ...interventionCommit.rejected
+    ];
+    if (execution.amExecution) {
+      execution.amExecution.resourceInterventions = interventionCommit.committed;
+      execution.amExecution.resourceInterventionRejections =
+        execution.resourceInterventionRejections;
+    }
+
+    for (const rejection of execution.resourceInterventionRejections) {
+      console.warn("[AM RESOURCE INTERVENTION][REJECTED]", rejection);
+      timelineEvent(
+        `!! AM RESOURCE INTERVENTION REJECTED cycle=${G.cycle} index=${rejection.index} reason=${rejection.reason}`
+      );
+    }
 
     timelineEvent(
       execution?.amExecution?.executionStatus === "degraded"
@@ -505,8 +534,11 @@ export async function stepExecuteAM(
       : targets.map((sim) => sim?.id)
   );
 
+  const separatedExecution = splitAMExecutionOutput(amResponse);
+  const executionText = separatedExecution.executionText;
+
   const parsedExecution = parseAMTargets(
-    amResponse,
+    executionText,
     expectedTargetIds
   );
 
@@ -547,7 +579,7 @@ export async function stepExecuteAM(
   }
 
   const parsedConstraintMap =
-    extractConstraintsFromText(amResponse);
+    extractConstraintsFromText(executionText);
 
   if (G.DEBUG_CONSTRAINTS) {
     console.log(
@@ -558,6 +590,20 @@ export async function stepExecuteAM(
 
   const actionTargetIds = orderedSimIds(
     Object.keys(actions)
+  );
+
+  const parsedResourceInterventions = parseResourceInterventions(
+    separatedExecution.interventionSection,
+    {
+      sectionError: separatedExecution.sectionError,
+      resources: G.resources,
+      sims: G.sims,
+      actions,
+      cycle: G.cycle,
+      tacticAssignmentsByTarget,
+      amTacticRuntime: G.amTacticRuntime,
+      amStrategy: G.amStrategy
+    }
   );
 
   recordTacticRuntimeExecutions(
@@ -635,6 +681,8 @@ export async function stepExecuteAM(
      * Actual parsed actions only.
      */
     actions,
+    resourceInterventions: parsedResourceInterventions.interventions,
+    resourceInterventionRejections: parsedResourceInterventions.rejections,
 
     /*
      * Sims with actual parsed action records.
@@ -800,7 +848,7 @@ export async function stepExecuteAM(
 
   const loggedAMResponse = semanticFailures.length
     ? buildRedactedAMExecutionLog(actions, semanticFailures)
-    : amResponse;
+    : executionText;
 
   addLog(
     `AM // CYCLE ${G.cycle}`,
@@ -821,6 +869,8 @@ export async function stepExecuteAM(
     targets,
     tacticMap,
     constraintMap: parsedConstraintMap,
+    resourceInterventions: parsedResourceInterventions.interventions,
+    resourceInterventionRejections: parsedResourceInterventions.rejections,
     amExecution
   };
 }
