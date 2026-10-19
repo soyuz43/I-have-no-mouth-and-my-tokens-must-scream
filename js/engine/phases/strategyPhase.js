@@ -57,7 +57,7 @@ import {
   commitResourceInterventions
 } from "../analysis/commitResourceInterventions.js";
 import {
-  shouldAssessPrisoner,
+  evaluatePrisonerAssessmentGate,
   requestPrisonerAssessment
 } from "../analysis/assessResourceInterventions.js";
 import {
@@ -307,8 +307,10 @@ export async function runStrategyPhase(directive) {
 
     for (const rejection of execution.resourceInterventionRejections) {
       console.warn("[AM RESOURCE INTERVENTION][REJECTED]", rejection);
+      const interventionId = rejection.intervention?.interventionId ?? "unknown";
+      const prisonerId = rejection.intervention?.holder_id ?? "unknown";
       timelineEvent(
-        `!! AM RESOURCE INTERVENTION REJECTED cycle=${G.cycle} index=${rejection.index} reason=${rejection.reason}`
+        `!! AM RESOURCE INTERVENTION REJECTED — ${prisonerId} [${interventionId}]: ${rejection.reason}`
       );
     }
 
@@ -335,13 +337,32 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
   const proposedInterventions = [];
   const pendingTaunts = [];
   const rejected = [];
+  let assessmentIndex = 0;
 
   for (const prisonerId of orderedSimIds(prisonerIds)) {
-    if (!shouldAssessPrisoner(prisonerId, G)) continue;
+    const interventionId = `intervention_${G.cycle}_${prisonerId}_${assessmentIndex++}`;
+    const gate = evaluatePrisonerAssessmentGate(prisonerId, G, interventionId);
+    if (!gate.shouldAssess) {
+      timelineEvent(
+        `// AM RESOURCE ASSESSMENT — ${prisonerId}: skipped (${gate.reason}) [${interventionId}]`
+      );
+      continue;
+    }
 
-    const assessment = await requestPrisonerAssessment(prisonerId, G, modelCall);
+    timelineEvent(
+      `// AM RESOURCE ASSESSMENT — ${prisonerId}: assessing (${gate.heldResources.length} held resources; ${gate.matchingAttentionFlags.length} matching attention flags) [${interventionId}]`
+    );
+
+    const assessment = await requestPrisonerAssessment(
+      prisonerId,
+      G,
+      modelCall,
+      interventionId
+    );
     if (!assessment || assessment.intervention === "none") {
-      timelineEvent(`// AM RESOURCE ASSESSMENT — ${prisonerId}: none`);
+      timelineEvent(
+        `// AM RESOURCE ASSESSMENT — ${prisonerId}: no intervention selected [${interventionId}]`
+      );
       continue;
     }
 
@@ -352,13 +373,28 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
         instance.quantity > 0
     );
     if (!resource) {
+      const reason = `Resource ${assessment.resource_id} is not held by ${prisonerId}.`;
+      const tacticPath = G.amTacticRuntime?.targets?.[prisonerId]?.path ?? null;
+      console.warn("[AM RESOURCE INTERVENTION][ASSESSMENT REJECTED]", {
+        cycle: G.cycle,
+        interventionId,
+        prisonerId,
+        interventionType: assessment.intervention_type,
+        resourceId: assessment.resource_id,
+        targetId: assessment.target_holder_id ?? assessment.target_id ?? null,
+        quantity: assessment.quantity ?? null,
+        rationale: assessment.rationale ?? null,
+        tacticPath,
+        reason
+      });
       rejected.push({
         index: proposedInterventions.length + pendingTaunts.length,
-        reason: `Resource ${assessment.resource_id} is not held by ${prisonerId}.`,
+        interventionId,
+        reason,
         intervention: assessment
       });
       timelineEvent(
-        `!! AM RESOURCE ASSESSMENT REJECTED cycle=${G.cycle} prisoner=${prisonerId} resource=${assessment.resource_id}`
+        `!! AM RESOURCE ASSESSMENT REJECTED — ${prisonerId} [${interventionId}], resource ${assessment.resource_id}: ${reason}`
       );
       continue;
     }
@@ -366,6 +402,7 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
     const tacticPath = G.amTacticRuntime?.targets?.[prisonerId]?.path ?? null;
     const intervention = {
       ...assessment,
+      interventionId,
       provenance: {
         cycle: G.cycle,
         tacticPath,
@@ -382,8 +419,16 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
     } else {
       proposedInterventions.push(intervention);
     }
+    const quantity = intervention.quantity ?? Number(resource.quantity);
+    const resourceTitle = intervention.definitionTitle.toLowerCase();
+    const decisionSummary = intervention.intervention_type === "taunt"
+      ? `taunt ${prisonerId} about ${resourceTitle}`
+      : `${intervention.intervention_type} ${quantity} unit${quantity === 1 ? "" : "s"} of ${resourceTitle}` +
+        (intervention.intervention_type === "transfer"
+          ? ` to ${intervention.target_holder_id}`
+          : "");
     timelineEvent(
-      `// AM RESOURCE ASSESSMENT — ${prisonerId}: ${intervention.intervention_type} ${intervention.resource_id}`
+      `// AM RESOURCE ASSESSMENT — ${prisonerId}: ${decisionSummary} [${intervention.resource_id}] — ${intervention.rationale} [${interventionId}]`
     );
   }
 
