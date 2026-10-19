@@ -402,6 +402,7 @@ export function buildTacticPlanningContext({
   requiredTargetIds,
   tacticCandidatesByTarget,
   tacticRuntimeByTarget = {},
+  resourceInstances = [],
   resourceDiscoveries = [],
   cycle,
   simIds
@@ -550,20 +551,65 @@ export function buildTacticPlanningContext({
             )
       );
 
+  const objectiveResourceLedgerEntries = Array.isArray(resourceInstances)
+    ? [...resourceInstances]
+    : [];
+
+  objectiveResourceLedgerEntries.sort((left, right) => {
+    const holderOrder = normalizeText(left?.holderId).localeCompare(
+      normalizeText(right?.holderId)
+    );
+    if (holderOrder !== 0) return holderOrder;
+
+    const resourceOrder = normalizeText(left?.resourceId).localeCompare(
+      normalizeText(right?.resourceId)
+    );
+    if (resourceOrder !== 0) return resourceOrder;
+
+    return normalizeText(left?.definitionId).localeCompare(
+      normalizeText(right?.definitionId)
+    );
+  });
+
+  const objectiveResourceLedgerSection = [
+    "[OBJECTIVE RESOURCE LEDGER - AM KNOWLEDGE]",
+    "AM knows every ledger entry. Concealment hides items from other prisoners only; attention flags affect salience, never AM's ability to act.",
+    ...(objectiveResourceLedgerEntries.length > 0
+      ? objectiveResourceLedgerEntries.map((instance) => {
+          const concealed = instance?.concealed === true;
+          const concealedLabel = concealed
+            ? "; concealed from other prisoners"
+            : "";
+
+          return (
+            `- ${normalizeText(instance?.definitionId) || "unknown resource"}` +
+            ` [resource ${normalizeText(instance?.resourceId) || "unknown id"}]` +
+            `; holder: ${normalizeText(instance?.holderId) || "none"}` +
+            `; quantity: ${String(instance?.quantity ?? "unspecified")}` +
+            `; accessible: ${instance?.accessible === true ? "yes" : instance?.accessible === false ? "no" : "unspecified"}` +
+            `; concealed: ${concealed ? "yes" : instance?.concealed === false ? "no" : "unspecified"}` +
+            concealedLabel
+          );
+        })
+      : ["- No resource instances."])
+  ].join("\n");
+
   const resourceDiscoverySection =
     resourceDiscoveries.length > 0
       ? [
-          "[RECENT RESOURCE DISCOVERIES]",
-          "AM has detected the following items in prisoner possession:",
+          "[RECENT RESOURCE ATTENTION]",
+          "AM already knows the complete objective ledger above. These flags mark held items drawing heightened attention this cycle; they are salience signals, not discoveries.",
+          "AM may act on any ledger item at any time. An unflagged item is not unknown or unavailable.",
           ...resourceDiscoveries.map(
-            ({ actorId, definitionId, cycle: discoveryCycle }) =>
-              `- ${actorId}: ${definitionId} (Cycle ${discoveryCycle})`
+            ({ actorId, definitionId, resourceId, cycle: discoveryCycle }) =>
+              `- ${actorId}: ${definitionId} [resource ${resourceId}] (attention flag: Cycle ${discoveryCycle})`
           ),
-          "Use this intelligence to tailor your psychological pressure or constraints."
+          "Use these salience signals to pace psychological pressure or constraints without treating them as limits on AM's knowledge or power."
         ].join("\n")
       : "";
 
   return {
+    objectiveResourceLedgerSection,
     resourceDiscoverySection,
 
     tacticLibrarySection:
