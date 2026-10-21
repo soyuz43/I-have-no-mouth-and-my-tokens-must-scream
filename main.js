@@ -27,9 +27,6 @@ import {
   runCommsCycle
 } from "./js/engine/comms/orchestrator.js";
 
-import { 
-  attachToWindow
-} from "./js/research/controllabilityProbe.js";
 
 // ============================================================
 // VALIDATORS
@@ -548,10 +545,6 @@ window.AM_DEBUG = {
   debugTrace: () => G.debugTrace.slice(-10),
 };
 
-// ===================
-// RESEARCH PROBE BRIDGE
-// ===================
-attachToWindow(); //  
 
 function saveRun() {
   try {

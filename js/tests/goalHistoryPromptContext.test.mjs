@@ -5,6 +5,7 @@ import { G } from "../core/state.js";
 import { buildSimJournalPrompt } from "../prompts/journal.js";
 import { buildSimJournalStatsPrompt } from "../prompts/stats.js";
 import { formatGoalHistoryContext } from "../prompts/utils/formatGoalHistoryContext.js";
+import { parseStatDeltas } from "../engine/state/extract.js";
 
 function makeSim(goalHistory = [], activeGoal = null) {
   return {
@@ -74,6 +75,74 @@ test("stats prompt injects goal history as secondary forensic context", () => {
   assert.ok(prompt.includes("whose *only* source is `goal_history` may support direction and magnitudes 1–3 only"));
   assert.ok(prompt.includes("magnitudes >=4 and all 7+ shifts still require current-journal textual support"));
   assert.ok(prompt.includes("A terminal outcome alone never implies a psychological change."));
+});
+
+test("stats prompt schema contains only engine-consumed evidence fields", () => {
+  const prompt = buildSimJournalStatsPrompt(
+    G.sims.TED,
+    "I still don't know what it means.",
+    "(none)"
+  );
+  const schemaStart = prompt.indexOf("**Output Schema**");
+  const schemaEnd = prompt.indexOf(
+    "**Observation Direction Semantics**",
+    schemaStart
+  );
+  const outputSchema = prompt.slice(schemaStart, schemaEnd);
+
+  assert.ok(schemaStart >= 0);
+  assert.ok(schemaEnd > schemaStart);
+  assert.ok(!outputSchema.includes('"domain"'));
+  assert.doesNotMatch(outputSchema, /"reason":\s*\{\s*"suffering"/);
+  assert.match(outputSchema, /"reason": \{\s*"beliefs"/);
+  assert.ok(
+    outputSchema.includes(
+      '"target": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits"'
+    )
+  );
+});
+
+test("stat parser accepts the trimmed forensic stats schema", () => {
+  const statsOutput = JSON.stringify({
+    forensic_observations: [
+      {
+        source: "current_journal",
+        signal: "No plan for escape was described.",
+        target: "escape_possible",
+        direction: "decrease",
+        confidence: 0.8,
+        rationale: "The journal describes resignation."
+      }
+    ],
+    suffering_direction: "increased",
+    suffering_magnitude: 3,
+    hope_direction: "decreased",
+    hope_magnitude: 2,
+    sanity_direction: "unchanged",
+    sanity_magnitude: 0,
+    belief_deltas: {
+      escape_possible: -1,
+      others_trustworthy: 0,
+      self_worth: 0,
+      reality_reliable: 0,
+      guilt_deserved: 0,
+      resistance_possible: 0,
+      am_has_limits: 0
+    },
+    drives: { primary: null, secondary: null },
+    anchors: [],
+    reason: { beliefs: "The journal conveys resignation." }
+  });
+
+  assert.deepEqual(
+    parseStatDeltas(statsOutput, { id: "TED" }),
+    {
+      suffering: 3,
+      hope: -2,
+      sanity: 0,
+      _parseMethod: "direct"
+    }
+  );
 });
 
 test("journal prompt includes only the most recent terminal objective outcome", () => {

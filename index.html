@@ -241,6 +241,23 @@
               </div>
             </div>
           </div>
+
+          <!-- Inference concurrency -->
+          <div class="sf" style="margin-top: 12px">
+            <label class="sl">CONCURRENT MODEL CALLS</label>
+            <select class="si-sel" id="model-concurrency">
+              <option value="1">1 (serial)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+            <div class="ollama-status">
+              Overlaps independent per-prisoner journal and stats calls.
+              Raise this for remote APIs; local Ollama trades throughput
+              for memory pressure.
+            </div>
+          </div>
         </div>
 
         <button class="sb" id="setup-load-run-btn" onclick="loadRun()">
