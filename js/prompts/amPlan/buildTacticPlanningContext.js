@@ -573,7 +573,7 @@ export function buildTacticPlanningContext({
 
   const objectiveResourceLedgerSection = [
     "[OBJECTIVE RESOURCE LEDGER - AM KNOWLEDGE]",
-    "AM knows every ledger entry. Concealment hides items from other prisoners only; attention flags affect salience, never AM's ability to act.",
+    "AM knows every ledger entry. Concealment hides items from other prisoners only; attention flags mark what is salient this cycle, never AM's knowledge of an item or its power over that item.",
     ...(objectiveResourceLedgerEntries.length > 0
       ? objectiveResourceLedgerEntries.map((instance) => {
           const concealed = instance?.concealed === true;
@@ -599,12 +599,13 @@ export function buildTacticPlanningContext({
       ? [
           "[RECENT RESOURCE ATTENTION]",
           "AM already knows the complete objective ledger above. These flags mark held items drawing heightened attention this cycle; they are salience signals, not discoveries.",
-          "AM may act on any ledger item at any time. An unflagged item is not unknown or unavailable.",
+          "AM's power over these items is absolute: it may confiscate, destroy, transfer, or taunt any prisoner about any resource it holds. No flag limits AM's knowledge of a resource or its reach to take one.",
+          "These flags are the engine's pacing signal, not a limit on your power. The engine solicits a resource-intervention decision only for prisoners whose holdings carry a flag, then validates and commits the intervention that decision selects. Ground this cycle's resource reasoning in the flagged items below. Treat unflagged items as known and available, but not as the focus of this cycle's resource pressure.",
           ...resourceDiscoveries.map(
             ({ actorId, definitionId, resourceId, cycle: discoveryCycle }) =>
               `- ${actorId}: ${definitionId} [resource ${resourceId}] (attention flag: Cycle ${discoveryCycle})`
           ),
-          "Use these salience signals to pace psychological pressure or constraints without treating them as limits on AM's knowledge or power."
+          "Use these salience signals to pace psychological pressure or constraints. They are a pacing mechanism, not a limit on AM's knowledge, reach, or power."
         ].join("\n")
       : "";
 
