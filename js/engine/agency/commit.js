@@ -6,6 +6,10 @@ import {
 } from "../scratchpad/goals/registry.js";
 import { evaluateGoalTransitions } from "../scratchpad/goals/evaluator.js";
 import { getResourceDefinition } from "./resourceDefs.js";
+import {
+  recordResourceEvent,
+  RESOURCE_EVENT_KINDS
+} from "./resourceEventLog.js";
 
 const MAX_GOAL_HISTORY = 5;
 const RESOURCE_DISCOVERY_CHANCE = 0.3;
@@ -36,7 +40,9 @@ function applyOperation(
   actorId,
   cycle,
   searchSequence,
-  sequenceIndex
+  sequenceIndex,
+  actionType,
+  stagedEvents
 ) {
   if (operation.type === "find") {
     const definition = getResourceDefinition(operation.definitionId);
@@ -61,6 +67,29 @@ function applyOperation(
     console.debug(
       `[AGENCY] ${actorId} found ${quantity} ${operation.definitionId} via SEARCH`
     );
+
+    /*
+     * A SEARCH is a CREATION, not a transfer: the units did not
+     * exist before the search. quantityBefore is therefore 0, and
+     * there is no prior holder.
+     */
+    stagedEvents.push({
+      kind: RESOURCE_EVENT_KINDS.PRISONER_ACTION,
+      cycle,
+      resourceId,
+      definitionId: operation.definitionId,
+      quantityBefore: 0,
+      quantityAfter: quantity,
+      fromHolderId: null,
+      toHolderId: actorId,
+      actorId,
+      cause: {
+        phase: "agency_phase",
+        action: "SEARCH",
+        source: "agency_resolver"
+      }
+    });
+
     return resourceId;
   }
 
@@ -70,17 +99,66 @@ function applyOperation(
   if (!instance) return null;
 
   if (operation.kind === "consume") {
+    const quantityBefore = Number(instance.quantity);
+    const holderId = instance.holderId ?? null;
+
     instance.quantity = Math.max(
       0,
       Number(instance.quantity) - Number(operation.quantity)
     );
+
+    /*
+     * The consumed units cease to exist. quantityAfter is 0 and
+     * there is no holder afterwards, which is what distinguishes a
+     * consumption from a transfer in the trajectory.
+     */
+    stagedEvents.push({
+      kind: RESOURCE_EVENT_KINDS.PRISONER_ACTION,
+      cycle,
+      resourceId: instance.resourceId,
+      definitionId: instance.definitionId,
+      quantityBefore: Math.min(
+        quantityBefore,
+        Number(operation.quantity) || 0
+      ),
+      quantityAfter: 0,
+      fromHolderId: holderId,
+      toHolderId: null,
+      actorId,
+      cause: {
+        phase: "agency_phase",
+        action: actionType || "CONSUME",
+        source: "agency_resolver"
+      }
+    });
+
     return instance.resourceId;
   }
 
   if (operation.kind === "transfer") {
     const amount = Number(operation.quantity);
+    const holderIdBefore = instance.holderId ?? null;
+
     if (Number(instance.quantity) === amount) {
       instance.holderId = operation.targetId;
+
+      stagedEvents.push({
+        kind: RESOURCE_EVENT_KINDS.PRISONER_ACTION,
+        cycle,
+        resourceId: instance.resourceId,
+        definitionId: instance.definitionId,
+        quantityBefore: amount,
+        quantityAfter: amount,
+        fromHolderId: holderIdBefore,
+        toHolderId: operation.targetId,
+        actorId,
+        cause: {
+          phase: "agency_phase",
+          action: actionType || "TRANSFER",
+          source: "agency_resolver"
+        }
+      });
+
       return instance.resourceId;
     }
 
@@ -97,11 +175,60 @@ function applyOperation(
         eventId
       }
     });
+
+    /*
+     * A partial transfer splits the stack. The affected units now
+     * live in the derived stack, so that stack's id is the one
+     * recorded: the event names the container that holds the
+     * quantity that moved.
+     */
+    stagedEvents.push({
+      kind: RESOURCE_EVENT_KINDS.PRISONER_ACTION,
+      cycle,
+      resourceId: transferredResourceId,
+      definitionId: instance.definitionId,
+      quantityBefore: amount,
+      quantityAfter: amount,
+      fromHolderId: holderIdBefore,
+      toHolderId: operation.targetId,
+      actorId,
+      cause: {
+        phase: "agency_phase",
+        action: actionType || "TRANSFER",
+        source: "agency_resolver"
+      }
+    });
+
     return transferredResourceId;
   }
 
   if (operation.kind === "conceal") {
+    const holderId = instance.holderId ?? null;
+
     instance.concealed = operation.concealed;
+
+    /*
+     * HIDE and REVEAL do not move any quantity. The stack is
+     * unchanged and still held by the same prisoner; what changed
+     * is who can SEE it, which the cause.action names.
+     */
+    stagedEvents.push({
+      kind: RESOURCE_EVENT_KINDS.PRISONER_ACTION,
+      cycle,
+      resourceId: instance.resourceId,
+      definitionId: instance.definitionId,
+      quantityBefore: Number(instance.quantity),
+      quantityAfter: Number(instance.quantity),
+      fromHolderId: holderId,
+      toHolderId: holderId,
+      actorId,
+      cause: {
+        phase: "agency_phase",
+        action: operation.concealed === true ? "HIDE" : "REVEAL",
+        source: "agency_resolver"
+      }
+    });
+
     return instance.resourceId;
   }
 
@@ -129,6 +256,7 @@ export function commitAgencyResolution(
   const stagedWaitStreaks = new Map();
   const stagedSearchCycles = new Map();
   const stagedEvents = [];
+  const stagedResourceEvents = [];
   let sequence = nextSequence;
   let operationSequenceIndex = 0;
 
@@ -183,7 +311,9 @@ export function commitAgencyResolution(
           resolution.actorId,
           G.cycle,
           Number(G.agency.nextActionSequence) || G.cycle,
-          operationSequenceIndex
+          operationSequenceIndex,
+          actionType,
+          stagedResourceEvents
         );
         operationSequenceIndex += 1;
         if (resourceId) committedResourceIds.push(resourceId);
@@ -291,6 +421,16 @@ export function commitAgencyResolution(
   }
   G.agency.events.push(...stagedEvents);
   G.agency.nextActionSequence = sequence;
+
+  /*
+   * The Objective Ledger is written AFTER the mutation is committed
+   * to G.resources, not before. Recording is strictly an
+   * observation: it must never be able to fail, block, or alter the
+   * commit it is describing.
+   */
+  for (const resourceEvent of stagedResourceEvents) {
+    recordResourceEvent(G, resourceEvent);
+  }
 
   return stagedEvents;
 }

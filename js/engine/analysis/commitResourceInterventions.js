@@ -1,6 +1,10 @@
 import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
 import { validateResourceIntervention } from "./resourceInterventions.js";
+import {
+  recordResourceEvent,
+  RESOURCE_EVENT_KINDS
+} from "../agency/resourceEventLog.js";
 
 function cloneInstance(instance) {
   return {
@@ -223,6 +227,7 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
 
   const stagedInstances = G.resources.instances.map(cloneInstance);
   const stagedEvidence = ensureEvidenceMap(G);
+  const stagedResourceEvents = [];
   const committed = [];
   const rejected = [];
 
@@ -298,12 +303,63 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
       stagedEvidence[simId].push({ ...event, prisonerId: simId });
     }
 
+    /*
+     * The Objective Ledger records AM's interventions alongside the
+     * prisoners' own actions, so the trajectory shows WHO moved an
+     * item, not merely that it moved.
+     *
+     * A TAUNT is excluded on purpose: it changes no ledger state, and
+     * the objective ledger records mutations, not speech. A taunt
+     * already has its own channel in the prisoner-facing evidence
+     * map.
+     */
+    if (intervention.intervention_type !== "taunt") {
+      const destroyed =
+        intervention.intervention_type === "destroy";
+
+      const confiscated =
+        intervention.intervention_type === "confiscate";
+
+      const toHolderId = destroyed
+        ? null
+        : confiscated
+          ? "AM"
+          : intervention.target_holder_id ?? null;
+
+      stagedResourceEvents.push({
+        kind: RESOURCE_EVENT_KINDS.AM_INTERVENTION,
+        cycle: G.cycle,
+        resourceId: mutation.resultingResourceId ?? intervention.resource_id,
+        definitionId: instance.definitionId,
+        quantityBefore: Number(mutation.affectedQuantity),
+        quantityAfter: destroyed ? 0 : Number(mutation.affectedQuantity),
+        fromHolderId: mutation.previousHolderId,
+        toHolderId,
+        actorId: "AM",
+        cause: {
+          phase: "strategy_phase",
+          action: intervention.intervention_type.toUpperCase(),
+          source: "am_resource_intervention"
+        }
+      });
+    }
+
     committed.push({ ...intervention, ...event, affectedPrisoners });
   }
 
   G.resources.instances = stagedInstances;
   G.pendingEvidence ??= {};
   G.pendingEvidence.resourceInterventions = stagedEvidence;
+
+  /*
+   * The Objective Ledger is written AFTER the mutation is committed
+   * to G.resources, not before. Recording is strictly an
+   * observation: it must never be able to fail, block, or alter the
+   * commit it is describing.
+   */
+  for (const resourceEvent of stagedResourceEvents) {
+    recordResourceEvent(G, resourceEvent);
+  }
 
   for (const intervention of committed) {
     const summary = formatInterventionSummary(intervention);

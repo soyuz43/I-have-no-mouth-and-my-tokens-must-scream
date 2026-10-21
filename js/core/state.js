@@ -291,6 +291,38 @@ export const G = {
 
   resources: createResourceLedger(),
 
+  /* ============================================================
+     OBJECTIVE LEDGER: RESOURCE EVENT HISTORY (RUN-SCOPED)
+
+     G.resources says what exists RIGHT NOW. It has no memory: a
+     consumed cigarette is gone, and nothing records that it was
+     ever held, who held it, or when it moved.
+
+     G.resourceEvents is that memory. An append-only, engine-owned
+     log of every mutation of the resource ledger, in mutation
+     order. The LLM never writes these events; the engine emits
+     them as a side effect of committing a mutation.
+
+     It is a sibling of G.resources, NOT a field of it, because
+     the ledger holds present state and the event log holds history.
+     Mixing them would make "reset the inventory" ambiguous.
+
+     See js/engine/agency/resourceEventLog.js for the schema and
+     the sequencing contract.
+  ============================================================ */
+
+  resourceEvents: [],
+
+  /*
+   * Per-cycle monotonic counter backing the event ids. It lives on
+   * the state so a save/load round-trip cannot reissue an id.
+   */
+
+  resourceEventSequence: {
+    cycle: null,
+    next: 1
+  },
+
   privateLeak: {
     seen: 0.158,
     fragment: 0.136,

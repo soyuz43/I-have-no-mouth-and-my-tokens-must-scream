@@ -4,6 +4,7 @@ import {
   formatTacticLabel,
   getTacticPhase
 } from "../../engine/tactics.js";
+import { formatResourceTrajectory } from "../utils/formatResourceTrajectory.js";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -404,6 +405,7 @@ export function buildTacticPlanningContext({
   tacticRuntimeByTarget = {},
   resourceInstances = [],
   resourceDiscoveries = [],
+  resourceEvents = [],
   cycle,
   simIds
 }) {
@@ -609,9 +611,22 @@ export function buildTacticPlanningContext({
         ].join("\n")
       : "";
 
+  /*
+   * The trajectory is what makes the ledger actionable. The ledger
+   * section above says what each prisoner holds right now; this
+   * section says how the holdings got that way. AM reads the first
+   * as a state and the second as a direction.
+   *
+   * The section is empty (and therefore omitted) when there is no
+   * history yet, rather than showing AM an empty heading.
+   */
+  const resourceTrajectorySection =
+    formatResourceTrajectory(resourceEvents);
+
   return {
     objectiveResourceLedgerSection,
     resourceDiscoverySection,
+    resourceTrajectorySection,
 
     tacticLibrarySection:
       catalogEntries
