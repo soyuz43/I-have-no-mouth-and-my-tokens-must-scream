@@ -81,6 +81,20 @@ export const G = {
 
   backend: "anthropic",
 
+  /*
+   * Maximum number of model calls allowed in flight at once.
+   *
+   * 1 preserves the historical fully-serialized behavior.
+   * Higher values let independent per-prisoner inference overlap,
+   * which is the dominant cost of a cycle.
+   *
+   * Remote APIs benefit directly. Local Ollama inference is bound
+   * by one set of model weights, so values above 1 trade
+   * throughput for memory pressure rather than adding capacity.
+   */
+
+  modelConcurrency: 1,
+
 
   /* ============================================================
      DIAGNOSTIC / MODEL CONFIGURATION FLAGS

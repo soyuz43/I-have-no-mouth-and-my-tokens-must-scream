@@ -1,9 +1,27 @@
 // js/research/controllabilityProbe.js
 // ============================================================
 // Controllability Probe Module
-// Zero-build ES6 module · matches existing engine physics
+// Zero-build ES6 module
 // Provides: V(x) potential, Monte Carlo rollouts, bounded steering,
 //           critical window detection, controllability metric C
+// ============================================================
+//
+// STATUS: NOT WIRED IN.
+//
+// This module is not part of the live simulation. It is not imported by
+// the engine, not imported by main.js, and not ticked by any phase.
+//
+// It was previously wired into the psychology phase (per-cycle tick) and
+// attached to the window debug bridge. Both were removed. The module is
+// retained on disk and committed as a research reference.
+//
+// Nothing here runs unless a developer explicitly imports it.
+//
+// NOTE: the runtime PRNG stream researchRng (js/core/prng.js) is NOT
+// part of this module. It is a separate, load-bearing dependency of
+// save/load and the Monte Carlo proof test. Do not remove it with this
+// file.
+//
 // ============================================================
 
 import { researchRng } from "../core/prng.js";

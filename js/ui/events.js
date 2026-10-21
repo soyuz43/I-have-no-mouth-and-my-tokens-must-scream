@@ -770,6 +770,23 @@ export function syncSetupConfiguration() {
     button.classList.toggle("sel", button.dataset.b === G.backend);
   });
 
+  const concurrencySelect =
+    document.getElementById("model-concurrency");
+
+  if (concurrencySelect) {
+    const configured = Number(G.modelConcurrency);
+
+    const hasOption =
+      [...concurrencySelect.options].some(
+        (option) =>
+          Number(option.value) === configured
+      );
+
+    if (hasOption) {
+      concurrencySelect.value = String(configured);
+    }
+  }
+
   const ollamaSection = document.getElementById("ollama-section");
   const colabSection = document.getElementById("colab-section");
   if (ollamaSection) {

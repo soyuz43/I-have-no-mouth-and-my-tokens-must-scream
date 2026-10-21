@@ -1,3 +1,42 @@
+## Shell environment
+
+Commands are parsed by the shell reported in the session environment. On this
+machine that is **bash** (Git Bash on Windows). Treat that as the current fact,
+not a permanent one.
+
+If the shell is not already established, determine it before issuing a
+multi-line command — check `$SHELL` and `$0`, or the platform field in the
+environment context. Do not infer the shell from the OS alone: Windows does not
+imply PowerShell, and launching an external program does not change the shell
+that parses the invocation.
+
+### Quoting must match the shell that parses the command
+
+The invocation form is part of the command. Use the multi-line quoting that
+belongs to the detected shell:
+
+| Shell        | Multi-line input                                        |
+|--------------|---------------------------------------------------------|
+| bash / zsh   | `cmd <<'EOF'` … `EOF`                                   |
+| PowerShell   | `cmd @'` … `'@`, with openers and closers at column 0   |
+| cmd.exe      | no here-doc; write the payload to a temp file first     |
+
+Never emit PowerShell here-string syntax (`@'...'@`, `@"..."@`) into a POSIX
+shell. Bash treats it as literal text and mangles the command.
+
+### Patch payloads are shell-independent
+
+Regardless of shell, `apply_patch`, `git apply`, and `.diff` content must have
+every marker — `*** Begin Patch`, `*** End Patch`, `@@`, `+`, `-` — at
+column 0. Strip any indentation introduced by the invocation form.
+
+### Delimiter and quoting errors
+
+If a command fails with a malformed-payload, missing-terminator, or
+"last line must be ..." error, inspect the **invocation form** before editing
+the payload. The usual cause is a shell-quoting mismatch, not bad content.
+Do not retry with the same quoting; change the form.
+
 ## Architecture and inference discipline
 
 When performing reconnaissance, review, architecture design, or experimental-design work, do not collapse source evidence and proposed design into one conclusion.

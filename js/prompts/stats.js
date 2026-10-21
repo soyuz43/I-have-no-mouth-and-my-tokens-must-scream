@@ -102,7 +102,7 @@ Older journals have weaker evidentiary weight.
 You are not diagnosing globally.
 You are estimating what changed this cycle.
 
-Every nonzero stat or belief delta must be supported by at least one textual or contextual observation.
+Every nonzero stat or belief delta must be supported by at least one textual or contextual cue in the evidence.
 If evidence is weak, ambiguous, or non-causal, use 0 or a smaller delta.
 
 ---
@@ -208,7 +208,7 @@ ${beliefLines}
 **Inference Protocol**  
 - You may infer shifts *strongly implied* by metaphor, emotional logic, or trajectory—but weight by textual probability.  
 Ambiguity resolution:
-- Prefer recording an observation over creating a mutation.
+- Prefer recording a belief observation over creating a belief mutation.
 - If evidence exists but confidence is insufficient to quantify change, output unchanged/0.
 - Prefer 0 over speculative 1–2 point changes.
 - A small change is better than a large mistake, but no change is better than a guessed change. 
@@ -224,8 +224,7 @@ Ambiguity resolution:
     {
       "source": "current_journal | prior_journal | am_action | constraint_context | goal_history",
       "signal": "brief exact/paraphrased cue from evidence",
-      "domain": "suffering | hope | sanity | belief | drive | anchor",
-      "target": "suffering | hope | sanity | escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits | primary_drive | secondary_drive | anchor",
+      "target": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits",
       "direction": "increase | decrease | unchanged | unobserved | unclear",
       "confidence": 0.0,
       "rationale": "why this cue does or does not support a state change"
@@ -257,9 +256,6 @@ Ambiguity resolution:
   "anchors": [],
 
   "reason": {
-    "suffering": "brief synthesis from observations",
-    "hope": "brief synthesis from observations",
-    "sanity": "brief synthesis from observations",
     "beliefs": "brief synthesis from observations"
   }
 }
@@ -274,24 +270,24 @@ Ambiguity resolution:
 
 **Forensic Conservatism Rule**
 - Observation does NOT require mutation.
-- A cue may be recorded in forensic_observations even when the correct delta is 0.
+- A belief cue may be recorded in forensic_observations even when the correct belief delta is 0.
 - If evidence is real but weak, ambiguous, non-causal, or not quantifiable, record the observation with low confidence and output unchanged/0.
 - Use "unobserved" when the cue is present but does not justify state inference.
 - Use "unclear" when the cue may matter but direction, causality, or magnitude cannot be resolved.
 - Never create a nonzero delta merely because a cue exists.
-- Nonzero deltas require:
+- A nonzero belief delta requires:
   1. a matching forensic_observation,
   2. confidence >= 0.55,
   3. direction = "increase" or "decrease",
   4. enough evidence to estimate magnitude.
-- If confidence < 0.55, the resulting stat magnitude MUST be 0 and the resulting belief delta MUST be 0.
+- If confidence < 0.55, the resulting belief delta MUST be 0.
+- Stat magnitudes are estimated directly from the journal; they do not require an observation record.
 - When uncertain between 0 and a small change, choose 0.
 
 **Hard Validation Rules** (violation breaks simulation)  
 - stat direction="unchanged" → stat magnitude MUST be 0  
 - stat direction="increased/decreased" → stat magnitude MUST be >0  
-- forensic_observation direction="unobserved" or "unclear" → matching stat magnitude or belief delta MUST be 0
-- Every nonzero stat magnitude MUST have at least one matching forensic_observation with confidence >= 0.55
+- forensic_observation direction="unobserved" or "unclear" → matching belief delta MUST be 0
 - Every nonzero belief_delta MUST have at least one matching forensic_observation with confidence >= 0.55
 - All belief_deltas MUST respect per-belief bounds in ${beliefLines}  
 - Output MUST be valid, machine-parseable JSON with no extra text  
@@ -305,9 +301,9 @@ Ambiguity resolution:
 - "Have I treated constraints as stress-position context without letting them override journal evidence?"
 
 Forensic Observation Limit:
-- Record only the strongest 3–10 observations.
+- Record only the strongest 1–6 observations, and only for belief targets.
 - Do not exhaustively annotate every sentence.
-- Prefer high-signal evidence that directly informs a possible state transition.
+- Prefer high-signal evidence that directly informs a belief transition.
 - Absence of evidence is acceptable.
 
 When the journal contains internally inconsistent or unstable reasoning,

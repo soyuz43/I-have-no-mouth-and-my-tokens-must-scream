@@ -58,7 +58,6 @@ import {
 
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
 import { logBeliefDistance } from "../state/utils/beliefDistance.js";
-import { tickProbe } from "../../research/controllabilityProbe.js";
 
 
 // Constants & Logging helpers
@@ -68,7 +67,8 @@ const LOG_PSYCHOLOGY_GROUP_SIMS = true;
 export function guardJournalOutput(
   rawJournal,
   previousJournal,
-  simId = "?"
+  simId = "?",
+  timelineSink = timelineEvent
 ) {
   const text = String(rawJournal ?? "").trim();
   const scaffoldLeak =
@@ -105,7 +105,7 @@ export function guardJournalOutput(
     }
   );
 
-  timelineEvent(
+  timelineSink(
     `!! JOURNAL REJECTED cycle=${G.cycle} simId=${simId} reason=${scaffoldLeak.reason}`
   );
 
@@ -1138,11 +1138,6 @@ export async function runPsychologyPhase(
         G.extractionStats.cycles[G.cycle]
       );
       console.groupEnd();
-    }    // Research probe tick — wrapped to prevent production disruption
-    try {
-      tickProbe();
-    } catch (probeError) {
-      console.warn("[RESEARCH PROBE] tickProbe failed:", probeError);
     }
   } finally {
     endPsychologyPhaseLog();
@@ -1160,14 +1155,65 @@ async function stepSimJournals(
   phaseStatsBefore,
   cycleBeliefSummary
 ) {
-  const results = [];
+  /*
+   * The journal phase runs in three stages so that the slow part
+   * (model inference) can overlap while the fast part (state commit)
+   * stays strictly ordered.
+   *
+   * 1. PREPARE - serial. Builds per-prisoner context. No model
+   *    calls, no cross-prisoner writes.
+   * 2. INFER   - one journal call plus one stats call per prisoner.
+   *    These are independent per prisoner, so they run concurrently.
+   *    No engine state is written here.
+   * 3. COMMIT  - serial, in target order. All parsing, state
+   *    mutation, and cross-prisoner effects happen here.
+   *
+   * COMMIT MUST stay ordered: the psychological pressure field
+   * writes into OTHER prisoners' stats, so commit order is part of
+   * the simulation's semantics rather than an implementation detail.
+   */
+
+  const prepared = [];
+  const skipped = [];
 
   for (const sim of targets) {
-    const result = await processSimJournalCycle(
+    const prep = prepareSimJournalCycle(
       sim,
       tacticMap,
       amExecution,
       phaseStatsBefore?.[sim.id]
+    );
+
+    if (!prep) continue;
+
+    if (prep.skipped) {
+      skipped.push(prep);
+      continue;
+    }
+
+    prepared.push(prep);
+  }
+
+  const inferences = await Promise.all(
+    prepared.map((prep) =>
+      runSimJournalInference(prep)
+    )
+  );
+
+  const results = [];
+
+  /*
+   * Preserve the original result ordering: skipped prisoners keep
+   * their target-order position relative to the committed ones.
+   */
+
+  for (const result of skipped) {
+    results.push(result);
+  }
+
+  for (const inference of inferences) {
+    const result = commitSimJournalCycle(
+      inference
     );
 
     results.push(result);
@@ -1189,7 +1235,15 @@ async function stepSimJournals(
    SIM JOURNAL CYCLE
    ============================================================ */
 
-async function processSimJournalCycle(
+/*
+ * STAGE 1 — PREPARE
+ *
+ * Resolves the prisoner context, records tactic history, and
+ * captures the pre-journal stat baseline. Performs no model calls
+ * and no cross-prisoner writes, so it is safe to run serially.
+ */
+
+function prepareSimJournalCycle(
   sim,
   tacticMap,
   amExecution,
@@ -1224,16 +1278,11 @@ async function processSimJournalCycle(
     );
 
     return {
+      skipped: true,
       simId: sim.id,
       diff: [],
     };
   }
-
-  beginSimPsychologyLog(sim.id);
-
-  timelineEvent(
-    `${sim.id} journal start`
-  );
 
   const hasAMAction =
     Boolean(
@@ -1336,37 +1385,95 @@ async function processSimJournalCycle(
     );
   }
 
+  const journalStatsBefore = {
+    suffering:
+      finiteNumber(
+        phaseStatSnapshot
+          ?.suffering,
+        sim.suffering
+      ),
+
+    hope:
+      finiteNumber(
+        phaseStatSnapshot
+          ?.hope,
+        sim.hope
+      ),
+
+    sanity:
+      finiteNumber(
+        phaseStatSnapshot
+          ?.sanity,
+        sim.sanity
+      ),
+  };
+
+  const cleanAM =
+    amContext.text;
+
+  return {
+    sim,
+    amContext,
+    amExecution,
+    cleanAM,
+    journalStatsBefore,
+    appliedTactics,
+    currentTacticEntries,
+    tacticLabel,
+    hasAMAction,
+  };
+}
+
+/*
+ * STAGE 2 — INFER
+ *
+ * Runs the prisoner's journal call and the forensic stats call.
+ * Both are read-only with respect to engine state, and neither
+ * reads another prisoner's state, so prisoners can infer
+ * concurrently.
+ */
+
+async function runSimJournalInference(prep) {
+  const {
+    sim,
+    amContext,
+    amExecution,
+    cleanAM,
+    appliedTactics,
+    currentTacticEntries,
+    tacticLabel,
+    hasAMAction,
+    journalStatsBefore,
+  } = prep;
+
+  /*
+   * Timeline and log entries are written to exported state
+   * (G.timeline, G.transmissionLog). Because inference for
+   * different prisoners now completes in whatever order the
+   * provider responds, these entries are buffered here and
+   * flushed during the ordered commit stage. Without this,
+   * exported runs would not be byte-reproducible.
+   */
+
+  const deferredTimeline = [];
+  const deferredLog = [];
+
+  const deferTimeline = (label) => {
+    deferredTimeline.push(label);
+  };
+
+  beginSimPsychologyLog(sim.id);
+
+  deferTimeline(
+    `${sim.id} journal start`
+  );
+
   showWriting(
     sim.id,
     true
   );
 
   try {
-    const journalStatsBefore = {
-      suffering:
-        finiteNumber(
-          phaseStatSnapshot
-            ?.suffering,
-          sim.suffering
-        ),
-
-      hope:
-        finiteNumber(
-          phaseStatSnapshot
-            ?.hope,
-          sim.hope
-        ),
-
-      sanity:
-        finiteNumber(
-          phaseStatSnapshot
-            ?.sanity,
-          sim.sanity
-        ),
-    };
-
-    const cleanAM =
-      amContext.text;
 
     /* =========================
        DEBUG: SUBJECTIVE INPUT
@@ -1487,12 +1594,13 @@ async function processSimJournalCycle(
       guardJournalOutput(
         rawJournal,
         G.journals?.[sim.id]?.slice(-1)?.[0]?.text,
-        sim.id
+        sim.id,
+        deferTimeline
       );
 
     const cleanJournal = journalGuard.text;
 
-    timelineEvent(
+    deferTimeline(
       `${sim.id} journal written`
     );
 
@@ -1532,7 +1640,7 @@ async function processSimJournalCycle(
       throw error;
     }
 
-    timelineEvent(
+    deferTimeline(
       `${sim.id} stats analysis`
     );
 
@@ -1547,6 +1655,138 @@ async function processSimJournalCycle(
       rawStatsJson,
       sanitizedStatsJson,
     });
+
+    /*
+     * Inference is complete. Everything below this point is a
+     * state mutation and therefore belongs to the ordered
+     * commit stage, not to this concurrent inference stage.
+     */
+
+    return {
+      ok: true,
+      sim,
+      amContext,
+      amExecution,
+      cleanAM,
+      cleanJournal,
+      appliedTactics,
+      currentTacticEntries,
+      tacticLabel,
+      hasAMAction,
+      journalStatsBefore,
+      rawStatsJson,
+      sanitizedStatsJson,
+      deferredTimeline,
+      deferredLog,
+    };
+  } catch (error) {
+    deferTimeline(
+      `${sim.id} journal ERROR`
+    );
+
+    console.error(
+      `Journal cycle error for ${sim.id}:`,
+      error
+    );
+
+    deferredLog.push([
+      `${sim.id} // ERROR`,
+      String(
+        error.message ||
+        error
+      ),
+      "sys"
+    ]);
+
+    return {
+      ok: false,
+      sim,
+      error,
+      deferredTimeline,
+      deferredLog,
+    };
+  } finally {
+
+    showWriting(
+      sim.id,
+      false
+    );
+
+    deferTimeline(
+      `${sim.id} journal complete`
+    );
+
+    endSimPsychologyLog();
+  }
+}
+
+/*
+ * STAGE 3 — COMMIT
+ *
+ * Parses the forensic stats payload and applies every resulting
+ * state change. This stage is executed serially, in target order,
+ * because the psychological pressure field writes into OTHER
+ * prisoners' stats. Commit order is therefore part of the
+ * simulation's semantics.
+ */
+
+/*
+ * Writes the timeline and log entries buffered during the
+ * concurrent inference stage. This must be called from the
+ * ordered commit stage so that exported state does not depend on
+ * the order in which the provider happened to respond.
+ */
+
+function flushDeferredJournalEvents(inference) {
+  const deferredTimeline =
+    inference?.deferredTimeline || [];
+
+  for (const label of deferredTimeline) {
+    timelineEvent(label);
+  }
+
+  const deferredLog =
+    inference?.deferredLog || [];
+
+  for (const entry of deferredLog) {
+    const [speaker, body, type] = entry;
+
+    addLog(
+      speaker,
+      body,
+      type
+    );
+  }
+}
+
+function commitSimJournalCycle(inference) {
+  if (!inference?.ok) {
+    flushDeferredJournalEvents(inference);
+
+    return {
+      simId: inference?.sim?.id,
+      diff: [],
+    };
+  }
+
+  const {
+    sim,
+    amContext,
+    amExecution,
+    cleanAM,
+    cleanJournal,
+    appliedTactics,
+    currentTacticEntries,
+    tacticLabel,
+    hasAMAction,
+    journalStatsBefore,
+    rawStatsJson,
+    sanitizedStatsJson,
+  } = inference;
+
+  flushDeferredJournalEvents(inference);
+
+  try {
 
     const parsedStatDeltas =
       parseStatDeltasWithStats(
@@ -1976,18 +2216,6 @@ async function processSimJournalCycle(
       simId: sim.id,
       diff: [],
     };
-  } finally {
-
-    showWriting(
-      sim.id,
-      false
-    );
-
-    timelineEvent(
-      `${sim.id} journal complete`
-    );
-
-    endSimPsychologyLog();
   }
 }
 

@@ -1781,6 +1781,72 @@ EXPLANATION: <one concise evidence-based sentence>`;
       )
       .filter(Boolean);
 
+  /*
+   * The per-target loop above runs concurrently, so the order in
+   * which targets reached G.amAssessments depends on which
+   * provider response arrived first. That would make exported
+   * assessment telemetry differ between otherwise identical runs.
+   *
+   * Sort the current cycle's assessments back into SIM_IDS order
+   * while leaving the order of prior-cycle records unchanged.
+   */
+
+  G.amAssessments ??= [];
+
+  const SIM_ID_ORDER =
+    new Map(
+      SIM_IDS.map(
+        (simId, index) =>
+          [simId, index]
+      )
+    );
+
+  const currentCycleAssessmentIndexes = [];
+  const currentCycleAssessments = [];
+
+  G.amAssessments.forEach(
+    (assessment, index) => {
+      if (assessment?.cycle !== G.cycle) {
+        return;
+      }
+
+      currentCycleAssessmentIndexes.push(index);
+      currentCycleAssessments.push(assessment);
+    }
+  );
+
+  currentCycleAssessments.sort(
+    (left, right) => {
+      const leftIndex =
+        SIM_ID_ORDER.get(
+          left?.target ??
+          left?.targetId
+        );
+
+      const rightIndex =
+        SIM_ID_ORDER.get(
+          right?.target ??
+          right?.targetId
+        );
+
+      if (leftIndex === undefined && rightIndex === undefined) return 0;
+      if (leftIndex === undefined) return 1;
+      if (rightIndex === undefined) return -1;
+
+      return leftIndex - rightIndex;
+    }
+  );
+
+  for (
+    let index = 0;
+    index < currentCycleAssessmentIndexes.length;
+    index++
+  ) {
+    G.amAssessments[
+      currentCycleAssessmentIndexes[index]
+    ] = currentCycleAssessments[index];
+  }
+
   const constraintAssessments =
     targetAssessmentResults
       .flatMap(

@@ -13,6 +13,7 @@ let MAX_CONCURRENT = 1; // safest for Ollama
 
 export function setModelConcurrency(n) {
   MAX_CONCURRENT = Math.max(1, Number(n) || 1);
+  return MAX_CONCURRENT;
 }
 
 export function getModelQueueStatus() {

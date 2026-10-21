@@ -4,6 +4,7 @@ import { G } from "../core/state.js";
 import { getMode as getTapeMode, TAPE_MODES } from "../core/replayTape.js";
 import { SIM_IDS } from "../core/constants.js";
 import { seedAll } from "../core/prng.js";
+import { setModelConcurrency } from "../models/modelQueue.js";
 
 import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { purgeInvalidDerivedTactics } from "../engine/tactics/validateDerivedTactic.js";
@@ -129,6 +130,19 @@ function collectModelConfig() {
     }
   });
 
+  const concurrencyInput =
+    document.getElementById("model-concurrency");
+
+  if (concurrencyInput) {
+    const requested =
+      Number(concurrencyInput.value);
+
+    G.modelConcurrency =
+      Number.isFinite(requested) && requested >= 1
+        ? Math.floor(requested)
+        : 1;
+  }
+
   // Colab runtime config from setup UI.
   // This is intentionally kept in runtime state only.
   G.colabEndpoint =
@@ -206,9 +220,38 @@ function collectModelConfig() {
    MAIN BOOT SEQUENCE
 ============================================================ */
 
+/*
+ * Apply the configured model concurrency to the shared inference
+ * scheduler.
+ *
+ * The default of 1 preserves the historical fully-serialized
+ * behavior. Raising it lets the engine overlap the independent
+ * per-prisoner journal and stats calls, which dominate cycle
+ * wall-clock time.
+ */
+
+function applyModelConcurrency() {
+  const requested = Number(G.modelConcurrency);
+
+  const applied =
+    setModelConcurrency(
+      Number.isFinite(requested)
+        ? requested
+        : 1
+    );
+
+  bootLog(
+    `✓ Model concurrency: ${applied} in-flight call(s).`
+  );
+
+  return applied;
+}
+
 export async function bootAM() {
 
   collectModelConfig();
+
+  applyModelConcurrency();
 
   const replayingTape = getTapeMode() === TAPE_MODES.REPLAY;
 
