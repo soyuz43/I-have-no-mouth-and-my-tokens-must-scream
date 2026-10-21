@@ -311,7 +311,8 @@ ${indent(prisonerBlock)}
     tacticLibrarySection,
     targetTacticSection,
     objectiveResourceLedgerSection,
-    resourceDiscoverySection
+    resourceDiscoverySection,
+    resourceTrajectorySection
   } =
     buildTacticPlanningContext({
       requiredTargetIds,
@@ -328,6 +329,10 @@ ${indent(prisonerBlock)}
 
       resourceDiscoveries:
         G.recentResourceDiscoveries ??
+        [],
+
+      resourceEvents:
+        G.resourceEvents ??
         [],
 
       cycle,
@@ -507,6 +512,8 @@ ${allIntel}${COALITION_INTEL_SECTION}
 ${objectiveResourceLedgerSection}
 
 ${resourceDiscoverySection}
+
+${resourceTrajectorySection}
 
 State meanings:
 

@@ -37,6 +37,9 @@ import {
   recordAssessments,
   recordObservabilityUnknowns,
 } from "./streams/assessment.js";
+import {
+  recordResourceEvents,
+} from "./streams/resourceEvents.js";
 
 /* ============================================================
    CSV UTILITIES
@@ -343,6 +346,9 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
 
             observability_unknowns:
                 Exporter.buffers.observability_unknowns,
+
+            resource_events:
+                Exporter.buffers.resource_events,
         },
     };
 
@@ -453,6 +459,7 @@ export function finalizeCycle(G, metrics) {
     recordBeliefEvidence(G, cycle);
     recordAssessments(G, cycle);
     recordObservabilityUnknowns(G, cycle);
+    recordResourceEvents(G, cycle);
 
     /*
      * Preserve the existing one-file-per-cycle behavior.

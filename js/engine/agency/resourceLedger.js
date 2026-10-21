@@ -30,6 +30,10 @@
 // equal result out, every time.
 
 import { getResourceDefinition } from "./resourceDefs.js";
+import {
+  recordResourceEvent,
+  RESOURCE_EVENT_KINDS
+} from "./resourceEventLog.js";
 
 /* ============================================================
    LEDGER SHAPE
@@ -108,7 +112,7 @@ export function createResourceLedger() {
  * catalogue must stay immutable, but a future resolver has to be
  * able to decrement `quantity`.
  */
-export function seedResources(ledger) {
+export function seedResources(ledger, state = null) {
   const target =
     ledger && typeof ledger === "object"
       ? ledger
@@ -122,6 +126,37 @@ export function seedResources(ledger) {
     ...entry,
     provenance: { ...entry.provenance }
   }));
+
+  /*
+   * The Objective Ledger records the seed as an event, so the
+   * history of the world starts with the world's own inventory
+   * rather than with the first thing that happens to it.
+   *
+   * The state argument is optional: a caller that only holds a
+   * bare ledger still gets a working ledger, it just gets no
+   * history. Recording is strictly an observation of a mutation
+   * that already happened.
+   */
+  if (state && typeof state === "object") {
+    for (const instance of target.instances) {
+      recordResourceEvent(state, {
+        kind: RESOURCE_EVENT_KINDS.SEED,
+        cycle: state.cycle,
+        resourceId: instance.resourceId,
+        definitionId: instance.definitionId,
+        quantityBefore: 0,
+        quantityAfter: instance.quantity,
+        fromHolderId: null,
+        toHolderId: instance.holderId,
+        actorId: "ENGINE",
+        cause: {
+          phase: "boot",
+          action: "SEED",
+          source: "scenario_seed"
+        }
+      });
+    }
+  }
 
   return target;
 }
@@ -270,7 +305,31 @@ export function maintainResourceDrying(G) {
     instance.dryingTurns = Math.max(0, dryingTurns - 1);
     if (instance.dryingTurns !== 0) continue;
 
+    const definitionIdBefore = instance.definitionId;
     instance.definitionId = "cigarette";
     delete instance.dryingTurns;
+
+    /*
+     * A dried cigarette is a DIFFERENT affordance set, not a smaller
+     * stack: wet_cigarette cannot be consumed, cigarette can. That
+     * transition is a ledger event, so the trajectory shows an item
+     * becoming usable rather than silently changing identity.
+     */
+    recordResourceEvent(G, {
+      kind: RESOURCE_EVENT_KINDS.DRYING,
+      cycle: G?.cycle,
+      resourceId: instance.resourceId,
+      definitionId: instance.definitionId,
+      quantityBefore: Number(instance.quantity),
+      quantityAfter: Number(instance.quantity),
+      fromHolderId: instance.holderId ?? null,
+      toHolderId: instance.holderId ?? null,
+      actorId: "ENGINE",
+      cause: {
+        phase: "ledger_maintenance",
+        action: "DRIED",
+        source: definitionIdBefore
+      }
+    });
   }
 }

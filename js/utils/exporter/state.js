@@ -26,6 +26,7 @@ export const Exporter = {
         belief_evidence: [],
         assessments: [],
         observability_unknowns: [],
+        resource_events: [],
     },
 
     // State captured at the beginning of the current cycle.

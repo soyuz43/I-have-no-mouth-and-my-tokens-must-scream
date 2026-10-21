@@ -381,7 +381,7 @@ export async function bootAM() {
      re-import cannot silently restock the world.
   --------------------------------------------------------- */
 
-  seedResources(G.resources);
+  seedResources(G.resources, G);
 
   bootLog("✓ Resource ledger seeded (derive-and-observe; no resolver yet).");
 

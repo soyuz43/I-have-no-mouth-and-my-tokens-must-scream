@@ -55,6 +55,10 @@ export {
 } from "./exporter/streams/assessment.js";
 
 export {
+  recordResourceEvents,
+} from "./exporter/streams/resourceEvents.js";
+
+export {
   toCSV,
   exportAllAsJSON,
   snapshotPrevState,
