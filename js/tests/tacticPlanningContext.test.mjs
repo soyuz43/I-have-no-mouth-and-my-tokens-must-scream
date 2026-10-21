@@ -611,9 +611,10 @@ test("AM context formats recent resource attention flags", () => {
     [
       "[RECENT RESOURCE ATTENTION]",
       "AM already knows the complete objective ledger above. These flags mark held items drawing heightened attention this cycle; they are salience signals, not discoveries.",
-      "AM may act on any ledger item at any time. An unflagged item is not unknown or unavailable.",
+      "AM's power over these items is absolute: it may confiscate, destroy, transfer, or taunt any prisoner about any resource it holds. No flag limits AM's knowledge of a resource or its reach to take one.",
+      "These flags are the engine's pacing signal, not a limit on your power. The engine solicits a resource-intervention decision only for prisoners whose holdings carry a flag, then validates and commits the intervention that decision selects. Ground this cycle's resource reasoning in the flagged items below. Treat unflagged items as known and available, but not as the focus of this cycle's resource pressure.",
       "- TED: cigarette [resource cigarette_stack_01] (attention flag: Cycle 4)",
-      "Use these salience signals to pace psychological pressure or constraints without treating them as limits on AM's knowledge or power."
+      "Use these salience signals to pace psychological pressure or constraints. They are a pacing mechanism, not a limit on AM's knowledge, reach, or power."
     ].join("\n")
   );
 });
@@ -722,7 +723,7 @@ test("cycle-promoted attention flags reach AM while ledger knowledge stays prese
     assert.ok(promptWithDiscovery.includes("concealed from other prisoners"));
     assert.ok(promptWithDiscovery.includes("[RECENT RESOURCE ATTENTION]"));
     assert.ok(promptWithDiscovery.includes("- TED: cigarette [resource cigarette_stack_01] (attention flag: Cycle 4)"));
-    assert.ok(promptWithDiscovery.includes("An unflagged item is not unknown or unavailable."));
+    assert.ok(promptWithDiscovery.includes("Treat unflagged items as known and available, but not as the focus of this cycle's resource pressure."));
 
     G.pendingResourceDiscoveries = [];
     resetCycleEvidence();
