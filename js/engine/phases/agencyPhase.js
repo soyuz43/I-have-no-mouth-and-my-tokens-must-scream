@@ -45,6 +45,7 @@ import {
   commitConcealmentExposures
 } from "../agency/capabilityConcealmentRule.js";
 import { enumerateLegalActions } from "../agency/legalActions.js";
+import { buildClaimView } from "../agency/claimView.js";
 import { ACTION_DEFINITIONS } from "../agency/actionDefs.js";
 import {
   buildResourceView
@@ -92,6 +93,17 @@ function deriveForSim(sim) {
   );
 
   /*
+   * The BELIEF-side view, built here and passed IN for the same
+   * reason the objective view is built here: the enumerator and the
+   * proposal validator must never read authoritative state directly.
+   *
+   * The claim view carries the prisoner's own accounting of what they
+   * hold, plus the fresh divergences that license an attempt on
+   * something the world has taken.
+   */
+  const claimView = buildClaimView(G, sim.id, G.cycle);
+
+  /*
    * `deriveCapabilities()` returns an envelope; the enumerator
    * compares against the five capability floats inside it. Passing the
    * envelope rather than `derived.capabilities` would make every
@@ -103,7 +115,8 @@ function deriveForSim(sim) {
     derived.capabilities,
     ACTION_DEFINITIONS,
     resourceView,
-    G.cycle
+    G.cycle,
+    claimView
   );
 
   G.agency.capabilities[sim.id] = derived;
@@ -296,7 +309,15 @@ export async function runAgencyPhase({
       proposalCollector(sim, {
         budget: G.agency.budgets[sim.id] ?? 0,
         legalActions: G.agency.legalActions[sim.id] ?? [],
-        resourceView: G.agency.resources[sim.id]
+        resourceView: G.agency.resources[sim.id],
+        /*
+         * The belief view is rebuilt here rather than carried over
+         * from the derivation loop, so a prisoner whose derivation
+         * failed still gets a claim view. It is a pure projection of
+         * the claim ledger, and nothing has mutated the ledger
+         * between the two reads.
+         */
+        claimView: buildClaimView(G, sim.id, G.cycle)
       })
     )
   );
