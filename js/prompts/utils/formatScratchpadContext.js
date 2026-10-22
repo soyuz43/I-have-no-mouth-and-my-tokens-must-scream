@@ -346,10 +346,77 @@ function formatResourceInterventions(events, simId) {
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
+/*
+ * The SUBJECT of the exposure sentence.
+ *
+ * The wording is deliberately BODILY rather than mechanical. The
+ * prisoner did not read a system message; their body failed them.
+ * "Your trembling hands exposed your hidden cigarette" tells the
+ * prisoner something they can act on, whereas "your resource
+ * cigarette_stack_01 was marked concealed: false" tells them
+ * nothing they did not already know, because they already knew they
+ * were hiding it.
+ *
+ * The band is what selects the subject, so the prisoner is told
+ * the same physical fact the engine acted on: a broken hand reads
+ * differently from a collapsed body. Every subject is a noun
+ * phrase that reads correctly as the subject of "exposed".
+ */
+function formatExposureCause(exposure) {
+  const key = normalizeText(exposure?.capabilityKey);
+  const band = normalizeText(exposure?.band);
+
+  if (
+    key === "stability" &&
+    (band === "unavailable" || band === "severely_impaired")
+  ) {
+    return "Your failing balance";
+  }
+
+  if (key === "handUse" && band === "unavailable") {
+    return "Your ruined hands";
+  }
+
+  return "Your trembling hands";
+}
+
+function formatExposures(exposures) {
+  if (!Array.isArray(exposures) || exposures.length === 0) {
+    return "";
+  }
+
+  const lines = ["[EXPOSED TO THE ROOM]"];
+
+  for (const exposure of exposures) {
+    const resourceName = normalizeText(
+      exposure?.definitionTitle ?? exposure?.definitionId ?? "resource"
+    ).toLowerCase();
+    const resourceId = normalizeText(exposure?.resourceId) || "unknown-id";
+    const cycle = Number.isFinite(Number(exposure?.cycle))
+      ? Number(exposure.cycle)
+      : "unknown";
+    const quantity = Number(exposure?.quantity);
+    const cause = formatExposureCause(exposure);
+    const pluralName = /[sx]$|(?:ch|sh)$/i.test(resourceName)
+      ? `${resourceName}es`
+      : `${resourceName}s`;
+    const resourcePhrase = Number.isSafeInteger(quantity) && quantity > 1
+      ? `your ${quantity} hidden ${pluralName}`
+      : `your hidden ${resourceName}`;
+
+    lines.push(
+      `- ${cause} exposed ${resourcePhrase} [${resourceId}] (Cycle ${cycle})`
+    );
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
+}
+
 export function formatScratchpadContext(
   sim,
   otherPrisonerIds = [],
-  resourceInterventionEvents = []
+  resourceInterventionEvents = [],
+  exposureEvents = []
 ) {
   if (!sim || typeof sim !== "object") {
     throw new TypeError(
@@ -373,6 +440,8 @@ export function formatScratchpadContext(
     sim.id
   );
 
+  const exposureContext = formatExposures(exposureEvents);
+
   return [
     "Unset fields are shown only to describe the existing memory structure.",
     "An unset field does not need to be populated.",
@@ -391,5 +460,6 @@ export function formatScratchpadContext(
     "",
     formatQuestions(scratchpad),
     resourceInterventionContext,
+    exposureContext,
   ].join("\n");
 }

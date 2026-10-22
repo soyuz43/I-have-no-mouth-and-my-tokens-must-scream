@@ -1006,6 +1006,19 @@ export async function runScratchpadCommsReviewForSim(
     )
       ? G.pendingEvidence.resourceInterventions[normalizedSimId]
       : [];
+    /*
+     * Capability-Ledger Entanglement records. These are not
+     * communications and not agency action outcomes: they are the
+     * engine telling the prisoner that their body has betrayed
+     * their concealment. A prisoner who only has an exposure to
+     * process still has something to review, so they count toward
+     * the "is there anything to review" check below.
+     */
+    const exposureEvents = Array.isArray(
+      G.pendingEvidence?.exposures?.[normalizedSimId]
+    )
+      ? G.pendingEvidence.exposures[normalizedSimId]
+      : [];
 
     reviewGroupOpened =
       beginScratchpadReviewLog({
@@ -1025,7 +1038,8 @@ export async function runScratchpadCommsReviewForSim(
     if (
       evidence.messages.length === 0 &&
       agencyEvents.length === 0 &&
-      resourceInterventionEvents.length === 0
+      resourceInterventionEvents.length === 0 &&
+      exposureEvents.length === 0
     ) {
       if (
         sim.scratchpad.initialized
