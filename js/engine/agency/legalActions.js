@@ -1,5 +1,4 @@
 // js/engine/agency/legalActions.js
-import { SEARCH_COOLDOWN_CYCLES } from "./actionDefs.js";
 //
 // Legal-action enumeration for the Agency Foundation.
 //
@@ -27,6 +26,24 @@ import { SEARCH_COOLDOWN_CYCLES } from "./actionDefs.js";
 // reported as capability-blocked even if they also lack a cigarette,
 // because "your body cannot do this" is the more informative refusal
 // and it is the one the posture is actually responsible for.
+//
+// THE THIRD, SOFTER GATE: BELIEF
+// ------------------------------
+// A prisoner who believes they hold something the world took from
+// them is not allowed to simply forget it. When the claim ledger
+// reports a FRESH divergence, the resource gate is asked a second
+// question: does the prisoner BELIEVE they hold this?
+//
+// If the belief satisfies a requirement that the reality does not,
+// the action is still OFFERED, carrying `claimedButAbsent: true`.
+// The prisoner may reach for the thing; the resolver will refuse it
+// against the objective snapshot with `resource_unavailable`; and
+// that refusal is the dissonance moment.
+//
+// The gate reads a claim view that is PASSED IN, never read from
+// global state, exactly like the resource view. The view carries only
+// FRESH divergences, so a stale misremembering cannot keep an action
+// legal for cycles after the confusion has gone cold.
 //
 // WHY LEGAL/BLOCKED RATHER THAN A SINGLE LIST
 // -------------------------------------------
@@ -56,6 +73,14 @@ import { SEARCH_COOLDOWN_CYCLES } from "./actionDefs.js";
 // random source, no `Date` access, no I/O. Same arguments in, structurally equal
 // result out, every time. The resource view is PASSED IN, never read
 // from global state, precisely to keep this contract true.
+
+import { SEARCH_COOLDOWN_CYCLES } from "./actionDefs.js";
+import { getResourceDefinition } from "./resourceDefs.js";
+import {
+  livesHolding,
+  livesWithAnything,
+  livesWithIgnition
+} from "./claimView.js";
 
 /*
  * Comparison tolerance.
@@ -232,16 +257,39 @@ function aggregateMissingModes(closedModes) {
  *
  * Returns the same { satisfied, missing } shape the capability path
  * uses, so both halves report through one field downstream.
+ *
+ * THE CLAIM-AWARE SECOND PASS
+ * ----------------------------
+ * The FIRST pass asks what the prisoner really holds. The SECOND
+ * pass asks what they BELIEVE they hold, and is only consulted for
+ * the requirements that the first pass could not satisfy.
+ *
+ * The two passes are kept separate rather than merged into one
+ * count, because the difference between them IS the finding: a
+ * requirement satisfied by belief but not by reality is exactly the
+ * action a prisoner can attempt but not perform. That action is
+ * offered with `claimedButAbsent: true` so the prompt can annotate
+ * it and the resolver knows to expect a refusal.
+ *
+ * The belief pass is restricted to FRESH divergences. A stale
+ * misremembering licenses no attempt, so it must not keep an action
+ * legal for cycles after the confusion has gone cold.
  */
-function evaluateResourceRequirements(resourceRequirements, view) {
+function evaluateResourceRequirements(resourceRequirements, view, claimView) {
   const satisfied = {};
   const missing = {};
+  /*
+   * The requirements that only the BELIEF satisfied. The caller
+   * reads this to decide whether the action it is offering is one
+   * the prisoner can merely ATTEMPT.
+   */
+  const claimedOnly = [];
 
   if (
     !resourceRequirements ||
     typeof resourceRequirements !== "object"
   ) {
-    return { satisfied, missing };
+    return { satisfied, missing, claimedOnly };
   }
 
   const safeView =
@@ -261,6 +309,9 @@ function evaluateResourceRequirements(resourceRequirements, view) {
 
     if (hasIgnition) {
       satisfied.ignition = true;
+    } else if (livesWithIgnition(claimView)) {
+      satisfied.ignition = true;
+      claimedOnly.push("ignition");
     } else {
       missing.ignition = true;
     }
@@ -309,6 +360,12 @@ function evaluateResourceRequirements(resourceRequirements, view) {
       continue;
     }
 
+    if (livesHolding(claimView, definitionId)) {
+      satisfied[definitionId] = required;
+      claimedOnly.push(definitionId);
+      continue;
+    }
+
     missing[definitionId] = required;
   }
 
@@ -328,17 +385,72 @@ function evaluateResourceRequirements(resourceRequirements, view) {
 
     if (stackCount > 0) {
       satisfied.holdAny = true;
+    } else if (livesWithAnything(claimView)) {
+      satisfied.holdAny = true;
+      claimedOnly.push("holdAny");
     } else {
       missing.holdAny = true;
     }
   }
 
-  return { satisfied, missing };
+  return { satisfied, missing, claimedOnly };
 }
 
 /* ============================================================
    PUBLIC API
 ============================================================ */
+
+/*
+ * The resource ids a prisoner believes they hold, for the
+ * requirements that only the belief satisfied.
+ *
+ * The requirement keys are not resource names. `holdAny` says "the
+ * prisoner holds something", not WHICH something, and `ignition`
+ * says "the prisoner holds something that can light a fire". The
+ * only place the actual holdings live is the claim view, so the ids
+ * are read from there and filtered to the definitions that could
+ * satisfy the requirements in question.
+ */
+function collectClaimedResourceIds(claimView, claimedOnly) {
+  const live = Array.isArray(claimView?.live) ? claimView.live : [];
+
+  if (live.length === 0) return [];
+
+  const keys = Array.isArray(claimedOnly) ? claimedOnly : [];
+
+  /*
+   * `holdAny` and `ignition` are satisfied by ANY believed holding
+   * (of a lightable thing, for ignition). The `consume`
+   * requirements name their definition outright.
+   */
+  const namedDefinitions = new Set(
+    keys.filter((key) => key !== "holdAny" && key !== "ignition")
+  );
+
+  const wantsIgnition = keys.includes("ignition");
+
+  const ids = [];
+
+  for (const entry of live) {
+    const definitionId = entry?.definitionId;
+
+    if (!definitionId) continue;
+
+    if (namedDefinitions.size > 0) {
+      if (!namedDefinitions.has(definitionId)) continue;
+    } else if (wantsIgnition) {
+      const definition = getResourceDefinition(definitionId);
+
+      if (definition?.ignitionSource !== true) continue;
+    }
+
+    if (!entry?.claimedResourceId) continue;
+
+    ids.push(entry.claimedResourceId);
+  }
+
+  return [...new Set(ids)];
+}
 
 /*
  * Enumerate every action in `registry` against one prisoner's
@@ -360,7 +472,8 @@ export function enumerateLegalActions(
   capabilities,
   registry,
   resourceView = null,
-  cycle = sim?.cycle ?? 0
+  cycle = sim?.cycle ?? 0,
+  claimView = null
 ) {
   const empty = { legal: [], blocked: [] };
 
@@ -460,7 +573,8 @@ export function enumerateLegalActions(
      */
     const resourceGate = evaluateResourceRequirements(
       definition.resourceRequirements,
-      safeResourceView
+      safeResourceView,
+      claimView
     );
 
     if (!isFullySatisfied(resourceGate)) {
@@ -474,6 +588,27 @@ export function enumerateLegalActions(
       continue;
     }
 
+    /*
+     * The action is open to the prisoner, but at least one of its
+     * resource requirements is satisfied only by what they BELIEVE
+     * they hold. The action is therefore offered with a flag saying
+     * so: the prisoner may ATTEMPT it, and the resolver is expected
+     * to refuse it against the objective snapshot.
+     *
+     * `claimedDefinitions` names the REQUIREMENTS that only the
+     * belief satisfied, which is not always the same thing as the
+     * DEFINITIONS the prisoner believes they hold. `holdAny` is a
+     * requirement key, not a resource, and naming it to the prisoner
+     * would be meaningless. `claimedResourceIds` carries the actual
+     * believed holdings instead, which is what the prompt needs.
+     */
+    const claimedButAbsent = resourceGate.claimedOnly.length > 0;
+
+    const claimedResourceIds = collectClaimedResourceIds(
+      claimView,
+      resourceGate.claimedOnly
+    );
+
     if (modeNames.length === 0) {
       /*
        * No mode ladder: the action is available at its base cost in
@@ -482,12 +617,20 @@ export function enumerateLegalActions(
        * `availableModes.length === 0` uniformly as "single-form
        * action" without special-casing WAIT.
        */
-      legal.push({
+      const entry = {
         type,
         title: definition.title ?? type,
         cost: definition.baseCost ?? 0,
         availableModes: []
-      });
+      };
+
+      if (claimedButAbsent) {
+        entry.claimedButAbsent = true;
+        entry.claimedDefinitions = [...resourceGate.claimedOnly];
+        entry.claimedResourceIds = claimedResourceIds;
+      }
+
+      legal.push(entry);
 
       continue;
     }
@@ -532,12 +675,20 @@ export function enumerateLegalActions(
       continue;
     }
 
-    legal.push({
+    const legalEntry = {
       type,
       title: definition.title ?? type,
       cost: definition.baseCost ?? 0,
       availableModes: [...availableModes]
-    });
+    };
+
+    if (claimedButAbsent) {
+      legalEntry.claimedButAbsent = true;
+      legalEntry.claimedDefinitions = [...resourceGate.claimedOnly];
+      legalEntry.claimedResourceIds = claimedResourceIds;
+    }
+
+    legal.push(legalEntry);
 
     if (closedModes.length > 0) {
       /*

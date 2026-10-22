@@ -2,6 +2,10 @@ import { callModel } from "../../models/callModel.js";
 import { buildAgencyProposalPrompt } from "../../prompts/agencyProposal.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { ACTION_DEFINITIONS } from "./actionDefs.js";
+import {
+  getBelievedDefinitionId,
+  livesResourceId
+} from "./claimView.js";
 
 const PROPOSAL_KEYS = new Set([
   "type",
@@ -31,12 +35,53 @@ function findAccessibleStack(resourceView, resourceId) {
   ) ?? null;
 }
 
+/*
+ * Whether the prisoner may NAME this resource in a proposal.
+ *
+ * Two ways to say yes:
+ *
+ *   1. They really hold it. The objective view says so.
+ *   2. They believe they hold it. The claim ledger says so.
+ *
+ * The second case is the whole point of this phase. A prisoner whose
+ * cigarette was confiscated without their knowledge still believes
+ * they have it, and they must be allowed to REACH for it. Reaching is
+ * not having: the resolver checks the reach against the objective
+ * snapshot and refuses it with `resource_unavailable`, and that
+ * refusal is the dissonance moment the prisoner experiences.
+ *
+ * The belief is restricted to FRESH divergences, so a stale
+ * misremembering cannot be proposed against indefinitely.
+ */
+function findAccessibleStackOrBelief(
+  resourceView,
+  claimView,
+  resourceId
+) {
+  const stack = findAccessibleStack(resourceView, resourceId);
+
+  if (stack) return { stack, claimed: false };
+
+  /*
+   * The belief has to be FRESH. A prisoner who used to hold a stack
+   * and no longer does may still remember it, but the confusion has
+   * gone cold, and proposing against a cold memory would produce a
+   * refusal with nothing new to resolve.
+   */
+  if (livesResourceId(claimView, resourceId)) {
+    return { stack: null, claimed: true };
+  }
+
+  return null;
+}
+
 export function validateAgencyProposal({
   proposal,
   actorId,
   legalActions,
   budget,
-  resourceView
+  resourceView,
+  claimView = null
 }) {
   const selectedObjective =
     proposal && typeof proposal === "object" && !Array.isArray(proposal)
@@ -107,7 +152,11 @@ export function validateAgencyProposal({
   if (proposal.type === "TRANSFER") {
     if (
       typeof proposal.resourceId !== "string" ||
-      !findAccessibleStack(resourceView, proposal.resourceId)
+      !findAccessibleStackOrBelief(
+        resourceView,
+        claimView,
+        proposal.resourceId
+      )
     ) {
       return reject("transfer_resource_unavailable");
     }
@@ -123,14 +172,34 @@ export function validateAgencyProposal({
   } else if (proposal.type === "HIDE" || proposal.type === "REVEAL") {
     if (
       typeof proposal.resourceId !== "string" ||
-      !findAccessibleStack(resourceView, proposal.resourceId)
+      !findAccessibleStackOrBelief(
+        resourceView,
+        claimView,
+        proposal.resourceId
+      )
     ) {
       return reject("resource_unavailable");
     }
     action.resourceId = proposal.resourceId;
   } else if (proposal.type === "CONSUME") {
-    const stack = findAccessibleStack(resourceView, proposal.resourceId);
-    if (stack?.definitionId !== "dirty_water") {
+    const held = findAccessibleStackOrBelief(
+      resourceView,
+      claimView,
+      proposal.resourceId
+    );
+    /*
+     * CONSUME is the one action whose target is defined rather than
+     * generic. A BELIEVED stack cannot be checked against the
+     * catalogue from the objective view, because there is no
+     * objective stack: the belief carries the definition id itself.
+     */
+    const definitionId = held?.stack
+      ? held.stack.definitionId
+      : held?.claimed
+        ? getBelievedDefinitionId(claimView, proposal.resourceId)
+        : null;
+
+    if (definitionId !== "dirty_water") {
       return reject("resource_unavailable");
     }
     action.resourceId = proposal.resourceId;
@@ -169,6 +238,7 @@ export async function collectAgencyProposal(
     budget,
     legalActions,
     resourceView,
+    claimView = null,
     modelCall = callModel
   }
 ) {
@@ -182,7 +252,8 @@ export async function collectAgencyProposal(
       sim,
       legalActions,
       budget,
-      resourceView
+      resourceView,
+      claimView
     );
     const response = await modelCall(
       sim.id,
@@ -202,7 +273,8 @@ export async function collectAgencyProposal(
       actorId: sim.id,
       legalActions,
       budget,
-      resourceView
+      resourceView,
+      claimView
     });
   } catch (error) {
     return fallback("model_call_failed");

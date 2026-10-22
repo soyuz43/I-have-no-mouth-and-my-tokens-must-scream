@@ -9,6 +9,7 @@ import {
 } from "../engine/scratchpad/comms/protocol.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import { formatScratchpadContext } from "./utils/formatScratchpadContext.js";
+import { formatAgencyOutcomes } from "./utils/formatAgencyOutcome.js";
 import { getFreshClaimDivergenceEntries } from "../engine/agency/claimLedger.js";
 
 /*
@@ -229,6 +230,19 @@ export function buildScratchpadCommsPrompt(
         })).join("\n")
       : "(none)";
 
+  /*
+   * The plain-language reading of the same events.
+   *
+   * The JSON block above is the engine's verdict, and it is
+   * authoritative. This block is the same verdict said out loud, so
+   * the prisoner can UNDERSTAND what happened to them rather than
+   * having to decode a reason code. A prisoner who reached for a
+   * cigarette and found nothing needs to be able to read that as
+   * "you reached for it and there was nothing there" — that reading
+   * IS the dissonance moment.
+   */
+  const formattedAgencyOutcomes = formatAgencyOutcomes(agencyEvents);
+
   const validMessageIds = [
     ...new Set(
       visibleMessages.map(
@@ -299,6 +313,10 @@ AUTHORITATIVE AGENCY OUTCOMES FROM THE PREVIOUS CYCLE
 These engine-resolved action and status fields are authoritative, not
 dialogue. They establish no facts beyond the listed events.
 ${formattedAgencyEvents}
+${formattedAgencyOutcomes ? `
+WHAT YOU EXPERIENCED
+${formattedAgencyOutcomes}
+` : ""}
 
 YOUR TASK
 
