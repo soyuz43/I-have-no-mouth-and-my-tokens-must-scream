@@ -343,6 +343,7 @@ export const G = {
     constraints: Object.create(null),
     am: Object.create(null),
     resourceInterventions: Object.create(null),
+    exposures: Object.create(null),
     system: Object.create(null),
   },
 

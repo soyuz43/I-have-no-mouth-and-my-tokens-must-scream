@@ -9,6 +9,13 @@
 // one proposal per prisoner, resolves all proposals against a shared
 // snapshot, and commits the resulting state changes and events.
 //
+// It also runs the Capability-Ledger Entanglement rule: a prisoner
+// whose body can no longer conceal what they hold has those items
+// exposed, which puts them into AM's attention roll. That rule runs
+// AFTER the capability derivation and BEFORE the proposals are
+// collected, so an exposed item is already open when the prisoner
+// decides what to do with it and when AM later looks at it.
+//
 // OWNERSHIP BOUNDARIES
 // --------------------
 // The model proposes typed intent and never narrates an outcome.
@@ -34,6 +41,9 @@ import { timelineEvent } from "../../ui/timeline.js";
 import { addLog } from "../../ui/logs.js";
 
 import { deriveCapabilities } from "../agency/capabilities.js";
+import {
+  commitConcealmentExposures
+} from "../agency/capabilityConcealmentRule.js";
 import { enumerateLegalActions } from "../agency/legalActions.js";
 import { ACTION_DEFINITIONS } from "../agency/actionDefs.js";
 import {
@@ -122,6 +132,62 @@ function deriveForSim(sim) {
 }
 
 /* ============================================================
+   CAPABILITY-LEDGER ENTANGLEMENT
+============================================================ */
+
+/*
+ * The capability state a prisoner had at the END of the previous
+ * cycle.
+ *
+ * `beginCycle()` captures `G.prevCycleSnapshot` before the current
+ * cycle's strategy phase applies any new restraint, so this
+ * reconstruction is exactly what the prisoner was living with when
+ * the previous cycle closed. Deriving capabilities over that
+ * snapshot reproduces the previous cycle's bands.
+ *
+ * Returning null when the snapshot is absent or malformed is the
+ * fail-closed choice: a world that has not run a cycle yet has no
+ * prior capability state, so there is nothing to enforce.
+ */
+function derivePriorCycleCapabilities(simId) {
+  const snapshot = G.prevCycleSnapshot?.[simId];
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+
+  return deriveCapabilities(snapshot);
+}
+
+/*
+ * Expose whatever this prisoner can no longer hide.
+ *
+ * Runs at the START of the agency phase, after the current
+ * capability derivation and before any proposal is collected, so an
+ * exposed item is already open in the world the prisoners are about
+ * to act on.
+ *
+ * The rule reads the PREVIOUS cycle's capability state, which is
+ * what gives the milestone its one-cycle latency: a restraint
+ * applied in cycle N costs the prisoner their concealment at the
+ * start of cycle N+1.
+ */
+function exposeConcealedResources(sim) {
+  const priorCapabilities = derivePriorCycleCapabilities(sim.id);
+
+  if (!priorCapabilities) {
+    return [];
+  }
+
+  return commitConcealmentExposures(
+    G,
+    sim,
+    priorCapabilities,
+    G.resources?.instances ?? []
+  );
+}
+
+/* ============================================================
    PHASE ORCHESTRATOR
 ============================================================ */
 
@@ -143,6 +209,7 @@ export async function runAgencyPhase({
   /* Accumulate only derivations that actually completed. */
   let totalLegal = 0;
   let totalBlocked = 0;
+  let totalExposed = 0;
 
   for (const simId of SIM_IDS) {
 
@@ -153,6 +220,25 @@ export async function runAgencyPhase({
     }
 
     try {
+      /*
+       * The entanglement rule runs BEFORE the derivation so the
+       * resource view the enumerator reads, and therefore the
+       * proposal the prisoner makes, already reflect the exposure.
+       *
+       * It reads the previous cycle's capability state, so the
+       * restraint that broke this prisoner's hands in cycle N costs
+       * them their concealment at the start of cycle N+1.
+       */
+      const exposures = exposeConcealedResources(sim);
+
+      totalExposed += exposures.length;
+
+      for (const exposure of exposures) {
+        timelineEvent(
+          `// EXPOSURE ${exposure.resourceId} → ${sim.id} (${exposure.definitionTitle}) [${exposure.cause}]`
+        );
+      }
+
       const {
         legalCount,
         blockedCount,
@@ -312,6 +398,6 @@ export async function runAgencyPhase({
    * row reads consistently with the other phase markers.
    */
   timelineEvent(
-    `// AGENCY COMPLETE — ${totalLegal} legal, ${totalBlocked} blocked`
+    `// AGENCY COMPLETE — ${totalLegal} legal, ${totalBlocked} blocked, ${totalExposed} exposed`
   );
 }
