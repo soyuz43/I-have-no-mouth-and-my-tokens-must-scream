@@ -168,12 +168,12 @@ test("summary omits BLOCKED/CONSTR when those lists are empty", () => {
 
   assert.deepEqual(
     legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
   );
   assert.equal(lines.length, 2, "empty sections should not add summary lines");
   assert.equal(
     lines[0],
-    "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, SEARCH, CONSUME"
+    "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, REVEAL, SEARCH, CONSUME"
   );
   assert.equal(
     lines[1],
@@ -1061,7 +1061,7 @@ test("real derivation flows through both new surfaces unchanged", () => {
 
   /*
    * palestinian_chair drives handUse and interactionReach to 0, so the
-   * five physical actions now appear in BLOCKED. No resource view is
+   * six physical actions now appear in BLOCKED. No resource view is
    * supplied here, but the capability gate runs first and refuses them
    * before resources are consulted.
    */
@@ -1072,6 +1072,7 @@ test("real derivation flows through both new surfaces unchanged", () => {
     "modes:strained|deliberate, " +
     "TRANSFER handUse(0.3), interactionReach(0.3), " +
     "HIDE handUse(0.3), interactionReach(0.3), " +
+    "REVEAL handUse(0.3), interactionReach(0.3), " +
     "SEARCH interactionReach(0.1), " +
     "CONSUME handUse(0.5), interactionReach(0.5)\n" +
     "BANDS: mob:UNAV sta:SEV hd:UNAV con:SEV rei:UNAV\n" +

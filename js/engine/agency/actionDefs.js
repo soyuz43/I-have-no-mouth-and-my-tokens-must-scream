@@ -201,11 +201,70 @@ const ACTION_DEFINITIONS = Object.freeze({
   /*
    * HIDE conceals a held stack. The proposal names the specific stack;
    * the resolver revalidates ownership against the cycle snapshot.
-   * REVEAL remains unavailable until it is added to this catalogue.
    */
   HIDE: Object.freeze({
     type: "HIDE",
     title: "Conceal a resource",
+    baseCost: 1,
+    requirements: Object.freeze({
+      handUse: 0.3,
+      interactionReach: 0.3
+    }),
+    effortDomains: Object.freeze([
+      "physical"
+    ]),
+    resourceRequirements: Object.freeze({
+      holdAny: true
+    }),
+    executionModes: Object.freeze({})
+  }),
+
+  /*
+   * REVEAL is the inverse of HIDE. It takes a stack the actor HOLDS
+   * and makes it visible to the room.
+   *
+   * WHY IT EXISTS NOW
+   * -----------------
+   * The agency proposal prompt has always told the model that REVEAL
+   * is available, but the action was not in this catalogue, so every
+   * attempt was refused as `action_not_legal`. The resolver
+   * (`resolve.js`) and the committer (`commit.js`) have handled
+   * REVEAL for as long as they have handled HIDE, because both branch
+   * on `actionType === "HIDE" || actionType === "REVEAL"` and derive
+   * the desired concealment state from the action type. Only the
+   * catalogue entry was missing.
+   *
+   * It also opens a counter-move against the Capability-Ledger
+   * Entanglement milestone. When a prisoner's body fails and their
+   * concealment breaks, the exposed item is visible to everyone. A
+   * prisoner whose body still permits fine motor work can pick it up
+   * and put it back. HIDE is gated at `handUse >= 0.3`, so a merely
+   * `impaired` prisoner can re-hide what a `severely_impaired` one
+   * cannot.
+   *
+   * THE RESOURCE GATE IS `holdAny`, NOT `concealedAny`
+   * -----------------------------------------------
+   * The enumerator's resource gate asks whether the prisoner holds a
+   * stack; it does not ask what state that stack is in. Whether the
+   * target is currently concealed is checked by the RESOLVER, which
+   * refuses with `resource_already_in_state` when the stack is
+   * already visible.
+   *
+   * That split is deliberate and matches HIDE exactly. The
+   * enumerator answers "is this action open to this prisoner?", and
+   * the resolver answers "did this attempt succeed?". A REVEAL
+   * offered to a prisoner holding an ALREADY-VISIBLE stack is legal
+   * to offer and refused at the moment of the attempt, and the
+   * refusal reason (`resource_already_in_state`) is the honest one.
+   *
+   * Adding a `concealed` requirement to the enumerator would have
+   * required a new requirement kind, a new belief-side pass in
+   * `legalActions.js`, and a new failure mode for the claim-aware
+   * path. The resolver already refuses the attempt correctly.
+   */
+  REVEAL: Object.freeze({
+    type: "REVEAL",
+    title: "Reveal a hidden resource",
     baseCost: 1,
     requirements: Object.freeze({
       handUse: 0.3,
@@ -296,8 +355,8 @@ export function getActionDefinition(type) {
  *
  * A fresh array each call, so a consumer that sorts or splices the
  * result cannot reorder the shared registry. The order is
- * declaration order: WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, SEARCH,
- * CONSUME. That order is the
+ * declaration order: WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, REVEAL,
+ * SEARCH, CONSUME. That order is the
  * enumeration order the legal-action list will preserve.
  */
 export function getAllActionTypes() {

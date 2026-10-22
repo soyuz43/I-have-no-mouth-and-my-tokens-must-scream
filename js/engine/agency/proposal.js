@@ -75,6 +75,81 @@ function findAccessibleStackOrBelief(
   return null;
 }
 
+/*
+ * The BELIEVED resources a prisoner believes they hold but do not
+ * actually hold.
+ *
+ * WHY THE PROPOSAL CARRIES THIS
+ * -----------------------------
+ * A proposal is ACCEPTED when the prisoner names a resource they
+ * really hold OR one they believe they hold. The accepted proposal
+ * then goes to the resolver, which checks it against the OBJECTIVE
+ * snapshot and refuses it with `resource_unavailable` when the thing
+ * is genuinely not there.
+ *
+ * That refusal is the learning event: the prisoner's hand has just
+ * confirmed their memory was wrong. But the resolver only sees the
+ * objective snapshot, so it cannot tell a refusal of a BELIEVED
+ * resource from a refusal of a resource the prisoner never had.
+ *
+ * The distinction has to be carried across the boundary, because the
+ * two cases must be treated differently:
+ *
+ *   - Refused on a BELIEVED resource: the belief was wrong, and the
+ *     refusal corrects it. This closes the divergence.
+ *
+ *   - Refused on a resource the prisoner never believed they held:
+ *     there is no belief to correct, and nothing to write.
+ *
+ * So the proposal records WHAT WAS BELIEVED, and the commit path
+ * uses it to decide whether a refusal is a belief correction.
+ *
+ * Only a FRESH belief counts. A stale divergence cannot license a
+ * proposal in the first place (`livesResourceId` requires a live
+ * entry), so anything reaching here is already fresh.
+ *
+ * WHY A LIST AND NOT A SINGLE RESOURCE
+ * ------------------------------------
+ * A proposal that NAMES a resource (HIDE, REVEAL, TRANSFER,
+ * CONSUME) reaches for one specific stack, so one entry is enough
+ * to describe it. A proposal that names NO resource (SMOKE) draws
+ * on a set of definitions, so the refusal it produces can be about
+ * any one of them. Carrying the whole list lets the resolver say
+ * which definition was missing and the commit path match it
+ * against what was believed, without either side having to
+ * re-derive the other's view.
+ */
+function findBelievedResources(claimView, resourceView) {
+  const live = Array.isArray(claimView?.live) ? claimView.live : [];
+  const believed = [];
+
+  for (const entry of live) {
+    const resourceId = entry?.claimedResourceId;
+
+    if (!resourceId) continue;
+
+    const definitionId = entry?.definitionId ?? null;
+
+    if (!definitionId) continue;
+
+    /*
+     * A stack the prisoner still REACHES is not a missing stack.
+     * The belief may still be wrong about the QUANTITY, but the
+     * refusal of an action against a stack that is physically
+     * present says nothing about whether their memory was wrong.
+     */
+    if (findAccessibleStack(resourceView, resourceId)) continue;
+
+    believed.push({
+      resourceId,
+      definitionId,
+      claimed: Number(entry?.claimed) || 0
+    });
+  }
+
+  return believed;
+}
+
 export function validateAgencyProposal({
   proposal,
   actorId,
@@ -149,15 +224,41 @@ export function validateAgencyProposal({
   const action = { type: proposal.type };
   if (proposal.mode !== undefined) action.mode = proposal.mode;
 
+  /*
+   * The resources the proposal reached for, and whether the reach
+   * was licensed by a BELIEF rather than by the objective ledger.
+   *
+   * A belief-licensed reach is the ONLY kind that can produce a
+   * belief-correcting refusal. If the prisoner really held the
+   * stack, a refusal says nothing about their memory, and correcting
+   * the belief would be wrong.
+   */
+  const believedResources = findBelievedResources(claimView, resourceView);
+
+  const resolveTarget = (resourceId) => {
+    if (typeof resourceId !== "string") {
+      return { found: false, claimed: false, stack: null };
+    }
+
+    const held = findAccessibleStackOrBelief(
+      resourceView,
+      claimView,
+      resourceId
+    );
+
+    if (!held) {
+      return { found: false, claimed: false, stack: null };
+    }
+
+    return {
+      found: true,
+      claimed: held.claimed,
+      stack: held.stack ?? null
+    };
+  };
+
   if (proposal.type === "TRANSFER") {
-    if (
-      typeof proposal.resourceId !== "string" ||
-      !findAccessibleStackOrBelief(
-        resourceView,
-        claimView,
-        proposal.resourceId
-      )
-    ) {
+    if (!resolveTarget(proposal.resourceId).found) {
       return reject("transfer_resource_unavailable");
     }
     if (
@@ -170,23 +271,17 @@ export function validateAgencyProposal({
     action.resourceId = proposal.resourceId;
     action.targetId = proposal.targetId;
   } else if (proposal.type === "HIDE" || proposal.type === "REVEAL") {
-    if (
-      typeof proposal.resourceId !== "string" ||
-      !findAccessibleStackOrBelief(
-        resourceView,
-        claimView,
-        proposal.resourceId
-      )
-    ) {
+    if (!resolveTarget(proposal.resourceId).found) {
       return reject("resource_unavailable");
     }
     action.resourceId = proposal.resourceId;
   } else if (proposal.type === "CONSUME") {
-    const held = findAccessibleStackOrBelief(
-      resourceView,
-      claimView,
-      proposal.resourceId
-    );
+    const held = resolveTarget(proposal.resourceId);
+
+    if (!held.found) {
+      return reject("resource_unavailable");
+    }
+
     /*
      * CONSUME is the one action whose target is defined rather than
      * generic. A BELIEVED stack cannot be checked against the
@@ -210,6 +305,11 @@ export function validateAgencyProposal({
     return reject("unexpected_action_parameters");
   }
 
+  /*
+   * `believedResources` is already resolved above. It lists the
+   * stacks the prisoner believes they hold and objectively do not,
+   * which is the only evidence a refusal can correct.
+   */
   return {
     actorId,
     action,
@@ -217,7 +317,8 @@ export function validateAgencyProposal({
     accepted: true,
     reason: null,
     requestedType,
-    selectedObjective
+    selectedObjective,
+    believedResources
   };
 }
 

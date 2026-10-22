@@ -15,6 +15,30 @@ const MUTABLE_STATS = new Set([
   "suffering"
 ]);
 
+/*
+ * The refusal reasons that mean "the thing you reached for is not
+ * there".
+ *
+ * These are the ONLY refusals that can correct a belief. A refusal
+ * for any other reason says something about the prisoner's BODY, their
+ * budget, or the state of the world, and tells them nothing about
+ * whether their memory of their own holdings was wrong.
+ *
+ * `transfer_resource_unavailable` is NOT in this set. It is produced
+ * by the PROPOSAL VALIDATOR, not the resolver, and it means the
+ * proposal was rejected before it was ever attempted — no reach
+ * happened, so nothing was learned. The same is true of
+ * `invalid_proposal`, `action_not_legal`, and `budget_exceeded`.
+ *
+ * `ignition_unavailable` is not in this set either. It means the
+ * prisoner HAS the cigarette but lacks the match. That is a
+ * possession fact about a different resource, not a correction of
+ * the cigarette belief.
+ */
+const BELIEF_CORRECTING_REASONS = new Set([
+  "resource_unavailable"
+]);
+
 function cloneValue(value) {
   if (typeof structuredClone === "function") {
     return structuredClone(value);
@@ -98,6 +122,101 @@ function normalizeProposals(proposals) {
         JSON.stringify(right.action)
       );
     });
+}
+
+/*
+ * Mark a refusal as a BELIEF CORRECTION.
+ *
+ * A belief correction is a refusal with BOTH of these properties:
+ *
+ *   1. The reason says the thing was not there. Only
+ *      `resource_unavailable` qualifies; a capability refusal, a
+ *      budget refusal, or a conflict says nothing about whether the
+ *      prisoner's memory of their holdings was wrong.
+ *
+ *   2. The prisoner was reaching for something they BELIEVED they
+ *      held. The objective snapshot cannot tell the resolver this,
+ *      so the proposal carries it.
+ *
+ * When both hold, the refusal is the prisoner learning their memory
+ * was wrong, and the commit path writes the correction.
+ *
+ * The marker is placed on `provenance` rather than at the top level
+ * of the resolution because `provenance` is the part of the
+ * resolution that is RECORDED on the agency event and exported. The
+ * correction is a fact about the event, so it belongs there.
+ */
+function markBeliefCorrection(resolution, proposal) {
+  const reason = resolution.reason;
+
+  if (!BELIEF_CORRECTING_REASONS.has(reason)) return false;
+
+  const believed = Array.isArray(proposal?.believedResources)
+    ? proposal.believedResources
+    : [];
+
+  if (believed.length === 0) return false;
+
+  /*
+   * A proposal that NAMES a resource reached for that specific
+   * stack, so only the belief about THAT stack can be corrected by
+   * the refusal. A proposal that names no resource (SMOKE) draws on
+   * a set of definitions, so any of the believed stacks can be the
+   * one that was missing.
+   */
+  const namedResourceId = resolution.action?.resourceId ?? null;
+
+  const candidates = namedResourceId
+    ? believed.filter((entry) => entry?.resourceId === namedResourceId)
+    : believed;
+
+  if (candidates.length === 0) return false;
+
+  /*
+   * A refusal can name a definition the resolver knows was missing
+   * (`missingDefinitionIds`). When it does, that definition WINS.
+   *
+   * The proposal's believed definition is the definition the
+   * prisoner THINKS the stack holds. The resolver's is the
+   * definition the resource MUST hold for the action to work. When
+   * they disagree, the prisoner reached for the wrong sort of thing
+   * entirely, and correcting their belief about it would be a lie:
+   * they were not wrong that they held a cigarette, they were
+   * wrong that it was drinkable.
+   *
+   * So a mismatch is not a belief correction and writes nothing.
+   */
+  const missing = Array.isArray(resolution.provenance?.missingDefinitionIds)
+    ? resolution.provenance.missingDefinitionIds
+    : [];
+
+  if (
+    missing.length > 0 &&
+    !candidates.some((entry) => missing.includes(entry.definitionId))
+  ) {
+    return false;
+  }
+
+  /*
+   * Several beliefs can be wrong at once, and one refusal only
+   * proves ONE of them wrong. When the resolver named the missing
+   * definition, that is the one to correct. When it did not, the
+   * refusal was against a specific stack, so that stack's belief is
+   * the one to correct.
+   */
+  const target = missing.length > 0
+    ? candidates.find((entry) => missing.includes(entry.definitionId))
+    : candidates[0];
+
+  if (!target?.definitionId) return false;
+
+  resolution.provenance.beliefCorrection = {
+    resourceId: target.resourceId ?? null,
+    definitionId: target.definitionId,
+    claimed: Number(target.claimed) || 0
+  };
+
+  return true;
 }
 
 function resolveOne(proposal, snapshot, claims, cycle) {
@@ -199,6 +318,21 @@ function resolveOne(proposal, snapshot, claims, cycle) {
     ) {
       base.status = "blocked";
       base.reason = "resource_unavailable";
+
+      /*
+       * The definition the prisoner was MISSING is recorded when the
+       * resource is absent altogether. That is the definition the
+       * refusal is evidence about, so it is the definition a belief
+       * correction would have to converge.
+       *
+       * A resource that EXISTS but is the wrong kind of thing is a
+       * different situation: nothing is missing, so nothing is
+       * learned about the prisoner's memory of their holdings.
+       */
+      if (!instance && requirement?.definitionId) {
+        base.provenance.missingDefinitionIds = [requirement.definitionId];
+      }
+
       return base;
     }
 
@@ -234,6 +368,24 @@ function resolveOne(proposal, snapshot, claims, cycle) {
       if (!instance || quantity <= 0) {
         base.status = "blocked";
         base.reason = "resource_unavailable";
+
+        /*
+         * SMOKE draws on a LIST of definitions, so the refusal has
+         * to say WHICH one was missing. The requirement that failed
+         * is the one the prisoner's memory was wrong about.
+         */
+        const missingDefinitionIds = Array.isArray(
+          base.provenance.missingDefinitionIds
+        )
+          ? base.provenance.missingDefinitionIds
+          : [];
+
+        if (requirement.definitionId) {
+          missingDefinitionIds.push(requirement.definitionId);
+        }
+
+        base.provenance.missingDefinitionIds = missingDefinitionIds;
+
         return base;
       }
       operations.push({
@@ -428,6 +580,24 @@ export function resolveAgencyActions({
       ...resolveOne(proposal, safeSnapshot, claims, cycle),
       cycle
     });
+  }
+
+  /*
+   * Mark every belief-correcting refusal.
+   *
+   * This runs AFTER resolution, over the whole batch, rather than at
+   * each refusal site. The refusal sites know only why they refused;
+   * they do not know whether the thing was something the prisoner
+   * BELIEVED they held. Deciding it in one place means every
+   * `resource_unavailable` refusal is treated identically, and a
+   * future refusal site cannot forget to opt in.
+   */
+  for (let index = 0; index < resolved.length; index += 1) {
+    const resolution = resolved[index];
+
+    if (resolution?.status !== "blocked") continue;
+
+    markBeliefCorrection(resolution, normalized[index]);
   }
 
   return resolved;

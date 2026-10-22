@@ -533,17 +533,49 @@ test("SMOKE consumes one cigarette and one ignition use", () => {
   assert.equal(smoke.resourceRequirements.ignition, true);
 });
 
-test("REVEAL is deferred and is not in the registry", () => {
+test("REVEAL is registered as the inverse of HIDE", () => {
   /*
-   * Recorded so an accidental early addition is caught. Reversing
-   * concealment is the first thing the state-mutating resolver will
-   * have to do.
+   * REVEAL was deferred while the state-mutating resolver had no
+   * concealed-state transition to perform. It is now registered,
+   * because the resolver and the committer both already handle it:
+   * they branch on `actionType === "HIDE" || actionType === "REVEAL"`
+   * and derive the desired concealment state from the action type.
+   *
+   * The agency proposal prompt has always told the model that REVEAL
+   * is available, so the catalogue entry and the prompt are now in
+   * agreement.
    */
-  assert.equal(ACTION_DEFINITIONS.REVEAL, undefined);
+  const reveal = ACTION_DEFINITIONS.REVEAL;
+
+  assert.ok(reveal, "REVEAL must be in the registry");
+  assert.equal(reveal.type, "REVEAL");
+  assert.equal(reveal.title, "Reveal a hidden resource");
+  assert.equal(reveal.baseCost, 1);
+
+  /*
+   * Same physical gate as HIDE: exposing a hidden item is the same
+   * fine motor task as hiding one.
+   */
+  assert.deepEqual(reveal.requirements, {
+    handUse: 0.3,
+    interactionReach: 0.3
+  });
+
+  assert.deepEqual(reveal.effortDomains, ["physical"]);
+  assert.deepEqual(reveal.executionModes, {});
+
+  /*
+   * The resource gate is possession, not concealment state. Whether
+   * the target is currently concealed is the RESOLVER's question, and
+   * it refuses with `resource_already_in_state` when the stack is
+   * already visible.
+   */
+  assert.equal(reveal.resourceRequirements.holdAny, true);
+  assert.equal(reveal.resourceRequirements.consume, undefined);
 });
 
-test("TRANSFER and HIDE use implicit targeting, not named resource ids", () => {
-  for (const type of ["TRANSFER", "HIDE"]) {
+test("TRANSFER, HIDE, and REVEAL use implicit targeting, not named resource ids", () => {
+  for (const type of ["TRANSFER", "HIDE", "REVEAL"]) {
     assert.equal(
       ACTION_DEFINITIONS[type].resourceRequirements.holdAny,
       true

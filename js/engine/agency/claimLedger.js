@@ -31,12 +31,21 @@
 //     - THEY are told about it (informed)
 //     - it is seeded to them   (seed)
 //     - its definition changes (definition_change)
+//     - THEY reach for it and
+//       find nothing there     (belief_corrected)
 //
 //   and does NOT change when something happens to them that they are
 //   not told about (silent).
 //
 // A silent event is written with a delta of zero. That is the whole
 // point: the absence of a belief update IS the divergence.
+//
+// `belief_corrected` is the RESOLUTION of a divergence. A silent
+// intervention leaves a belief wrong; a refused attempt on that
+// believed-but-absent resource is the prisoner learning their memory
+// was wrong, and the belief moves to match the reality. It is still
+// derived from a recorded objective event (the attempt), never from
+// prose, so the determinism invariant is preserved.
 //
 // DETERMINISM
 // -----------
@@ -70,7 +79,8 @@ export const CLAIM_EVENT_KINDS = Object.freeze({
   RECEIVED: "received",
   INFORMED: "informed",
   SILENT: "silent",
-  DEFINITION_CHANGE: "definition_change"
+  DEFINITION_CHANGE: "definition_change",
+  BELIEF_CORRECTED: "belief_corrected"
 });
 
 const VALID_CLAIM_KINDS = new Set(Object.values(CLAIM_EVENT_KINDS));
@@ -507,6 +517,29 @@ export function getClaimQuantity(state, subjectId, definitionId) {
 }
 
 /*
+ * What a prisoner ACTUALLY holds of one definition.
+ *
+ * This is the same reachable quantity the divergence is measured
+ * against, read from the authoritative ledger with the same filters:
+ * the holder must be a prisoner (AM is a holder, not a believer), the
+ * instance must be accessible, and the quantity must be positive.
+ *
+ * It is exposed here so a belief correction can converge the belief
+ * onto the reality without re-implementing the filter rules in a
+ * second place.
+ */
+export function getObjectiveQuantity(state, subjectId, definitionId) {
+  const subject = normalizeId(subjectId);
+  const definition = normalizeId(definitionId);
+
+  if (!subject || !definition) return 0;
+
+  const objective = buildObjectiveQuantities(state);
+
+  return normalizeQuantity(objective[subject]?.[definition]);
+}
+
+/*
  * Every divergence for one prisoner, ordered by definition id so the
  * output is stable.
  */
@@ -594,6 +627,122 @@ export function getBelievedResourceIds(state, subjectId, cycle) {
 /* ============================================================
    WRITING
 ============================================================ */
+
+/*
+ * Correct a prisoner's belief about a resource after a refused
+ * attempt proved them wrong.
+ *
+ * WHEN THIS HAPPENS
+ * -----------------
+ * AM took an item silently. The prisoner's belief stayed where it was
+ * and the two ledgers diverged. The prisoner reached for the thing
+ * and it was not there. THAT REFUSAL IS THE LEARNING EVENT: the
+ * prisoner's hand has now confirmed what the engine already knew.
+ *
+ * Without this, the belief never moves. A prisoner robbed in cycle 5
+ * still believes they are carrying the item in cycle 50, because
+ * nothing in the system ever tells them otherwise. The divergence
+ * goes stale, the engine stops surfacing it, and the prisoner is left
+ * permanently, silently wrong.
+ *
+ * WHY THE CORRECTION CONVERGES TO REALITY RATHER THAN TO ZERO
+ * ---------------------------------------------------------
+ * The naive correction is "set the believed quantity to zero". That
+ * is right in the common case, where the prisoner believes they hold
+ * one stack of a definition and holds none of it. It is WRONG when
+ * the prisoner holds a DIFFERENT stack of the same definition.
+ *
+ * The belief is tracked per DEFINITION, not per stack. A prisoner
+ * who believed four cigarettes across two stacks, and whose AM took
+ * one of those stacks, believes four while reality holds one. A
+ * refused attempt on the missing stack tells them that stack is
+ * gone, not that they hold nothing. Zeroing the belief would leave
+ * them believing zero while reality holds one, which is a NEW
+ * divergence in the opposite direction — the correction would
+ * manufacture a fresh lie rather than close the old one.
+ *
+ * So the correction converges the belief onto the objective
+ * quantity for that definition. In the common case the objective
+ * quantity is zero and this IS the zeroing correction; in the
+ * multi-stack case it is the correct partial reduction.
+ *
+ * The correction only ever moves the belief DOWNWARD. A refusal
+ * proves that something is missing; it never proves that the
+ * prisoner holds MORE than they thought, so a belief that is
+ * already below reality is left alone.
+ *
+ * WHY THIS IS NOT A PROJECTOR CHANGE
+ * ---------------------------------
+ * The projector (`deriveClaimEventSpecs`) translates OBJECTIVE
+ * LEDGER events into claim events. A refused attempt produces no
+ * objective ledger event — the objective ledger records mutations,
+ * and a refusal mutates nothing. So this correction cannot be
+ * expressed as a projection of a resource event, and the projector
+ * is left untouched. The AGENCY EVENT is the objective record: it
+ * is written to `G.agency.events` with a stable id, and the claim
+ * event points back at it through `cause.sourceEventId`, exactly as
+ * a projected claim event points back at its resource event.
+ *
+ * The determinism invariant is therefore preserved: the claim event
+ * is derived from a RECORDED event, never from prose or from a model
+ * judgement.
+ *
+ * IDEMPOTENCE
+ * -----------
+ * A second correction for the same subject and definition finds a
+ * believed quantity of zero and writes nothing, so the belief is
+ * corrected at most once no matter how many times the engine is
+ * asked to correct it.
+ */
+export function recordBeliefCorrection(
+  state,
+  {
+    subjectId,
+    definitionId,
+    cycle,
+    sourceEventId = null,
+    actorId = null,
+    resourceId = null
+  } = {}
+) {
+  if (!state || typeof state !== "object") return null;
+
+  const subject = normalizeId(subjectId);
+  const definition = normalizeId(definitionId);
+
+  if (!subject || !definition) return null;
+
+  const believed = getClaimQuantity(state, subject, definition);
+  const actual = getObjectiveQuantity(state, subject, definition);
+
+  if (believed <= 0 || believed <= actual) {
+    /*
+     * Nothing to correct, in either direction.
+     *
+     * A belief of zero cannot be reduced, and a belief that is
+     * already at or below the objective quantity is not made wrong by
+     * a refusal — the refusal cannot inform the prisoner that they
+     * hold MORE than they believed.
+     */
+    return null;
+  }
+
+  return recordClaimEvent(state, {
+    subjectId: subject,
+    definitionId: definition,
+    delta: actual - believed,
+    cycle: Number.isFinite(Number(cycle))
+      ? Number(cycle)
+      : Number(state.cycle) || 0,
+    cause: {
+      kind: CLAIM_EVENT_KINDS.BELIEF_CORRECTED,
+      sourceEventId: normalizeId(sourceEventId),
+      actorId: normalizeId(actorId),
+      resourceId: normalizeId(resourceId),
+      disclosure: null
+    }
+  });
+}
 
 /*
  * Append one claim event.

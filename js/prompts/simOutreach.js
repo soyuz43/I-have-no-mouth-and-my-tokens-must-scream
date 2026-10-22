@@ -13,9 +13,23 @@ import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 export function buildSimOutreachPrompt(sim, state = null) {
  const { b, others, reactiveIntel, perceivedCoalitions } = buildPromptContext(sim, state);
+  /*
+   * The BELIEVED inventory, not the objective one.
+   *
+   * A prisoner whose cigarette was silently confiscated still believes
+   * they are carrying it. Rendering the objective ledger here would
+   * correct their memory at the exact moment they are about to state
+   * it, and the divergence the dual ledger exists to preserve would
+   * collapse one phase after the agency refusal created it.
+   *
+   * `G.claimState[sim.id]` is `undefined` for a prisoner with no
+   * recorded belief, which the formatter reads as "no belief ledger
+   * available" and falls back to the objective view.
+   */
   const resourceSummary = formatResourceSummary(
     G.resources?.instances,
-    sim.id
+    sim.id,
+    G.claimState?.[sim.id]
   );
   if (reactiveIntel && state?.pendingReactiveIntel) {
     state.pendingReactiveIntel.delete(sim.id);

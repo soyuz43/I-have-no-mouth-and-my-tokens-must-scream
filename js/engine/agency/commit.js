@@ -12,6 +12,7 @@ import {
 } from "./resourceEventLog.js";
 import {
   recordClaimEventsForResourceEvent,
+  recordBeliefCorrection,
   refreshClaimDivergence
 } from "./claimLedger.js";
 
@@ -444,6 +445,61 @@ export function commitAgencyResolution(
      * events never carry a silent disclosure.
      */
     recordClaimEventsForResourceEvent(G, resourceEvent);
+  }
+
+  /*
+   * BELIEF RESOLUTION
+   * -----------------
+   * A refused attempt on a resource the prisoner BELIEVED they held
+   * is the learning event. The prisoner's hand has just confirmed
+   * what the engine already knew, so the belief moves to match the
+   * reality and the divergence closes.
+   *
+   * Without this, the belief never moves. AM's silent theft is a
+   * one-way ratchet: the prisoner is robbed in cycle 5 and still
+   * believes they are carrying the item in cycle 50, because nothing
+   * in the system ever tells them otherwise. The divergence goes
+   * stale, the engine stops surfacing it, and the prisoner is left
+   * permanently and silently wrong.
+   *
+   * WHY IT RUNS HERE
+   * ----------------
+   * After the resource events are written, so the objective quantity
+   * the correction converges onto is FINAL. A correction that ran
+   * before the ledger settled would compute the wrong target.
+   *
+   * WHY IT IS SAFE TO WRITE
+   * -----------------------
+   * The correction is derived from a RECORDED agency event — the
+   * blocked attempt, with its stable `eventId`. The claim event
+   * points back at it through `cause.sourceEventId`, exactly as a
+   * projected claim event points back at its resource event. Nothing
+   * here is derived from prose or from a model judgement, so the
+   * determinism invariant holds.
+   *
+   * The agency event carries the correction in its provenance, so the
+   * refusal and the belief update are recorded together and a
+   * researcher can trace one from the other in the export.
+   */
+  for (const event of stagedEvents) {
+    const correction = event?.provenance?.beliefCorrection;
+
+    if (!correction || typeof correction !== "object") continue;
+
+    const recorded = recordBeliefCorrection(G, {
+      subjectId: event.actorId,
+      definitionId: correction.definitionId,
+      cycle: event.cycle ?? G.cycle,
+      sourceEventId: event.eventId,
+      actorId: event.actorId,
+      resourceId: correction.resourceId
+    });
+
+    if (recorded) {
+      console.debug(
+        `[AGENCY][${event.actorId}] belief corrected for ${correction.definitionId} (${correction.claimed} believed) by refused attempt ${event.eventId}`
+      );
+    }
   }
 
   refreshClaimDivergence(G);

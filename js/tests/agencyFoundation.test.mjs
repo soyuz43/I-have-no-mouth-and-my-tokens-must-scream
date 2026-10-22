@@ -197,7 +197,7 @@ function modedRegistry(extra = {}) {
 test("the registry contains the floor, sensory, and first physical actions", () => {
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
   );
 });
 
@@ -337,7 +337,7 @@ test("getAllActionTypes returns a fresh array each call", () => {
 
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
   );
 });
 
@@ -366,7 +366,7 @@ test("an unconstrained prisoner can take every registered action", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]
+    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
   );
 
   const legal = legalByType(result);
@@ -408,7 +408,7 @@ test("a fully unconstrained sim agrees with the real deriver", () => {
     fullResourceView()
   );
 
-  assert.equal(result.legal.length, 7);
+  assert.equal(result.legal.length, 8);
   assert.equal(result.blocked.length, 0);
 });
 
@@ -561,11 +561,12 @@ test("concentration 0.05 leaves only WAIT legal", () => {
   const blocked = blockedByType(result);
 
   /*
-   * OBSERVE and SEARCH close on concentration. SMOKE, TRANSFER, and
-   * HIDE close on RESOURCES; CONSUME has adequate capabilities but no
-   * supplied dirty water. All six non-WAIT actions are refused.
+   * OBSERVE and SEARCH close on concentration. SMOKE, TRANSFER, HIDE,
+   * and REVEAL close on RESOURCES; CONSUME has adequate capabilities
+   * but no supplied dirty water. All seven non-WAIT actions are
+   * refused.
    */
-  assert.equal(blocked.size, 6);
+  assert.equal(blocked.size, 7);
 
   assert.deepEqual(
     blocked.get("OBSERVE").missingRequirements,
@@ -584,6 +585,11 @@ test("concentration 0.05 leaves only WAIT legal", () => {
 
   assert.equal(
     blocked.get("HIDE").reason,
+    "resource_requirement_unmet"
+  );
+
+  assert.equal(
+    blocked.get("REVEAL").reason,
     "resource_requirement_unmet"
   );
 });
@@ -706,9 +712,9 @@ test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", (
    */
   const blocked = blockedByType(result);
 
-  assert.equal(blocked.size, 5);
+  assert.equal(blocked.size, 6);
 
-  for (const type of ["SMOKE", "TRANSFER", "HIDE", "SEARCH", "CONSUME"]) {
+  for (const type of ["SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]) {
     assert.equal(
       blocked.get(type).reason,
       "capability_below_minimum",
@@ -739,7 +745,7 @@ test("overhead_restraint allows SEARCH and blocks other physical actions", () =>
     ["WAIT", "OBSERVE", "SEARCH"]
   );
 
-  assert.deepEqual(result.blocked.length, 4);
+  assert.deepEqual(result.blocked.length, 5);
 });
 
 test("overhead_restraint blocks SMOKE on capability, not on resources", () => {
@@ -1150,10 +1156,10 @@ test("a missing capabilities object blocks everything except WAIT", () => {
   );
 
   /*
-   * Six non-WAIT actions are refused when required capabilities and
+   * Seven non-WAIT actions are refused when required capabilities and
    * the resource view are absent; malformed input grants nothing.
    */
-  assert.equal(result.blocked.length, 6);
+  assert.equal(result.blocked.length, 7);
 });
 
 test("an absent capability key is unmet, not full", () => {
