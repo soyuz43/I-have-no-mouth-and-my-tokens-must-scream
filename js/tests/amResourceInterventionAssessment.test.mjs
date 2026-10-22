@@ -185,7 +185,8 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
       resource_id: "cigarette_stack_01",
       holder_id: "TED",
       quantity: 1,
-      rationale: "Remove the item now."
+      rationale: "Remove the item now.",
+      disclosure: "revealed"
     }
   );
   assert.deepEqual(
@@ -195,7 +196,8 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
       resource_id: "match_stack_02",
       holder_id: "ELLEN",
       target_holder_id: "TED",
-      rationale: "Create a conflict now."
+      rationale: "Create a conflict now.",
+      disclosure: "revealed"
     }
   );
   assert.deepEqual(
@@ -205,7 +207,8 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
       resource_id: "cigarette_stack_04",
       holder_id: "GORRISTER",
       target_id: "GORRISTER",
-      rationale: "Make the item salient."
+      rationale: "Make the item salient.",
+      disclosure: "revealed"
     }
   );
   assert.deepEqual(
@@ -215,12 +218,39 @@ test("assessment parser normalizes valid outputs and safely defaults malformed r
       resource_id: "cigarette_stack_01",
       holder_id: "TED",
       quantity: 1,
-      rationale: "No rationale provided."
+      rationale: "No rationale provided.",
+      disclosure: "revealed"
     }
   );
   assert.deepEqual(
     parseAssessmentResponse('{"intervention":"confiscate","resource_id":"cigarette_stack_01","rationale":42}', "TED").rationale,
     "No rationale provided."
+  );
+  /*
+   * The disclosure is the load-bearing field of the divergence
+   * mechanism. "silent" means AM takes the item without telling the
+   * victim, which leaves the victim's belief and the objective
+   * reality permanently apart.
+   */
+  assert.deepEqual(
+    parseAssessmentResponse('{"intervention":"confiscate","resource_id":"cigarette_stack_01","quantity":1,"disclosure":"silent","rationale":"Take it quietly."}', "TED"),
+    {
+      intervention_type: "confiscate",
+      resource_id: "cigarette_stack_01",
+      holder_id: "TED",
+      quantity: 1,
+      rationale: "Take it quietly.",
+      disclosure: "silent"
+    }
+  );
+  /*
+   * An unrecognised disclosure is rejected rather than silently
+   * defaulted, because defaulting would drop the "silent" the
+   * planner intended and quietly remove the divergence.
+   */
+  assert.deepEqual(
+    parseAssessmentResponse('{"intervention":"confiscate","resource_id":"cigarette_stack_01","quantity":1,"disclosure":"secret"}', "TED"),
+    { intervention: "none" }
   );
   assert.deepEqual(parseAssessmentResponse("not JSON", "TED"), { intervention: "none" });
   assert.deepEqual(

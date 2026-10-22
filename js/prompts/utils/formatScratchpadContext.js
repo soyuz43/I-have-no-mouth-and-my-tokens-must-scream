@@ -1,5 +1,7 @@
 // js/prompts/utils/formatScratchpadContext.js
 
+import { formatClaimDissonance } from "./formatClaimDissonance.js";
+
 const OTHER_FIELDS = [
   "perceivedGoal",
   "perceivedViewOfMe",
@@ -416,7 +418,8 @@ export function formatScratchpadContext(
   sim,
   otherPrisonerIds = [],
   resourceInterventionEvents = [],
-  exposureEvents = []
+  exposureEvents = [],
+  claimDissonanceEntries = []
 ) {
   if (!sim || typeof sim !== "object") {
     throw new TypeError(
@@ -442,6 +445,17 @@ export function formatScratchpadContext(
 
   const exposureContext = formatExposures(exposureEvents);
 
+  /*
+   * The dissonance block describes a MISSING THING, never what really
+   * happened. The prisoner is not told that AM took the item, because
+   * telling them would collapse the divergence the engine is keeping
+   * open. They are told what they expected to find and that it is not
+   * there, and they are left to explain it to themselves.
+   */
+  const claimDissonanceContext = formatClaimDissonance(
+    claimDissonanceEntries
+  );
+
   return [
     "Unset fields are shown only to describe the existing memory structure.",
     "An unset field does not need to be populated.",
@@ -461,5 +475,6 @@ export function formatScratchpadContext(
     formatQuestions(scratchpad),
     resourceInterventionContext,
     exposureContext,
+    claimDissonanceContext,
   ].join("\n");
 }

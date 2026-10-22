@@ -38,8 +38,11 @@ import {
   recordObservabilityUnknowns,
 } from "./streams/assessment.js";
 import {
-  recordResourceEvents,
+    recordResourceEvents,
 } from "./streams/resourceEvents.js";
+import {
+    recordClaimEvents,
+} from "./streams/claimEvents.js";
 
 /* ============================================================
    CSV UTILITIES
@@ -349,6 +352,9 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
 
             resource_events:
                 Exporter.buffers.resource_events,
+
+            claim_events:
+                Exporter.buffers.claim_events,
         },
     };
 
@@ -460,6 +466,7 @@ export function finalizeCycle(G, metrics) {
     recordAssessments(G, cycle);
     recordObservabilityUnknowns(G, cycle);
     recordResourceEvents(G, cycle);
+    recordClaimEvents(G, cycle);
 
     /*
      * Preserve the existing one-file-per-cycle behavior.

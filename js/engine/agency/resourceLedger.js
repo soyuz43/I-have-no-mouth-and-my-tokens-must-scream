@@ -34,6 +34,10 @@ import {
   recordResourceEvent,
   RESOURCE_EVENT_KINDS
 } from "./resourceEventLog.js";
+import {
+  recordClaimEventsForResourceEvent,
+  refreshClaimDivergence
+} from "./claimLedger.js";
 
 /* ============================================================
    LEDGER SHAPE
@@ -139,7 +143,7 @@ export function seedResources(ledger, state = null) {
    */
   if (state && typeof state === "object") {
     for (const instance of target.instances) {
-      recordResourceEvent(state, {
+      const event = recordResourceEvent(state, {
         kind: RESOURCE_EVENT_KINDS.SEED,
         cycle: state.cycle,
         resourceId: instance.resourceId,
@@ -155,7 +159,16 @@ export function seedResources(ledger, state = null) {
           source: "scenario_seed"
         }
       });
+
+      /*
+       * A prisoner is handed their starting inventory, so they know
+       * what they hold. The seed therefore updates the belief
+       * alongside the reality, and no divergence exists at boot.
+       */
+      recordClaimEventsForResourceEvent(state, event);
     }
+
+    refreshClaimDivergence(state);
   }
 
   return target;
@@ -315,7 +328,7 @@ export function maintainResourceDrying(G) {
      * transition is a ledger event, so the trajectory shows an item
      * becoming usable rather than silently changing identity.
      */
-    recordResourceEvent(G, {
+    const event = recordResourceEvent(G, {
       kind: RESOURCE_EVENT_KINDS.DRYING,
       cycle: G?.cycle,
       resourceId: instance.resourceId,
@@ -331,5 +344,14 @@ export function maintainResourceDrying(G) {
         source: definitionIdBefore
       }
     });
+
+    /*
+     * The holder is holding the item, so they know it dried. The
+     * belief has to move from the wet definition to the dry one, or
+     * the engine would see a divergence on BOTH definitions at once.
+     */
+    recordClaimEventsForResourceEvent(G, event);
   }
+
+  refreshClaimDivergence(G);
 }

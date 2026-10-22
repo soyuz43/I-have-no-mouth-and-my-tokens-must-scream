@@ -312,7 +312,8 @@ ${indent(prisonerBlock)}
     targetTacticSection,
     objectiveResourceLedgerSection,
     resourceDiscoverySection,
-    resourceTrajectorySection
+    resourceTrajectorySection,
+    claimDivergenceSection
   } =
     buildTacticPlanningContext({
       requiredTargetIds,
@@ -334,6 +335,15 @@ ${indent(prisonerBlock)}
       resourceEvents:
         G.resourceEvents ??
         [],
+
+      /*
+       * The Subjective Ledger's derived divergence: what each
+       * prisoner believes they hold, and where that belief has
+       * separated from the objective ledger.
+       */
+      claimDivergence:
+        G.claimDivergence ??
+        {},
 
       cycle,
 
@@ -514,6 +524,8 @@ ${objectiveResourceLedgerSection}
 ${resourceDiscoverySection}
 
 ${resourceTrajectorySection}
+
+${claimDivergenceSection}
 
 State meanings:
 

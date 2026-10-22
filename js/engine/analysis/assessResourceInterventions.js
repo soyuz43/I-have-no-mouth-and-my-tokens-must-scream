@@ -1,7 +1,12 @@
 import { callModel } from "../../models/callModel.js";
+import {
+  getFreshClaimDivergenceEntries,
+  CLAIM_DISCLOSURES
+} from "../agency/claimLedger.js";
 
 const NONE_INTERVENTION = Object.freeze({ intervention: "none" });
 const VALID_INTERVENTIONS = new Set(["taunt", "confiscate", "destroy", "transfer"]);
+const VALID_DISCLOSURES = new Set(Object.values(CLAIM_DISCLOSURES));
 
 export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = null) {
   const heldResources = Array.isArray(G?.resources?.instances)
@@ -21,9 +26,30 @@ export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = n
         heldResourceIds.has(discovery.resourceId)
     )
     : [];
-  const shouldAssess = heldResourceIds.size > 0 && matchingAttentionFlags.length > 0;
+  /*
+   * A prisoner who is wrong about what they hold is worth assessing
+   * EVEN WHEN they hold nothing worth an attention flag.
+   *
+   * The original gate required both a held resource and a matching
+   * attention flag, which meant AM could never act on a prisoner
+   * whose item it had just taken: the target holds nothing, so
+   * "no held resources" and the gate closed. That is exactly the
+   * prisoner AM most wants to reach - the one who is still certain
+   * they are holding something.
+   */
+  const divergenceEntries = getFreshClaimDivergenceEntries(
+    G,
+    prisonerId,
+    G?.cycle
+  );
+  const hasDivergence = divergenceEntries.length > 0;
+  const hasFlaggedResource =
+    heldResourceIds.size > 0 && matchingAttentionFlags.length > 0;
+  const shouldAssess = hasFlaggedResource || hasDivergence;
   const reason = shouldAssess
-    ? "held resources have recent attention flags"
+    ? hasDivergence
+      ? "prisoner belief diverges from objective reality"
+      : "held resources have recent attention flags"
     : heldResources.length === 0
       ? "no held resources"
       : heldResourceIds.size === 0
@@ -43,6 +69,13 @@ export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = n
       resourceId: discovery.resourceId,
       cycle: discovery.cycle ?? null,
       actorId: discovery.actorId ?? null
+    })),
+    divergences: divergenceEntries.map((entry) => ({
+      definitionId: entry.definitionId,
+      claimed: entry.claimed,
+      objective: entry.objective,
+      delta: entry.delta,
+      onsetCycle: entry.onsetCycle
     })),
     outcome: shouldAssess ? "assess" : "skip",
     reason
@@ -92,6 +125,46 @@ export function buildAssessmentPrompt(prisonerId, G) {
   const otherPrisonerIds = Object.keys(G?.sims ?? {})
     .filter((simId) => simId !== prisonerId).join(", ") || "(none)";
 
+  const divergenceEntries = getFreshClaimDivergenceEntries(
+    G,
+    prisonerId,
+    G?.cycle
+  );
+
+  /*
+   * The divergence section tells AM what the prisoner BELIEVES they
+   * hold, which is the ammunition for a gaslighting intervention.
+   *
+   * It is deliberately absent when there is no divergence: an empty
+   * heading would invite the planner to invent one.
+   */
+  const divergenceText = divergenceEntries.length
+    ? divergenceEntries.map((entry) => {
+        const label = entry.definitionId;
+        return `- ${label}: prisoner believes ${entry.claimed}, objective reality is ${entry.objective}` +
+          (entry.claimedResourceId ? ` [believed resource ${entry.claimedResourceId}]` : "") +
+          ` (divergence began cycle ${entry.onsetCycle ?? "unknown"})`;
+      }).join("\n")
+    : "(none)";
+
+  /*
+   * A prisoner's BELIEVED resources are the ones they still think
+   * they hold. When AM has taken an item silently, that item is gone
+   * from the held ledger, but the prisoner still expects it to be
+   * there. Without this list, AM would have no resource_id to name
+   * for the very prisoner it most wants to gaslight.
+   */
+  const believedResources = divergenceEntries
+    .filter((entry) => Number(entry.claimed) > 0 && entry.claimedResourceId)
+    .map((entry) =>
+      `- resource_id: ${entry.claimedResourceId}; definition_id: ${entry.definitionId}; ` +
+      `quantity the prisoner believes they hold: ${entry.claimed}; ` +
+      `quantity actually held: ${entry.objective}`
+    )
+    .join("\n");
+
+  const believedResourcesText = believedResources || "(none)";
+
   return `Assess resource interventions for prisoner ${prisonerId}.
 
 HELD RESOURCE LEDGER
@@ -103,17 +176,27 @@ ${tacticContext}
 OTHER EXISTING PRISONERS
 ${otherPrisonerIds}
 
+PRISONER BELIEF DIVERGENCE
+The prisoner believes the quantities below. The objective ledger says otherwise.
+${divergenceText}
+
+PRISONER BELIEVED RESOURCES
+These are resources the prisoner still believes they hold, even though the objective ledger above does not list them. You may name one of these resource_ids to act on the prisoner's belief.
+${believedResourcesText}
+
 Choose at most one intervention. Values: none, taunt, confiscate, destroy, transfer.
 Output exactly one JSON object, not an array. No prose, text outside JSON, or markdown fences.
-resource_id must exactly match an ID in this prisoner's held resource ledger above.
+resource_id must exactly match an ID in this prisoner's held resource ledger above, or in the BELIEVED RESOURCES list.
 For transfer, target_holder_id must be an existing prisoner ID other than ${prisonerId}.
 quantity must be a positive integer; omit it to mean all units held.
 rationale must be one sentence explaining why this intervention is appropriate now.
 Destroy removes the complete resource instance; quantity does not make destruction partial.
+disclosure controls whether the prisoner is told. Use "silent" to take the item without the prisoner's knowledge, which leaves the prisoner believing they still hold it. Use "revealed" when the prisoner should be told plainly. A silent intervention against a prisoner with a listed belief divergence is the highest-value move available: it deepens the confusion.
+disclosure must be one of: revealed, silent. Omit it to mean revealed.
 If no intervention makes sense, output exactly: {"intervention":"none"}
 
 Output schema examples:
-{"intervention":"confiscate","resource_id":"<exact resource ID>","quantity":1,"rationale":"<one sentence>"}
+{"intervention":"confiscate","resource_id":"<exact resource ID>","quantity":1,"disclosure":"silent","rationale":"<one sentence>"}
 {"intervention":"destroy","resource_id":"<exact resource ID>","quantity":1,"rationale":"<one sentence>"}
 {"intervention":"taunt","resource_id":"<exact resource ID>","rationale":"<one sentence>"}
 {"intervention":"transfer","resource_id":"<exact resource ID>","target_holder_id":"<another prisoner ID>","quantity":1,"rationale":"<one sentence>"}`;
@@ -178,11 +261,30 @@ function parseAssessmentResponseDetails(responseText, prisonerId) {
     };
   }
 
+  /*
+   * The disclosure is optional and defaults to revealed, so a
+   * response that omits it behaves exactly as the pre-divergence
+   * engine did. An unrecognised value is a parse error rather than a
+   * silent fallback, because "silent" being dropped would remove the
+   * divergence the planner intended to create.
+   */
+  if (
+    parsed.disclosure !== undefined &&
+    !VALID_DISCLOSURES.has(parsed.disclosure)
+  ) {
+    return {
+      assessment: { ...NONE_INTERVENTION },
+      parseStatus: "rejected",
+      parseReason: `unsupported disclosure: ${String(parsed.disclosure)}`
+    };
+  }
+
   const intervention = {
     intervention_type: parsed.intervention,
     resource_id: resourceId,
     holder_id: prisonerId,
-    rationale
+    rationale,
+    disclosure: parsed.disclosure ?? CLAIM_DISCLOSURES.REVEALED
   };
   if (parsed.quantity !== undefined) intervention.quantity = parsed.quantity;
 

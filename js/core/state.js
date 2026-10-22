@@ -323,6 +323,55 @@ export const G = {
     next: 1
   },
 
+  /* ============================================================
+     SUBJECTIVE LEDGER: CLAIM EVENT HISTORY (RUN-SCOPED)
+
+     G.resources says what exists. G.resourceEvents says what
+     HAPPENED to it. Neither says what a prisoner BELIEVES.
+
+     G.claimEvents is that missing third ledger: an append-only,
+     engine-owned history of how each prisoner's belief about their
+     own holdings moved. It is derived from the objective ledger by
+     a projector, never from prose, so a claim event is always
+     traceable to the recorded action that caused it.
+
+     The two ledgers can legitimately disagree, and the gap between
+     them is the point. A prisoner who believes they hold a cigarette
+     AM took without telling them has a claim of 1 against an
+     objective reality of 0. That gap is a divergence, and it is what
+     makes gaslighting possible.
+
+     See js/engine/agency/claimLedger.js for the schema, the
+     projector, and the divergence derivation.
+  ============================================================ */
+
+  claimEvents: [],
+
+  /*
+   * Per-cycle monotonic counter backing the claim event ids. It
+   * lives on the state so a save/load round-trip cannot reissue an
+   * id.
+   */
+
+  claimEventSequence: {
+    cycle: null,
+    next: 1
+  },
+
+  /*
+   * DERIVED views of G.claimEvents. Both are rebuilt from the
+   * ledger, so they can never drift from the history they describe.
+   *
+   *   claimState      per prisoner, per definition: the quantity the
+   *                   prisoner BELIEVES they hold.
+   *   claimDivergence per prisoner, per definition: the difference
+   *                   between that belief and the objective reality.
+   */
+
+  claimState: {},
+
+  claimDivergence: {},
+
   privateLeak: {
     seen: 0.158,
     fragment: 0.136,

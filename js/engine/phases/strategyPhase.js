@@ -65,6 +65,10 @@ import {
   hasTargetDialogue
 } from "../analysis/parseResourceInterventions.js";
 import { getResourceDefinition } from "../agency/resourceDefs.js";
+import {
+  getBelievedResourceIds,
+  getFreshClaimDivergenceEntries
+} from "../agency/claimLedger.js";
 
 /* ============================================================
    OBSERVATION POLICY
@@ -372,7 +376,40 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
         instance.holderId === prisonerId &&
         instance.quantity > 0
     );
-    if (!resource) {
+
+    /*
+     * A TAUNT may name a resource the prisoner BELIEVES they hold.
+     *
+     * This is the gaslighting move. When AM has taken an item
+     * silently, the item is gone from the objective ledger but the
+     * prisoner still thinks it is in their pocket. A taunt that
+     * names that item attacks the prisoner's certainty directly, and
+     * it is the only intervention available against a prisoner who
+     * holds nothing at all.
+     */
+    const believedResourceIds = getBelievedResourceIds(
+      G,
+      prisonerId,
+      G.cycle
+    );
+
+    /*
+     * A BELIEVED resource is not in the objective ledger, so its
+     * definition has to come from the divergence entry that names
+     * it. Without this the taunt would be titled with a raw
+     * resource id instead of a readable noun.
+     */
+    const believedDefinitionId =
+      getFreshClaimDivergenceEntries(G, prisonerId, G.cycle)
+        .find((entry) => entry.claimedResourceId === assessment.resource_id)
+        ?.definitionId ?? null;
+
+    const isBelievedTaunt =
+      !resource &&
+      assessment.intervention_type === "taunt" &&
+      believedResourceIds.has(assessment.resource_id);
+
+    if (!resource && !isBelievedTaunt) {
       const reason = `Resource ${assessment.resource_id} is not held by ${prisonerId}.`;
       const tacticPath = G.amTacticRuntime?.targets?.[prisonerId]?.path ?? null;
       console.warn("[AM RESOURCE INTERVENTION][ASSESSMENT REJECTED]", {
@@ -403,15 +440,30 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
     const intervention = {
       ...assessment,
       interventionId,
+      /*
+       * A taunt against a believed-but-unheld resource carries no
+       * objective resource, so the title falls back to the definition
+       * the prisoner believes they hold.
+       */
+      definitionTitle: resource
+        ? getResourceDefinition(resource.definitionId)?.title ??
+          resource.definitionId ??
+          resource.resourceId
+        : getResourceDefinition(believedDefinitionId)?.title ??
+          believedDefinitionId ??
+          assessment.resource_id,
       provenance: {
         cycle: G.cycle,
         tacticPath,
         rationale: assessment.rationale
       },
-      definitionTitle:
-        getResourceDefinition(resource.definitionId)?.title ??
-        resource.definitionId ??
-        resource.resourceId
+      /*
+       * The disclosure rides through to the commit path. "silent"
+       * means AM takes the item without telling the victim, which is
+       * what leaves the victim's belief and the objective reality
+       * permanently apart.
+       */
+      disclosure: assessment.disclosure ?? "revealed",
     };
 
     if (intervention.intervention_type === "taunt") {
@@ -419,7 +471,12 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
     } else {
       proposedInterventions.push(intervention);
     }
-    const quantity = intervention.quantity ?? Number(resource.quantity);
+    /*
+     * A taunt against a BELIEVED resource has no objective instance,
+     * so there is no quantity to report. The taunt summary does not
+     * use one anyway.
+     */
+    const quantity = intervention.quantity ?? Number(resource?.quantity ?? 0);
     const resourceTitle = intervention.definitionTitle.toLowerCase();
     const decisionSummary = intervention.intervention_type === "taunt"
       ? `taunt ${prisonerId} about ${resourceTitle}`
