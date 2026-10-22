@@ -9,6 +9,7 @@ import {
 } from "../engine/scratchpad/comms/protocol.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import { formatScratchpadContext } from "./utils/formatScratchpadContext.js";
+import { getFreshClaimDivergenceEntries } from "../engine/agency/claimLedger.js";
 
 /*
 ============================================================
@@ -178,7 +179,14 @@ export function buildScratchpadCommsPrompt(
       sim,
       others,
       state?.pendingEvidence?.resourceInterventions?.[sim.id],
-      state?.pendingEvidence?.exposures?.[sim.id]
+      state?.pendingEvidence?.exposures?.[sim.id],
+      /*
+       * The prisoner's own belief divergence. The engine knows what
+       * really happened to the item; the prisoner does not, and the
+       * rendered block describes the MISSING THING rather than the
+       * truth.
+       */
+      getFreshClaimDivergenceEntries(state, sim.id, state?.cycle)
     );
 
   const formattedDrives = [

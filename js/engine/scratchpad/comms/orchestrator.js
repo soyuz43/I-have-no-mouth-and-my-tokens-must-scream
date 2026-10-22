@@ -8,6 +8,7 @@ import {
   buildScratchpadCommsPrompt,
 } from "../../../prompts/scratchpadComms.js";
 import { getAgencyEventsForReview } from "../../agency/events.js";
+import { getFreshClaimDivergenceEntries } from "../../agency/claimLedger.js";
 
 import {
   collectVisibleMessagesForScratchpad,
@@ -1020,6 +1021,23 @@ export async function runScratchpadCommsReviewForSim(
       ? G.pendingEvidence.exposures[normalizedSimId]
       : [];
 
+    /*
+     * The prisoner's own belief divergence.
+     *
+     * This is not a communication and not an action outcome. It is
+     * the prisoner reaching for something they believe they have and
+     * finding nothing there. It counts toward the "is there anything
+     * to review" check below, because a prisoner whose memory has
+     * quietly separated from reality has something to review even
+     * when no one has spoken to them.
+     */
+    const claimDissonanceEntries =
+      getFreshClaimDivergenceEntries(
+        G,
+        normalizedSimId,
+        normalizedCycle
+      );
+
     reviewGroupOpened =
       beginScratchpadReviewLog({
         simId:
@@ -1039,7 +1057,8 @@ export async function runScratchpadCommsReviewForSim(
       evidence.messages.length === 0 &&
       agencyEvents.length === 0 &&
       resourceInterventionEvents.length === 0 &&
-      exposureEvents.length === 0
+      exposureEvents.length === 0 &&
+      claimDissonanceEntries.length === 0
     ) {
       if (
         sim.scratchpad.initialized

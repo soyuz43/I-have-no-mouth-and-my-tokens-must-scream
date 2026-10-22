@@ -4,6 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { CONSTRAINT_LIBRARY } from "../engine/constraints/index.js";
 import { getResourceDefinition } from "../engine/agency/resourceDefs.js";
+import { formatClaimDivergence } from "./utils/formatClaimDivergence.js";
 
 export function buildAMPrompt(
   targets,
@@ -573,6 +574,21 @@ CONSTRAINT: <CONSTRAINT_NONE or a valid CONSTRAINT_APPLY form>
     ? `ALREADY COMMITTED (reference these in your dialogue):\n${committedInterventionsText}\n\nPENDING TAUNTS (you MUST reference these resources in dialogue to the named target):\n${pendingTauntsText}`
     : "";
 
+  /*
+   * The divergence section tells AM which prisoners are wrong about
+   * what they hold.
+   *
+   * This is the tactical opening. A prisoner who still believes they
+   * hold an item AM took silently is a prisoner whose certainty can
+   * be attacked: AM can name the item, deny it, offer it back, or
+   * let the doubt compound. The section is omitted entirely when
+   * there is no divergence, because an empty heading would invite
+   * AM to invent one.
+   */
+  const claimDivergenceText = formatClaimDivergence(
+    G.claimDivergence ?? {}
+  );
+
   // ------------------------------------------------------------
   // CORE PROMPT — compressed for behavior-preserving clarity
   // ------------------------------------------------------------
@@ -745,6 +761,10 @@ ${activeConstraintIntel}
 ${resourceLedgerText}
 
 AM knows every ledger item, including concealed and inaccessible resources. Attention flags affect salience only, never whether you may act. This ledger is context; intervention decisions for this cycle are listed separately below.
+
+---
+
+${claimDivergenceText}
 
 ---
 

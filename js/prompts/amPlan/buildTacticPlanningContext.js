@@ -5,6 +5,7 @@ import {
   getTacticPhase
 } from "../../engine/tactics.js";
 import { formatResourceTrajectory } from "../utils/formatResourceTrajectory.js";
+import { formatClaimDivergence } from "../utils/formatClaimDivergence.js";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -406,6 +407,7 @@ export function buildTacticPlanningContext({
   resourceInstances = [],
   resourceDiscoveries = [],
   resourceEvents = [],
+  claimDivergence = {},
   cycle,
   simIds
 }) {
@@ -623,10 +625,23 @@ export function buildTacticPlanningContext({
   const resourceTrajectorySection =
     formatResourceTrajectory(resourceEvents);
 
+  /*
+   * The divergence section is what the objective ledger section
+   * cannot say.
+   *
+   * The ledger tells AM what EXISTS. The divergence tells AM what
+   * each prisoner BELIEVES exists, and where those two disagree the
+   * prisoner's memory is wrong without knowing it. That gap is the
+   * opening for gaslighting.
+   */
+  const claimDivergenceSection =
+    formatClaimDivergence(claimDivergence);
+
   return {
     objectiveResourceLedgerSection,
     resourceDiscoverySection,
     resourceTrajectorySection,
+    claimDivergenceSection,
 
     tacticLibrarySection:
       catalogEntries

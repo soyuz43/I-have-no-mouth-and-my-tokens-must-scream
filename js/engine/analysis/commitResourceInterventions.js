@@ -5,6 +5,29 @@ import {
   recordResourceEvent,
   RESOURCE_EVENT_KINDS
 } from "../agency/resourceEventLog.js";
+import {
+  recordClaimEventsForResourceEvent,
+  refreshClaimDivergence,
+  CLAIM_DISCLOSURES,
+  getBelievedResourceIds
+} from "../agency/claimLedger.js";
+
+/*
+ * Normalize the disclosure of an intervention.
+ *
+ * `revealed` is the default and preserves the existing behaviour: the
+ * victim is told what AM did, so their belief and the reality move
+ * together and no divergence arises.
+ *
+ * `silent` is the load-bearing option. It is the only way a
+ * persistent quantity divergence can arise: AM takes the item, the
+ * victim is never told, and the victim keeps believing they hold it.
+ */
+function normalizeDisclosure(value) {
+  return value === CLAIM_DISCLOSURES.SILENT
+    ? CLAIM_DISCLOSURES.SILENT
+    : CLAIM_DISCLOSURES.REVEALED;
+}
 
 function cloneInstance(instance) {
   return {
@@ -236,7 +259,18 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
       `intervention_${G.cycle ?? "unknown"}_${proposed?.holder_id ?? "unknown"}_${index}`;
     const validation = validateResourceIntervention(proposed, {
       resources: { instances: stagedInstances },
-      sims: G.sims
+      sims: G.sims,
+      /*
+       * The resources the victim still BELIEVES they hold. These let
+       * a taunt name an item AM has already taken silently, which is
+       * the only intervention available against a prisoner who holds
+       * nothing.
+       */
+      believedResourceIds: getBelievedResourceIds(
+        G,
+        proposed?.holder_id,
+        G.cycle
+      )
     });
 
     if (!validation.valid) {
@@ -265,13 +299,27 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
 
     const intervention = validation.intervention;
     const instance = validation.resource;
-    const mutation = applyLedgerMutation(
-      stagedInstances,
-      instance,
-      intervention,
-      G.cycle,
-      index
-    );
+    /*
+     * A taunt against a BELIEVED resource has no objective instance:
+     * AM already took the item, so it is not in the ledger as
+     * something the victim holds. The taunt changes no ledger state
+     * anyway, so there is no mutation to apply.
+     */
+    const mutation = instance
+      ? applyLedgerMutation(
+        stagedInstances,
+        instance,
+        intervention,
+        G.cycle,
+        index
+      )
+      : {
+        previousHolderId: intervention.holder_id ?? null,
+        resultingResourceId: intervention.resource_id,
+        quantityBefore: null,
+        remainingQuantity: null,
+        affectedQuantity: null
+      };
 
     const event = {
       cycle: G.cycle,
@@ -279,8 +327,12 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
       interventionType: intervention.intervention_type,
       resourceId: intervention.resource_id,
       resultingResourceId: mutation.resultingResourceId,
-      definitionId: instance.definitionId,
-      definitionTitle: intervention.definitionTitle ?? instance.definitionId,
+      definitionId: instance?.definitionId ?? intervention.definition_id ?? null,
+      definitionTitle:
+        intervention.definitionTitle ??
+        instance?.definitionId ??
+        intervention.definition_id ??
+        null,
       fromHolderId: mutation.previousHolderId,
       targetHolderId:
         intervention.intervention_type === "confiscate"
@@ -289,14 +341,35 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
       quantity: mutation.affectedQuantity,
       quantityBefore: mutation.quantityBefore,
       remainingQuantity: mutation.remainingQuantity,
-      concealed: instance.concealed === true,
+      concealed: instance?.concealed === true,
       tacticPath: intervention.provenance?.tacticPath ?? null,
       rationale: intervention.provenance?.rationale ?? intervention.rationale
     };
 
+    const disclosure = normalizeDisclosure(intervention.disclosure);
+
+    /*
+     * Who is TOLD.
+     *
+     * A revealed intervention notifies everyone it affected, which
+     * is the behaviour that already existed.
+     *
+     * A SILENT intervention notifies nobody it took from. Telling
+     * the victim is precisely what would collapse the divergence the
+     * intervention exists to create. A silent TRANSFER still tells
+     * the recipient, because they were handed an item and not
+     * knowing about it would credit them with a phantom holding
+     * rather than expose a lie.
+     */
     const affectedPrisoners = [...new Set(
       getAffectedPrisoners(intervention, mutation.previousHolderId)
-    )].filter((simId) => simId !== "AM" && G.sims?.[simId]);
+    )]
+      .filter((simId) => simId !== "AM" && G.sims?.[simId])
+      .filter((simId) => {
+        if (disclosure !== CLAIM_DISCLOSURES.SILENT) return true;
+        if (intervention.intervention_type !== "transfer") return false;
+        return simId === intervention.target_holder_id;
+      });
 
     for (const simId of affectedPrisoners) {
       stagedEvidence[simId] ??= [];
@@ -326,6 +399,12 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
           ? "AM"
           : intervention.target_holder_id ?? null;
 
+      /*
+       * The disclosure rides on the STAGED SPEC, not on the recorded
+       * objective event. The objective event schema stays exactly as
+       * it was, and the claim derivation reads the disclosure from
+       * the spec it is handed.
+       */
       stagedResourceEvents.push({
         kind: RESOURCE_EVENT_KINDS.AM_INTERVENTION,
         cycle: G.cycle,
@@ -340,7 +419,16 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
           phase: "strategy_phase",
           action: intervention.intervention_type.toUpperCase(),
           source: "am_resource_intervention"
-        }
+        },
+        disclosure,
+        /*
+         * The stack the victim believes they hold. It differs from
+         * the resourceId above when the intervention SPLIT a stack:
+         * the objective event names the derived container the moved
+         * units now live in, but the victim still thinks of the
+         * original stack.
+         */
+        believedResourceId: intervention.resource_id
       });
     }
 
@@ -358,8 +446,28 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
    * commit it is describing.
    */
   for (const resourceEvent of stagedResourceEvents) {
-    recordResourceEvent(G, resourceEvent);
+    const recorded = recordResourceEvent(G, resourceEvent);
+
+    /*
+     * The Subjective Ledger records the intervention alongside the
+     * objective ledger.
+     *
+     * The disclosure decides whether the victim's belief moves with
+     * the reality. A silent intervention leaves the belief where it
+     * was, and that absence is the divergence.
+     */
+    recordClaimEventsForResourceEvent(G, recorded, {
+      disclosure: resourceEvent.disclosure,
+      /*
+       * The victim still thinks of the stack they always had, so the
+       * belief records the ORIGINAL resource id, not the derived one
+       * the objective event names for the moved quantity.
+       */
+      believedResourceId: resourceEvent.believedResourceId
+    });
   }
+
+  refreshClaimDivergence(G);
 
   for (const intervention of committed) {
     const summary = formatInterventionSummary(intervention);

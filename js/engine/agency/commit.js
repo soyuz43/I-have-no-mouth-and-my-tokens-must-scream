@@ -10,6 +10,10 @@ import {
   recordResourceEvent,
   RESOURCE_EVENT_KINDS
 } from "./resourceEventLog.js";
+import {
+  recordClaimEventsForResourceEvent,
+  refreshClaimDivergence
+} from "./claimLedger.js";
 
 const MAX_GOAL_HISTORY = 5;
 const RESOURCE_DISCOVERY_CHANCE = 0.3;
@@ -430,7 +434,19 @@ export function commitAgencyResolution(
    */
   for (const resourceEvent of stagedResourceEvents) {
     recordResourceEvent(G, resourceEvent);
+
+    /*
+     * The Subjective Ledger is written immediately after the
+     * objective event it derives from, so the claim event can point
+     * back at it through cause.sourceEventId.
+     *
+     * A prisoner always knows about their own actions, so these
+     * events never carry a silent disclosure.
+     */
+    recordClaimEventsForResourceEvent(G, resourceEvent);
   }
+
+  refreshClaimDivergence(G);
 
   return stagedEvents;
 }

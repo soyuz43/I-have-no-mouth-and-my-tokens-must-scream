@@ -92,6 +92,8 @@ import {
   RESOURCE_EVENT_KINDS
 } from "./resourceEventLog.js";
 
+import { refreshClaimDivergence } from "./claimLedger.js";
+
 import { getResourceDefinition } from "./resourceDefs.js";
 
 /* ============================================================
@@ -483,6 +485,14 @@ export function commitConcealmentExposures(
   if (records.length === 0) {
     return [];
   }
+
+  /*
+   * An exposure changes who can SEE an item, not what anyone holds.
+   * The claim ledger tracks quantity only, so no claim event is
+   * written here - but the divergence is refreshed so the derived
+   * view cannot fall behind the reality it is measured against.
+   */
+  refreshClaimDivergence(G);
 
   /*
    * The prisoner learns about the exposure in their NEXT scratchpad

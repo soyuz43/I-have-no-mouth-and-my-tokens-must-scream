@@ -30,6 +30,7 @@ import { runPsychologyPhase } from "./phases/psychologyPhase.js";
 import { runSocialPhase } from "./phases/socialPhase.js";
 import { runAgencyPhase } from "./phases/agencyPhase.js";
 import { maintainResourceDrying } from "./agency/resourceLedger.js";
+import { rebuildClaimState } from "./agency/claimLedger.js";
 import { expirePredictions } from "./scratchpad/expirePredictions.js";
 import { runScratchpadConsolidation } from "./scratchpad/consolidate.js";
 import { runEvaluationPhase } from "./phases/evaluationPhase.js";
@@ -611,6 +612,19 @@ export function beginCycle() {
 
   G.cycle++;
   maintainResourceDrying(G);
+
+  /*
+   * Rebuild the Subjective Ledger's derived views at the start of
+   * every cycle.
+   *
+   * The projection and the divergence are both pure functions of the
+   * claim ledger and the objective ledger, so rebuilding them here
+   * guarantees they can never drift from the history they describe.
+   * It is also the recovery path for a state loaded from a save
+   * file, whose derived views were written as part of the snapshot
+   * but are recomputed here regardless.
+   */
+  rebuildClaimState(G);
 
   resetCycleEvidence();
 

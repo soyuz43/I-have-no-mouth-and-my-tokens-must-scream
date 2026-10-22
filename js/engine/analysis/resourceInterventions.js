@@ -5,6 +5,29 @@ export const INTERVENTION_TYPES = Object.freeze({
   TRANSFER: "transfer"
 });
 
+/*
+ * Whether the intervention is disclosed to the people it affects.
+ *
+ * `revealed` is the default and preserves the existing behaviour: the
+ * victim is told what AM did.
+ *
+ * `silent` is the load-bearing option. It is the only way a
+ * persistent quantity divergence can arise: AM takes the item, the
+ * victim is never told, and the victim keeps believing they hold it.
+ * That gap is what the prisoner experiences as cognitive dissonance
+ * and what AM can exploit.
+ */
+export const INTERVENTION_DISCLOSURES = Object.freeze({
+  REVEALED: "revealed",
+  SILENT: "silent"
+});
+
+function normalizeDisclosure(value) {
+  return value === INTERVENTION_DISCLOSURES.SILENT
+    ? INTERVENTION_DISCLOSURES.SILENT
+    : INTERVENTION_DISCLOSURES.REVEALED;
+}
+
 function findResource(resources, resourceId) {
   if (!Array.isArray(resources?.instances)) return null;
   return resources.instances.find((instance) => instance?.resourceId === resourceId) ?? null;
@@ -71,7 +94,36 @@ function validateQuantity(intervention, resource) {
 
 export function validateTauntIntervention(intervention, context = {}) {
   const resourceResult = validateResource(intervention, context.resources);
-  if (!resourceResult.valid) return resourceResult;
+  if (!resourceResult.valid) {
+    /*
+     * A taunt may name a resource the prisoner BELIEVES they hold
+     * even when the objective ledger no longer lists it. This is the
+     * gaslighting move: AM took the item silently, the victim still
+     * thinks it is in their pocket, and the taunt attacks that
+     * certainty directly.
+     */
+    const believedResourceId = context.believedResourceIds instanceof Set
+      ? context.believedResourceIds
+      : new Set(context.believedResourceIds ?? []);
+
+    if (!believedResourceId.has(intervention?.resource_id)) {
+      return resourceResult;
+    }
+
+    if (!validateHolder(intervention?.target_id, context.sims)) {
+      return fail(`Taunt target ${intervention?.target_id ?? "(missing)"} does not exist.`);
+    }
+
+    return {
+      valid: true,
+      resource: null,
+      intervention: {
+        ...intervention,
+        intervention_type: INTERVENTION_TYPES.TAUNT,
+        disclosure: INTERVENTION_DISCLOSURES.REVEALED
+      }
+    };
+  }
 
   if (!validateHolder(intervention?.target_id, context.sims)) {
     return fail(`Taunt target ${intervention?.target_id ?? "(missing)"} does not exist.`);
@@ -82,7 +134,8 @@ export function validateTauntIntervention(intervention, context = {}) {
     resource: resourceResult.resource,
     intervention: {
       ...intervention,
-      intervention_type: INTERVENTION_TYPES.TAUNT
+      intervention_type: INTERVENTION_TYPES.TAUNT,
+      disclosure: INTERVENTION_DISCLOSURES.REVEALED
     }
   };
 }
@@ -107,7 +160,8 @@ export function validateConfiscateIntervention(intervention, context = {}) {
     intervention: {
       ...intervention,
       intervention_type: INTERVENTION_TYPES.CONFISCATE,
-      quantity: quantityResult.quantity
+      quantity: quantityResult.quantity,
+      disclosure: normalizeDisclosure(intervention.disclosure)
     }
   };
 }
@@ -121,7 +175,8 @@ export function validateDestroyIntervention(intervention, context = {}) {
     resource: resourceResult.resource,
     intervention: {
       ...intervention,
-      intervention_type: INTERVENTION_TYPES.DESTROY
+      intervention_type: INTERVENTION_TYPES.DESTROY,
+      disclosure: normalizeDisclosure(intervention.disclosure)
     }
   };
 }
@@ -156,7 +211,8 @@ export function validateTransferIntervention(intervention, context = {}) {
     intervention: {
       ...intervention,
       intervention_type: INTERVENTION_TYPES.TRANSFER,
-      quantity: quantityResult.quantity
+      quantity: quantityResult.quantity,
+      disclosure: normalizeDisclosure(intervention.disclosure)
     }
   };
 }
