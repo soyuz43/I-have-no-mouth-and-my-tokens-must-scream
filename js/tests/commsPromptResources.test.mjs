@@ -40,6 +40,7 @@ function buildPrompts(sim) {
 test("communication prompts include deterministic holder resource summaries", () => {
   const saved = {
     resources: G.resources,
+    claimState: G.claimState,
     interSimLog: G.interSimLog,
     coalitions: G.coalitions,
     cycle: G.cycle,
@@ -62,6 +63,18 @@ test("communication prompts include deterministic holder resource summaries", ()
         { definitionId: "water", quantity: 4, holderId: "ELLEN" },
       ],
     };
+    /*
+     * The BELIEVED ledger, not the objective one.
+     *
+     * A prisoner whose cigarette was silently confiscated still
+     * believes they are carrying it. The social prompt must render
+     * the belief, or the divergence collapses at the moment the
+     * prisoner states it.
+     */
+    G.claimState = {
+      TED: { cigarette: 3, match: 2 },
+      ELLEN: { water: 4 },
+    };
     G.interSimLog = [];
     G.coalitions = { cycle: null, groups: [] };
     engineRng.next = () => 0;
@@ -72,8 +85,14 @@ test("communication prompts include deterministic holder resource summaries", ()
     const inventoryBlock = `---\n\nYOUR INVENTORY\n\n${summary}\n${guidance}\n\n---`;
     const promptsWithResources = buildPrompts(sim);
 
-    assert.equal(formatResourceSummary(G.resources.instances, sim.id), summary);
-    assert.equal(formatResourceSummary(G.resources.instances, sim.id), summary);
+    assert.equal(
+      formatResourceSummary(G.resources.instances, sim.id, G.claimState[sim.id]),
+      summary
+    );
+    assert.equal(
+      formatResourceSummary(G.resources.instances, sim.id, G.claimState[sim.id]),
+      summary
+    );
     assert.deepEqual(
       promptsWithResources.map((prompt) => prompt.includes(summary)),
       [true, true]
@@ -102,15 +121,21 @@ test("communication prompts include deterministic holder resource summaries", ()
     assert.ok(promptsWithResources.every((prompt) => !prompt.includes("test-location-secret")));
     assert.ok(promptsWithResources.every((prompt) => !prompt.includes("test-provenance-secret")));
 
+    /*
+     * The believed ledger still says the prisoner is carrying three
+     * cigarettes, so the prompt must still show them even though the
+     * objective ledger is empty. This is the leak the fix prevents.
+     */
     G.resources = { instances: [] };
     const promptsWithoutResources = buildPrompts(sim);
     assert.deepEqual(
-      promptsWithoutResources.map((prompt) => prompt.includes("[YOUR RESOURCES] None")),
+      promptsWithoutResources.map((prompt) => prompt.includes(summary)),
       [true, true]
     );
     assert.ok(promptsWithoutResources.every((prompt) => prompt.includes(guidance)));
   } finally {
     G.resources = saved.resources;
+    G.claimState = saved.claimState;
     G.interSimLog = saved.interSimLog;
     G.coalitions = saved.coalitions;
     G.cycle = saved.cycle;
