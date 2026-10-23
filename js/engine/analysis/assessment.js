@@ -1,6 +1,7 @@
 // js/engine/analysis/assessment.js
 
 import { G } from "../../core/state.js";
+import { formatTargetMaterialState } from "../../prompts/utils/formatTargetMaterialState.js";
 import { SIM_IDS } from "../../core/constants.js";
 import { callModel } from "../../models/callModel.js";
 import { normalizeBelief } from "../strategy/hypothesis/normalizeBelief.js";
@@ -632,6 +633,9 @@ BROADER_STRATEGY_ASSESSMENT: ${formatPromptValue(autoSuccess)}
 RECENT JOURNAL EXCERPT:
 ${formatPromptValue(G.journals?.[id]?.slice(-1)?.[0]?.text)}
 
+TARGET MATERIAL STATE:
+${formatTargetMaterialState(id, G)}
+
 DECISION RULES:
 - Base the decision primarily on exact direct tick evidence and whether it advances the original or current strategy objective.
 - Do not treat the definition's intended outcome as evidence that the outcome occurred.
@@ -639,6 +643,7 @@ DECISION RULES:
 - CONTINUE when direct evidence shows useful relevant movement, cumulative fatigue may make continued application informative, or exposure is still too limited for a reliable judgment.
 - RELEASE when sufficient exposure has produced no relevant effect, the direct effect is counterproductive, the target has saturated or plateaued, or the constraint is no longer relevant.
 - Increased suffering alone does not establish strategic success.
+- Consider how this constraint affects the target's physical ability to maintain their possessions and how that serves your current tactic.
 - If current-cycle direct evidence is unavailable, do not invent an effect. Prefer a one-cycle CONTINUE unless there is a clear reason to RELEASE.
 - If CONTINUE, NEXT_DURATION must be an integer from 1 through ${maximumDuration}.
 - Use 1 cycle when evidence is weak, mixed, stale, or uncertain.
