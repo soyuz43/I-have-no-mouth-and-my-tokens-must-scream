@@ -4,6 +4,7 @@ import { G } from "../core/state.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import { formatJournalScratchpadContext } from "./utils/formatJournalScratchpadContext.js";
 import { getMostRecentTerminalGoal } from "./utils/formatGoalHistoryContext.js";
+import { formatInventoryContext } from "./utils/formatInventoryContext.js";
 import { logScratchpadContextInjection } from "./utils/scratchpadContextLog.js";
 
 import { CONSTRAINT_MAP } from "../engine/constraints/index.js";
@@ -200,6 +201,17 @@ misread is the evidence of how your mind is actually working right now.
 ${cognitiveLoadText}
 `
             : "";
+
+    const inventoryContext = formatInventoryContext(
+        G.claimState?.[sim.id]
+    );
+    const inventorySection = inventoryContext
+        ? `
+[WHAT YOU BELIEVE YOU ARE CARRYING]
+${inventoryContext}
+
+If what you believe you have differs from what you actually have access to, this is a source of confusion you may reflect on.`
+        : "";
 
     const recentReceived = (sim.received || [])
         .filter(o => o.cycle === G.cycle || o.cycle === G.cycle - 1)
@@ -427,6 +439,7 @@ ${cognitiveLoadSection}
 # CURRENT PHYSICAL REALITY
 
 ${buildConstraintExperience(sim)}
+${inventorySection}
 
 ---
 # WORKING INTERPRETATION
