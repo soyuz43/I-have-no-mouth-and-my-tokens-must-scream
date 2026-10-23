@@ -2,6 +2,12 @@
 
 import { G } from "../core/state.js";
 import { formatGoalHistoryContext } from "./utils/formatGoalHistoryContext.js";
+import {
+  formatInventoryContext,
+  getObjectiveInventory,
+  inventoriesDiffer,
+} from "./utils/formatInventoryContext.js";
+import { formatInventoryList } from "./utils/formatResourceLanguage.js";
 /**
  * Build the forensic-analysis prompt used to estimate
  * structured stat, belief, drive, and anchor changes
@@ -82,6 +88,32 @@ export function buildSimJournalStatsPrompt(sim, journalText, amAction) {
     return `${sim.id}.${key}: ${current}%   (max +${maxIncrease} / -${maxDecrease})`;
   }).join('\n');
 
+  const believedInventory = G.claimState?.[sim.id];
+  const hasBelievedInventoryLedger =
+    believedInventory &&
+    typeof believedInventory === "object" &&
+    !Array.isArray(believedInventory);
+  const believedInventoryContext = formatInventoryContext(
+    believedInventory,
+    "prisoner"
+  ) || (hasBelievedInventoryLedger ? "The prisoner believes they hold nothing." : "");
+  const objectiveInventory = getObjectiveInventory(
+    G.resources?.instances,
+    sim.id
+  );
+  const resourceBeliefEvidence =
+    believedInventoryContext &&
+    inventoriesDiffer(believedInventory, objectiveInventory)
+      ? [
+        "[RESOURCE BELIEF EVIDENCE]",
+        "Source: resource_belief",
+        believedInventoryContext,
+        `Objective reality: ${formatInventoryList(objectiveInventory) || "nothing"}.`,
+        "This belief diverges from reality. The prisoner may have experienced confusion about their possessions.",
+        "Do not infer a belief change from this discrepancy alone; use the journal to assess its psychological impact, especially on reality_reliable."
+      ].join("\n")
+      : "";
+
   return `
 
 
@@ -150,6 +182,8 @@ ${buildConstraintExecutionContext(sim)}
 '''
 ${formatGoalHistoryContext(sim)}
 '''
+
+${resourceBeliefEvidence ? `${resourceBeliefEvidence}\n` : ""}
 
 - Treat terminal objective outcomes as corroborative, not determinative; current-journal evidence remains primary.
 - **DO NOT** mechanically copy expected psychological effects from success, abandonment, or failure.
@@ -222,7 +256,7 @@ Ambiguity resolution:
 {
   "forensic_observations": [
     {
-      "source": "current_journal | prior_journal | am_action | constraint_context | goal_history",
+      "source": "current_journal | prior_journal | am_action | constraint_context | goal_history | resource_belief",
       "signal": "brief exact/paraphrased cue from evidence",
       "target": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits",
       "direction": "increase | decrease | unchanged | unobserved | unclear",
