@@ -115,7 +115,7 @@ test("formatTargetMaterialState includes belief divergence", () => {
   };
   const output = formatTargetMaterialState("TED", G);
   assert.match(output, /Belief divergence/i);
-  assert.match(output, /believes they hold 3 cigarettes \(reality: 2\)/i);
+  assert.match(output, /believes they hold 3 cigarettes \(reality: 2 cigarettes\)/i);
 });
 
 test("formatTargetMaterialState combines holdings, exposure, and divergence", () => {

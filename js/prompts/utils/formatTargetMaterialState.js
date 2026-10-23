@@ -5,6 +5,7 @@
 
 import { getResourceDefinition } from "../../engine/agency/resourceDefs.js";
 import { getClaimDivergenceEntries } from "../../engine/agency/claimLedger.js";
+import { formatQuantityPhrase } from "./formatResourceLanguage.js";
 
 function normalizeText(value) {
   return String(value ?? "")
@@ -22,11 +23,7 @@ function getResourceLabel(definitionId) {
 function formatStack(instance) {
   const label = getResourceLabel(instance?.definitionId);
   const quantity = Number(instance?.quantity);
-  const count = Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
-  const plural = /[sx]$|(?:ch|sh)$/i.test(label)
-    ? `${label}es`
-    : `${label}s`;
-  const phrase = count === 1 ? `1 ${label}` : `${count} ${plural}`;
+  const phrase = formatQuantityPhrase(quantity, label);
   const visibility = instance?.concealed === true ? "concealed" : "exposed";
   return `${phrase} (${visibility})`;
 }
@@ -83,7 +80,7 @@ export function formatTargetMaterialState(targetId, G) {
       const label = getResourceLabel(entry.definitionId);
       const claimed = Number(entry.claimed) || 0;
       const objective = Number(entry.objective) || 0;
-      lines.push(`  Target believes they hold ${claimed} ${label}${claimed !== 1 ? "s" : ""} (reality: ${objective}).`);
+      lines.push(`  Target believes they hold ${formatQuantityPhrase(claimed, label)} (reality: ${formatQuantityPhrase(objective, label)}).`);
     }
   }
   return lines.join("\n");
