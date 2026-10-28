@@ -28,6 +28,8 @@ export const Exporter = {
         observability_unknowns: [],
         resource_events: [],
         claim_events: [],
+        scratchpad: [],
+        goal_events: [],
     },
 
     // State captured at the beginning of the current cycle.

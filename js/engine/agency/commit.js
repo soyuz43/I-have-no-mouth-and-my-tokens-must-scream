@@ -15,6 +15,9 @@ import {
   recordBeliefCorrection,
   refreshClaimDivergence
 } from "./claimLedger.js";
+import {
+  recordGoalEvent
+} from "./goalEventLog.js";
 
 const MAX_GOAL_HISTORY = 5;
 const RESOURCE_DISCOVERY_CHANCE = 0.3;
@@ -377,6 +380,18 @@ export function commitAgencyResolution(
     }
 
     scratchpad.activeGoal = transition.nextActiveGoal;
+
+    recordGoalEvent(G, {
+      kind: transition.type,
+      cycle: G.cycle,
+      actorId: transition.actorId,
+      goalId: transition.nextActiveGoal?.id ?? transition.terminalGoal?.id ?? null,
+      progress: transition.nextActiveGoal?.progress ?? transition.terminalGoal?.progress ?? null,
+      startedCycle: transition.nextActiveGoal?.startedCycle ?? transition.terminalGoal?.startedCycle ?? null,
+      terminalCycle: transition.terminalGoal?.terminalCycle ?? null,
+      terminalReason: transition.terminalGoal?.terminalReason ?? null,
+      evidenceEventIds: transition.nextActiveGoal?.evidenceEventIds ?? transition.terminalGoal?.evidenceEventIds ?? []
+    });
   }
 
   const actorIds = [...new Set(resolutions.map(({ actorId }) => actorId))]

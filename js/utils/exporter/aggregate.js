@@ -43,6 +43,12 @@ import {
 import {
     recordClaimEvents,
 } from "./streams/claimEvents.js";
+import {
+    recordScratchpadReviews,
+} from "./streams/scratchpad.js";
+import {
+    recordGoalEvents,
+} from "./streams/goalEvents.js";
 
 /* ============================================================
    CSV UTILITIES
@@ -355,6 +361,12 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
 
             claim_events:
                 Exporter.buffers.claim_events,
+
+            scratchpad:
+                Exporter.buffers.scratchpad,
+
+            goal_events:
+                Exporter.buffers.goal_events,
         },
     };
 
@@ -467,6 +479,8 @@ export function finalizeCycle(G, metrics) {
     recordObservabilityUnknowns(G, cycle);
     recordResourceEvents(G, cycle);
     recordClaimEvents(G, cycle);
+    recordScratchpadReviews(G, cycle);
+    recordGoalEvents(G, cycle);
 
     /*
      * Preserve the existing one-file-per-cycle behavior.

@@ -359,6 +359,27 @@ export const G = {
   },
 
   /*
+   * Observability ledger for Tier-1 goal transitions.
+   *
+   * `goalHistory` is deliberately a bounded rolling window, so it
+   * cannot serve as a lifecycle record. This run-scoped array records
+   * each transition as it happens and is filtered by cycle at export
+   * time, following the existing `claimEvents` pattern.
+   */
+  goalEvents: [],
+
+  /*
+   * Per-cycle sequence counter backing goal event ids. Like the claim
+   * event counter, it lives on the state so a save/load round-trip
+   * cannot reissue an id, and a cycle advance restarts the counter
+   * without resetting it retroactively.
+   */
+  goalEventSequence: {
+    cycle: null,
+    next: 1
+  },
+
+  /*
    * DERIVED views of G.claimEvents. Both are rebuilt from the
    * ledger, so they can never drift from the history they describe.
    *

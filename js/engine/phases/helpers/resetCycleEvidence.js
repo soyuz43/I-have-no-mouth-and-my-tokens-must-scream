@@ -18,6 +18,7 @@ export function resetCycleEvidence() {
   };
   G.pendingEvidence.resourceInterventions ??= Object.create(null);
   G.pendingEvidence.exposures ??= Object.create(null);
+  G.pendingEvidence.scratchpadReviewLog ??= [];
 
   /*
    * Capability-Ledger Entanglement records are written by the
