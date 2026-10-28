@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { G } from "../core/state.js";
-import { finalizeCycle } from "../utils/exporter/aggregate.js";
+import {
+  finalizeCycle,
+  exportBootCycleReviews,
+} from "../utils/exporter/aggregate.js";
 import { Exporter } from "../utils/exporter/state.js";
 
 function makeReviewLog() {
@@ -130,6 +133,109 @@ test("finalizeCycle exports the per-cycle scratchpad review audit", async () => 
       downloaded.streams.scratchpad,
     );
     assert.deepEqual(Exporter.buffers.scratchpad, []);
+  } finally {
+    Exporter.runId = saved.runId;
+    Exporter.buffers = saved.buffers;
+    Exporter.runMetadata = saved.runMetadata;
+    Exporter.cycleMetadata = saved.cycleMetadata;
+    Exporter.lastCompletedCycle = saved.lastCompletedCycle;
+    Exporter.overviewHistory = saved.overviewHistory;
+    Exporter.overviewHistoryMax = saved.overviewHistoryMax;
+    if (saved.document === undefined) delete globalThis.document;
+    else globalThis.document = saved.document;
+    if (saved.createObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", saved.createObjectURL);
+    } else {
+      delete URL.createObjectURL;
+    }
+    if (saved.revokeObjectURL) {
+      Object.defineProperty(URL, "revokeObjectURL", saved.revokeObjectURL);
+    } else {
+      delete URL.revokeObjectURL;
+    }
+  }
+});
+
+test("the boot cycle exports its review records before the next reset clears them", async () => {
+  const saved = {
+    runId: Exporter.runId,
+    buffers: Exporter.buffers,
+    runMetadata: Exporter.runMetadata,
+    cycleMetadata: Exporter.cycleMetadata,
+    lastCompletedCycle: Exporter.lastCompletedCycle,
+    overviewHistory: Exporter.overviewHistory,
+    overviewHistoryMax: Exporter.overviewHistoryMax,
+    document: globalThis.document,
+    createObjectURL: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
+    revokeObjectURL: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL"),
+  };
+  let exportedBlob;
+
+  try {
+    Exporter.runId = "boot-cycle-export-test";
+    Exporter.buffers = Object.fromEntries(
+      Object.keys(saved.buffers).map((stream) => [stream, []]),
+    );
+    Exporter.runMetadata = null;
+    Exporter.cycleMetadata = {};
+    Exporter.lastCompletedCycle = null;
+    Exporter.overviewHistory = [];
+    globalThis.document = {
+      body: { appendChild() {}, removeChild() {} },
+      createElement: () => ({ click() {} }),
+    };
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: (blob) => {
+        exportedBlob = blob;
+        return "blob:boot-cycle-export-test";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+
+    const bootReviewLog = makeReviewLog().filter(
+      (review) => review.cycle === 0,
+    );
+    bootReviewLog[0] = {
+      ...bootReviewLog[0],
+      cycle: 0,
+      simId: "TED",
+    };
+
+    const game = {
+      ...G,
+      cycle: 0,
+      pendingEvidence: {
+        ...G.pendingEvidence,
+        scratchpadReviewLog: bootReviewLog,
+      },
+    };
+
+    /*
+     * The boot path never runs finalizeCycle(), so its review records
+     * would otherwise be cleared by the next cycle reset without ever
+     * reaching an export file.
+     */
+    assert.equal(exportBootCycleReviews(game), true);
+
+    const downloaded = JSON.parse(await exportedBlob.text());
+
+    assert.equal(downloaded.cycle, 0);
+    assert.equal(downloaded.streams.scratchpad.length, 1);
+    assert.equal(downloaded.streams.scratchpad[0].cycle, 0);
+    assert.equal(downloaded.streams.scratchpad[0].sim_id, "TED");
+
+    /*
+     * The exported records must not be written into a later cycle's
+     * file as well.
+     */
+    assert.deepEqual(Exporter.buffers.scratchpad, []);
+    assert.deepEqual(game.pendingEvidence.scratchpadReviewLog, []);
   } finally {
     Exporter.runId = saved.runId;
     Exporter.buffers = saved.buffers;

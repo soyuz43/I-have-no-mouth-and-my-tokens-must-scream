@@ -33,6 +33,14 @@ function normalizeId(value) {
 }
 
 function normalizeNonNegativeInteger(value, fallback = null) {
+  /*
+   * `null` and `undefined` mean "not present", not "zero".
+   * `Number(null)` is 0, which would turn the explicit
+   * `terminalCycle: null` of an active `initialize` or `continue`
+   * event into cycle zero and make the goal look like it had ended.
+   */
+  if (value === null || value === undefined) return fallback;
+
   const numeric = Number(value);
   return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : fallback;
 }

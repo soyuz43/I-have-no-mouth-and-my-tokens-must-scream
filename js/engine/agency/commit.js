@@ -16,7 +16,8 @@ import {
   refreshClaimDivergence
 } from "./claimLedger.js";
 import {
-  recordGoalEvent
+  recordGoalEvent,
+  GOAL_EVENT_KINDS
 } from "./goalEventLog.js";
 
 const MAX_GOAL_HISTORY = 5;
@@ -380,6 +381,49 @@ export function commitAgencyResolution(
     }
 
     scratchpad.activeGoal = transition.nextActiveGoal;
+
+    /*
+     * An `abandon` transition carries TWO distinct lifecycle facts:
+     * the goal that was abandoned (terminalGoal) and the goal that
+     * replaces it (nextActiveGoal). Preferring one of them would
+     * record the replacement as abandoned - with the old goal's
+     * terminal reason but its own new start cycle and zero progress -
+     * and would leave the abandoned goal without a closing record.
+     *
+     * They are therefore recorded as two separate events: the old
+     * goal's abandonment, then the replacement's start.
+     */
+    if (
+      transition.type === GOAL_EVENT_KINDS.ABANDON &&
+      transition.terminalGoal &&
+      transition.nextActiveGoal
+    ) {
+      recordGoalEvent(G, {
+        kind: GOAL_EVENT_KINDS.ABANDON,
+        cycle: G.cycle,
+        actorId: transition.actorId,
+        goalId: transition.terminalGoal.id ?? null,
+        progress: transition.terminalGoal.progress ?? null,
+        startedCycle: transition.terminalGoal.startedCycle ?? null,
+        terminalCycle: transition.terminalGoal.terminalCycle ?? null,
+        terminalReason: transition.terminalGoal.terminalReason ?? null,
+        evidenceEventIds: transition.terminalGoal.evidenceEventIds ?? []
+      });
+
+      recordGoalEvent(G, {
+        kind: GOAL_EVENT_KINDS.INITIALIZE,
+        cycle: G.cycle,
+        actorId: transition.actorId,
+        goalId: transition.nextActiveGoal.id ?? null,
+        progress: transition.nextActiveGoal.progress ?? null,
+        startedCycle: transition.nextActiveGoal.startedCycle ?? null,
+        terminalCycle: null,
+        terminalReason: null,
+        evidenceEventIds: transition.nextActiveGoal.evidenceEventIds ?? []
+      });
+
+      continue;
+    }
 
     recordGoalEvent(G, {
       kind: transition.type,

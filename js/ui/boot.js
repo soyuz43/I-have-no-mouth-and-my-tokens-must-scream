@@ -10,6 +10,8 @@ import { EMBEDDED_TACTICS, getAllTactics } from "../engine/tactics.js";
 import { purgeInvalidDerivedTactics } from "../engine/tactics/validateDerivedTactic.js";
 import { runCommunicationPhase } from "../engine/phases/communicationPhase.js";
 import { seedResources } from "../engine/agency/resourceLedger.js";
+import { exportBootCycleReviews } from "../utils/exporter/aggregate.js";
+import { initExporter } from "../utils/exporter/state.js";
 
 
 import { addLog } from "./logs.js";
@@ -424,6 +426,23 @@ export async function bootAM() {
   );
 
   await runCommunicationPhase();
+
+  /*
+   * The boot path runs the communication phase at cycle zero and is
+   * never finalized by the cycle pipeline. Export the cycle-zero
+   * scratchpad review records now, before the first beginCycle()
+   * reset clears them, so the pre-torment review is not lost.
+   *
+   * The exporter is initialized here because the cycle pipeline only
+   * initializes it from executeMain(), which runs after boot. Without
+   * this, the cycle-zero export would carry no run id.
+   */
+  if (!G._exporterInitialized) {
+    initExporter();
+    G._exporterInitialized = true;
+  }
+
+  exportBootCycleReviews(G);
 
   addLog(
     "SYSTEM // DONE",

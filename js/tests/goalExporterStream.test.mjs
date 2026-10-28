@@ -98,6 +98,16 @@ test("finalizeCycle exports canonical goal lifecycle events", async () => {
     assert.equal(downloaded.streams.goal_events[0].kind, "initialize");
     assert.equal(downloaded.streams.goal_events[1].event_id, "goal_4_2");
     assert.equal(downloaded.streams.goal_events[1].kind, "continue");
+
+    /*
+     * An active goal has not ended, so it must not export a terminal
+     * cycle. `Number(null)` is 0, which would otherwise turn the
+     * explicit `terminalCycle: null` into cycle zero.
+     */
+    assert.equal(downloaded.streams.goal_events[0].terminal_cycle, null);
+    assert.equal(downloaded.streams.goal_events[0].terminal_reason, null);
+    assert.equal(downloaded.streams.goal_events[1].terminal_cycle, null);
+    assert.equal(downloaded.streams.goal_events[1].terminal_reason, null);
     assert.deepEqual(
       Exporter.lastCompletedCycle.streams.goal_events,
       downloaded.streams.goal_events,

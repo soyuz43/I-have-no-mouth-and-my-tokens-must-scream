@@ -5,17 +5,17 @@
 **Runtime integration:** `js/engine/phases/communicationPhase.js`
 
 **Last reconciled:** 2026-10-28
-**Verified against:** `8fbc95d` (2026-10-24), 79 commits after the previous reconciliation `8c4b1a6`
+**Verified against:** `89d9348` (2026-10-28), 80 commits after the previous reconciliation `8c4b1a6`
 
 This reconciliation corrected the goal-system sections (the goal subsystem shipped on 2026-10-11, after the previous reconciliation, and the document was never updated), removed a factual error in the person-model schema, corrected the documented cycle order, and re-verified the testing, export, and metrics sections against source.
 
-The wired suite passes **776 tests** with zero failures: 25 pretest Node/TAP tests, 686 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `npm test` runs the `pretest` script automatically through the npm lifecycle, so `npm test` alone yields all 776. The TAP totals are measured, not estimated. Scratchpad schema version `3`; communication protocol version `3`.
+The wired suite passes **877 tests** with zero failures: 39 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `npm test` runs the `pretest` script automatically through the npm lifecycle, so `npm test` alone yields all 877. The TAP totals are measured, not estimated. Scratchpad schema version `3`; communication protocol version `3`.
 
 ### How to re-verify
 
 ```bash
 npm test
-git log --oneline 8fbc95d..HEAD -- js/engine/scratchpad js/prompts/scratchpadComms.js js/core/utils.js
+git log --oneline 8c4b1a6..HEAD -- js/engine/scratchpad js/prompts/scratchpadComms.js js/core/utils.js
 grep -n "schemaVersion" js/core/utils.js
 grep -n "SCRATCHPAD_COMMS_PROTOCOL_VERSION =" js/engine/scratchpad/comms/protocol.js
 ```
@@ -303,7 +303,7 @@ The goal subsystem shipped on 2026-10-11, after the previous reconciliation of t
 ### Remaining
 
 - [ ] **OPEN:** Inject the *active* goal into outreach and reply prompts. `activeGoal` is currently absent from the compact scratchpad context, and `js/tests/journalPromptScratchpadContext.test.mjs` asserts that `activeGoal` and `goalHistory` do not appear in the journal cognitive-load section.
-- [ ] **OPEN:** Goal metrics. Goals produce timeline events but no exporter stream exists; no file under `js/utils/exporter/` references goals.
+- [ ] **PARTIAL:** Goal metrics. Goal lifecycle events now export through the per-cycle `goal_events` stream (producer `js/engine/agency/goalEventLog.js::recordGoalEvent`, consumer `js/utils/exporter/streams/goalEvents.js::recordGoalEvents`). What is still missing are the aggregate rollups: goal counts per cycle, abandonment-rate analysis, and goal-aligned Agency action rates.
 - [ ] **OPEN:** Goal steps. `progress` is an integer counter incremented on successful Agency events, not a decomposed multi-step plan.
 - [ ] **OPEN:** Measure goal-aligned Agency action rates, i.e. whether the active goal measurably changes which actions are proposed.
 - [ ] **OPEN DESIGN:** Whether the current objective should be projected into the Agency proposal prompt. It is currently stripped from `subjectiveState.scratchpad` so the model chooses without anchoring on the existing goal.
@@ -543,7 +543,7 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 - [x] ~~Resolve the earlier array-versus-count warning as a reconnaissance false positive rather than a runtime defect.~~
 - [ ] **OPEN:** Add provenance navigation from a displayed claim to its canonical source messages.
 - [ ] **PARTIAL:** `expired` (predictions) and `archived` (questions, predictions) states now exist; `resolved` was already present; active is implicit (not in a terminal state). No unified lifecycle-count UI yet.
-- [ ] **PARTIAL:** Goal progression display. The cognition UI renders `activeGoal` and a `goal_history` collection, the Agency phase emits timeline events for new and terminal goals, and the `goal` exporter stream records lifecycle transitions with Agency evidence event IDs. What is missing is a unified lifecycle-count view.
+- [ ] **PARTIAL:** Goal progression display. The cognition UI renders `activeGoal` and a `goal_history` collection, the Agency phase emits timeline events for new and terminal goals, and the `goal_events` exporter stream records lifecycle transitions with Agency evidence event IDs. What is missing is a unified lifecycle-count view.
 - [ ] **OPEN:** Add dedicated meta-awareness transition history once transitions exist.
 
 ---
@@ -554,11 +554,11 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 
 - [x] ~~Export the separate operator-facing `AM SCRATCHPAD` textarea through the session export.~~
 - [x] ~~Persist canonical per-prisoner Scratchpads in full-run Save/Load.~~ `exportState()` serializes `G`, including `G.sims[*].scratchpad`; the save/load round-trip test covers populated Scratchpad state.
-- [x] ~~Include canonical per-prisoner Scratchpad state in dedicated structured session/analysis exporter streams.~~ IMPLEMENTED as the per-cycle `scratchpad` stream. Producer: `js/engine/scratchpad/comms/orchestrator.js::appendScratchpadReviewLog` via `G.pendingEvidence.scratchpadReviewLog`; carrier reset: `js/engine/phases/communicationPhase.js` and `js/engine/phases/helpers/resetCycleEvidence.js`; consumer: `js/utils/exporter/streams/scratchpad.js::recordScratchpadReviews`, registered in `js/utils/exporter/aggregate.js`. The separate `AM SCRATCHPAD` textarea is not the canonical prisoner Scratchpad.
-- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner Scratchpads, but they are not a dedicated cognition export and do not provide an operation-level audit stream.
+- [ ] **PARTIAL:** Include canonical per-prisoner Scratchpad state in dedicated structured session/analysis exporter streams. The per-cycle `scratchpad` stream exports *review operations and counters* — one record per review invocation, carrying the evidence window, accepted and rejected operations, changed paths, and revision deltas. It does **not** export the current `G.sims[*].scratchpad` state. Producer: `js/engine/scratchpad/comms/orchestrator.js::appendScratchpadReviewLog` via `G.pendingEvidence.scratchpadReviewLog`; carrier reset: `js/engine/phases/communicationPhase.js` and `js/engine/phases/helpers/resetCycleEvidence.js`; consumer: `js/utils/exporter/streams/scratchpad.js::recordScratchpadReviews`, registered in `js/utils/exporter/aggregate.js`. Full per-prisoner Scratchpad snapshots remain open. The separate `AM SCRATCHPAD` textarea is not the canonical prisoner Scratchpad.
+- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner Scratchpads, but they are not a dedicated cognition export. The per-cycle `scratchpad` stream provides the operation-level audit trail, but no stream exports the current canonical per-prisoner Scratchpad state.
 - [x] ~~Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.~~ IMPLEMENTED in the same `scratchpad` stream. Each record carries model request metadata, the evidence window (`evidence_message_ids`, cursor bounds, counts), accepted and rejected operation arrays, changed paths, operation reports, revision before/after, parsed/validated/committed stage results, duration, and deterministic error metadata.
 - [ ] **OPEN:** Export question and prediction lifecycle events.
-- [x] ~~Export goal lifecycle events.~~ IMPLEMENTED as the per-cycle `goal` stream. Producer: `js/engine/agency/goalEventLog.js::recordGoalEvent`, called from the existing transition application loop in `js/engine/agency/commit.js`; consumer: `js/utils/exporter/streams/goalEvents.js::recordGoalEvents`, registered in `js/utils/exporter/aggregate.js`.
+- [x] ~~Export goal lifecycle events.~~ IMPLEMENTED as the per-cycle `goal_events` stream. Producer: `js/engine/agency/goalEventLog.js::recordGoalEvent`, called from the existing transition application loop in `js/engine/agency/commit.js`; consumer: `js/utils/exporter/streams/goalEvents.js::recordGoalEvents`, registered in `js/utils/exporter/aggregate.js`.
 - [ ] **OPEN:** Export meta-awareness transitions and disclosures.
 
 ## 11.2 Metrics
@@ -572,17 +572,17 @@ The cognition overview derives live counts and confidence summaries for display.
 - [ ] **OPEN:** Question creation and resolution rates.
 - [ ] **PARTIAL:** Prediction accuracy, ambiguity, and calibration. `evaluatePredictionAccuracy` now computes accuracy, confidence, and outcome metrics in the consolidation summary, but these are not yet exported as a dedicated metrics stream.
 - [ ] **OPEN:** Channel-belief accuracy against canonical communication behavior.
-- [x] ~~Goal starts, completions, failures, abandonments, ambiguity, and duration. Goals currently surface only as timeline events; there is no exporter stream and no goal counters.~~ Goal starts, continuations, completions, and abandonments are now exported in the `goal` stream with lifecycle event ids and terminal reasons. The unimplemented terminal reasons remain `blocked_failed`, `expired`, and `timeout`; goal ambiguity and duration metrics remain open.
+- [x] ~~Goal starts, completions, failures, abandonments, ambiguity, and duration. Goals currently surface only as timeline events; there is no exporter stream and no goal counters.~~ Goal starts, continuations, completions, and abandonments are now exported in the `goal_events` stream with lifecycle event ids and terminal reasons. The unimplemented terminal reasons remain `blocked_failed`, `expired`, and `timeout`; goal ambiguity and duration metrics remain open.
 - [ ] **OPEN:** Meta-awareness transitions and operator appeals.
 - [ ] **OPEN:** Behavioral effect metrics comparing runs with and without scratchpad prompt injection.
 
-The exporter now has 21 streams and includes `scratchpad` and `goal` lifecycle telemetry. The remaining section 11 items are meta-awareness, subject-model evaluation, question/prediction lifecycle export, and behavioral-effect metrics.
+The exporter now has 21 streams and includes `scratchpad` and `goal_events` lifecycle telemetry. The remaining section 11 items are meta-awareness, subject-model evaluation, question/prediction lifecycle export, and behavioral-effect metrics.
 
 ---
 
 # 12. Testing status
 
-Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **776 tests** with zero failures: 25 pretest Node/TAP tests, 686 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. The counts below were re-verified against the suite on 2026-10-28.
+Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **877 tests** with zero failures: 39 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. The counts below were re-verified against the suite on 2026-10-28.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
 - [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ (16 and 23 cases)
@@ -831,7 +831,7 @@ The scratchpad subsystem should not be considered complete merely because it sto
 - [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection is live; terminal goal history reaches the journal and forensic-stats prompts; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now deduplicates notes and archives resolved questions/predictions, but retention caps and deterministic pruning remain open)
 - [ ] Canonical non-message observations can become scratchpad evidence.
-- [x] Canonical per-prisoner Scratchpads are included in dedicated structured analysis exports.
+- [ ] Canonical per-prisoner Scratchpads are included in dedicated structured analysis exports. (The per-cycle `scratchpad` stream exports review operations and counters, not the current Scratchpad state; a full-state snapshot stream remains open.)
 - [x] Export supports operation-level audit.
 - [ ] Metrics distinguish creation, revision, resolution, and behavioral influence.
 - [ ] Dedicated tests verify visibility, provenance, mutation, and long-run stability.
@@ -844,7 +844,7 @@ Until the unchecked items above are satisfied, the current system is best descri
 
 # 18. Simulation rollback and phase replay
 
-The full rollback and phase-replay design has moved to its own roadmap: `Documentation/roadmaps&features/simulation_rollback_and_phase_replay.md`. It is engine-wide rather than scratchpad-scoped, so it is tracked separately.
+The full rollback and phase-replay design has moved to its own roadmap: `Documentation/roadmaps&features/simulation_rollback_and_phase_replay.md`. It is engine-wide rather than scratchpad-scoped, so it is tracked separately. That file carries the full safety boundary, candidate rollback boundaries, required restoration scope, downstream invalidation and rerun semantics, asynchronous model-work safety rules, history and identity policy, checkpoint architecture, UI and operator controls, and the rollback testing threshold that were removed from this document.
 
 Two facts matter to the scratchpad:
 

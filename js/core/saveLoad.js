@@ -1,9 +1,13 @@
 import { G } from "./state.js";
-import { Exporter } from "../utils/exporter/state.js";
+import {
+    Exporter,
+    ensureExporterState,
+} from "../utils/exporter/state.js";
 import {
   isCycleRunning,
   waitForCycleIdle,
 } from "../engine/cycle.js";
+import { exportBootCycleReviews } from "../utils/exporter/aggregate.js";
 import {
   getModelQueueStatus,
   waitForModelQueueIdle,
@@ -94,6 +98,14 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   const restoredGame = structuredClone(envelope.G);
   const restoredExporter = structuredClone(envelope.Exporter);
 
+  /*
+   * A save written before a stream or a retained-telemetry field
+   * existed carries no value for it. Restoring the saved exporter
+   * verbatim would leave that field undefined, and the next recorder
+   * or the export path would throw and abort the whole cycle export.
+   */
+  ensureExporterState(restoredExporter);
+
   if (Object.hasOwn(restoredGame, "__proto__")) {
     throw new Error("Invalid save file: reserved state key.");
   }
@@ -131,6 +143,15 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   }
 
   resetUiState(game);
+
+  /*
+   * A save taken before the boot cycle was exported still carries
+   * the cycle-zero scratchpad review records. The next cycle reset
+   * would clear them without ever reaching an export file, so they
+   * are exported here, right after the restore.
+   */
+  exportBootCycleReviews(game);
+
   return game;
 }
 

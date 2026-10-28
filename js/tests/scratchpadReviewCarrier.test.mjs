@@ -101,3 +101,70 @@ test("review outcomes are carried for export and cleared by the cycle reset", as
     clearTape();
   }
 });
+
+test("a failed review exports the normalized error name and message", async () => {
+  G.cycle = 3;
+  resetCycleEvidence();
+
+  try {
+    /*
+     * A replay-tape cache miss fails closed with a thrown error, which
+     * drives the review down its failure path.
+     */
+    setMode(TAPE_MODES.REPLAY);
+
+    /*
+     * The review cursor is canonical state shared by every test in
+     * this file, so it is reset here to make the message visible.
+     */
+    G.sims.TED.scratchpad.lastReviewedMessageSequence = 0;
+
+    const messages = [makeVisibleMessage("C3-M000002", 3)];
+    const result = await runScratchpadCommsReviewForSim("TED", {
+      messages,
+      cycle: 3,
+    });
+
+    assert.equal(result.status, "failure");
+    assert.equal(G.pendingEvidence.scratchpadReviewLog.length, 1);
+
+    const [review] = G.pendingEvidence.scratchpadReviewLog;
+
+    /*
+     * `makeFailureResult()` normalizes the error into a plain object,
+     * so the exported record has to copy those plain fields rather
+     * than test for an `Error` instance.
+     */
+    assert.ok(review.error, "A failed review must export its error.");
+    assert.equal(review.error.name, "Error");
+    assert.match(review.error.message, /cache miss/i);
+  } finally {
+    setMode(TAPE_MODES.OFF);
+    clearTape();
+  }
+});
+
+test("an empty initialization is logged exactly once", async () => {
+  G.cycle = 0;
+  resetCycleEvidence();
+
+  /*
+   * A prisoner with no visible messages, no agency events, and no
+   * other evidence takes the engine-owned empty-initialization path.
+   */
+  G.sims.TED.scratchpad.initialized = false;
+
+  const result = await runScratchpadCommsReviewForSim("TED", {
+    messages: [],
+    cycle: 0,
+  });
+
+  assert.equal(result.status, "no_update");
+  assert.equal(result.stage, "complete");
+
+  /*
+   * One review must produce one audit entry, not two.
+   */
+  assert.equal(G.pendingEvidence.scratchpadReviewLog.length, 1);
+  assert.equal(G.pendingEvidence.scratchpadReviewLog[0].simId, "TED");
+});

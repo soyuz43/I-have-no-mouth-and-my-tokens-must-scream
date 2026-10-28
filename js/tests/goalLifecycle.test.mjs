@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { commitAgencyResolution } from "../engine/agency/commit.js";
 import { evaluateGoalTransitions } from "../engine/scratchpad/goals/evaluator.js";
+import { recordGoalEvent } from "../engine/agency/goalEventLog.js";
 
 function gameWithActiveGoal(activeGoal, cycle = 7) {
   return {
@@ -105,6 +106,76 @@ test("reassignment archives the old goal and initializes the new goal", () => {
   assert.deepEqual(scratchpad.activeGoal.evidenceEventIds, []);
 });
 
+test("reassignment records the abandonment and the replacement start separately", () => {
+  const game = gameWithActiveGoal({
+    id: "observe_am",
+    status: "active",
+    progress: 2,
+    startedCycle: 5,
+    evidenceEventIds: ["agency:5:1"],
+  });
+
+  commitForObjective(game, "WAIT", "find_weakness");
+
+  assert.equal(game.goalEvents.length, 2);
+
+  const [abandon, initialize] = game.goalEvents;
+
+  /*
+   * The abandonment describes the OLD goal: its own progress, its own
+   * start cycle, and the reason it ended.
+   */
+  assert.equal(abandon.kind, "abandon");
+  assert.equal(abandon.goalId, "observe_am");
+  assert.equal(abandon.progress, 2);
+  assert.equal(abandon.startedCycle, 5);
+  assert.equal(abandon.terminalCycle, game.cycle);
+  assert.equal(abandon.terminalReason, "reassigned");
+  assert.deepEqual(abandon.evidenceEventIds, ["agency:5:1"]);
+
+  /*
+   * The start describes the NEW goal: it has not ended, so it has no
+   * terminal cycle and no terminal reason.
+   */
+  assert.equal(initialize.kind, "initialize");
+  assert.equal(initialize.goalId, "find_weakness");
+  assert.equal(initialize.progress, 0);
+  assert.equal(initialize.startedCycle, game.cycle);
+  assert.equal(initialize.terminalCycle, null);
+  assert.equal(initialize.terminalReason, null);
+  assert.deepEqual(initialize.evidenceEventIds, []);
+});
+
+test("active goals export no terminal cycle", () => {
+  const game = gameWithActiveGoal({ id: "observe_am" });
+
+  commitForObjective(game, "WAIT", "observe_am");
+
+  const [continuation] = game.goalEvents;
+
+  assert.equal(continuation.kind, "continue");
+  assert.equal(continuation.terminalCycle, null);
+  assert.equal(continuation.terminalReason, null);
+});
+
+test("a completed goal exports its terminal cycle", () => {
+  const game = gameWithActiveGoal({
+    id: "endure",
+    status: "active",
+    progress: 2,
+    startedCycle: 5,
+    evidenceEventIds: [],
+  });
+
+  commitForObjective(game, "WAIT", "endure");
+
+  const [completion] = game.goalEvents;
+
+  assert.equal(completion.kind, "complete");
+  assert.equal(completion.terminalCycle, game.cycle);
+  assert.equal(completion.terminalReason, "progress_threshold_reached");
+});
+
 test("evaluator returns transitions without mutating its inputs", () => {
   const sim = {
     scratchpad: {
@@ -166,6 +237,45 @@ test("blocked matching action does not advance goal progress", () => {
   assert.equal(game.sims.TED.scratchpad.activeGoal.progress, 2);
   assert.deepEqual(game.sims.TED.scratchpad.activeGoal.evidenceEventIds, []);
   assert.deepEqual(game.sims.TED.scratchpad.goalHistory, []);
+});
+
+test("an explicit null terminal cycle stays null", () => {
+  const state = { cycle: 4, goalEvents: [] };
+
+  const event = recordGoalEvent(state, {
+    kind: "initialize",
+    cycle: 4,
+    actorId: "TED",
+    goalId: "endure",
+    progress: 0,
+    startedCycle: 4,
+    terminalCycle: null,
+    terminalReason: null,
+  });
+
+  /*
+   * `Number(null)` is 0, so a null terminal cycle would otherwise be
+   * recorded as cycle zero and make an active goal look like it had
+   * already ended.
+   */
+  assert.equal(event.terminalCycle, null);
+  assert.equal(event.terminalReason, null);
+  assert.equal(state.goalEvents[0].terminalCycle, null);
+});
+
+test("a missing terminal cycle falls back to null rather than zero", () => {
+  const state = { cycle: 4, goalEvents: [] };
+
+  const event = recordGoalEvent(state, {
+    kind: "continue",
+    cycle: 4,
+    actorId: "TED",
+    goalId: "endure",
+    progress: 1,
+    startedCycle: 4,
+  });
+
+  assert.equal(event.terminalCycle, null);
 });
 
 test("goal history retains only the latest five terminal goals", () => {

@@ -9,7 +9,10 @@ import {
   seedAll,
   uiRng,
 } from "../core/prng.js";
-import { Exporter } from "../utils/exporter/state.js";
+import {
+  Exporter,
+  EXPORT_STREAM_KEYS,
+} from "../utils/exporter/state.js";
 
 test("exportState omits credentials and runtime-only handles", () => {
   const previous = {
@@ -133,9 +136,36 @@ test("importState mutates the supplied game and exporter objects in place", asyn
   assert.deepEqual(game.cognitionHighlights, {
     TED: { cycle: null, changes: [] },
   });
+
+  /*
+   * The saved exporter only declared the `state` buffer. Every
+   * canonical stream must still have a buffer after the restore, or
+   * the next recorder for a missing stream would throw on `.push()`
+   * and abort the whole cycle export.
+   */
+  assert.deepEqual(exporter.buffers.state, [{ cycle: 8 }]);
+  for (const stream of EXPORT_STREAM_KEYS) {
+    assert.ok(
+      Array.isArray(exporter.buffers[stream]),
+      `Missing exporter buffer for stream "${stream}".`,
+    );
+  }
   assert.deepEqual(exporter, {
     runId: "restored-run",
-    buffers: { state: [{ cycle: 8 }] },
+    buffers: {
+      ...Object.fromEntries(
+        EXPORT_STREAM_KEYS.map((stream) => [stream, []]),
+      ),
+      state: [{ cycle: 8 }],
+    },
+    /*
+     * The saved exporter carried no retained-telemetry fields. They
+     * are restored with their default shape so the export path can
+     * read them unconditionally.
+     */
+    cycleMetadata: {},
+    overviewHistory: [],
+    overviewHistoryMax: 100,
   });
 });
 
@@ -155,6 +185,96 @@ test("importState rejects unsupported schema versions without mutating state", a
 
   assert.deepEqual(game, { cycle: 3, autoRunning: false });
   assert.deepEqual(exporter, { runId: "untouched" });
+});
+
+test("importState restores a pre-stream save with every canonical buffer present", async () => {
+  const game = {
+    cycle: 4,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+  const exporter = { runId: "legacy-run" };
+
+  /*
+   * A save written before the `scratchpad` and `goal_events` streams
+   * existed carries no buffer for them.
+   */
+  const legacySave = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 4,
+    G: {
+      cycle: 4,
+      sims: { TED: {} },
+    },
+    Exporter: {
+      runId: "legacy-run",
+      buffers: { state: [{ cycle: 4 }] },
+    },
+  });
+
+  await importState(legacySave, { game, exporter });
+
+  /*
+   * The next review pushes into `Exporter.buffers.scratchpad` and the
+   * next goal transition pushes into `Exporter.buffers.goal_events`.
+   * A missing buffer would throw on `.push()` and abort the whole
+   * cycle export.
+   */
+  assert.ok(Array.isArray(exporter.buffers.scratchpad));
+  assert.ok(Array.isArray(exporter.buffers.goal_events));
+
+  for (const stream of EXPORT_STREAM_KEYS) {
+    assert.ok(
+      Array.isArray(exporter.buffers[stream]),
+      `Missing exporter buffer for stream "${stream}".`,
+    );
+  }
+
+  /*
+   * The buffers that the save did carry are restored unchanged.
+   */
+  assert.deepEqual(exporter.buffers.state, [{ cycle: 4 }]);
+});
+
+test("importState normalizes a legacy exporter that predates the retained-telemetry fields", async () => {
+  const game = {
+    cycle: 0,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+  const exporter = { runId: "legacy-run" };
+
+  /*
+   * A save written before the retained-telemetry fields existed
+   * carries no value for them. The export path reads them
+   * unconditionally, so a missing field would throw while
+   * finalizing a cycle.
+   */
+  const legacySave = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 0,
+    G: {
+      cycle: 0,
+      sims: { TED: {} },
+    },
+    Exporter: {
+      buffers: { state: [] },
+    },
+  });
+
+  await importState(legacySave, { game, exporter });
+
+  assert.ok(Array.isArray(exporter.overviewHistory));
+  assert.ok(Number.isSafeInteger(exporter.overviewHistoryMax));
+  assert.ok(exporter.overviewHistoryMax >= 1);
+  assert.ok(
+    exporter.cycleMetadata &&
+    typeof exporter.cycleMetadata === "object"
+  );
 });
 
 test("heavy populated simulation state and exporter telemetry round-trip intact", async () => {

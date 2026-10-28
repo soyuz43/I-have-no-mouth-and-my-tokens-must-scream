@@ -167,8 +167,17 @@ function appendScratchpadReviewLog(result, modelAudit = null) {
     validationResult: cloneValue(result.validationResult ?? null),
     commitResult: cloneValue(result.commitResult ?? null),
     durationMs: result.durationMs ?? null,
-    error: result.error instanceof Error
-      ? { name: result.error.name, message: result.error.message }
+    /*
+     * `makeFailureResult()` already normalizes the error into a plain
+     * object, so an `instanceof Error` test never matches and every
+     * failure would export without a name or a message. Copy the
+     * normalized fields instead.
+     */
+    error: result.error != null
+      ? {
+          name: result.error.name ?? null,
+          message: result.error.message ?? null
+        }
       : null
   });
 }
@@ -1187,8 +1196,13 @@ export async function runScratchpadCommsReviewForSim(
           evidence,
         });
 
-      appendScratchpadReviewLog(initializationResult);
-
+      /*
+       * `initializeEmptyScratchpadReview()` already appended this
+       * result to the review log, for both the success and the
+       * failure branch. Appending again here created two audit
+       * entries for a single review and doubled the counts derived
+       * from the log.
+       */
       return initializationResult;
     }
 
