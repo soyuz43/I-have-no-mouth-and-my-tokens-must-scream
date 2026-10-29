@@ -57,6 +57,9 @@ export async function runCommunicationPhase() {
    */
   const commsState =
     await runCommsCycle();
+
+  G.pendingEvidence.scratchpadReviewLog = [];
+
   /*
    * The scratchpad subsystem reads the complete canonical history,
    * filters it independently for each prisoner, and retries any
@@ -110,7 +113,7 @@ if (cycle === 0) {
   );
 }
 
-return {
+  return {
   cycle,
   commsState,
   scratchpadSummary,

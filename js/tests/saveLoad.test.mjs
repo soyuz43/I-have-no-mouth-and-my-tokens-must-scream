@@ -9,7 +9,12 @@ import {
   seedAll,
   uiRng,
 } from "../core/prng.js";
-import { Exporter } from "../utils/exporter/state.js";
+import {
+  Exporter,
+  EXPORT_STREAM_KEYS,
+  EXPORT_SCHEMA_VERSION,
+  initExporter,
+} from "../utils/exporter/state.js";
 
 test("exportState omits credentials and runtime-only handles", () => {
   const previous = {
@@ -133,9 +138,43 @@ test("importState mutates the supplied game and exporter objects in place", asyn
   assert.deepEqual(game.cognitionHighlights, {
     TED: { cycle: null, changes: [] },
   });
+
+  /*
+   * The saved exporter only declared the `state` buffer. Every
+   * canonical stream must still have a buffer after the restore, or
+   * the next recorder for a missing stream would throw on `.push()`
+   * and abort the whole cycle export.
+   */
+  assert.deepEqual(exporter.buffers.state, [{ cycle: 8 }]);
+  for (const stream of EXPORT_STREAM_KEYS) {
+    assert.ok(
+      Array.isArray(exporter.buffers[stream]),
+      `Missing exporter buffer for stream "${stream}".`,
+    );
+  }
   assert.deepEqual(exporter, {
     runId: "restored-run",
-    buffers: { state: [{ cycle: 8 }] },
+    buffers: {
+      ...Object.fromEntries(
+        EXPORT_STREAM_KEYS.map((stream) => [stream, []]),
+      ),
+      state: [{ cycle: 8 }],
+    },
+    /*
+     * The saved exporter carried no retained-telemetry fields. They
+     * are restored with their default shape so the export path can
+     * read them unconditionally.
+     */
+    cycleMetadata: {},
+    overviewHistory: [],
+    overviewHistoryMax: 100,
+    /*
+     * The export payload embeds runMetadata directly and exportState()
+     * refuses to serialize an undefined value, so a restored exporter
+     * without one gets an explicit null.
+     */
+    runMetadata: null,
+    schemaVersion: EXPORT_SCHEMA_VERSION,
   });
 });
 
@@ -155,6 +194,233 @@ test("importState rejects unsupported schema versions without mutating state", a
 
   assert.deepEqual(game, { cycle: 3, autoRunning: false });
   assert.deepEqual(exporter, { runId: "untouched" });
+});
+
+test("importState restores a pre-stream save with every canonical buffer present", async () => {
+  const game = {
+    cycle: 4,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+  const exporter = { runId: "legacy-run" };
+
+  /*
+   * A save written before the `scratchpad` and `goal_events` streams
+   * existed carries no buffer for them.
+   */
+  const legacySave = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 4,
+    G: {
+      cycle: 4,
+      sims: { TED: {} },
+    },
+    Exporter: {
+      runId: "legacy-run",
+      buffers: { state: [{ cycle: 4 }] },
+    },
+  });
+
+  await importState(legacySave, { game, exporter });
+
+  /*
+   * The next review pushes into `Exporter.buffers.scratchpad` and the
+   * next goal transition pushes into `Exporter.buffers.goal_events`.
+   * A missing buffer would throw on `.push()` and abort the whole
+   * cycle export.
+   */
+  assert.ok(Array.isArray(exporter.buffers.scratchpad));
+  assert.ok(Array.isArray(exporter.buffers.goal_events));
+
+  for (const stream of EXPORT_STREAM_KEYS) {
+    assert.ok(
+      Array.isArray(exporter.buffers[stream]),
+      `Missing exporter buffer for stream "${stream}".`,
+    );
+  }
+
+  /*
+   * The buffers that the save did carry are restored unchanged.
+   */
+  assert.deepEqual(exporter.buffers.state, [{ cycle: 4 }]);
+});
+
+test("importState normalizes a legacy exporter that predates the retained-telemetry fields", async () => {
+  const game = {
+    cycle: 0,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+  const exporter = { runId: "legacy-run" };
+
+  /*
+   * A save written before the retained-telemetry fields existed
+   * carries no value for them. The export path reads them
+   * unconditionally, so a missing field would throw while
+   * finalizing a cycle.
+   */
+  const legacySave = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 0,
+    G: {
+      cycle: 0,
+      sims: { TED: {} },
+    },
+    Exporter: {
+      buffers: { state: [] },
+    },
+  });
+
+  await importState(legacySave, { game, exporter });
+
+  assert.ok(Array.isArray(exporter.overviewHistory));
+  assert.ok(Number.isSafeInteger(exporter.overviewHistoryMax));
+  assert.ok(exporter.overviewHistoryMax >= 1);
+  assert.ok(
+    exporter.cycleMetadata &&
+    typeof exporter.cycleMetadata === "object"
+  );
+});
+
+test("importState does not export into the singleton run for a custom exporter", async () => {
+  const singletonBefore = {
+    runId: Exporter.runId,
+    buffers: Exporter.buffers,
+    overviewHistory: Exporter.overviewHistory,
+    lastCompletedCycle: Exporter.lastCompletedCycle,
+  };
+
+  const game = {
+    cycle: 0,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+  const exporter = { runId: "custom-run", buffers: {}, overviewHistory: [] };
+
+  /*
+   * A cycle-zero save whose review records have not been exported yet.
+   */
+  const save = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 0,
+    G: {
+      cycle: 0,
+      sims: { TED: {} },
+      pendingEvidence: {
+        scratchpadReviewLog: [
+          {
+            simId: "TED",
+            cycle: 0,
+            status: "no_update",
+            stage: "complete",
+          },
+        ],
+      },
+    },
+    Exporter: {
+      runId: "custom-run",
+      buffers: { state: [] },
+    },
+  });
+
+  try {
+    Exporter.runId = "singleton-run";
+    Exporter.overviewHistory = [{ cycle: 99 }];
+    Exporter.lastCompletedCycle = { cycle: 99 };
+    Exporter.buffers = Object.fromEntries(
+      Object.keys(singletonBefore.buffers).map((stream) => [stream, []]),
+    );
+    Exporter.buffers.state = [{ marker: "singleton-existing" }];
+
+    await importState(save, { game, exporter });
+
+    /*
+     * The recovery export downloads a file, rewrites the retained
+     * telemetry, and clears the buffers. None of that may touch the
+     * live singleton run when the caller restores into its own
+     * exporter.
+     */
+    assert.equal(Exporter.runId, "singleton-run");
+    assert.deepEqual(Exporter.overviewHistory, [{ cycle: 99 }]);
+    assert.deepEqual(Exporter.lastCompletedCycle, { cycle: 99 });
+    assert.deepEqual(Exporter.buffers.state, [
+      { marker: "singleton-existing" },
+    ]);
+
+    /*
+     * The supplied exporter received the restored state instead.
+     */
+    assert.equal(exporter.runId, "custom-run");
+    assert.ok(Array.isArray(exporter.buffers.scratchpad));
+  } finally {
+    Exporter.runId = singletonBefore.runId;
+    Exporter.buffers = singletonBefore.buffers;
+    Exporter.overviewHistory = singletonBefore.overviewHistory;
+    Exporter.lastCompletedCycle = singletonBefore.lastCompletedCycle;
+  }
+});
+
+test("importState keeps a recovered run id across the next cycle", async () => {
+  const game = {
+    cycle: 0,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+
+  /*
+   * A legacy cycle-zero save carries no run id, so the recovery
+   * assigns one.
+   */
+  const save = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 0,
+    G: {
+      cycle: 0,
+      sims: { TED: {} },
+      pendingEvidence: {
+        scratchpadReviewLog: [
+          {
+            simId: "TED",
+            cycle: 0,
+            status: "no_update",
+            stage: "complete",
+          },
+        ],
+      },
+    },
+    Exporter: {
+      buffers: { state: [] },
+    },
+  });
+
+  await importState(save, { game, exporter: Exporter });
+
+  const recoveredRunId = Exporter.runId;
+
+  assert.ok(recoveredRunId, "The recovery must assign a run id.");
+  assert.equal(game._exporterInitialized, true);
+  assert.equal(Exporter.overviewHistory.length, 1);
+
+  /*
+   * The next directed cycle must continue the same run. A later
+   * initExporter() would assign a different run id and clear the
+   * overview history the recovery just produced.
+   */
+  if (!game._exporterInitialized) {
+    initExporter();
+    game._exporterInitialized = true;
+  }
+
+  assert.equal(Exporter.runId, recoveredRunId);
+  assert.equal(Exporter.overviewHistory.length, 1);
 });
 
 test("heavy populated simulation state and exporter telemetry round-trip intact", async () => {

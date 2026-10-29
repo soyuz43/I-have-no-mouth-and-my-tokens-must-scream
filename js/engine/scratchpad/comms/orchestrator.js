@@ -109,6 +109,79 @@ function normalizeSimId(simId) {
     .toUpperCase();
 }
 
+  /*
+   * Per-cycle review audit carrier.
+   *
+   * The live review path is auditable to the console, but
+   * finalizeCycle() runs later and cannot otherwise reach
+   * per-prisoner review outcomes. This writes a deterministic
+   * snapshot into G.pendingEvidence for the cycle exporter. It is
+   * cleared at the start of the communication phase and reset by
+   * resetCycleEvidence(), so it never grows across cycles. It observes
+   * the review path and changes no review semantics.
+   */
+function appendScratchpadReviewLog(result, modelAudit = null) {
+  const pendingEvidence = G.pendingEvidence;
+  if (!pendingEvidence || typeof pendingEvidence !== "object") return;
+
+  if (!Array.isArray(pendingEvidence.scratchpadReviewLog)) {
+    pendingEvidence.scratchpadReviewLog = [];
+  }
+
+  pendingEvidence.scratchpadReviewLog.push({
+    simId: result.simId,
+    cycle: result.cycle,
+    status: result.status,
+    stage: result.stage,
+    reason: result.reason ?? null,
+    modelInvoked: Boolean(result.modelInvoked),
+    modelId: modelAudit?.modelId ?? null,
+    visibleMessageCount: result.visibleMessageCount ?? 0,
+    messageIds: Array.isArray(result.evidence?.messageIds)
+      ? [...result.evidence.messageIds]
+      : [],
+    cursorBefore: result.cursorBefore ?? null,
+    cursorAfter: result.cursorAfter ?? null,
+    parsedOperationCount: result.parsedOperationCount ?? 0,
+    acceptedOperationCount: result.acceptedOperationCount ?? 0,
+    rejectedOperationCount: result.rejectedOperationCount ?? 0,
+    substantiveChanged: Boolean(result.substantiveChanged),
+    revisionBefore: result.revisionBefore ?? null,
+    revisionAfter: result.revisionAfter ?? null,
+    changedPaths: result.commitResult?.changedPaths ?? [],
+    operationReports: result.commitResult?.operationReports ?? [],
+    acceptedOperations: result.validationResult?.accepted ?? [],
+    rejectedOperations: result.validationResult?.rejected ?? [],
+    evidence: cloneValue(
+      result.evidence == null
+        ? null
+        : Object.fromEntries(
+          Object.entries(result.evidence).filter(
+            ([key]) => key !== "messageIdSet"
+          )
+        )
+    ),
+    modelRequest: cloneValue(modelAudit ?? null),
+    repairResult: cloneValue(result.repairResult ?? null),
+    parsedResult: cloneValue(result.parsedResult ?? null),
+    validationResult: cloneValue(result.validationResult ?? null),
+    commitResult: cloneValue(result.commitResult ?? null),
+    durationMs: result.durationMs ?? null,
+    /*
+     * `makeFailureResult()` already normalizes the error into a plain
+     * object, so an `instanceof Error` test never matches and every
+     * failure would export without a name or a message. Copy the
+     * normalized fields instead.
+     */
+    error: result.error != null
+      ? {
+          name: result.error.name ?? null,
+          message: result.error.message ?? null
+        }
+      : null
+  });
+}
+
 function normalizeCycle(cycle) {
   const numeric =
     Number(cycle);
@@ -880,7 +953,7 @@ function initializeEmptyScratchpadReview({
         "Empty scratchpad initialization commit failed."
       );
 
-    return makeFailureResult({
+    const failureResult = makeFailureResult({
       simId,
       cycle,
       startTime,
@@ -891,9 +964,13 @@ function initializeEmptyScratchpadReview({
       commitResult,
       modelInvoked: false,
     });
+
+    appendScratchpadReviewLog(failureResult);
+
+    return failureResult;
   }
 
-  return makeCompletedReviewResult({
+  const completedResult = makeCompletedReviewResult({
     simId,
     cycle,
     startTime,
@@ -904,6 +981,10 @@ function initializeEmptyScratchpadReview({
     commitResult,
     modelInvoked: false,
   });
+
+  appendScratchpadReviewLog(completedResult);
+
+  return completedResult;
 }
 
 /* ============================================================
@@ -933,6 +1014,7 @@ export async function runScratchpadCommsReviewForSim(
   let commitResult = null;
   let modelInvoked = false;
   let reviewGroupOpened = false;
+  let modelRequestAudit = null;
 
   try {
     const normalizedCycle =
@@ -1094,22 +1176,34 @@ export async function runScratchpadCommsReviewForSim(
             startTime
           );
 
+        appendScratchpadReviewLog(result);
+
         return result;
       }
 
       stage =
         "empty_initialization";
 
-      return initializeEmptyScratchpadReview({
-        simId:
-          normalizedSimId,
+      const initializationResult =
+        await initializeEmptyScratchpadReview({
+          simId:
+            normalizedSimId,
 
-        cycle:
-          normalizedCycle,
+          cycle:
+            normalizedCycle,
 
-        startTime,
-        evidence,
-      });
+          startTime,
+          evidence,
+        });
+
+      /*
+       * `initializeEmptyScratchpadReview()` already appended this
+       * result to the review log, for both the success and the
+       * failure branch. Appending again here created two audit
+       * entries for a single review and doubled the counts derived
+       * from the log.
+       */
+      return initializationResult;
     }
 
     stage = "prompt";
@@ -1136,6 +1230,16 @@ export async function runScratchpadCommsReviewForSim(
       messageCount:
         evidence.messages.length,
     });
+
+    modelRequestAudit = {
+      simId: normalizedSimId,
+      cycle: normalizedCycle,
+      purpose: SCRATCHPAD_COMMS_PURPOSE,
+      modelId: G.models?.[normalizedSimId] ?? null,
+      maxTokens: normalizedMaxTokens,
+      messageCount: evidence.messages.length,
+    };
+
 
     stage = "model";
     modelInvoked = true;
@@ -1240,7 +1344,7 @@ export async function runScratchpadCommsReviewForSim(
         },
       });
 
-      return makeFailureResult({
+      const failureResult = makeFailureResult({
         simId:
           normalizedSimId,
 
@@ -1258,6 +1362,10 @@ export async function runScratchpadCommsReviewForSim(
         validationResult,
         modelInvoked,
       });
+
+      appendScratchpadReviewLog(failureResult, modelRequestAudit);
+
+      return failureResult;
     }
 
     stage = "commit";
@@ -1314,7 +1422,7 @@ export async function runScratchpadCommsReviewForSim(
         },
       });
 
-      return makeFailureResult({
+      const failureResult = makeFailureResult({
         simId:
           normalizedSimId,
 
@@ -1333,6 +1441,10 @@ export async function runScratchpadCommsReviewForSim(
         commitResult,
         modelInvoked,
       });
+
+      appendScratchpadReviewLog(failureResult, modelRequestAudit);
+
+      return failureResult;
     }
 
     if (
@@ -1355,7 +1467,7 @@ export async function runScratchpadCommsReviewForSim(
 
     stage = "complete";
 
-    return makeCompletedReviewResult({
+    const completedResult = makeCompletedReviewResult({
       simId:
         normalizedSimId,
 
@@ -1370,6 +1482,10 @@ export async function runScratchpadCommsReviewForSim(
       commitResult,
       modelInvoked,
     });
+
+    appendScratchpadReviewLog(completedResult, modelRequestAudit);
+
+    return completedResult;
   } catch (error) {
     logScratchpadReviewError({
       simId:
@@ -1390,7 +1506,7 @@ export async function runScratchpadCommsReviewForSim(
       },
     });
 
-    return makeFailureResult({
+    const failureResult = makeFailureResult({
       simId:
         normalizedSimId ||
         String(simId ?? "UNKNOWN"),
@@ -1412,6 +1528,10 @@ export async function runScratchpadCommsReviewForSim(
       commitResult,
       modelInvoked,
     });
+
+    appendScratchpadReviewLog(failureResult, modelRequestAudit);
+
+    return failureResult;
   } finally {
     endScratchpadReviewLog(
       reviewGroupOpened

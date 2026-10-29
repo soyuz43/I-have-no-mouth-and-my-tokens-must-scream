@@ -4,7 +4,12 @@
 // combined JSON export, and per-cycle orchestration hooks.
 
 import { downloadTextFile } from "../downloadTextFile.js";
-import { Exporter, EXPORT_SCHEMA_VERSION, clearAllBuffers } from "./state.js";
+import {
+    Exporter,
+    EXPORT_SCHEMA_VERSION,
+    clearAllBuffers,
+    ensureExportBuffers,
+} from "./state.js";
 import { nowIso, asArray, cloneValue, finiteOrDefault } from "./format.js";
 import {
   recordState,
@@ -43,6 +48,12 @@ import {
 import {
     recordClaimEvents,
 } from "./streams/claimEvents.js";
+import {
+    recordScratchpadReviews,
+} from "./streams/scratchpad.js";
+import {
+    recordGoalEvents,
+} from "./streams/goalEvents.js";
 
 /* ============================================================
    CSV UTILITIES
@@ -285,6 +296,13 @@ function retainCompletedCycle(exportData) {
  * @param {boolean} clearAfter Clear all buffers after export when true.
  */
 export function exportAllAsJSON(cycle, clearAfter = false) {
+    /*
+     * A restored pre-stream save can leave a canonical stream without
+     * a buffer. Normalize before the recorders run so the export
+     * payload always carries every stream key.
+     */
+    ensureExportBuffers(Exporter.buffers);
+
     const exportData = {
         schema_version: EXPORT_SCHEMA_VERSION,
         run_id: Exporter.runId,
@@ -355,6 +373,12 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
 
             claim_events:
                 Exporter.buffers.claim_events,
+
+            scratchpad:
+                Exporter.buffers.scratchpad,
+
+            goal_events:
+                Exporter.buffers.goal_events,
         },
     };
 
@@ -444,6 +468,13 @@ export function snapshotPrevState(G) {
 export function finalizeCycle(G, metrics) {
     const cycle = G.cycle;
 
+    /*
+     * A restored pre-stream save can leave a canonical stream without
+     * a buffer. Normalize before any recorder runs, because the
+     * recorders push into these arrays directly.
+     */
+    ensureExportBuffers(Exporter.buffers);
+
     recordState(G, cycle);
     recordDynamics(G, cycle);
     recordConstraints(G, cycle);
@@ -467,11 +498,86 @@ export function finalizeCycle(G, metrics) {
     recordObservabilityUnknowns(G, cycle);
     recordResourceEvents(G, cycle);
     recordClaimEvents(G, cycle);
+    recordScratchpadReviews(G, cycle);
+    recordGoalEvents(G, cycle);
+
+    /*
+     * The review records have now been written to the export file.
+     * Clearing them keeps the carrier meaning "reviews produced but
+     * not yet exported" and stops a stale cycle from being written
+     * into a later cycle's file.
+     */
+    if (G?.pendingEvidence) {
+        G.pendingEvidence.scratchpadReviewLog = [];
+    }
 
     /*
      * Preserve the existing one-file-per-cycle behavior.
      */
     exportAllAsJSON(cycle, true);
+}
+
+/* ============================================================
+   BOOT-CYCLE EXPORT
+   ------------------------------------------------------------
+   The boot path runs the communication phase at cycle zero and is
+   never finalized by the cycle pipeline, so its scratchpad review
+   records would be cleared by the next cycle reset without ever
+   reaching an export file.
+   ------------------------------------------------------------
+   Only cycle zero is ever left unexported. Every other cycle
+   passes through finalizeCycle(), which writes that cycle's file.
+   A save written before this export existed can still carry the
+   orphaned cycle-zero records, so the same helper recovers them
+   after a full-state import.
+============================================================ */
+export function exportBootCycleReviews(G, exporter = Exporter) {
+    /*
+     * This recovery is a singleton-scoped side effect. It downloads a
+     * file, rewrites the exporter's retained telemetry, and clears its
+     * buffers. A restore into a caller-supplied exporter must not
+     * touch the live singleton run, so the recovery is skipped there.
+     * The supplied exporter has already received the restored state,
+     * and the pending records stay in G for the caller to inspect.
+     */
+    if (exporter !== Exporter) return false;
+
+    /*
+     * Cycle zero is the only cycle that is never finalized by the
+     * cycle pipeline. Records for any other cycle were already
+     * written by finalizeCycle() and must not be exported twice.
+     */
+    if (Number(G?.cycle) !== 0) return false;
+
+    const reviews =
+        Array.isArray(G?.pendingEvidence?.scratchpadReviewLog)
+            ? G.pendingEvidence.scratchpadReviewLog
+            : [];
+
+    if (reviews.length === 0) return false;
+
+    /*
+     * A restored legacy save can carry no run id. The export file
+     * would then have no run identity, so one is assigned here rather
+     * than calling initExporter(), which would clear the restored
+     * buffers.
+     *
+     * Assigning the run id is what makes this exporter a real run, so
+     * the caller must not re-initialize it afterwards. initExporter()
+     * would assign a DIFFERENT run id and clear the overview history
+     * this recovery just produced.
+     */
+    if (!exporter.runId) {
+        exporter.runId = `am_run_${Date.now()}`;
+    }
+
+    finalizeCycle(G, {
+        entropy: G?.lastEntropy,
+        variance: G?.lastVariance,
+        mean: G?.lastMean,
+    });
+
+    return true;
 }
 
 /**

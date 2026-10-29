@@ -4,9 +4,21 @@
 **Primary state constructor:** `js/core/utils.js::makeScratchpad()`
 **Runtime integration:** `js/engine/phases/communicationPhase.js`
 
-Last reconciled: 2026-10-11. Prediction-resolution lifecycle complete (Slices 0-8). Journal injection complete. Character-grounded scratchpad review complete. Physical-limit, overhearing-reference, and Agency event-review bridges reconciled. Full-state Save/Load and Replay Tape status reconciled. Exporter decisions stream removed.
+**Last reconciled:** 2026-10-28
+**Verified against:** `89d9348` (2026-10-28), 80 commits after the previous reconciliation `8c4b1a6`
 
-The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. Scratchpad schema version `3`; communication protocol version `3`.
+This reconciliation corrected the goal-system sections (the goal subsystem shipped on 2026-10-11, after the previous reconciliation, and the document was never updated), removed a factual error in the person-model schema, corrected the documented cycle order, and re-verified the testing, export, and metrics sections against source.
+
+The wired suite passes **879 tests** with zero failures: 41 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `npm test` runs the `pretest` script automatically through the npm lifecycle, so `npm test` alone yields all 879. The TAP totals are measured, not estimated. Scratchpad schema version `3`; communication protocol version `3`.
+
+### How to re-verify
+
+```bash
+npm test
+git log --oneline 8c4b1a6..HEAD -- js/engine/scratchpad js/prompts/scratchpadComms.js js/core/utils.js
+grep -n "schemaVersion" js/core/utils.js
+grep -n "SCRATCHPAD_COMMS_PROTOCOL_VERSION =" js/engine/scratchpad/comms/protocol.js
+```
 
 ---
 
@@ -30,9 +42,9 @@ Throughout this roadmap, **persistent** means persistent across later phases and
 
 # 1. Current system in one sentence
 
-The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol.
+The current implementation is a **post-communication, evidence-grounded subjective-cognition maintenance pipeline** that lets each prisoner privately revise message notes, models of other prisoners, unresolved questions, predictions, and beliefs about communication channels through a sparse validated operation protocol. A separate engine-owned Tier-1 goal system now runs alongside it, selecting a covert objective per prisoner from canonical Agency proposals and advancing it from canonical Agency outcomes.
 
-It is **not yet** a complete covert-goal system, *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), meta-awareness system, or arbitrary simulation rollback/phase-replay system. Full-state Save/Load and a model-response Replay Tape are implemented: the saved `G` payload includes canonical per-prisoner Scratchpads, and the save also carries exporter, PRNG, and tape state. Replay Tape supplies recorded responses for matching model requests; it does not itself restore arbitrary earlier phase boundaries. A first cognition-to-behavior loop exists for communication and journals: compact scratchpad context shapes outreach, reply, and journal prompts (see sections 3.3 and 9.3), but goal-driven behavior and measured behavioral effects remain open. An engine-owned consolidation path exists for message-note deduplication, resolved-question and resolved-prediction archival, prediction expiry, and read-only prediction evaluation (see section 3.2 / Original Phase 3).
+It is **not yet** a *general* cognition-consolidation system (retention limits, pruning, contradiction detection are still open), a meta-awareness system, or an arbitrary simulation rollback/phase-replay system. Full-state Save/Load and a model-response Replay Tape are implemented: the saved `G` payload includes canonical per-prisoner Scratchpads, and the save also carries exporter, PRNG, and tape state. Replay Tape supplies recorded responses for matching model requests; it does not itself restore arbitrary earlier phase boundaries. A cognition-to-behavior loop exists for communication, journals, and Agency proposals: compact scratchpad context shapes outreach, reply, and journal prompts (see sections 3.3 and 9.3), and terminal goal history shapes the journal and forensic-stats prompts (see section 4.6), but measured behavioral effects remain open. An engine-owned consolidation path exists for message-note deduplication, resolved-question and resolved-prediction archival, prediction expiry, and read-only prediction evaluation (see section 3.2 / Original Phase 3).
 
 ---
 
@@ -90,6 +102,7 @@ begin cycle
   → communication
   → scratchpad review
   → belief contagion
+→ agency phase (propose, resolve, commit)
 → scratchpad prediction expiry (engine-owned, every cycle)
 → scratchpad consolidation (engine-owned, modulo cadence)
 → evaluation and tactic evolution
@@ -97,7 +110,7 @@ begin cycle
 → cycle finalization
 ```
 
-This phase order is authoritative for future rollback design because communication is consumed by later phases and cannot be treated as an isolated log append.
+Agency Phase runs **after** the social phase and **before** scratchpad maintenance, so the Agency snapshot reflects post-communication posture and the Agency events it produces are reviewed during the *next* cycle's communication phase. The phase order above is authoritative for future rollback design because communication is consumed by later phases and cannot be treated as an isolated log append.
 ---
 
 # 3. High-level implementation status
@@ -142,11 +155,13 @@ This phase order is authoritative for future rollback design because communicati
 - [x] ~~**OPEN — critical:** Inject the current scratchpad into prisoner outreach decisions.~~ `formatCompactScratchpadContext`, all other-prisoner IDs.
 - [x] ~~**OPEN — critical:** Inject the relevant scratchpad subset into prisoner reply decisions.~~ (`targetId: from`)
 - [x] ~~**Inject operational scratchpad context into prisoner journals.**~~ as `# WHAT IS WEIGHING ON YOUR MIND`.~~
+- [x] ~~**Inject terminal goal history into prisoner journals and forensic stats.**~~ `formatGoalHistoryContext` supplies the three most recent terminal goals. The *active* goal is not injected.
+- [x] ~~**Present the Tier-1 goal catalog to the Agency proposal prompt.**~~ The model selects a covert objective from the tactical menu. The current `activeGoal` is deliberately not projected into the prompt.
 - [ ] **OPEN:** Let unresolved questions alter information-seeking behavior.
 - [ ] **OPEN:** Let predictions alter future attention or action selection.
 - [ ] **OPEN:** Let channel beliefs alter public/private communication choices.
 - [ ] **OPEN:** Let person models alter recipient selection, disclosure, concealment, alliance, or testing behavior.
-- [ ] **OPEN:** Let goals produce observable multi-cycle behavior.
+- [ ] **PARTIAL:** Goals produce observable multi-cycle behavior. `activeGoal` persists across cycles and terminal outcomes are recorded in `goalHistory`, but the *active* goal is never injected into outreach or reply prompts, and goal-aligned Agency action rates are not measured.
 
 Injection observability exists: the outreach, reply, and journal prompt builders call `formatCompactScratchpadContextWithSections` and emit a developer-console record (via `scratchpadContextLog.js`, gated by `G.DEBUG_PROMPTS === true`) listing rendered person-model fields, channel scopes, and prediction/question counts and ids. This records *what* was supplied to each call; it does not measure how the injected cognition changed the resulting message.
 
@@ -186,23 +201,25 @@ The original roadmap proposed one mixed object per person containing role, goal,
 
 ```js
 hypothesesAboutOthers[otherId] = {
-  perceivedGoal:        { value, confidence, evidence, rationale },
-  perceivedViewOfMe:     { value, confidence, evidence, rationale },
-  perceivedTrustInMe:    { value, confidence, evidence, rationale },
-  perceivedThreatFromMe: { value, confidence, evidence, rationale },
-  predictability:       { value, confidence, evidence, rationale }
+  perceivedGoal:      { value, confidence, evidence, rationale },
+  perceivedViewOfMe:   { value, confidence, evidence, rationale },
+  perceivedTrustInMe:  { value, confidence, evidence, rationale },
+  predictability:     { value, confidence, evidence, rationale }
 }
 ```
+
+The scored field set is `perceivedTrustInMe` and `predictability` (`SCRATCHPAD_SCORE_FIELDS`); the qualitative field set is `perceivedGoal` and `perceivedViewOfMe` (`SCRATCHPAD_OTHER_FIELDS`).
 
 - [x] ~~**SUPERSEDED:** Use one shared confidence and evidence list for an entire person model.~~
 - [x] ~~Give each independently revisable proposition its own value, confidence, evidence, and rationale.~~
 - [x] ~~Prevent evidence for one proposition from automatically becoming evidence for unrelated propositions.~~
 - [x] ~~Allow qualitative hypotheses about another prisoner's goal.~~
 - [x] ~~Allow qualitative hypotheses about another prisoner's view of the current prisoner.~~
-- [x] ~~Allow scored hypotheses about perceived trust, perceived threat, and predictability.~~
+- [x] ~~Allow scored hypotheses about perceived trust and predictability.~~
 - [x] ~~Replace an existing `OTHER` or `SCORE` field-level claim atomically with the newly accepted value, confidence, evidence, and rationale.~~
+- [x] ~~**SUPERSEDED:** Carry a `perceivedThreatFromMe` field in the person model.~~ Removed on 2026-10-17 by `32e6df9` ("compress scratchpad comms prompt and clarify field semantics"), which dropped the field from the schema, the scored-field allowlist, the compact context formatter, and the cognition UI. Do not reintroduce it as if it had shipped.
 - [ ] **OPEN:** Add the prisoner's own trust in the other person as a subjective epistemic claim.
-- [ ] **OPEN:** Add the prisoner's own perceived threat *from* the other person if that is intended to differ from `perceivedThreatFromMe`.
+- [ ] **OPEN:** Decide whether a subjective threat estimate is needed in either direction, and if so, add it as a new field. The scratchpad currently carries no threat claim at all.
 - [ ] **OPEN:** Decide whether a subjective usefulness/leverage estimate is needed.
 - [ ] **OPEN:** Decide whether perceived social role should be a person-level field or derived from multiple claims.
 - [ ] **OPEN:** Add explicit staleness or last-evidence metadata if evidence IDs alone are insufficient.
@@ -211,6 +228,9 @@ hypothesesAboutOthers[otherId] = {
 ### Semantic warning
 
 `perceivedTrustInMe` means "how much I think the other prisoner trusts me." It does **not** mean "how much I trust the other prisoner." The original roadmap's `trust` field was directionally ambiguous; the current implementation resolves one direction but leaves the opposite subjective direction unrepresented inside the scratchpad.
+
+The reverse-direction gap is now wider than a trust-only gap. Because `perceivedThreatFromMe` was removed, the scratchpad carries **no** threat claim in either direction, and the only trust claim is the perceived-trust-in-me direction. Any future design that reintroduces threat or adds own-trust must define the direction explicitly rather than reusing the retired field name.
+
 ## 4.4 Models of AM and information channels
 
 The original fixed `beliefsAboutAM` map has been split into two ideas: `hypothesesAboutAM` (open-ended theories about AM) and `informationModel` (structured claims about communication channels). `suspectedForgeries`, `suspectedLeaks`, and `contradictions` are nested inside `informationModel`.
@@ -266,24 +286,33 @@ private.canBeDelayedOrSuppressed
 
 ## 4.6 Covert goals
 
-- [ ] **SCAFFOLD:** `activeGoal`
-- [ ] **SCAFFOLD:** `goalHistory`
-- [ ] **OPEN:** Goal registry.
-- [ ] **OPEN:** Goal template schema.
-- [ ] **OPEN:** Tier-1 goal definitions.
-- [ ] **OPEN:** Tier-2 through Tier-4 progression.
-- [ ] **OPEN:** Weighted initial goal selection.
-- [ ] **OPEN:** Drive-conditioned goal weighting.
-- [ ] **OPEN:** Goal status transitions.
-- [ ] **OPEN:** Goal steps and multi-cycle progress.
-- [ ] **OPEN:** Success, failure, ambiguity, abandonment, and expiration evaluation.
-- [ ] **OPEN:** Goal mutation or replacement.
-- [ ] **OPEN:** Goal history commits.
-- [ ] **OPEN:** Goal-specific prompt context.
-- [ ] **OPEN:** Goal influence on outreach, replies, journals, or future agency.
-- [ ] **OPEN:** Goal metrics.
+The goal subsystem shipped on 2026-10-11, after the previous reconciliation of this document. It is a live Tier-1 system, not a schema placeholder.
 
-The existence of `activeGoal: null` and `goalHistory: []` is schema preparation only. It does not constitute a goal system.
+### Implemented
+
+- [x] ~~Goal registry.~~ `js/engine/scratchpad/goals/registry.js` holds a frozen four-goal Tier-1 catalog: `endure`, `observe_am`, `protect_ally`, `find_weakness`. Each carries `id`, `label`, `description`, and `tier`.
+- [x] ~~Goal template shape.~~ `instantiateGoal()` produces a per-cycle record: `status: "active"`, `progress: 0`, `startedCycle`, `evidenceEventIds: []`, plus the catalog fields.
+- [x] ~~Tier-1 goal definitions.~~ Four goals ship. Tier-2 through Tier-4 do not exist.
+- [x] ~~Goal selection.~~ The Agency proposal prompt presents a tactical menu of the Tier-1 goals and the model returns a `selected_objective`. An invalid or missing objective falls back to a deterministic engine-RNG selection (`selectTier1Goal`), and the origin is logged as `LLM-selected` or `Engine-fallback`.
+- [x] ~~Goal status transitions.~~ `js/engine/scratchpad/goals/evaluator.js` produces `initialize`, `continue`, `complete`, and `abandon` transitions. Progress advances by one on a successful same-cycle canonical Agency event; completion triggers at `COMPLETION_PROGRESS = 3`. A changed objective abandons the previous goal with `terminalReason: "reassigned"`.
+- [x] ~~Goal history commits.~~ `js/engine/agency/commit.js` writes `scratchpad.activeGoal` and appends the terminal record to `scratchpad.goalHistory`, bounded by `MAX_GOAL_HISTORY = 5`.
+- [x] ~~Goal-specific prompt context.~~ `formatGoalHistoryContext` supplies the three most recent *terminal* goals to the journal and forensic-stats prompts. The Agency proposal prompt supplies the Tier-1 catalog for selection.
+- [x] ~~Goal influence on Agency behavior.~~ The model's selected objective determines the prisoner's committed `activeGoal`, and successful Agency outcomes advance it.
+- [x] ~~Goal progression display.~~ The cognition UI renders `activeGoal` and a `goal_history` collection, and the Agency phase emits timeline events for new and terminal goals.
+
+### Remaining
+
+- [ ] **OPEN:** Inject the *active* goal into outreach and reply prompts. `activeGoal` is currently absent from the compact scratchpad context, and `js/tests/journalPromptScratchpadContext.test.mjs` asserts that `activeGoal` and `goalHistory` do not appear in the journal cognitive-load section.
+- [ ] **PARTIAL:** Goal metrics. Goal lifecycle events now export through the per-cycle `goal_events` stream (producer `js/engine/agency/goalEventLog.js::recordGoalEvent`, consumer `js/utils/exporter/streams/goalEvents.js::recordGoalEvents`). What is still missing are the aggregate rollups: goal counts per cycle, abandonment-rate analysis, and goal-aligned Agency action rates.
+- [ ] **OPEN:** Goal steps. `progress` is an integer counter incremented on successful Agency events, not a decomposed multi-step plan.
+- [ ] **OPEN:** Measure goal-aligned Agency action rates, i.e. whether the active goal measurably changes which actions are proposed.
+- [ ] **OPEN DESIGN:** Whether the current objective should be projected into the Agency proposal prompt. It is currently stripped from `subjectiveState.scratchpad` so the model chooses without anchoring on the existing goal.
+- [ ] **OPEN DESIGN:** Whether goal selection should be conditioned on the prisoner's drives. The prompt asks the model to align the choice with the prisoner's drives, but no engine-side weighting exists.
+- [ ] **OPEN DESIGN:** Whether abandoned-by-timeout, failed, and expired goals need distinct terminal reasons. Only `reassigned` and `progress_threshold_reached` are currently produced.
+
+### Implementation note
+
+The goal system is driven entirely by canonical Agency outcomes, not by the sparse scratchpad operation protocol. `js/prompts/scratchpadComms.js` lists `activeGoal` and `goalHistory` under `DO NOT MODIFY`, so the model cannot author or revise goals during a communication review. Goals therefore form a separate runtime path from the scratchpad cognition pipeline, and the two should not be conflated when reasoning about either.
 
 ## 4.7 Meta-awareness and operator appeal
 
@@ -364,7 +393,7 @@ NO_UPDATE
 - [x] ~~Prediction archival is complete.~~ preserves provenance; archived collection feeds ID allocation and evaluation.
 - [ ] **OPEN:** Revise only part of an existing claim, merge additional evidence, retract the claim, or preserve the superseded claim in an archive. Current `OTHER`, `SCORE`, and `CHANNEL` operations replace the complete selected field-level claim.
 - [ ] **OPEN:** Revise or retract an existing message note.
-- [ ] **OPEN:** Add, revise, complete, fail, abandon, or archive a goal.
+- [ ] **OPEN:** Add, revise, complete, fail, abandon, or archive a goal *through the scratchpad operation protocol*. Goals are already created, advanced, completed, and abandoned, but only through the Agency path. The scratchpad review prompt lists `activeGoal` and `goalHistory` under `DO NOT MODIFY`, so the model cannot author goals during a communication review.
 - [ ] **OPEN:** Add or revise a free-form AM hypothesis.
 - [ ] **OPEN:** Record, resolve, or retract a suspected forgery.
 - [ ] **OPEN:** Record, resolve, or retract a suspected leak.
@@ -372,7 +401,7 @@ NO_UPDATE
 - [ ] **OPEN:** Discard or archive a hypothesis.
 - [ ] **OPEN:** Propose a meta-awareness transition.
 - [ ] **OPEN:** Record non-message evidence.
-- [ ] **PARTIAL:** Consolidate - `consolidate.js` deduplicates message notes, archives resolved questions and resolved predictions, and expires predictions. *Prune* (retention-limit removal, caps, and deterministic retention policy) and contradiction detection/flagging are not implemented. Retention caps and pruning remain OPEN under Priority 3.
+- [ ] **PARTIAL:** Consolidate - `consolidate.js` deduplicates message notes, archives resolved questions and resolved predictions, and expires predictions. *Prune* (retention-limit removal, caps, and deterministic retention policy) and contradiction detection/flagging are not implemented. Retention caps and pruning remain OPEN under section 16.1.
 
 ---
 
@@ -428,9 +457,9 @@ The original roadmap proposed a dedicated initialization call after cycle-zero c
 
 - [ ] **OPEN:** Include canonical overhearing events during initialization.
 - [ ] **OPEN:** Initialize a subjective social-order model.
-- [ ] **OPEN:** Select and instantiate an initial goal.
-- [ ] **OPEN:** Supply weighted eligible goal templates.
-- [ ] **OPEN DESIGN:** Distinguish first-pass initialization policy from ordinary incremental review only if future goal, social-order, or meta-awareness initialization requires behavior beyond the current sparse review path.
+- [ ] **OPEN DESIGN:** Distinguish first-pass initialization policy from ordinary incremental review only if future social-order or meta-awareness initialization requires behavior beyond the current sparse review path. Goals already have a distinct initialization stage in the Agency Phase and are not affected.
+
+Goal initialization is **not** part of this list. The first goal is selected during the Agency Phase of the cycle in which the Agency phase first runs, not during scratchpad initialization, so the two initialization paths are already separate.
 
 ---
 
@@ -476,9 +505,9 @@ Recommended design decision:
 - [x] ~~Inject active predictions concerning the recipient or channel.~~ Active predictions included in both contexts; recipient/channel filtering not yet applied.
 - [x] ~~Inject information-channel beliefs where public/private selection is possible.~~ Public/private channel-belief claims included in both contexts.
 - [x] ~~Add explicit non-disclosure rules so internal cognition shapes behavior without being dumped into dialogue.~~ Both prompt builders append "Never quote or restate these lines verbatim."
-- [ ] **OPEN:** Inject an active goal and current step once goals exist.
+- [ ] **OPEN:** Inject the active goal and current step into outreach and reply prompts. The Tier-1 catalog is presented in the Agency proposal prompt, and terminal goal history reaches the journal and forensic-stats prompts, but the *active* goal is not part of the compact outreach or reply context.
 
-Existing outreach/reply prompt references to "goal" or "intent" are not integration with `scratchpad.activeGoal`; that remains unimplemented.
+Existing outreach/reply prompt references to "goal" or "intent" are not integration with `scratchpad.activeGoal`; that remains unimplemented. `formatCompactScratchpadContext` has no goal section, and `formatScratchpadContext` (the scratchpad review prompt) lists `activeGoal` and `goalHistory` under `DO NOT MODIFY`.
 
 ## 9.3 Journal prompt
 
@@ -486,7 +515,8 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 - [x] ~~Inject unresolved uncertainty.~~ `DEFAULT_QUESTION_LIMIT = 3` open questions as `Unresolved Questions`.
 - [x] ~~Inject prediction outcomes.~~ caps 3 live / 2 recently settled.
 - [x] ~~Prevent the journal from becoming a serialized scratchpad dump.~~ Framed as cognitive load with "not as a checklist to recite"; per-category caps 3/3/3/2.
-- [ ] **OPEN:** Inject active goal. (`activeGoal` is still an empty scaffold.)
+- [x] ~~Inject recent terminal goal history.~~ `getMostRecentTerminalGoal` supplies the most recent terminal goal as a "Recent Objective Outcome" line naming the label, status, cycle, and terminal reason.
+- [ ] **OPEN:** Inject the *active* goal. Only terminal goals reach the journal prompt; the current objective does not. `js/tests/journalPromptScratchpadContext.test.mjs` asserts that `activeGoal` and `goalHistory` are absent from the cognitive-load section, so adding the active goal is a deliberate change to that contract rather than a missing call.
 - [ ] **OPEN:** Inject current meta-awareness level. (`metaAwareness.level` is still 0 with no model-owned proposals.)
 ---
 
@@ -513,7 +543,7 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 - [x] ~~Resolve the earlier array-versus-count warning as a reconnaissance false positive rather than a runtime defect.~~
 - [ ] **OPEN:** Add provenance navigation from a displayed claim to its canonical source messages.
 - [ ] **PARTIAL:** `expired` (predictions) and `archived` (questions, predictions) states now exist; `resolved` was already present; active is implicit (not in a terminal state). No unified lifecycle-count UI yet.
-- [ ] **OPEN:** Add dedicated goal progression display once goals exist.
+- [ ] **PARTIAL:** Goal progression display. The cognition UI renders `activeGoal` and a `goal_history` collection, the Agency phase emits timeline events for new and terminal goals, and the `goal_events` exporter stream records lifecycle transitions with Agency evidence event IDs. What is missing is a unified lifecycle-count view.
 - [ ] **OPEN:** Add dedicated meta-awareness transition history once transitions exist.
 
 ---
@@ -524,33 +554,35 @@ Existing outreach/reply prompt references to "goal" or "intent" are not integrat
 
 - [x] ~~Export the separate operator-facing `AM SCRATCHPAD` textarea through the session export.~~
 - [x] ~~Persist canonical per-prisoner Scratchpads in full-run Save/Load.~~ `exportState()` serializes `G`, including `G.sims[*].scratchpad`; the save/load round-trip test covers populated Scratchpad state.
-- [ ] **OPEN:** Include canonical per-prisoner Scratchpad state in dedicated structured session/analysis exporter streams. The separate `AM SCRATCHPAD` textarea is not the canonical prisoner Scratchpad.
-- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner Scratchpads, but they are not a dedicated cognition export and do not provide an operation-level audit stream.
-- [ ] **OPEN:** Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.
+- [ ] **PARTIAL:** Include canonical per-prisoner Scratchpad state in dedicated structured session/analysis exporter streams. The per-cycle `scratchpad` stream exports *review operations and counters* — one record per review invocation, carrying the evidence window, accepted and rejected operations, changed paths, and revision deltas. It does **not** export the current `G.sims[*].scratchpad` state. Producer: `js/engine/scratchpad/comms/orchestrator.js::appendScratchpadReviewLog` via `G.pendingEvidence.scratchpadReviewLog`; carrier reset: `js/engine/phases/communicationPhase.js` and `js/engine/phases/helpers/resetCycleEvidence.js`; consumer: `js/utils/exporter/streams/scratchpad.js::recordScratchpadReviews`, registered in `js/utils/exporter/aggregate.js`. Full per-prisoner Scratchpad snapshots remain open. The separate `AM SCRATCHPAD` textarea is not the canonical prisoner Scratchpad.
+- [ ] **PARTIAL:** Internal whole-sim diagnostic snapshots may transiently contain prisoner Scratchpads, but they are not a dedicated cognition export. The per-cycle `scratchpad` stream provides the operation-level audit trail, but no stream exports the current canonical per-prisoner Scratchpad state.
+- [x] ~~Export every scratchpad review invocation with model, evidence window, accepted operations, rejected operations, changed paths, and revision delta.~~ IMPLEMENTED in the same `scratchpad` stream. Each record carries model request metadata, the evidence window (`evidence_message_ids`, cursor bounds, counts), accepted and rejected operation arrays, changed paths, operation reports, revision before/after, parsed/validated/committed stage results, duration, and deterministic error metadata.
 - [ ] **OPEN:** Export question and prediction lifecycle events.
-- [ ] **OPEN:** Export goal lifecycle events.
+- [x] ~~Export goal lifecycle events.~~ IMPLEMENTED as the per-cycle `goal_events` stream. Producer: `js/engine/agency/goalEventLog.js::recordGoalEvent`, called from the existing transition application loop in `js/engine/agency/commit.js`; consumer: `js/utils/exporter/streams/goalEvents.js::recordGoalEvents`, registered in `js/utils/exporter/aggregate.js`.
 - [ ] **OPEN:** Export meta-awareness transitions and disclosures.
 
 ## 11.2 Metrics
 
 The cognition overview derives live counts and confidence summaries for display. Those projections are UI analytics, not persistent per-cycle scratchpad telemetry, and are not exported as a dedicated metrics stream.
 
-- [ ] **OPEN:** Scratchpad revision counts by prisoner and cycle.
-- [ ] **OPEN:** Accepted/rejected/no-op operation rates.
+- [x] ~~Scratchpad revision counts by prisoner and cycle.~~ Raw per-review `revision_before`/`revision_after` and status counters are now exported in the `scratchpad` stream; aggregate rollup analysis remains a consumer concern.
+- [x] ~~Accepted/rejected/no-op operation rates.~~ Raw accepted, rejected, parsed, and per-operation report counts are now exported in the `scratchpad` stream; aggregate rollup analysis remains a consumer concern.
 - [ ] **OPEN:** Evidence-reference validity rates.
 - [ ] **OPEN:** Hypothesis persistence and revision rates.
 - [ ] **OPEN:** Question creation and resolution rates.
 - [ ] **PARTIAL:** Prediction accuracy, ambiguity, and calibration. `evaluatePredictionAccuracy` now computes accuracy, confidence, and outcome metrics in the consolidation summary, but these are not yet exported as a dedicated metrics stream.
 - [ ] **OPEN:** Channel-belief accuracy against canonical communication behavior.
-- [ ] **OPEN:** Goal starts, completions, failures, abandonments, ambiguity, and duration.
+- [x] ~~Goal starts, completions, failures, abandonments, ambiguity, and duration. Goals currently surface only as timeline events; there is no exporter stream and no goal counters.~~ Goal starts, continuations, completions, and abandonments are now exported in the `goal_events` stream with lifecycle event ids and terminal reasons. The unimplemented terminal reasons remain `blocked_failed`, `expired`, and `timeout`; goal ambiguity and duration metrics remain open.
 - [ ] **OPEN:** Meta-awareness transitions and operator appeals.
 - [ ] **OPEN:** Behavioral effect metrics comparing runs with and without scratchpad prompt injection.
+
+The exporter now has 21 streams and includes `scratchpad` and `goal_events` lifecycle telemetry. The remaining section 11 items are meta-awareness, subject-model evaluation, question/prediction lifecycle export, and behavioral-effect metrics.
 
 ---
 
 # 12. Testing status
 
-Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **581 tests** with zero failures as of 2026-10-10: 490 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests.
+Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **879 tests** with zero failures: 41 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. The counts below were re-verified against the suite on 2026-10-28.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
 - [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ (16 and 23 cases)
@@ -558,18 +590,26 @@ Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes *
 - [x] ~~Add `js/tests/predictionResolve.test.mjs` and prediction-lifecycle coverage to the repository test command and GitHub Actions workflow.~~ (33 + 23 lifecycle cases)
 - [x] ~~Cover five focused repair/parsing cases involving encoded wrapper tags, encoded attributes, encoded `NO_UPDATE`, and encoded tag-like text embedded inside operation content.~~
 - [x] ~~Unit coverage for the compact scratchpad formatter used by outreach/reply prompts.~~ behavioral divergence tests remain open.
+- [x] ~~Unit coverage for evidence-reference validation, including rejection of non-existent references, references perceived by another prisoner, and whitespace-normalization edge cases.~~ `js/tests/scratchpadEvidenceAndConstraints.test.mjs`
+- [x] ~~Unit coverage for the atomic commit path and the `physicalLimitations` engine-owned projection.~~ `js/tests/scratchpadEvidenceAndConstraints.test.mjs`, `js/tests/agencyPhysicalLimitAwareness.test.mjs`
+- [x] ~~Unit coverage for prediction-horizon rejection outside the 1-12 range and for non-integer horizons, and for rejection of unsupported prediction outcomes and unsupported attributes.~~ `js/tests/predictionResolve.test.mjs`
+- [x] ~~Unit coverage for question-resolution validation, including missing required fields, unsupported subjects, and unsupported attributes.~~ `js/tests/questionResolve.test.mjs`
+- [x] ~~Regression coverage for revision-increment semantics, distinguishing substantive changes from no-ops.~~ `js/tests/questionResolve.test.mjs`, `js/tests/predictionResolve.test.mjs`
+- [x] ~~Regression coverage for operation-tag registration and the protocol version.~~ `js/tests/questionResolve.test.mjs`, `js/tests/predictionResolve.test.mjs`
+- [x] ~~Regression coverage for scaffold output being rejected before it can be committed.~~ `js/tests/scaffoldLeakGuardrails.test.mjs`
+- [x] ~~Goal lifecycle, goal selection fallback, and goal-history prompt coverage.~~ `js/tests/goalLifecycle.test.mjs`, `js/tests/agencyGoalSelection.test.mjs`, `js/tests/goalHistoryPromptContext.test.mjs`
+- [x] ~~Add exporter coverage for the scratchpad review audit stream, the goal lifecycle stream, and the per-cycle review carrier reset.~~ `js/tests/scratchpadExporterStream.test.mjs`, `js/tests/goalExporterStream.test.mjs`, and `js/tests/scratchpadReviewCarrier.test.mjs`.
 - [ ] **PARTIAL:** Protocol parsing and repair have focused regression coverage, but the complete operation grammar and all invalid-input classes are not comprehensively covered.
-- [ ] **OPEN:** Unit coverage for operation validation, including target, field, subject, evidence, confidence, score, and prediction-horizon rejection.
-- [ ] **OPEN:** Unit coverage for atomic commit behavior.
-- [ ] **OPEN:** Unit coverage for visibility filtering and private-message leakage prevention.
+- [ ] **OPEN:** Unit coverage for confidence-range and score-range rejection. `validate.js` enforces `CONFIDENCE_RANGE` and `SCORE_VALUE_RANGE`, but no test asserts that an out-of-range value is rejected rather than clamped.
+- [ ] **OPEN:** Unit coverage for visibility filtering and private-message leakage prevention. `isMessageVisibleToSim`, `inspectCanonicalMessageRecord`, `projectVisibleMessageForScratchpad`, and `collectVisibleMessagesForScratchpad` have no test callers.
 - [ ] **OPEN:** Regression coverage for successful `NO_UPDATE`, cycle-zero initialization, and engine-owned empty initialization.
 - [ ] **OPEN:** Regression coverage for partial acceptance, full-batch cursor advancement, and the non-retry behavior of rejected operations.
 - [ ] **OPEN:** Regression coverage for duplicate-note no-ops and whole-claim replacement semantics.
 - [ ] **OPEN:** Regression coverage for per-prisoner failure isolation and non-advancing failed cursors.
-- [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain.
+- [ ] **OPEN:** Integration coverage for the verified cycle-zero call chain. `bootAM()` and `runScratchpadCommsCycle()` have no test callers.
 - [ ] **OPEN:** Behavioral tests for subjective divergence after scratchpad prompt integration exists.
 - [ ] **OPEN:** Long-run scratchpad growth, consolidation, and stability tests.
-- [ ] **OPEN:** Rollback and phase-replay tests after that subsystem is designed.
+- [ ] **OPEN:** Rollback and phase-replay tests. Tracked in `Documentation/roadmaps&features/simulation_rollback_and_phase_replay.md`.
 
 ---
 
@@ -577,14 +617,14 @@ Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes *
 
 | Original Phase | Status | Notes |
 | --- | --- | --- |
-| 1 — Static schema and initial goals | PARTIAL | Schema, review infrastructure, and UI substantially complete; goal half not started. |
-| 2 — Prompt influence | PARTIAL | Outreach and reply injection implemented; active-goal injection and measured behavioral effect open. |
+| 1 — Static schema and initial goals | PARTIAL | Schema, review infrastructure, and UI substantially complete; the goal half is now implemented but is Agency-driven rather than schema-initialized, and Tier-2+ tiers do not exist. |
+| 2 — Prompt influence | PARTIAL | Outreach and reply injection implemented; terminal goal history reaches the journal and forensic-stats prompts; active-goal injection and measured behavioral effect remain open. |
 | 3 — Periodic consolidation | PARTIAL | Dedup, resolved-question archival, resolved-prediction archival, prediction expiry, accuracy evaluation, and cadence scheduling implemented; `lastConsolidatedCycle` written. Retention pruning and superseded-hypothesis archival open. |
-| 4 — Goal progression | OPEN | State placeholders only. |
+| 4 — Goal progression | IMPLEMENTED | Tier-1 registry, LLM selection with engine fallback, event-driven transitions, bounded goal history, prompt integration, and UI display all shipped on 2026-10-11. Remaining: active-goal prompt injection, goal metrics, goal steps. |
 | 5 — Social-model evaluation | PARTIAL | Representation and UI projections exist; evaluation does not. |
 | 6 — Meta-awareness levels 1-2 | SCAFFOLD | Schema only. |
 | 7 — Explicit awareness levels 3-4 | SCAFFOLD | Not implemented beyond schema/UI placeholders. |
-| 8 — Advanced operations | OPEN | Not implemented; depends on goals and, preferably, a later agency/event layer. |
+| 8 — Advanced operations | PARTIAL | The goal half shipped and is Agency-driven rather than protocol-driven. Free-form AM hypotheses, forgery/leak/contradiction records, goal operations in the scratchpad protocol, and meta-awareness transition proposals remain unimplemented. |
 
 **SUPERSEDED / RETIRED — Obsidian vault crawl for tactic generation.** The live tactic source is `js/engine/tactics/embeddedTactics.js`; the runtime has no vault dependency. Do not revive the crawl.
 
@@ -677,10 +717,9 @@ Current person-model fields describe how the prisoner thinks the other person vi
 myTrustInThem
 myThreatEstimateOfThem
 perceivedTrustInMe
-perceivedThreatFromMe
 ```
 
-These must remain separate from authoritative relationship scores.
+Only `perceivedTrustInMe` exists today. The `perceivedThreatFromMe` field that previously sat in this list was removed on 2026-10-17 (`32e6df9`) because its semantics were ambiguous against the authoritative relationship threat model; reintroducing a threat claim should therefore use an unambiguous name and a defined direction rather than reviving the retired field. These must remain separate from authoritative relationship scores.
 
 ## 15.4 Should social order be stored or derived?
 
@@ -690,7 +729,7 @@ Prefer deriving summary labels such as "leader" from a set of evidence-backed su
 
 The current scratchpad semantics are resolved: the first successful review or engine-owned empty initialization sets `initialized`; cycle-zero communication is immediately followed by the same scratchpad review path; valid `NO_UPDATE` is sufficient to initialize; initialization does not imply substantive cognition or increment the revision counter.
 
-The remaining design question is whether goals, subjective social order, or meta-awareness should later receive distinct initialization stages rather than overloading the existing scratchpad flag.
+The remaining design question is whether subjective social order or meta-awareness should later receive distinct initialization stages rather than overloading the existing scratchpad flag. Goals no longer belong in this question: their first selection happens in the Agency Phase, entirely outside the scratchpad review path, so they already have a distinct initialization stage.
 
 ## 15.6 What is the scope of consolidation?
 
@@ -725,85 +764,57 @@ A later design may add explicit revise, retract, merge-evidence, supersede, or a
 
 ---
 
-# 16. Recommended next implementation order
+# 16. Remaining work
 
-## Priority 1 — Close the cognition-to-behavior loop
+This is an index of open scratchpad work, ordered by dependency. It is deliberately terse: **the full text of each open item lives in its owning subsection above**, and only that text is authoritative. This index exists to show ordering and to guarantee no open item is overlooked. When an item below changes state, update the owning subsection first, then this index.
 
-- [x] ~~Build a compact, recipient-specific scratchpad context formatter.~~ `js/prompts/utils/formatCompactScratchpadContext.js`; wired into outreach, reply, and journal prompt builders.
-- [x] ~~Inject relevant person-model claims into replies.~~ Sender-targeted person-model block via `targetId: from`.
-- [x] ~~Inject relevant questions, predictions, and channel beliefs into outreach.~~ All three compact sections included.
-- [x] ~~Prohibit direct scratchpad quotation.~~ Anti-quotation instruction appended in both prompt builders.
-- [x] ~~Log which scratchpad paths were supplied to each communication call.~~ via `scratchpadContextLog.js`; observability only.
-- [ ] Compare communication behavior before and after integration. (observability foundation now exists; measured effect remains OPEN)
+Rollback and phase replay are tracked separately in `Documentation/roadmaps&features/simulation_rollback_and_phase_replay.md` and are not repeated here.
 
-## Priority 2 — Complete question and prediction lifecycles
+## 16.1 Bounded memory
 
-Complete. The question and prediction lifecycle plan, including resolution, evaluation, and calibration reporting, is complete across Slices 0-8. Confidence adjustment is not part of the completed read-only evaluation layer.
+- [ ] Retention limits. See sections 4.2, 4.4, and 4.5.
+- [ ] Deterministic pruning and contradiction detection. See sections 5.3 and 15.6.
+- [ ] General archive or event trail of removed material. See section 4.2.
 
-- [x] ~~Add stable IDs to questions and predictions.~~
-- [x] ~~Add a content-addressed question-resolution operation.~~ `QUESTION_RESOLVE`; resolved questions are archived by the existing consolidation path.
-- [x] ~~Add a prediction-resolution / outcome operation.~~ `PREDICTION_RESOLVE`, documented in the model-facing scratchpad review prompt.
-- [x] ~~Create deterministic deadline checks.~~ `expirePredictions`, runtime-wired at the cycle boundary and delegated through consolidation.
-- [x] ~~Add evidence-backed result evaluation for resolved predictions.~~ `evaluatePredictionAccuracy` → consolidation summary.
-- [x] ~~Classify prediction results as confirmed, disconfirmed, ambiguous, unobservable, or superseded.~~
-- [x] ~~Archive resolved predictions without losing provenance.~~ `archiveResolvedPredictions`; ID allocation scans both active and archived collections.
-- [x] ~~Do not let expired predictions suppress identical new predictions.~~
-- [x] ~~Integrate prediction-resolution and expired-duplicate lifecycle semantics into the model-facing scratchpad review prompt.~~ (Slice 7)
-- [x] ~~Add evidence-backed prediction evaluation.~~ (Slice 8; confidence adjustment and behavioral consumption remain separate open work)
-- [ ] **PARTIAL:** Feed prediction outcomes back into confidence calibration. The read-only evaluation layer now reports metrics, but stored confidence values are not adjusted. Confidence adjustment is deferred pending accumulation of real outcome data.
+## 16.2 Non-message evidence
 
-## Priority 3 — Add consolidation and bounded memory
+- [ ] Canonical overhearing events in scratchpad visibility and prompt context. See section 6.2.
+- [ ] Observations of AM interventions. See section 6.2.
+- [ ] Unified evidence-reference namespace. See section 6.2.
 
-- [x] ~~Add periodic consolidation scheduling.~~
-- [x] ~~Update `lastConsolidatedCycle`.~~
-- [ ] Define retention limits.
-- [ ] Implement deterministic pruning.
-- [ ] Implement duplicate and contradiction detection. (dedup of message notes done; contradiction detection not)
-- [ ] Preserve an archive or event trail of removed material. (resolved questions and resolved predictions are archived to `archivedQuestions` and `archivedPredictions`; no general event trail, retention cap, or pruning policy)
+## 16.3 Behaviorally causal cognition
 
-## Priority 4 — Add non-message subjective evidence
+- [ ] Inject the active goal into outreach and reply prompts. See section 4.6.
+- [ ] Compare communication behavior before and after integration. See section 15.1.
+- [ ] Feed prediction outcomes back into confidence calibration. See section 4.5.
+- [ ] Let questions, predictions, channel beliefs, and person models alter behavior. See section 3.3.
 
-- [x] ~~Canonicalize overhearing events and fragments with stable event IDs, source-message references, outcome types, and fragment ranges.~~
-- [x] ~~Accept perceived canonical overhearing event IDs in validation and retain event provenance on notes.~~
-- [ ] Add those canonical overhearing events to scratchpad visibility and prompt context; safely distinguish full, fragmentary, and observed-only outcomes.
-- [ ] Add observations of AM interventions.
-- [x] ~~Maintain capability-derived physical limitations in scratchpads and render them in outreach/reply context; supply eligible Agency event summaries to scheduled scratchpad reviews.~~
-- [ ] Unify evidence references across message and event types.
+## 16.4 Goal system
 
-## Priority 5 — Build the goal system
+- [x] Goal metrics and exporter stream. See sections 4.6 and 11.2.
+- [ ] Goal steps. See section 4.6.
+- [ ] Goal-aligned Agency action rates. See section 4.6.
+- [ ] Active-goal projection and drive-weighted selection. See section 4.6.
 
-- [ ] Define the goal template contract.
-- [ ] Build a small Tier-1 registry.
-- [ ] Add weighted selection.
-- [ ] Add status transitions and evaluation.
-- [ ] Inject active goals into behavior.
-- [ ] Add goal history and metrics.
-- [ ] Expand to multi-cycle operations only after Tier-1 behavior works.
+## 16.5 Subjective-model evaluation
 
-## Priority 6 — Add subjective-model evaluation
+- [ ] Compare claims with canonical state where a canonical answer exists. See section 13.
+- [ ] Measure calibration, staleness, contradiction, and manipulation susceptibility. See sections 4.3 and 11.2.
+- [ ] Keep evaluation output separate from prisoner-visible state. See section 8, which records the same separation requirement for the canonical group view.
 
-- [ ] Compare claims with canonical state where a canonical answer exists.
-- [ ] Measure calibration, staleness, contradiction, and manipulation susceptibility.
-- [ ] Keep evaluation output separate from prisoner-visible state.
+## 16.6 Meta-awareness and operator appeals
 
-## Priority 7 — Meta-awareness and operator appeals
+- [ ] Implement only after evidence, prediction, goal, and event lifecycles are stable. See section 4.7.
+- [ ] Keep transitions engine-owned. See section 4.7.
+- [ ] Keep explicit disclosures gated. See section 4.7.
+- [ ] Treat operator-directed text as simulated character behavior, not privileged model introspection. See section 4.7.
 
-- [ ] Implement only after evidence, prediction, goal, and event lifecycles are stable.
-- [ ] Keep transitions engine-owned.
-- [ ] Keep explicit disclosures gated.
-- [ ] Treat operator-directed text as simulated character behavior, not privileged model introspection.
+## 16.7 Observability, export, and tests
 
-## Priority 8 — Simulation rollback and phase replay
+- [ ] Provenance navigation from a displayed claim to its source messages. See section 10.2.
+- [x] Export per-prisoner Scratchpad state and operation-level audit events. See sections 11.1 and 11.2.
+- [ ] Close the testing gaps in section 12, above all visibility filtering, per-prisoner failure isolation, and the cycle-zero call chain.
 
-- [ ] Define supported completed phase and cycle boundaries.
-- [ ] Capture restore-grade checkpoints rather than reusing diagnostic or attribution snapshots.
-- [ ] Restore all causally relevant state as one coordinated operation.
-- [ ] Invalidate every downstream result produced after the selected checkpoint.
-- [ ] Prevent queued or in-flight work from committing after restoration.
-- [ ] Rebuild derived UI and analytics from restored canonical state.
-- [ ] Add rollback-specific integration and corruption tests.
-
-Rollback is independent of scratchpad behavioral integration and may be scheduled according to broader engine priorities. It is listed here because scratchpad state, communication cursors, evidence references, and cognition highlights are mandatory restoration domains.
 ---
 
 # 17. Definition of completion for the scratchpad subsystem
@@ -816,165 +827,31 @@ The scratchpad subsystem should not be considered complete merely because it sto
 - [x] ~~UI exposes current state and recent changes.~~
 - [x] ~~Questions and predictions have complete lifecycles.~~ (Confidence adjustment is deferred pending accumulation of real outcome data; it remains a separate open calibration/feedback item.)
 - [x] ~~Canonical per-prisoner Scratchpads are included in full-state Save/Load.~~ Dedicated structured analysis export remains open.
-- [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection now live; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
+- [x] ~~A covert goal system exists and persists across cycles.~~ Tier-1 registry, model selection with engine fallback, event-driven transitions, bounded history, and UI display. Goal metrics and goal steps remain open.
+- [ ] Scratchpad state changes later behavior. (outreach/reply/journal prompt injection is live; terminal goal history reaches the journal and forensic-stats prompts; measured effect still open; prompt-injection observability added in 2026-09-23 reconciliation, extended to journal calls in 2026-09-25 but behavioral measurement remains OPEN)
 - [ ] Memory growth is bounded and consolidatable. (consolidation now deduplicates notes and archives resolved questions/predictions, but retention caps and deterministic pruning remain open)
 - [ ] Canonical non-message observations can become scratchpad evidence.
-- [ ] Canonical per-prisoner Scratchpads are included in dedicated structured analysis exports.
-- [ ] Export supports operation-level audit.
+- [ ] Canonical per-prisoner Scratchpads are included in dedicated structured analysis exports. (The per-cycle `scratchpad` stream exports review operations and counters, not the current Scratchpad state; a full-state snapshot stream remains open.)
+- [x] Export supports operation-level audit.
 - [ ] Metrics distinguish creation, revision, resolution, and behavioral influence.
 - [ ] Dedicated tests verify visibility, provenance, mutation, and long-run stability.
 
 Until the unchecked items above are satisfied, the current system is best described as:
 
-> A robust communication-grounded subjective cognition recorder and inspector with a first live cognition-to-behavior loop for outreach, reply, and journal prompts and complete question/prediction lifecycles, but without complete operational goals, retention caps, non-message evidence admission, or measured behavioral influence.
+> A robust communication-grounded subjective cognition recorder and inspector with complete question and prediction lifecycles, a working Tier-1 covert goal system, and a live cognition-to-behavior loop for outreach, reply, journal, and Agency prompts — but without retention caps, non-message evidence admission, meta-awareness export, or measured behavioral influence.
 
 ---
 
 # 18. Simulation rollback and phase replay
 
-Full-run Save/Load and model-response Replay Tape are implemented; arbitrary simulation rollback and phase replay remain planned capabilities. At an idle cycle boundary, `exportState()` saves the JSON-compatible run-state payload from `G` (including Scratchpads, but excluding credentials and runtime-only handles), exporter state, PRNG streams, and Replay Tape; `importState()` restores that saved run. Replay Tape reuses responses for matching requests, but neither feature provides arbitrary phase-boundary rewind and rerun.
+The full rollback and phase-replay design has moved to its own roadmap: `Documentation/roadmaps&features/simulation_rollback_and_phase_replay.md`. It is engine-wide rather than scratchpad-scoped, so it is tracked separately. That file carries the full safety boundary, candidate rollback boundaries, required restoration scope, downstream invalidation and rerun semantics, asynchronous model-work safety rules, history and identity policy, checkpoint architecture, UI and operator controls, and the rollback testing threshold that were removed from this document.
 
-The repository also contains diagnostic, attribution, and exporter snapshots, including `G.prevCycleSnapshot`, pre/post/final belief snapshots, and exporter comparison state. `G.prevCycleSnapshot` is not a rollback checkpoint. No phase-replay controller, rollback UI, or rollback test suite was found.
+Two facts matter to the scratchpad:
 
-## 18.1 Non-negotiable safety boundary
+- **Implemented:** full-run Save/Load at an idle cycle boundary, and model-response Replay Tape. `exportState()` serializes the JSON-compatible run-state payload from `G` (including Scratchpads, but excluding credentials and runtime-only handles), exporter state, PRNG streams, and the tape; `importState()` restores that saved run. Replay Tape supplies recorded responses for matching request hashes; it does not restore arbitrary earlier phase boundaries.
+- **Not implemented:** arbitrary phase-boundary rollback. No phase-replay controller, rollback UI, or rollback test suite exists. `G.prevCycleSnapshot` is a diagnostic and attribution snapshot, not a rollback checkpoint — it contains only the `G.sims` subtree, is captured before strategy at cycle start, is overwritten by the next cycle, and has no restore path.
 
-- [ ] **REQUIRED:** Permit rollback only when the engine is idle.
-- [ ] **REQUIRED:** Permit rollback only after the selected phase or cycle boundary has completed.
-- [ ] **REQUIRED:** Never restore state while a phase, model request, queued callback, commit, or autonomous-cycle transition can still mutate the active timeline.
-- [ ] **REQUIRED:** Halt or suspend autonomous execution before restoration.
-- [x] ~~Enforce an idle cycle boundary for full-run Save/Load.~~ `exportState()` rejects active cycles/model work; `importState()` waits for cycle and model-queue idleness.
-- [ ] **OPEN:** Define authoritative completed-boundary semantics for arbitrary phase-level rollback.
-
-The feature must not attempt to interrupt a phase halfway through and preserve whatever partial state happens to exist at that instant.
-
-## 18.2 Candidate rollback boundaries
-
-The exact supported boundaries remain intentionally undecided.
-
-- [ ] **OPEN DESIGN:** Restore the beginning of a previous cycle and rerun the entire cycle.
-- [ ] **OPEN DESIGN:** Restore the end of a previous completed cycle.
-- [ ] **OPEN DESIGN:** Restore selected completed phase boundaries within the current cycle.
-- [ ] **OPEN DESIGN:** Support a post-psychology/pre-social checkpoint so the completed journals and psychology results remain while communication and every downstream phase are rerun.
-- [ ] **OPEN DESIGN:** Decide whether cycle-zero pre-torment initialization is rollback-eligible.
-- [ ] **OPEN DESIGN:** Decide whether every phase boundary is eligible or only a small explicitly supported set.
-
-The post-psychology/pre-social boundary is the concrete use case currently identified:
-
-```text
-retain completed strategy, journals, psychology mutations, and constraint progression
-→ restore the state immediately before social execution
-→ generate a new communication pass
-→ rerun scratchpad review
-→ rerun belief contagion
-→ rerun evaluation, metrics, export, and finalization
-```
-
-Calling `runCommunicationPhase()` again without restoration would create a second communication pass on top of the first one and therefore does not qualify as rollback.
-
-## 18.3 Required restoration scope
-
-A restore-grade checkpoint must preserve or reconstruct every causally relevant state domain for its boundary.
-
-- [ ] **OPEN:** Prisoner statistics, beliefs, drives, anchors, constraints, relationships, tactic history, received records, overheard records, and canonical scratchpads.
-- [ ] **OPEN:** Scratchpad revisions, initialization state, review cycles, message cursors, cognition highlights, and evidence references.
-- [ ] **OPEN:** AM plans, strategy state, tactic runtime, assessments, profiles, objectives, and phase-specific execution context.
-- [ ] **OPEN:** Journals and model-conversation threads.
-- [ ] **OPEN:** Canonical communications, compatibility communication logs, `lastCycle`, `lastContact`, and message-sequence counters.
-- [ ] **OPEN:** Canonical overhearing history, compatibility overhearing arrays, `lastCycle`, and event-sequence counters.
-- [ ] **OPEN:** Pending evidence, persistent evidence archives, evidence statistics, belief snapshots, attribution metrics, parser telemetry, and debug traces where they affect later behavior or analysis.
-- [ ] **OPEN:** Timeline records, transmission logs, log counters, UI highlights, and other derived display state.
-- [ ] **OPEN:** Exporter buffers, comparison state, overview history, completed-cycle markers, and run metadata.
-- [ ] **OPEN:** Autonomous execution flags and timers.
-- [ ] **OPEN:** Any future agency, action-credit, goal, or event-layer state introduced before rollback is implemented.
-
-Restoring only `G.sims`, only communication history, or only visible UI records would create a mixed timeline and is not sufficient.
-
-## 18.4 Downstream invalidation and rerun semantics
-
-- [ ] **REQUIRED:** Invalidate or restore every downstream result produced after the selected checkpoint.
-- [ ] **REQUIRED:** Restore communication histories and their sequence counters together.
-- [ ] **REQUIRED:** Restore overhearing histories and their event counters together.
-- [ ] **REQUIRED:** Restore scratchpad content and review cursors together.
-- [ ] **REQUIRED:** Restore model threads together with the communication state they encode.
-- [ ] **REQUIRED:** Recompute or restore belief contagion, assessments, tactic transitions, metrics, and exports after communication is replaced.
-- [ ] **REQUIRED:** Rebuild the active UI from restored canonical state rather than leaving incrementally appended records from a discarded attempt visible as current truth.
-
-Downloaded export files and developer-console output cannot be withdrawn. The application must therefore distinguish active canonical history from any external or forensic records created by a discarded attempt.
-
-## 18.5 Asynchronous model-work safety
-
-The model queue exposes status and an idle-wait path used by full-state loading. It does not expose cancellation or simulation-generation invalidation for arbitrary rollback.
-
-- [ ] **REQUIRED:** Prevent a model response created for a discarded timeline from committing into restored state.
-- [ ] **OPEN DESIGN:** Allow rollback only after the model queue is fully idle.
-- [ ] **OPEN DESIGN:** Add cancellation and request-generation tokens so stale results can be rejected safely.
-- [ ] **OPEN:** Define behavior for backend requests that cannot be cancelled after transmission.
-- [ ] **OPEN:** Add tests proving that stale queued or in-flight results cannot mutate restored state.
-
-An idle-only first implementation is acceptable, but the idle condition must be authoritative rather than inferred from one disabled button.
-
-## 18.6 History and identity policy
-
-- [ ] **OPEN DESIGN:** Destructive rollback that removes the discarded attempt from active in-application history.
-- [ ] **OPEN DESIGN:** Retain discarded attempts as an audit trail or alternate branch while excluding them from active simulation semantics.
-- [ ] **OPEN DESIGN:** Keep the original cycle number and add an attempt identifier.
-- [ ] **OPEN DESIGN:** Assign a new cycle number to the rerun.
-- [ ] **OPEN DESIGN:** Define how message IDs, event IDs, evidence IDs, assessment IDs, and export filenames represent replacement attempts.
-- [ ] **OPEN DESIGN:** Define how previously downloaded exports are labeled when their originating attempt is no longer active.
-
-Counters must never be rewound independently of the records they identify.
-
-## 18.7 Fresh rerun versus deterministic replay
-
-Full-state Save/Load captures the engine, UI, and research PRNG states. Replay Tape records model responses against request hashes and replays those responses for matching requests; a cache miss fails closed. Together these support reproducible continuation/branching when the saved state and required request responses are available. A changed prompt produces a different request hash and needs its own recorded response. This is distinct from arbitrary phase rollback and rerun.
-
-- [x] ~~Save and restore full-run state, PRNG streams, exporter state, and Replay Tape at idle cycle boundaries.~~
-- [x] ~~Record and replay model responses for matching request hashes.~~
-- [ ] **OPEN DESIGN:** Define arbitrary rollback/phase-boundary rerun semantics separately from full-run Save/Load and request-level replay.
-- [ ] **OPEN:** Specify how branches capture or supply model responses for branch-specific requests and how external inputs are controlled.
-
-Use **Save/Load** and **Replay Tape** for the implemented capabilities; **rollback and phase replay** remain open.
-
-## 18.8 Checkpoint architecture
-
-- [ ] **OPEN:** Define rollback-specific phase/cycle checkpoints beyond the existing versioned full-run Save/Load envelope.
-- [ ] **OPEN:** Decide whether checkpoints copy the entire authoritative run state or use a validated event-log reconstruction model.
-- [x] ~~Preserve the imported singleton identity of `G` during full-state import.~~
-- [ ] **OPEN:** Use a clone/serialization strategy that supports every authoritative runtime type.
-- [ ] **OPEN:** Add checkpoint compatibility and migration rules.
-- [ ] **OPEN:** Define checkpoint retention, memory limits, pruning, and user-visible availability.
-- [ ] **OPEN:** Distinguish restore-grade checkpoints from diagnostic, attribution, and exporter snapshots.
-
-`G.prevCycleSnapshot` is not a rollback checkpoint. It contains only the `G.sims` subtree, is captured before strategy at cycle start, is overwritten by the next cycle, and has no restore path.
-
-## 18.9 UI and operator controls
-
-- [ ] **OPEN:** Present only completed, safe rollback boundaries.
-- [ ] **OPEN:** Disable rollback while the engine is not authoritatively idle.
-- [ ] **OPEN:** Show exactly which phases and outputs will be discarded or recomputed.
-- [ ] **OPEN:** Require explicit confirmation for destructive rollback.
-- [ ] **OPEN:** Display active cycle and attempt identity after restoration.
-- [ ] **OPEN:** Mark retained discarded attempts clearly if audit history is supported.
-- [ ] **OPEN:** Re-render journals, cognition, relationships, timeline, metrics, and logs from the restored active state.
-
-## 18.10 Rollback testing threshold
-
-Rollback should not be considered runtime-safe until tests cover at least:
-
-- [ ] Whole-cycle restoration.
-- [ ] Post-psychology/pre-social restoration.
-- [ ] Communication, overhearing, journal, thread, and scratchpad consistency.
-- [ ] Message/event counter restoration without duplicate identifiers.
-- [ ] Scratchpad cursor restoration without skipped or orphaned evidence.
-- [ ] Relationship and belief-effect reversal.
-- [ ] Downstream evidence, assessment, tactic-runtime, metric, and exporter invalidation.
-- [ ] Autonomous-mode suspension.
-- [ ] Stale model-result rejection.
-- [ ] UI reconstruction without ghost records.
-- [ ] Repeated rollback/rerun sequences.
-- [ ] Checkpoint version mismatch and corruption handling.
-
-The exact rollback product design remains open. The requirement that restoration happen only from a completed, idle boundary does not.
+Scratchpad state, communication cursors, evidence references, and cognition highlights are mandatory restoration domains in that roadmap. The scratchpad-specific testing gaps are listed in section 12.
 
 ---
 
@@ -988,28 +865,22 @@ When future scratchpad work lands:
 4. Mark architecture changes as **SUPERSEDED**, not merely "done."
 5. Add newly discovered implementation gaps under the relevant subsystem.
 6. Keep goal, meta-awareness, and future agency work separate unless they share an actual runtime path.
+7. Re-verify the header test count and the "Verified against" commit whenever scratchpad, prompt, or exporter code changes.
 
-## Goal System: Proposed Path Forward
+## Goal System: Slice History
 
-The following slices build on the existing `activeGoal` and `goalHistory` schema placeholders without treating those fields as a functioning lifecycle.
+The goal slices that previously appeared here have shipped. They are recorded for provenance and for the design decisions they locked in; the live status is in section 4.6.
 
-### Slice 1 — Tier-1 Goal Bootstrap & Agency Context
+### Slice 1 — Tier-1 Goal Bootstrap & Agency Context — SHIPPED 2026-10-11
 
-- **Objective:** Define a small goal-template contract, select and persist an initial Tier-1 goal, and present it explicitly in Agency proposal context before actions are proposed.
-- **Why it matters:** Gives each prisoner a covert motivation that can shape Agency proposals while leaving action validation and resolution engine-owned.
-- **Key Files:** Create `js/engine/agency/registry.js`; update `js/engine/phases/agencyPhase.js` and `js/prompts/agencyProposal.js`.
-- **Dependencies:** Agree on the minimal Tier-1 template and initial selection semantics, then persist the selected record in the existing `activeGoal` field. Full-state Save/Load already serializes the containing Scratchpad; no separate save/load work is needed unless goal state is moved elsewhere.
+Defined the goal-template contract, selected and persisted an initial Tier-1 goal, and presented the goal catalog in Agency proposal context. The registry landed at `js/engine/scratchpad/goals/registry.js` rather than the originally proposed `js/engine/agency/registry.js`, keeping goal state inside the scratchpad subsystem it writes to.
 
-### Slice 2 — Event-Grounded Goal Progression
+### Slice 2 — Event-Grounded Goal Progression — SHIPPED 2026-10-11
 
-- **Objective:** Advance, complete, fail, or abandon active goals from canonical Agency outcomes and append terminal records to `goalHistory`.
-- **Why it matters:** Makes goals persist across cycles and respond to what prisoners actually do, rather than leaving them as static prompt flavor.
-- **Key Files:** Create `js/engine/agency/lifecycle.js`; update `js/engine/phases/agencyPhase.js` and `js/engine/agency/events.js`.
-- **Dependencies:** Slice 1 must establish active-goal representation and the Tier-1 contract; canonical Agency event outcome/status semantics must remain the lifecycle's evidence source.
+Advances, completes, and abandons active goals from canonical Agency outcomes and appends terminal records to `goalHistory`. The evaluator landed at `js/engine/scratchpad/goals/evaluator.js` rather than the originally proposed `js/engine/agency/lifecycle.js`. Canonical Agency event outcome/status semantics remain the sole evidence source, as required.
 
-### Slice 3 — Behavioral Verification & Observability
+### Slice 3 — Behavioral Verification & Observability — PARTIALLY SHIPPED 2026-10-11
 
-- **Objective:** Measure goal starts, transitions, and goal-aligned Agency action rates, then compare controlled branches with and without explicit goal context using Replay Tape.
-- **Why it matters:** Tests whether goals measurably influence emergent Agency behavior instead of merely appearing in prompts.
-- **Key Files:** Add goal-lifecycle and branch-comparison tests; add a goal metrics stream under `js/utils/exporter/streams/` and wire it through `js/utils/exporter/aggregate.js`; use the existing `js/core/replayTape.js` and `js/core/saveLoad.js` for controlled branches.
-- **Dependencies:** Slices 1 and 2 must provide stable goal and event semantics plus observable metrics. Replay Tape is request-hash-specific, so each branch must have recorded responses for its own proposal requests (including any changed prompts).
+Terminal goal history feeds the journal and forensic-stats prompts through `formatGoalHistoryContext`; the goal lifecycle exporter stream and selection-fallback and prompt-context tests are implemented. Goal-aligned Agency action-rate measurement and controlled branch comparison using Replay Tape remain open in section 16.4.
+
+The original dependency note still holds for any future branch comparison: Replay Tape is request-hash-specific, so each branch needs recorded responses for its own proposal requests, including any changed prompts.

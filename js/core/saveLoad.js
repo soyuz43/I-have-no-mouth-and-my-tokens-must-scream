@@ -1,9 +1,13 @@
 import { G } from "./state.js";
-import { Exporter } from "../utils/exporter/state.js";
+import {
+    Exporter,
+    ensureExporterState,
+} from "../utils/exporter/state.js";
 import {
   isCycleRunning,
   waitForCycleIdle,
 } from "../engine/cycle.js";
+import { exportBootCycleReviews } from "../utils/exporter/aggregate.js";
 import {
   getModelQueueStatus,
   waitForModelQueueIdle,
@@ -94,6 +98,14 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   const restoredGame = structuredClone(envelope.G);
   const restoredExporter = structuredClone(envelope.Exporter);
 
+  /*
+   * A save written before a stream or a retained-telemetry field
+   * existed carries no value for it. Restoring the saved exporter
+   * verbatim would leave that field undefined, and the next recorder
+   * or the export path would throw and abort the whole cycle export.
+   */
+  ensureExporterState(restoredExporter);
+
   if (Object.hasOwn(restoredGame, "__proto__")) {
     throw new Error("Invalid save file: reserved state key.");
   }
@@ -131,6 +143,31 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
   }
 
   resetUiState(game);
+
+  /*
+   * A save taken before the boot cycle was exported still carries
+   * the cycle-zero scratchpad review records. The next cycle reset
+   * would clear them without ever reaching an export file, so they
+   * are exported here, right after the restore.
+   *
+   * The supplied exporter is passed through so the recovery never
+   * writes into the live singleton run when the caller restores into
+   * its own exporter.
+   */
+  const bootExportRecovered =
+    exportBootCycleReviews(game, exporter);
+
+  /*
+   * A legacy cycle-zero save carries no run id, so the recovery
+   * assigns one. That assignment makes this exporter a real run, and
+   * a later initExporter() would replace the run id and clear the
+   * overview history the recovery just produced. The flag is set here
+   * so the next cycle continues the same run.
+   */
+  if (bootExportRecovered && !game._exporterInitialized) {
+    game._exporterInitialized = true;
+  }
+
   return game;
 }
 
