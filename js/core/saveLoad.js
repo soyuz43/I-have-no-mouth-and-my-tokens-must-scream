@@ -149,8 +149,24 @@ export async function importState(jsonString, { game = G, exporter = Exporter } 
    * the cycle-zero scratchpad review records. The next cycle reset
    * would clear them without ever reaching an export file, so they
    * are exported here, right after the restore.
+   *
+   * The supplied exporter is passed through so the recovery never
+   * writes into the live singleton run when the caller restores into
+   * its own exporter.
    */
-  exportBootCycleReviews(game);
+  const bootExportRecovered =
+    exportBootCycleReviews(game, exporter);
+
+  /*
+   * A legacy cycle-zero save carries no run id, so the recovery
+   * assigns one. That assignment makes this exporter a real run, and
+   * a later initExporter() would replace the run id and clear the
+   * overview history the recovery just produced. The flag is set here
+   * so the next cycle continues the same run.
+   */
+  if (bootExportRecovered && !game._exporterInitialized) {
+    game._exporterInitialized = true;
+  }
 
   return game;
 }

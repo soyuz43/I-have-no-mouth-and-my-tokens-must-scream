@@ -186,6 +186,21 @@ export function ensureExporterState(exporter) {
         exporter.cycleMetadata = {};
     }
 
+    /*
+     * The export payload embeds runMetadata directly, and exportState()
+     * refuses to serialize an undefined value. A restored exporter that
+     * never ran initExporter() has no runMetadata at all, so the
+     * recovered export would otherwise produce a payload that cannot
+     * be saved again.
+     */
+    if (exporter.runMetadata === undefined) {
+        exporter.runMetadata = null;
+    }
+
+    if (exporter.schemaVersion === undefined) {
+        exporter.schemaVersion = EXPORT_SCHEMA_VERSION;
+    }
+
     ensureExportBuffers(exporter.buffers);
 
     return exporter;

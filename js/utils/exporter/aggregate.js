@@ -531,7 +531,17 @@ export function finalizeCycle(G, metrics) {
    orphaned cycle-zero records, so the same helper recovers them
    after a full-state import.
 ============================================================ */
-export function exportBootCycleReviews(G) {
+export function exportBootCycleReviews(G, exporter = Exporter) {
+    /*
+     * This recovery is a singleton-scoped side effect. It downloads a
+     * file, rewrites the exporter's retained telemetry, and clears its
+     * buffers. A restore into a caller-supplied exporter must not
+     * touch the live singleton run, so the recovery is skipped there.
+     * The supplied exporter has already received the restored state,
+     * and the pending records stay in G for the caller to inspect.
+     */
+    if (exporter !== Exporter) return false;
+
     /*
      * Cycle zero is the only cycle that is never finalized by the
      * cycle pipeline. Records for any other cycle were already
@@ -551,9 +561,14 @@ export function exportBootCycleReviews(G) {
      * would then have no run identity, so one is assigned here rather
      * than calling initExporter(), which would clear the restored
      * buffers.
+     *
+     * Assigning the run id is what makes this exporter a real run, so
+     * the caller must not re-initialize it afterwards. initExporter()
+     * would assign a DIFFERENT run id and clear the overview history
+     * this recovery just produced.
      */
-    if (!Exporter.runId) {
-        Exporter.runId = `am_run_${Date.now()}`;
+    if (!exporter.runId) {
+        exporter.runId = `am_run_${Date.now()}`;
     }
 
     finalizeCycle(G, {

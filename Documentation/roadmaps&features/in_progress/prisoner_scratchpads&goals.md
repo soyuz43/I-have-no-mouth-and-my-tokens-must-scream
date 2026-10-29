@@ -9,7 +9,7 @@
 
 This reconciliation corrected the goal-system sections (the goal subsystem shipped on 2026-10-11, after the previous reconciliation, and the document was never updated), removed a factual error in the person-model schema, corrected the documented cycle order, and re-verified the testing, export, and metrics sections against source.
 
-The wired suite passes **877 tests** with zero failures: 39 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `npm test` runs the `pretest` script automatically through the npm lifecycle, so `npm test` alone yields all 877. The TAP totals are measured, not estimated. Scratchpad schema version `3`; communication protocol version `3`.
+The wired suite passes **879 tests** with zero failures: 41 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. `npm test` runs the `pretest` script automatically through the npm lifecycle, so `npm test` alone yields all 879. The TAP totals are measured, not estimated. Scratchpad schema version `3`; communication protocol version `3`.
 
 ### How to re-verify
 
@@ -582,7 +582,7 @@ The exporter now has 21 streams and includes `scratchpad` and `goal_events` life
 
 # 12. Testing status
 
-Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **877 tests** with zero failures: 39 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. The counts below were re-verified against the suite on 2026-10-28.
+Dedicated scratchpad coverage exists, but it is narrow. The wired suite passes **879 tests** with zero failures: 41 pretest Node/TAP tests, 747 Node/TAP tests, 86 strategy-extraction JSONL tests, and 5 scratchpad-repair JSON tests. The counts below were re-verified against the suite on 2026-10-28.
 
 - [x] ~~Add `js/tests/scratchpadCommsRepair.test.js` to the repository test command and GitHub Actions workflow.~~
 - [x] ~~Add `js/tests/expirePredictions.test.mjs` and `js/tests/scratchpadConsolidation.test.mjs` to the repository test command and GitHub Actions workflow.~~ (16 and 23 cases)
