@@ -4,7 +4,7 @@ import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import {
   formatScratchpadForDisplay,
-  formatEvidenceMessage,
+  formatEvidenceReference,
 } from "./cognitionFormatter.js";
 import {
   formatCognitionOverview,
@@ -31,6 +31,61 @@ const getAvailableCommMessageIds = () =>
       )
       .filter(Boolean)
   );
+
+/*
+ * Agency events and overheard events are admissible scratchpad
+ * evidence in exactly the same way canonical messages are, but they
+ * are not canonical messages and do not live in G.comms.history.
+ *
+ * A scratchpad reference to one of them therefore used to render as
+ * an unavailable ref: the availability check only knew about messages,
+ * so the reader was told the evidence did not exist even though the
+ * event was sitting right there in the ledger. These lookups give the
+ * view the same set the validator accepted against.
+ */
+const findAgencyEvent = (id) =>
+  (G.agency?.events ?? []).find(
+    (event) => event?.eventId === id
+  );
+
+const findOverhearingEvent = (id) =>
+  (G.overhearing?.history ?? []).find(
+    (event) => event?.eventId === id
+  );
+
+const getAvailableAgencyEventIds = () =>
+  new Set(
+    (G.agency?.events ?? [])
+      .map((event) =>
+        String(event?.eventId ?? "").trim()
+      )
+      .filter(Boolean)
+  );
+
+const getAvailableOverhearingEventIds = () =>
+  new Set(
+    (G.overhearing?.history ?? [])
+      .map((event) =>
+        String(event?.eventId ?? "").trim()
+      )
+      .filter(Boolean)
+  );
+
+/*
+ * Every reference the reader can actually open.
+ *
+ * Exported so the availability contract can be tested directly. The
+ * set is the whole point of this function: it is what decides whether
+ * a reference renders as openable or as missing, and getting it
+ * wrong tells the reader that evidence they can act on does not
+ * exist.
+ */
+export const getAvailableEvidenceIds = () =>
+  new Set([
+    ...getAvailableCommMessageIds(),
+    ...getAvailableAgencyEventIds(),
+    ...getAvailableOverhearingEventIds(),
+  ]);
 
 /* ============================================================
    SIM SELECTION
@@ -558,9 +613,11 @@ function ensureCognitionHighlightEvents(
       }
 
       content.innerHTML =
-        formatEvidenceMessage(
+        formatEvidenceReference(
           messageId,
-          findCommMsg(messageId)
+          findCommMsg(messageId),
+          findAgencyEvent(messageId),
+          findOverhearingEvent(messageId)
         );
 
       viewer.hidden = false;
@@ -814,7 +871,7 @@ export function renderCognitionModal(
         G.cognitionHighlights
           ?.[simId] ??
           null,
-        getAvailableCommMessageIds()
+        getAvailableEvidenceIds()
       ) +
       /*
        * PHYSICAL STATE is APPENDED to the scratchpad, not nested

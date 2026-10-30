@@ -613,6 +613,78 @@ test("a review with both messages and agency events may cite either type", () =>
   );
 });
 
+test("a NOTE still requires exactly one reference, of either kind", () => {
+  /*
+   * The prompt says a NOTE takes one ID of either kind. A NOTE that
+   * names two IDs is rejected, and the reason says so, so the model
+   * is not left guessing why its note was dropped.
+   */
+  const result = validateWith({
+    operation:
+      '<NOTE ref="C3-M000001,agency:3:1" confidence="0.7">Both kinds.</NOTE>',
+    messages: [makeVisibleMessage("C3-M000001")],
+    agencyEvents: [
+      makeAgencyEvent({
+        cycle: 3,
+        sequence: 1,
+      }),
+    ],
+  });
+
+  assert.equal(result.status, "failure");
+  assert.equal(result.accepted.length, 0);
+  assert.equal(result.rejected.length, 1);
+  assert.ok(
+    result.rejected[0].reasons.some((reason) =>
+      reason.includes("exactly one")
+    )
+  );
+});
+
+test("a NOTE may cite exactly one agency event ID", () => {
+  const result = validateWith({
+    operation:
+      '<NOTE ref="agency:3:1" confidence="0.7">One agency event.</NOTE>',
+    agencyEvents: [
+      makeAgencyEvent({
+        cycle: 3,
+        sequence: 1,
+      }),
+    ],
+  });
+
+  assert.equal(result.status, "success");
+  assert.equal(result.accepted.length, 1);
+});
+
+test("the prompt tells the model that a NOTE takes one ID of either kind", () => {
+  const prompt =
+    buildScratchpadCommsPrompt(
+      { id: "TED", scratchpad: { initialized: true } },
+      [makeVisibleMessage("C3-M000001")],
+      {},
+      [
+        makeAgencyEvent({
+          cycle: 3,
+          sequence: 1,
+        }),
+      ]
+    );
+
+  assert.match(
+    prompt,
+    /NOTE requires one ID of either kind in ref/
+  );
+
+  /*
+   * The instruction must not imply that a NOTE can carry two IDs.
+   */
+  assert.match(
+    prompt,
+    /Operations\s+using refs may cite either kind, or both in one operation/
+  );
+});
+
 test("the prompt lists message IDs and agency event IDs side by side", () => {
   const prompt =
     buildScratchpadCommsPrompt(

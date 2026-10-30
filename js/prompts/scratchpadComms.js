@@ -456,8 +456,9 @@ self.
 
 Allowed operations:
 
-1. Private note attached to one message; engine supplies its metadata:
-<NOTE ref="MESSAGE_ID" confidence="0.00">TEXT</NOTE>
+1. Private note attached to one message or one agency event; engine
+supplies its metadata. Use exactly one ID:
+<NOTE ref="MESSAGE_OR_AGENCY_EVENT_ID" confidence="0.00">TEXT</NOTE>
 
 2. Verbal theory about another prisoner, expressed as words:
 <OTHER target="PRISONER_ID" field="OTHER_FIELD" confidence="0.00" refs="MESSAGE_IDS">THEORY</OTHER>
@@ -516,8 +517,8 @@ targets, subjects, fields, and values. Templates above are not data.
 
 VALID REFERENCES
 Use only these IDs in ref/refs. Message IDs and agency event IDs are
-equally admissible; you may cite either kind, or both in one
-operation.
+equally admissible. NOTE requires one ID of either kind in ref. Operations
+using refs may cite either kind, or both in one operation.
 ${formattedValidReferences}
 IDs are opaque: copy exactly. Never invent, reconstruct, alter, add spaces
 to, relabel, or use an unlisted ID. Omit operations without a listed
