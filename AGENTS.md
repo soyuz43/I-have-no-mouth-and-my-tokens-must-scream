@@ -1,15 +1,3 @@
-## Shell environment
-
-Commands are parsed by the shell reported in the session environment. On this
-machine that is **bash** (Git Bash on Windows). Treat that as the current fact,
-not a permanent one.
-
-If the shell is not already established, determine it before issuing a
-multi-line command — check `$SHELL` and `$0`, or the platform field in the
-environment context. Do not infer the shell from the OS alone: Windows does not
-imply PowerShell, and launching an external program does not change the shell
-that parses the invocation.
-
 ### Quoting must match the shell that parses the command
 
 The invocation form is part of the command. Use the multi-line quoting that
