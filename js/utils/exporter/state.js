@@ -201,7 +201,7 @@ export function ensureExporterState(exporter) {
         exporter.schemaVersion = EXPORT_SCHEMA_VERSION;
     }
 
-    ensureExportBuffers(exporter.buffers);
+    exporter.buffers = ensureExportBuffers(exporter.buffers);
 
     return exporter;
 }

@@ -6,7 +6,10 @@ import {
   finalizeCycle,
   exportBootCycleReviews,
 } from "../utils/exporter/aggregate.js";
-import { Exporter } from "../utils/exporter/state.js";
+import {
+  ensureExporterState,
+  Exporter,
+} from "../utils/exporter/state.js";
 
 function makeReviewLog() {
   return [
@@ -256,5 +259,79 @@ test("the boot cycle exports its review records before the next reset clears the
     } else {
       delete URL.revokeObjectURL;
     }
+  }
+});
+
+test("a boot cycle export failure does not abort the boot path", async () => {
+  const saved = {
+    runId: Exporter.runId,
+    buffers: Exporter.buffers,
+    runMetadata: Exporter.runMetadata,
+    cycleMetadata: Exporter.cycleMetadata,
+    lastCompletedCycle: Exporter.lastCompletedCycle,
+    overviewHistory: Exporter.overviewHistory,
+    overviewHistoryMax: Exporter.overviewHistoryMax,
+    document: globalThis.document,
+    createObjectURL: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
+    revokeObjectURL: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL"),
+  };
+
+  try {
+    Exporter.runId = "boot-cycle-export-failure-test";
+    Exporter.buffers = Object.fromEntries(
+      Object.keys(saved.buffers).map((stream) => [stream, []]),
+    );
+    Exporter.runMetadata = null;
+    Exporter.cycleMetadata = {};
+    Exporter.lastCompletedCycle = null;
+    Exporter.overviewHistory = [];
+
+    const game = {
+      ...G,
+      cycle: 0,
+      pendingEvidence: {
+        ...G.pendingEvidence,
+        scratchpadReviewLog: [
+          {
+            ...makeReviewLog()[0],
+            cycle: 0,
+            simId: "TED",
+          },
+        ],
+      },
+    };
+
+    URL.createObjectURL = () => {
+      throw new Error("export download unavailable");
+    };
+
+    assert.equal(exportBootCycleReviews(game), true);
+    assert.deepEqual(game.pendingEvidence.scratchpadReviewLog, []);
+  } finally {
+    Exporter.runId = saved.runId;
+    Exporter.buffers = saved.buffers;
+    Exporter.runMetadata = saved.runMetadata;
+    Exporter.cycleMetadata = saved.cycleMetadata;
+    Exporter.lastCompletedCycle = saved.lastCompletedCycle;
+    Exporter.overviewHistory = saved.overviewHistory;
+    Exporter.overviewHistoryMax = saved.overviewHistoryMax;
+    if (saved.createObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", saved.createObjectURL);
+    } else {
+      delete URL.createObjectURL;
+    }
+    if (saved.revokeObjectURL) {
+      Object.defineProperty(URL, "revokeObjectURL", saved.revokeObjectURL);
+    } else {
+      delete URL.revokeObjectURL;
+    }
+  }
+});
+
+test("exporter normalization restores every canonical buffer", () => {
+  const exporter = ensureExporterState({});
+
+  for (const key of Object.keys(Exporter.buffers)) {
+    assert.ok(Array.isArray(exporter.buffers[key]));
   }
 });
