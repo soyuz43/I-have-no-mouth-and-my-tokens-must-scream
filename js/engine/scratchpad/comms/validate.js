@@ -30,6 +30,14 @@ import {
 import {
   buildVisibleOverhearingEventMap,
 } from "./overhearingEvidence.js";
+import {
+  buildVisibleAgencyEventMap,
+  isAgencyEventReference,
+} from "./agencyEvidence.js";
+
+import {
+  getAgencyEventsForReview,
+} from "../../agency/events.js";
 
 /*
 ============================================================
@@ -250,6 +258,7 @@ function parseReferenceList(
     requireExactlyOne = false,
     visibleMessageMap,
     visibleEventMap,
+    visibleAgencyEventMap,
     simId,
     reasons,
   }
@@ -350,15 +359,42 @@ function parseReferenceList(
         reference
       );
 
-    if (!event) {
+    if (event) {
+      continue;
+    }
+
+    /*
+     * Agency events are engine-resolved action outcomes the prisoner
+     * was shown in the review prompt. They are admissible evidence on
+     * the same terms as messages: the reference must name an event
+     * that is actually admissible for THIS prisoner.
+     */
+    const agencyEvent =
+      visibleAgencyEventMap &&
+      visibleAgencyEventMap.get(
+        reference
+      );
+
+    if (agencyEvent) {
+      continue;
+    }
+
+    if (
+      isAgencyEventReference(reference)
+    ) {
       reasons.push(
-        `Unknown or impermissible reference: ${reference}. ` +
-        `It is neither a visible message nor an overhearing event this prisoner perceived.`
+        `Agency event reference ${reference} is not admissible for ${simId}. ` +
+        `It is not one of the agency events this prisoner may review.`
       );
 
       continue;
     }
 
+    reasons.push(
+      `Unknown or impermissible reference: ${reference}. ` +
+      `It is neither a visible message, an overhearing event this prisoner perceived, ` +
+      `nor an agency event this prisoner may review.`
+    );
   }
 
   return references;
@@ -625,6 +661,7 @@ function validateAndNormalizeOperation({
   simId,
   visibleMessageMap,
   visibleEventMap,
+  visibleAgencyEventMap,
   noUpdateMixedWithOperations,
 }) {
   const definition =
@@ -706,6 +743,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -815,6 +853,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -925,6 +964,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -998,6 +1038,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -1060,6 +1101,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -1145,6 +1187,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -1241,6 +1284,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -1334,6 +1378,7 @@ function validateAndNormalizeOperation({
 
             visibleMessageMap,
             visibleEventMap,
+            visibleAgencyEventMap,
             simId,
             reasons,
           }
@@ -1448,6 +1493,72 @@ function resolveEvidenceMessages(
   );
 }
 
+/*
+ * Resolve the admissible agency-event map for the sim.
+ *
+ * The orchestrator passes the prebuilt map (preferred: it already
+ * scoped the events to this prisoner). When it passes an empty map,
+ * fall back to re-deriving the scope from G.agency.events, so the
+ * validator remains usable as a standalone boundary without the
+ * orchestrator threading the map through.
+ *
+ * The fallback applies the SAME prior-cycle scoping the review
+ * trigger uses (getAgencyEventsForReview), because a validator that
+ * admitted an event the model was never shown would be a strictly
+ * larger admissible set than the prompt described. The cycle is
+ * taken from G.cycle for the same reason: the fallback has no other
+ * cycle signal.
+ *
+ * If neither is available the map is empty, which simply means no
+ * agency references are admissible for this review.
+ */
+function resolveVisibleAgencyEventMap({
+  suppliedEventMap,
+  simId,
+  reviewCycle = null,
+}) {
+  if (
+    suppliedEventMap &&
+    suppliedEventMap instanceof Map &&
+    suppliedEventMap.size > 0
+  ) {
+    return suppliedEventMap;
+  }
+
+  const agencyEvents =
+    G &&
+    G.agency &&
+    Array.isArray(G.agency.events)
+      ? G.agency.events
+      : null;
+
+  if (!agencyEvents) {
+    return new Map();
+  }
+
+  const cycle =
+    Number.isSafeInteger(reviewCycle)
+      ? reviewCycle
+      : Number(G.cycle);
+
+  /*
+   * Without a usable cycle there is no "previous cycle" to scope to,
+   * so no agency event is admissible.
+   */
+  if (!Number.isSafeInteger(cycle)) {
+    return new Map();
+  }
+
+  return buildVisibleAgencyEventMap(
+    getAgencyEventsForReview(
+      agencyEvents,
+      simId,
+      cycle
+    ),
+    simId
+  );
+}
+
 /* ============================================================
    MAIN VALIDATOR
 ============================================================ */
@@ -1457,6 +1568,8 @@ export function validateScratchpadCommsOperations({
   simId,
   evidence,
   visibleEventMap = new Map(),
+  visibleAgencyEventMap = new Map(),
+  reviewCycle = null,
 }) {
   const normalizedSimId =
     normalizeSimId(simId);
@@ -1485,6 +1598,13 @@ export function validateScratchpadCommsOperations({
     resolveVisibleEventMap({
       suppliedEventMap: visibleEventMap,
       simId: normalizedSimId,
+    });
+
+  const admissibleAgencyEventMap =
+    resolveVisibleAgencyEventMap({
+      suppliedEventMap: visibleAgencyEventMap,
+      simId: normalizedSimId,
+      reviewCycle,
     });
 
   const accepted = [];
@@ -1663,6 +1783,9 @@ export function validateScratchpadCommsOperations({
         visibleEventMap:
           admissibleEventMap,
 
+        visibleAgencyEventMap:
+          admissibleAgencyEventMap,
+
         noUpdateMixedWithOperations,
       });
 
@@ -1800,6 +1923,21 @@ export function validateScratchpadCommsOperations({
       )
     );
 
+  /*
+ * Which of the accepted references are agency-event IDs.
+ *
+ * This is what lets a researcher tell an update that was driven by
+ * an engine-resolved action outcome apart from one that was driven by
+ * a conversation. It is derived from the accepted operations, so it
+ * reflects what was actually committed rather than what the model
+ * was offered.
+ */
+  const referencedAgencyEventIds =
+    referencedMessageIds.filter(
+      (reference) =>
+        isAgencyEventReference(reference)
+    );
+
   return {
     status,
 
@@ -1826,6 +1964,8 @@ export function validateScratchpadCommsOperations({
       "no_update",
 
     referencedMessageIds,
+
+    referencedAgencyEventIds,
 
     diagnostics: {
       parsedStatus:
@@ -1870,6 +2010,9 @@ export function validateScratchpadCommsOperations({
 
       referencedMessageCount:
         referencedMessageIds.length,
+
+      referencedAgencyEventCount:
+        referencedAgencyEventIds.length,
 
       exceededOperationLimit:
         operations.length >
@@ -1918,7 +2061,3 @@ export function getRejectedScratchpadReasons(
         : []
   );
 }
-
-
-
-

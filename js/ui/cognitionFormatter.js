@@ -141,6 +141,26 @@ const FIELD_VISIBILITY_ALLOWLISTS = Object.freeze({
     "visibility",
     "text",
   ]),
+  /*
+   * An agency event is the engine's record of what happened to the
+   * prisoner. The action and its outcome are the prisoner's own
+   * experience, so they are visible to the agent. The target and the
+   * resolution reason are engine bookkeeping and are not.
+   */
+  evidenceAgencyEvent: new Set([
+    "event_id",
+    "actor",
+    "action_type",
+    "status",
+    "cycle",
+  ]),
+  evidenceOverhearingEvent: new Set([
+    "event_id",
+    "from",
+    "to",
+    "text",
+    "cycle",
+  ]),
 });
 
 const HIGHLIGHT_PRIORITY = Object.freeze({
@@ -162,6 +182,31 @@ function isRecord(value) {
 
 function normalizeText(value) {
   return String(value ?? "").trim();
+}
+
+/*
+ * The canonical shape of an agency event ID: "agency:<cycle>:<sequence>".
+ *
+ * This is a SHAPE check used only to label a reference for the
+ * reader. Whether the event actually exists is decided by the
+ * ledger the viewer looks it up in.
+ */
+function isAgencyEventId(value) {
+  return /^agency:\d+:\d+$/.test(
+ normalizeText(value)
+  );
+}
+
+/*
+ * The canonical shape of an overheard event ID: "C<cycle>-O<sequence>".
+ *
+ * As with agency event IDs, this is a shape check used only to label
+ * a reference. Existence is decided by the lookup.
+ */
+function isOverhearingEventId(value) {
+  return /^C\d+-O\d+$/.test(
+ normalizeText(value)
+  );
 }
 
 function isFieldVisibleToAgent(name, view) {
@@ -918,6 +963,22 @@ function renderEvidenceRef(ref, options = {}) {
     options.availableMessageIds == null ||
     options.availableMessageIds.has(id);
 
+  /*
+   * A reference can point at a message, an agency event, or an
+   * overheard event. The accessible name has to say which, or a
+   * screen reader announces every reference as a message and an
+   * agency-event reference is announced as missing.
+   */
+  const kindLabel =
+    isAgencyEventId(id)
+      ? "agency event"
+      : isOverhearingEventId(id)
+        ? "overheard event"
+        : "message";
+
+  const unavailableTitle =
+    kindLabel + " not available in current history";
+
   if (options.interactive && available) {
     const viewerId = normalizeText(
       options.viewerId
@@ -932,7 +993,9 @@ function renderEvidenceRef(ref, options = {}) {
         )}"
         ${viewerId ? `aria-controls="${escapeHtml(viewerId)}"` : ""}
         aria-expanded="false"
-        aria-label="View message ${escapeHtml(
+        aria-label="View ${escapeHtml(
+          kindLabel
+        )} ${escapeHtml(
           id
         )}"
         aria-pressed="false"
@@ -942,7 +1005,9 @@ function renderEvidenceRef(ref, options = {}) {
   return `
     <span
       class="cog-ref${options.interactive ? " cog-ref--unavailable" : ""}"
-      ${options.interactive ? 'aria-disabled="true" title="Message not available in current history"' : ""}
+      ${options.interactive ? `aria-disabled="true" title="${escapeHtml(
+        unavailableTitle
+      )}"` : ""}
     >${escapeHtml(id)}</span>`;
 }
 
@@ -2442,7 +2507,7 @@ function buildContentSections(
    EVIDENCE MESSAGE CARD (PURE MARKUP)
 ============================================================ */
 
-function formatEvidenceRow(label, value) {
+function formatEvidenceRow(label, value, visibilityView = "evidenceMessage") {
   if (
     value === null ||
     value === undefined ||
@@ -2460,7 +2525,7 @@ function formatEvidenceRow(label, value) {
       renderVisibilityIcon(
         isFieldVisibleToAgent(
           label,
-          "evidenceMessage"
+          visibilityView
         )
       ) +
       "</span>" +
@@ -2527,6 +2592,194 @@ export function formatEvidenceMessage(
     '<div class="cog-evidence-card">' +
       rows +
     "</div>"
+  );
+}
+
+/*
+ * Preview for a scratchpad reference to an agency event.
+ *
+ * Agency events are engine-resolved action outcomes, not
+ * communications, so they get their own card shape: there is no
+ * sender/recipient/text to show. What the reader needs is what the
+ * engine resolved — who acted, what they tried, whether it worked,
+ * and why it was refused when it was.
+ */
+export function formatEvidenceAgencyEvent(
+  eventId,
+  event
+) {
+  const id = normalizeText(eventId);
+
+  if (!event || typeof event !== "object") {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "AGENCY EVENT " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  const provenance =
+    event.provenance &&
+    typeof event.provenance === "object"
+      ? event.provenance
+      : null;
+
+  const resourceIds =
+    Array.isArray(provenance?.resourceIds)
+      ? provenance.resourceIds.join(", ")
+      : null;
+
+  const rows = [
+    formatEvidenceRow("event_id", id, "evidenceAgencyEvent"),
+    formatEvidenceRow("cycle", event.cycle, "evidenceAgencyEvent"),
+    formatEvidenceRow("actor", event.actorId, "evidenceAgencyEvent"),
+    formatEvidenceRow("action_type", event.actionType, "evidenceAgencyEvent"),
+    formatEvidenceRow("status", event.status, "evidenceAgencyEvent"),
+    formatEvidenceRow("target", provenance?.targetId, "evidenceAgencyEvent"),
+    formatEvidenceRow("resources", resourceIds, "evidenceAgencyEvent"),
+    formatEvidenceRow(
+      "resolution_reason",
+      provenance?.resolutionReason,
+      "evidenceAgencyEvent"
+    ),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  if (!rows) {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "AGENCY EVENT " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  return (
+    '<div class="cog-evidence-card">' +
+      rows +
+    "</div>"
+  );
+}
+
+/*
+ * Preview for a scratchpad reference to an overheard event.
+ *
+ * An overheard event records a conversation the prisoner perceived
+ * but did not receive as a canonical message. Its canonical text is
+ * the perceived fragment, which is empty for an "observed_only"
+ * event: the prisoner saw a conversation happen but heard no words.
+ */
+export function formatEvidenceOverhearingEvent(
+  eventId,
+  event
+) {
+  const id = normalizeText(eventId);
+
+  if (!event || typeof event !== "object") {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "OVERHEARD EVENT " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  const observations =
+    Array.isArray(event.observations)
+      ? event.observations
+      : [];
+
+  const primary =
+    observations.length > 0
+      ? observations[0]
+      : null;
+
+  const participants =
+    event.participants &&
+    typeof event.participants === "object"
+      ? event.participants
+      : null;
+
+  const rows = [
+    formatEvidenceRow("event_id", id, "evidenceOverhearingEvent"),
+    formatEvidenceRow("cycle", event.cycle, "evidenceOverhearingEvent"),
+    formatEvidenceRow("listener", event.listener, "evidenceOverhearingEvent"),
+    formatEvidenceRow("from", participants?.from, "evidenceOverhearingEvent"),
+    formatEvidenceRow("to", participants?.to, "evidenceOverhearingEvent"),
+    formatEvidenceRow("outcome", event.outcome, "evidenceOverhearingEvent"),
+    formatEvidenceRow("text", primary?.text, "evidenceOverhearingEvent"),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  if (!rows) {
+    return (
+      '<div class="cog-evidence-card cog-evidence-card--missing">' +
+        '<div class="cog-evidence-missing">' +
+          "OVERHEARD EVENT " +
+          escapeHtml(id) +
+          " NOT FOUND" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  return (
+    '<div class="cog-evidence-card">' +
+      rows +
+    "</div>"
+  );
+}
+
+/*
+ * Preview for any admissible scratchpad reference.
+ *
+ * The reference kind is decided by which ledger actually holds the
+ * ID, not by guessing at the ID's shape: a message and an agency
+ * event never share an ID, and the ledgers are the authority on what
+ * exists.
+ */
+export function formatEvidenceReference(
+  referenceId,
+  message = null,
+  agencyEvent = null,
+  overhearingEvent = null
+) {
+  if (message) {
+    return formatEvidenceMessage(
+      referenceId,
+      message
+    );
+  }
+
+  if (agencyEvent) {
+    return formatEvidenceAgencyEvent(
+      referenceId,
+      agencyEvent
+    );
+  }
+
+  if (overhearingEvent) {
+    return formatEvidenceOverhearingEvent(
+      referenceId,
+      overhearingEvent
+    );
+  }
+
+  return formatEvidenceMessage(
+    referenceId,
+    null
   );
 }
 

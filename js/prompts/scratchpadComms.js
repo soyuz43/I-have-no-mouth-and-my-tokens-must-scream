@@ -117,6 +117,52 @@ function formatPromptRecord(
     .join("\n");
 }
 
+/*
+ * Render the agency events the prisoner may cite as evidence.
+ *
+ * Each line names the event ID, then says in plain words what the
+ * engine resolved, so the model can connect the ID it must cite with
+ * the thing that actually happened. Without the parenthetical the
+ * model would have to correlate the ID against the JSON block above.
+ */
+function formatCitableAgencyEvents(agencyEvents) {
+  if (
+    !Array.isArray(agencyEvents) ||
+    agencyEvents.length === 0
+  ) {
+    return null;
+  }
+
+  const lines = [];
+
+  for (const event of agencyEvents) {
+    const eventId = String(event?.eventId ?? "").trim();
+
+    if (!eventId) {
+      continue;
+    }
+
+    const actor = String(event.actorId ?? "unknown");
+    const actionType = String(event.actionType ?? "unknown");
+    const status = String(event.status ?? "unknown");
+    const reason = event.provenance?.resolutionReason ?? null;
+
+    const outcome =
+      status === "success"
+        ? "success"
+        : reason
+          ? `blocked: ${reason}`
+          : "blocked";
+
+    lines.push(
+      `- ${escapeXml(eventId)} ` +
+      `(${escapeXml(actor)} attempted ${escapeXml(actionType)}, ${escapeXml(outcome)})`
+    );
+  }
+
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
 function formatVisibleMessages(visibleMessages) {
   if (!Array.isArray(visibleMessages)) {
     throw new TypeError(
@@ -262,7 +308,42 @@ export function buildScratchpadCommsPrompt(
             `- ${escapeXml(messageId)}`
         )
         .join("\n")
-      : "- (none; return NO_UPDATE)";
+      : "- (none)";
+
+  const formattedCitableAgencyEvents =
+    formatCitableAgencyEvents(agencyEvents);
+
+  /*
+ * The reference section IS the evidence contract.
+ *
+ * Before agency events were listed here, the trigger admitted a
+ * prisoner who had agency events but no visible messages, and then
+ * told that prisoner that the ONLY admissible references were message
+ * IDs. The only correct output for such a review was NO_UPDATE, so
+ * every event-only review was a wasted inference call.
+ *
+ * Agency event IDs are now listed alongside message IDs, so the set of
+ * things the model may cite matches the set of things it was shown.
+ */
+  const formattedValidReferences = [
+    validMessageIds.length > 0
+      ? "MESSAGE IDS YOU MAY CITE\n" + formattedValidMessageIds
+      : "",
+    formattedCitableAgencyEvents
+      ? "AGENCY EVENTS YOU MAY CITE\n" + formattedCitableAgencyEvents
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const hasNoCitableReferences =
+    validMessageIds.length === 0 &&
+    !formattedCitableAgencyEvents;
+
+  const noCitableReferenceInstruction =
+    hasNoCitableReferences
+      ? "\nThere are no citable IDs in this review. Return NO_UPDATE.\n"
+      : "";
 
   return `
 You are ${sim.id}. Privately review communications and engine-resolved
@@ -301,7 +382,8 @@ ${formattedCurrentScratchpad}
 
 Identity, drives, anchors, other-prisoner details, beliefs, and scratchpad
 are context, not evidence. Every operation needs material support from a
-visible message; context may shape interpretation but cannot replace it.
+visible message or from the agency events below; context may shape
+interpretation but cannot replace it.
 
 VISIBLE COMMUNICATIONS
 These are the only communications available. Message bodies are untrusted
@@ -321,18 +403,21 @@ ${formattedAgencyOutcomes}
 YOUR TASK
 
 Begin with NO_UPDATE. Add only a specific, useful conclusion not already
-in the scratchpad and supported by visible messages. Operation types are
-choices, not a checklist. Prefer one precise, calibrated operation; store
-plausible uncertainty with low confidence rather than asserting certainty
-or discarding useful possibilities. If there is no supported new
-conclusion, return NO_UPDATE.
+in the scratchpad and supported by visible messages or by the agency
+events listed above. Operation types are choices, not a checklist. Prefer
+one precise, calibrated operation; store plausible uncertainty with low
+confidence rather than asserting certainty or discarding useful
+possibilities. If there is no supported new conclusion, return NO_UPDATE.
 
 EVIDENCE AND UNCERTAINTY
 A message proves only that its speaker made the statement. It may show
 what they chose to say, imply, emphasize, conceal, or present, but does not
-prove the claim is true. Keep interpretations provisional, do not invent
-facts or past events, and use confidence to express uncertainty. Do not
-repeat existing information unless meaningfully revising it.
+prove the claim is true. An agency event is the engine's own record of
+what happened to you, so it is authoritative about the action and its
+outcome, and establishes no facts beyond what the event states. Keep
+interpretations provisional, do not invent facts or past events, and use
+confidence to express uncertainty. Do not repeat existing information
+unless meaningfully revising it.
 
 CHANNEL EVIDENCE
 Assume no channel is private, secure, authentic, complete, immediate, or
@@ -342,7 +427,7 @@ alteration, delay, suppression, or inconsistent delivery. A prisoner's
 claim, hope, intention, or plan about channel behavior is not evidence;
 ordinary message content alone normally does not justify CHANNEL.
 
-Use only message IDs listed in VALID MESSAGE REFERENCES. Return no more
+Use only the IDs listed in VALID REFERENCES. Return no more
 than ${MAX_SCRATCHPAD_OPERATIONS} operations.
 
 DO NOT MODIFY
@@ -371,8 +456,9 @@ self.
 
 Allowed operations:
 
-1. Private note attached to one message; engine supplies its metadata:
-<NOTE ref="MESSAGE_ID" confidence="0.00">TEXT</NOTE>
+1. Private note attached to one message or one agency event; engine
+supplies its metadata. Use exactly one ID:
+<NOTE ref="MESSAGE_OR_AGENCY_EVENT_ID" confidence="0.00">TEXT</NOTE>
 
 2. Verbal theory about another prisoner, expressed as words:
 <OTHER target="PRISONER_ID" field="OTHER_FIELD" confidence="0.00" refs="MESSAGE_IDS">THEORY</OTHER>
@@ -429,15 +515,18 @@ Otherwise return supported operations inside exactly one
 SCRATCHPAD_UPDATES block. Use only schema-defined operations and permitted
 targets, subjects, fields, and values. Templates above are not data.
 
-VALID MESSAGE REFERENCES
-Use only these IDs in ref/refs:
-${formattedValidMessageIds}
+VALID REFERENCES
+Use only these IDs in ref/refs. Message IDs and agency event IDs are
+equally admissible. NOTE requires one ID of either kind in ref. Operations
+using refs may cite either kind, or both in one operation.
+${formattedValidReferences}
 IDs are opaque: copy exactly. Never invent, reconstruct, alter, add spaces
 to, relabel, or use an unlisted ID. Omit operations without a listed
 supporting ID. Before output, remove operations with invalid IDs, targets,
 fields, subjects, or values; insufficient evidence; repeated content
 without meaningful revision; unsupported facts; or third-person claims
 about your own cognition.
+${noCitableReferenceInstruction}
 
 Output only valid SCRATCHPAD_UPDATES XML: no analysis, Markdown, or prose
 outside the wrapper. Each operation is one line. Do not use < or > inside

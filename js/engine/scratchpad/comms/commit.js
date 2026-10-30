@@ -13,6 +13,14 @@ import {
 } from "./overhearingEvidence.js";
 
 import {
+  buildVisibleAgencyEventMap,
+} from "./agencyEvidence.js";
+
+import {
+  getAgencyEventsForReview,
+} from "../../agency/events.js";
+
+import {
   generatePhysicalStateUpdate,
 } from "../physicalState.js";
 
@@ -149,6 +157,34 @@ function resolveEvidenceMessages(evidence) {
 
   throw new TypeError(
     "commitScratchpadCommsOperations expected evidence or evidence.messages to be an array."
+  );
+}
+
+/*
+ * The agency events a prisoner may review in a given cycle.
+ *
+ * This is the review trigger's own scoping, applied here so a
+ * standalone commit resolves exactly the events the review prompt
+ * showed. The review cycle is the cycle the commit belongs to, and
+ * the trigger shows the PREVIOUS cycle's events.
+ */
+function resolveReviewAgencyEvents(
+  events,
+  simId,
+  cycle
+) {
+  if (!Array.isArray(events)) {
+    return [];
+  }
+
+  if (!Number.isSafeInteger(cycle)) {
+    return [];
+  }
+
+  return getAgencyEventsForReview(
+    events,
+    simId,
+    cycle
   );
 }
 
@@ -389,6 +425,7 @@ function applyNoteOperation({
   operation,
   messageMap,
   eventMap,
+  agencyEventMap,
   changedPaths,
 }) {
   const message =
@@ -403,10 +440,25 @@ function applyNoteOperation({
         )
       : null;
 
-  if (!message && !event) {
+  const agencyEvent =
+    !message &&
+    !event &&
+    agencyEventMap
+      ? agencyEventMap.get(
+          operation.messageId
+        )
+      : null;
+
+  if (
+    !message &&
+    !event &&
+    !agencyEvent
+  ) {
     throw new Error(
-      "Validated NOTE references unavailable message or overhearing event " +
-      String(operation.messageId) + "."
+      "Validated NOTE references unavailable message, overhearing event, " +
+      "or agency event " +
+        String(operation.messageId) +
+        "."
     );
   }
 
@@ -439,6 +491,12 @@ function applyNoteOperation({
    * stable. perceivedText is null for "observed_only" events, which is
    * correct: the prisoner may record that a conversation occurred
    * without quoting words they never heard.
+   *
+   * When the note cites an agency event (an engine-resolved action
+   * outcome the prisoner experienced), the record describes the
+   * ACTION rather than a conversation: the actor is the prisoner
+   * themselves, and the channel marks it as an experienced outcome
+   * rather than something that was said to them.
    */
   const source = message
     ? {
@@ -454,16 +512,29 @@ function applyNoteOperation({
           message.intent ??
           null,
       }
-    : {
-        messageId: event.eventId,
-        sequence: event.sequence,
-        cycle: event.cycle,
-        from: event.participants.from,
-        to: [event.participants.to],
-        visibility: "overheard",
-        kind: event.sourceKind || "MESSAGE",
-        intent: null,
-      };
+    : event
+      ? {
+          messageId: event.eventId,
+          sequence: event.sequence,
+          cycle: event.cycle,
+          from: event.participants.from,
+          to: [event.participants.to],
+          visibility: "overheard",
+          kind: event.sourceKind || "MESSAGE",
+          intent: null,
+        }
+      : {
+          messageId: agencyEvent.eventId,
+          sequence: agencyEvent.actionSequence,
+          cycle: agencyEvent.cycle,
+          from: agencyEvent.actorId,
+          to: agencyEvent.targetId
+            ? [agencyEvent.targetId]
+            : [],
+          visibility: "agency",
+          kind: agencyEvent.actionType || "ACTION",
+          intent: null,
+        };
 
   const note = {
     messageId: source.messageId,
@@ -475,7 +546,11 @@ function applyNoteOperation({
     kind: source.kind,
     intent: source.intent,
     sourceEventId:
-      event && !message ? event.eventId : null,
+      event && !message
+        ? event.eventId
+        : agencyEvent && !message && !event
+          ? agencyEvent.eventId
+          : null,
     note: operation.text,
     confidence: operation.confidence,
   };
@@ -1286,6 +1361,7 @@ function applyOperation({
   scratchpad,
   operation,
   eventMap,
+  agencyEventMap,
   messageMap,
   cycle,
   changedPaths,
@@ -1299,6 +1375,7 @@ function applyOperation({
         operation,
         messageMap,
         eventMap,
+        agencyEventMap,
         changedPaths,
       });
 
@@ -1380,6 +1457,7 @@ export function commitScratchpadCommsOperations({
   validationResult,
   evidence,
   cycle = G.cycle,
+  visibleAgencyEventMap = null,
 }) {
   const normalizedSimId =
     normalizeSimId(simId);
@@ -1449,6 +1527,33 @@ export function commitScratchpadCommsOperations({
       normalizedSimId
     );
 
+    /*
+     * Admissible agency events for this prisoner, used only by NOTE
+     * operations that cite an agency event ID rather than a messageId
+     * or an overheard event ID.
+     *
+     * The orchestrator passes the map it validated against, so the
+     * commit resolves exactly the set of events the model was allowed
+     * to cite. When it passes nothing, the map is re-derived from
+     * G.agency.events so the commit remains usable standalone.
+     *
+     * The fallback applies the SAME prior-cycle scoping the review
+     * trigger uses (getAgencyEventsForReview), so a standalone commit
+     * cannot resolve an event the model was never shown.
+     */
+    const agencyEventMap =
+      visibleAgencyEventMap instanceof Map &&
+      visibleAgencyEventMap.size > 0
+        ? visibleAgencyEventMap
+        : buildVisibleAgencyEventMap(
+            resolveReviewAgencyEvents(
+              G.agency?.events,
+              normalizedSimId,
+              cycle
+            ),
+            normalizedSimId
+          );
+
     const currentScratchpad =
       sim.scratchpad;
 
@@ -1515,6 +1620,7 @@ export function commitScratchpadCommsOperations({
 
           operation,
           eventMap,
+          agencyEventMap,
           messageMap,
           cycle,
           changedPaths,
