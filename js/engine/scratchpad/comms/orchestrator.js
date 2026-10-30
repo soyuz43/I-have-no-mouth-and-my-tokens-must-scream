@@ -11,6 +11,10 @@ import { getAgencyEventsForReview } from "../../agency/events.js";
 import { getFreshClaimDivergenceEntries } from "../../agency/claimLedger.js";
 
 import {
+  buildVisibleAgencyEventMap,
+} from "./agencyEvidence.js";
+
+import {
   collectVisibleMessagesForScratchpad,
 } from "./visibility.js";
 import {
@@ -152,6 +156,15 @@ function appendScratchpadReviewLog(result, modelAudit = null) {
     operationReports: result.commitResult?.operationReports ?? [],
     acceptedOperations: result.validationResult?.accepted ?? [],
     rejectedOperations: result.validationResult?.rejected ?? [],
+    referencedAgencyEventIds: [
+      ...(
+        Array.isArray(
+          result.validationResult?.referencedAgencyEventIds
+        )
+          ? result.validationResult.referencedAgencyEventIds
+          : []
+      ),
+    ],
     evidence: cloneValue(
       result.evidence == null
         ? null
@@ -1084,6 +1097,20 @@ export async function runScratchpadCommsReviewForSim(
       normalizedSimId,
       normalizedCycle
     );
+
+    /*
+     * The admissible agency-event references for this prisoner.
+     *
+     * This is built from exactly the events the prompt shows, so the
+     * set the model was shown and the set it may cite are the same
+     * set. The validator receives it so it does not have to re-derive
+     * the scope from G.
+     */
+    const agencyEventMap =
+      buildVisibleAgencyEventMap(
+        agencyEvents,
+        normalizedSimId
+      );
     const resourceInterventionEvents = Array.isArray(
       G.pendingEvidence?.resourceInterventions?.[normalizedSimId]
     )
@@ -1301,6 +1328,12 @@ export async function runScratchpadCommsReviewForSim(
           normalizedSimId,
 
         evidence,
+
+        visibleAgencyEventMap:
+          agencyEventMap,
+
+        reviewCycle:
+          normalizedCycle,
       });
 
     logScratchpadValidation({
@@ -1382,6 +1415,14 @@ export async function runScratchpadCommsReviewForSim(
 
         validationResult,
         evidence,
+
+        /*
+         * The same map the validator accepted against, so the commit
+         * resolves exactly the agency events the model was allowed to
+         * cite.
+         */
+        visibleAgencyEventMap:
+          agencyEventMap,
 
         cycle:
           normalizedCycle,

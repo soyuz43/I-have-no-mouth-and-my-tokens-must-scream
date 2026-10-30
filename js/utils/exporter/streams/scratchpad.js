@@ -46,6 +46,19 @@ export function recordScratchpadReviews(G, cycle) {
       model_request: cloneValue(review.modelRequest ?? {}),
       visible_message_count: review.visibleMessageCount ?? 0,
       evidence_message_ids: cloneValue(review.messageIds ?? []),
+
+      /*
+       * The agency events the accepted operations actually cited.
+       *
+       * A researcher can compare this against
+       * `evidence_message_ids` to tell a scratchpad update that was
+       * driven by an engine-resolved action outcome apart from one
+       * that was driven by a conversation.
+       */
+      referenced_agency_event_ids: cloneValue(
+        review.referencedAgencyEventIds ?? []
+      ),
+
       cursor_before: review.cursorBefore ?? null,
       cursor_after: review.cursorAfter ?? null,
       parsed_operation_count: review.parsedOperationCount ?? 0,
