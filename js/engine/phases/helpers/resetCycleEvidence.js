@@ -18,7 +18,6 @@ export function resetCycleEvidence() {
   };
   G.pendingEvidence.resourceInterventions ??= Object.create(null);
   G.pendingEvidence.exposures ??= Object.create(null);
-  G.pendingEvidence.scratchpadReviewLog ??= [];
 
   /*
    * Capability-Ledger Entanglement records are written by the
@@ -60,6 +59,11 @@ export function resetCycleEvidence() {
   }
 
   G.pendingEvidence.exposures = nextExposures;
+  /*
+   * The review carrier must always be an array. A non-array value
+   * causes recordScratchpadReviews() to silently drop records.
+   */
+  G.pendingEvidence.scratchpadReviewLog = [];
 
   console.debug(
     `[EVIDENCE RESET][Cycle ${G.cycle}] pending evidence cleared`

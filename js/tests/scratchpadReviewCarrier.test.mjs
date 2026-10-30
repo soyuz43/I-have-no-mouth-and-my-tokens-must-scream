@@ -90,7 +90,8 @@ test("review outcomes are carried for export and cleared by the cycle reset", as
 
     resetCycleEvidence();
 
-    assert.deepEqual(G.pendingEvidence.scratchpadReviewLog, Object.create(null));
+    assert.ok(Array.isArray(G.pendingEvidence.scratchpadReviewLog));
+    assert.deepEqual(G.pendingEvidence.scratchpadReviewLog, []);
   } finally {
     if (originalCallModel === undefined) {
       delete globalThis.callModel;

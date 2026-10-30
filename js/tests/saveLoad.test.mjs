@@ -423,6 +423,79 @@ test("importState keeps a recovered run id across the next cycle", async () => {
   assert.equal(Exporter.overviewHistory.length, 1);
 });
 
+test("importState survives a failed boot-cycle export", async () => {
+  const singletonBefore = {
+    runId: Exporter.runId,
+    buffers: Exporter.buffers,
+    overviewHistory: Exporter.overviewHistory,
+    lastCompletedCycle: Exporter.lastCompletedCycle,
+    createObjectURL: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
+    revokeObjectURL: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL"),
+  };
+
+  const game = {
+    cycle: 0,
+    autoRunning: false,
+    sims: { TED: {} },
+  };
+
+  const save = JSON.stringify({
+    schemaVersion: 1,
+    engineVersion: "1.0.0",
+    savedAt: 123,
+    cycle: 0,
+    G: {
+      cycle: 0,
+      sims: { TED: {} },
+      pendingEvidence: {
+        scratchpadReviewLog: [
+          {
+            simId: "TED",
+            cycle: 0,
+            status: "no_update",
+            stage: "complete",
+          },
+        ],
+      },
+    },
+    Exporter: {
+      buffers: { state: [] },
+    },
+  });
+
+  try {
+    Exporter.runId = null;
+    Exporter.buffers = Object.fromEntries(
+      Object.keys(singletonBefore.buffers).map((stream) => [stream, []]),
+    );
+    Exporter.overviewHistory = [];
+    Exporter.lastCompletedCycle = null;
+    URL.createObjectURL = () => {
+      throw new Error("export download unavailable");
+    };
+
+    await importState(save, { game, exporter: Exporter });
+
+    assert.equal(game._exporterInitialized, true);
+    assert.ok(Exporter.runId, "Restored exporter must receive a run id.");
+  } finally {
+    Exporter.runId = singletonBefore.runId;
+    Exporter.buffers = singletonBefore.buffers;
+    Exporter.overviewHistory = singletonBefore.overviewHistory;
+    Exporter.lastCompletedCycle = singletonBefore.lastCompletedCycle;
+    if (singletonBefore.createObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", singletonBefore.createObjectURL);
+    } else {
+      delete URL.createObjectURL;
+    }
+    if (singletonBefore.revokeObjectURL) {
+      Object.defineProperty(URL, "revokeObjectURL", singletonBefore.revokeObjectURL);
+    } else {
+      delete URL.revokeObjectURL;
+    }
+  }
+});
+
 test("heavy populated simulation state and exporter telemetry round-trip intact", async () => {
   const originalGameProperties = Object.getOwnPropertyDescriptors(G);
   const originalExporterProperties = Object.getOwnPropertyDescriptors(Exporter);

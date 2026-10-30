@@ -301,7 +301,7 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
      * a buffer. Normalize before the recorders run so the export
      * payload always carries every stream key.
      */
-    ensureExportBuffers(Exporter.buffers);
+    Exporter.buffers = ensureExportBuffers(Exporter.buffers);
 
     const exportData = {
         schema_version: EXPORT_SCHEMA_VERSION,
@@ -473,7 +473,7 @@ export function finalizeCycle(G, metrics) {
      * a buffer. Normalize before any recorder runs, because the
      * recorders push into these arrays directly.
      */
-    ensureExportBuffers(Exporter.buffers);
+    Exporter.buffers = ensureExportBuffers(Exporter.buffers);
 
     recordState(G, cycle);
     recordDynamics(G, cycle);
@@ -571,11 +571,15 @@ export function exportBootCycleReviews(G, exporter = Exporter) {
         exporter.runId = `am_run_${Date.now()}`;
     }
 
-    finalizeCycle(G, {
-        entropy: G?.lastEntropy,
-        variance: G?.lastVariance,
-        mean: G?.lastMean,
-    });
+    try {
+        finalizeCycle(G, {
+            entropy: G?.lastEntropy,
+            variance: G?.lastVariance,
+            mean: G?.lastMean,
+        });
+    } catch (err) {
+        console.error("[EXPORTER] boot cycle export failed:", err);
+    }
 
     return true;
 }
