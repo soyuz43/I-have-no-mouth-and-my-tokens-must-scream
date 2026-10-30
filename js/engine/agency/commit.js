@@ -19,6 +19,7 @@ import {
   recordGoalEvent,
   GOAL_EVENT_KINDS
 } from "./goalEventLog.js";
+import { appendAttentionFlag } from "./attentionFlags.js";
 
 const MAX_GOAL_HISTORY = 5;
 const RESOURCE_DISCOVERY_CHANCE = 0.3;
@@ -455,15 +456,37 @@ export function commitAgencyResolution(
     for (const instance of heldResources) {
       if (engineRng.next() >= RESOURCE_DISCOVERY_CHANCE) continue;
 
-      G.pendingResourceDiscoveries.push({
+      /*
+       * The roll and the capability-concealment rule write to the
+       * same attention channel, so both go through the same writer.
+       * The writer deduplicates on cycle + actor + resource, which
+       * matters here: an item exposed earlier in this cycle by the
+       * concealment rule is already flagged, and the roll must not
+       * add a second flag for the same attention event.
+       *
+       * The RNG is consumed above, BEFORE the duplicate check, so
+       * the roll's draw sequence is unchanged by whether the flag
+       * was already raised. Deduplication must not perturb the
+       * deterministic random stream.
+       */
+      const raised = appendAttentionFlag(G, {
         cycle: G.cycle,
         actorId,
         resourceId: instance.resourceId,
         definitionId: instance.definitionId
       });
-      console.debug(
-        `[AGENCY] AM attention drawn to ${instance.definitionId} held by ${actorId}`
-      );
+
+      /*
+       * The line reports an attention event, so it is only emitted
+       * when a flag was actually inserted. A suppressed duplicate
+       * means the resource was already salient, and logging it as
+       * a fresh draw would misreport what happened.
+       */
+      if (raised) {
+        console.debug(
+          `[AGENCY] AM attention drawn to ${instance.definitionId} held by ${actorId}`
+        );
+      }
     }
   }
 

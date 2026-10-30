@@ -96,6 +96,8 @@ import { refreshClaimDivergence } from "./claimLedger.js";
 
 import { getResourceDefinition } from "./resourceDefs.js";
 
+import { appendAttentionFlag } from "./attentionFlags.js";
+
 /* ============================================================
    FAILURE BANDS
 ============================================================ */
@@ -479,6 +481,50 @@ export function commitConcealmentExposures(
       cause: "capability_degradation",
       capabilityKey: reasonParts[1] ?? null,
       band: reasonParts[2] ?? null
+    });
+
+    /*
+     * THE ATTENTION FLAG
+     * -------------------
+     * The exposure makes the item VISIBLE. AM can see the item in
+     * its material-state prompt, but "AM can see it" and "AM may
+     * act on it" are different questions: the resource-intervention
+     * assessment gate only opens for a held resource that carries
+     * a recent attention flag.
+     *
+     * Without this flag, an exposed item would sit in AM's prompt
+     * and be inactionable. The feedback loop this rule exists to
+     * close would stop one step short:
+     *
+     *   torture -> capability loss -> concealment fails -> item
+     *   exposed -> AM SEES it but may not ASSESS it.
+     *
+     * The flag is raised through the SAME pending channel the
+     * attention roll writes to, so it reaches the recent channel
+     * through the normal cycle handoff and needs no second path.
+     *
+     * It is deterministic: no randomness is consumed, and the
+     * exposure itself is deterministic.
+     *
+     * `actorId` is the HOLDER, not the engine. The flag describes
+     * whose holdings AM should look at, which is the same meaning
+     * the attention roll gives the field.
+     *
+     * ORDERING
+     * --------
+     * The flag is raised only after the exposure decision is final:
+     * the Objective Ledger has already recorded the EXPOSURE event,
+     * the instance is already marked unconcealed, and the local
+     * record has already been appended to `records`. The record
+     * array and the flag are part of the SAME commit batch, so the
+     * flag never describes an exposure the engine might not commit.
+     */
+    appendAttentionFlag(G, {
+      cycle,
+      actorId: holderId,
+      resourceId: instance.resourceId,
+      definitionId: instance.definitionId,
+      source: RESOURCE_EVENT_KINDS.EXPOSURE
     });
   }
 
