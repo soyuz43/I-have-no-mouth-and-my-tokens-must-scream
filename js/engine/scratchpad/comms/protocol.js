@@ -1,6 +1,9 @@
 // js/engine/scratchpad/comms/protocol.js
 
 import { SIM_IDS } from "../../../core/constants.js";
+import {
+  getAllResourceDefinitionIds,
+} from "../../agency/resourceDefs.js";
 
 /*
 ============================================================
@@ -20,10 +23,20 @@ It does not parse model output or mutate simulation state.
 ============================================================
 */
 
-// Bumped for the content-addressed PREDICTION_RESOLVE operation.
-// The scratchpad schema version is unchanged because the operation
-// only addresses prediction lifecycle fields that already exist.
-export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 3;
+// Bumped for the RESOURCE_CLAIM operation.
+//
+// The scratchpad schema version is unchanged: the operation writes to
+// the OPTIONAL `resourceBeliefs` collection, which a scratchpad that
+// predates it simply does not have. A save written before this
+// operation existed therefore still loads, and a scratchpad without
+// the collection is a valid scratchpad.
+//
+// The protocol version IS bumped, because the set of operations the
+// model may emit has changed. A model that learned the version 3
+// operation set will never emit RESOURCE_CLAIM, and one that has not
+// been taught it will have its output rejected rather than silently
+// ignored.
+export const SCRATCHPAD_COMMS_PROTOCOL_VERSION = 4;
 
 export const SCRATCHPAD_UPDATES_WRAPPER =
   "SCRATCHPAD_UPDATES";
@@ -38,6 +51,20 @@ export const MAX_PREDICTION_HORIZON = 12;
 export const CONFIDENCE_RANGE = Object.freeze({
   min: 0,
   max: 1,
+});
+
+/*
+ * The claimed quantity in a RESOURCE_CLAIM.
+ *
+ * Resources are tracked as whole units in both ledgers, so the
+ * claimed count is an integer. The ceiling is a sanity bound that
+ * keeps a malformed or hallucinated count from being stored; the
+ * REAL bound on a claim is the speaker's own belief, and that clamp
+ * is applied at commit time.
+ */
+export const RESOURCE_CLAIM_QUANTITY_RANGE = Object.freeze({
+  min: 0,
+  max: 99,
 });
 
 export const SCORE_VALUE_RANGE = Object.freeze({
@@ -58,6 +85,7 @@ export const SCRATCHPAD_OPERATION_TAGS = Object.freeze([
   "PREDICTION",
   "PREDICTION_RESOLVE",
   "CHANNEL",
+  "RESOURCE_CLAIM",
   "NO_UPDATE",
 ]);
 
@@ -283,6 +311,47 @@ export const SCRATCHPAD_OPERATION_DEFINITIONS =
       textRequired: true,
     }),
 
+    /*
+     * RESOURCE_CLAIM is TESTIMONY: a prisoner states what they
+     * personally hold, and the listener forms a belief about the
+     * speaker's holdings.
+     *
+     * `about` is the SPEAKER. The claim is about what the speaker
+     * holds, and the engine requires the cited message's sender to
+     * be that same speaker, so the operation is first-hand by
+     * construction: a prisoner cannot testify about a third party.
+     *
+     * `definition` is a resource DEFINITION, not a stack id. A
+     * belief about holdings is tracked per definition, matching the
+     * way the subjective ledger tracks a prisoner's own holdings.
+     *
+     * `quantity` is the claimed count. It is CLAMPED at commit time
+     * to what the speaker themselves believe they hold, so a speaker
+     * may overstate but never beyond their own belief.
+     *
+     * `ref` is exactly one message id: the message the testimony
+     * came from. The same reference-grounding machinery as NOTE
+     * applies, so an invisible or unknown message is rejected.
+     *
+     * The operation has no text body: the testimony IS the message.
+     */
+    RESOURCE_CLAIM: Object.freeze({
+      type: "resource_claim",
+
+      requiredAttributes: Object.freeze([
+        "about",
+        "definition",
+        "quantity",
+        "confidence",
+        "ref",
+      ]),
+
+      optionalAttributes: Object.freeze([]),
+
+      referenceAttribute: "ref",
+      textRequired: false,
+    }),
+
     NO_UPDATE: Object.freeze({
       type: "no_update",
 
@@ -397,5 +466,18 @@ export function isAllowedChannelField(
 export function isAllowedBooleanValue(value) {
   return SCRATCHPAD_BOOLEAN_VALUES.includes(
     String(value ?? "").trim().toLowerCase()
+  );
+}
+
+/*
+ * Whether a value names a resource definition a RESOURCE_CLAIM may
+ * talk about.
+ *
+ * The catalogue is the source of truth. A definition that does not
+ * exist cannot be believed to be held, so naming one is rejected.
+ */
+export function isAllowedResourceClaimDefinition(value) {
+  return getAllResourceDefinitionIds().includes(
+    String(value ?? "").trim()
   );
 }

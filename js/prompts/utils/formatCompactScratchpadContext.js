@@ -21,6 +21,11 @@
 // observability for prompt-injection auditing and does not change the
 // prisoner-facing text or any runtime state.
 
+import {
+  getResourceLabel,
+  pluralizeLabel,
+} from "./formatResourceLanguage.js";
+
 const OTHER_FIELDS = [
   "perceivedGoal",
   "perceivedViewOfMe",
@@ -121,6 +126,97 @@ function formatPersonModel(scratchpad, prisonerId) {
   }
 
   return { text: lines.join("\n"), fields };
+}
+
+/*
+ * What the prisoner BELIEVES a peer holds, learned from that peer's
+ * own testimony.
+ *
+ * This is rendered for the SPECIFIC peer being addressed, because a
+ * belief about what ELLEN holds is only useful when speaking TO
+ * ELLEN. It is deliberately separate from the person model above:
+ * that one is a social impression (goal, trust, predictability),
+ * while this one is a concrete, sourced claim about possessions.
+ *
+ * A belief formed from testimony is clamped to what the speaker
+ * themselves believed, so it may be wrong. The prisoner does not
+ * know that, and neither does this renderer: it reports what the
+ * prisoner believes, which is the whole point.
+ *
+ * Returns "" when there is nothing to report, so the caller can omit
+ * the section entirely.
+ */
+function formatResourceBeliefsCompact(scratchpad, targetId) {
+  const models =
+    scratchpad.resourceBeliefs &&
+    typeof scratchpad.resourceBeliefs === "object"
+      ? scratchpad.resourceBeliefs
+      : {};
+
+  const beliefs = models[targetId];
+
+  if (!beliefs || typeof beliefs !== "object") {
+    return { text: "", definitions: [] };
+  }
+
+  const definitions =
+    Object.keys(beliefs)
+      .filter((definitionId) => {
+        const belief = beliefs[definitionId];
+
+        return (
+          belief &&
+          typeof belief === "object" &&
+          Number.isFinite(Number(belief.quantity))
+        );
+      })
+      .sort();
+
+  if (definitions.length === 0) {
+    return { text: "", definitions: [] };
+  }
+
+  const lines = definitions.map((definitionId) => {
+    const belief = beliefs[definitionId];
+    const quantity = Number(belief.quantity);
+    const confidence = Number.isFinite(Number(belief.confidence))
+      ? Number(belief.confidence)
+      : 0;
+
+    const noun = getResourceLabel(definitionId);
+
+    /*
+     * The label is pluralized properly here: "match" becomes
+     * "matches", not "matchs". Appending "s" blindly produced a
+     * nonsense word in a prompt the model reads as fact.
+     *
+     * A belief of zero renders as "0 cigarettes" rather than as
+     * "no cigarette": the belief exists, and the count is what
+     * the prisoner believes, so it keeps the same numeric shape
+     * as every other count.
+     */
+    const phrase =
+      quantity === 1
+        ? `1 ${noun}`
+        : `${quantity} ${pluralizeLabel(noun)}`;
+
+    let line = `- You believe ${targetId} holds ${phrase}.`;
+
+    if (confidence >= 0.8) {
+      line += " You are sure of this.";
+    } else if (confidence >= 0.4) {
+      line += " You are not entirely sure.";
+    } else {
+      line += " You are far from sure.";
+    }
+
+    return line;
+  });
+
+  return {
+    text: lines.join("\n"),
+    definitions
+  };
 }
 
 function formatChannelBeliefsCompact(scratchpad) {
@@ -352,6 +448,33 @@ export function formatCompactScratchpadContextWithSections(
       renderedTexts.push(
         `What you believe about the others:\n${parts.join("\n\n")}`
       );
+    }
+  }
+
+  /*
+   * What the prisoner believes the addressed peer HOLDS, learned
+   * from that peer's own testimony.
+   *
+   * This is rendered only for the peer being addressed. A belief
+   * about what ELLEN holds is actionable only when speaking TO
+   * ELLEN, and rendering every peer's holdings into every prompt
+   * would dump state the prisoner has no reason to hold.
+   */
+  if (targetId) {
+    const {
+      text: resourceBlock,
+      definitions,
+    } = formatResourceBeliefsCompact(scratchpad, targetId);
+
+    if (resourceBlock) {
+      renderedTexts.push(
+        `What you believe ${targetId} is carrying:\n${resourceBlock}`
+      );
+      sections.push({
+        section: "resourceBeliefs",
+        targetId,
+        definitions,
+      });
     }
   }
 

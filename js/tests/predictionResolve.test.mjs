@@ -72,8 +72,8 @@ function validateSingle(operation) {
   });
 }
 
-test("PREDICTION_RESOLVE is registered with protocol version 3", () => {
-  assert.equal(SCRATCHPAD_COMMS_PROTOCOL_VERSION, 3);
+test("PREDICTION_RESOLVE is registered with the current protocol version", () => {
+  assert.equal(SCRATCHPAD_COMMS_PROTOCOL_VERSION, 4);
   assert.ok(
     SCRATCHPAD_OPERATION_TAGS.includes(
       "PREDICTION_RESOLVE"

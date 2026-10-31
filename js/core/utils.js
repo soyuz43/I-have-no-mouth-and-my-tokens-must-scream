@@ -768,6 +768,43 @@ export function makeScratchpad(id) {
     physicalLimitations: [],
 
     /*
+     * Beliefs about a PEER's holdings, formed from that peer's own
+     * testimony.
+     *
+     * Shape:
+     *
+     * {
+     *   [targetId]: {
+     *     [definitionId]: {
+     *       quantity,      // clamped to the speaker's own belief
+     *       confidence,    // the listener's confidence in the testimony
+     *       evidence,      // the message ids the testimony came from
+     *       sourceId,      // the cited message id
+     *       updatedCycle
+     *     }
+     *   }
+     * }
+     *
+     * WHY THIS IS NOT THE SUBJECTIVE LEDGER
+     * -------------------------------------
+     * `claimState` is EGOCENTRIC: it records what a prisoner believes
+     * they PERSONALLY hold, and a divergence is the gap between that
+     * belief and the truth about their own pockets.
+     *
+     * A belief about what somebody ELSE holds is a different kind of
+     * thing. Writing it into `claimState` would not record "ELLEN
+     * believes TED has 3 cigarettes"; it would record "ELLEN believes
+     * SHE holds 3 cigarettes", which manufactures a false divergence
+     * naming TED's stack and would license ELLEN to reach for a
+     * resource she does not hold.
+     *
+     * So this collection is deliberately SEPARATE. It produces no
+     * claim event, no divergence, and no action license, and it is
+     * never shown to AM.
+     */
+    resourceBeliefs: {},
+
+    /*
      * Progressive awareness of anomalies and the possible nature
      * of the simulation.
      *

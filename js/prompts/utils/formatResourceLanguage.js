@@ -23,11 +23,28 @@ export function formatQuantityPhrase(quantity, label) {
     return `no ${label}`;
   }
 
-  const plural = /[sx]$|(?:ch|sh)$/i.test(label)
-    ? `${label}es`
-    : `${label}s`;
+  const plural = pluralizeLabel(label);
 
   return count === 1 ? `1 ${label}` : `${count} ${plural}`;
+}
+
+/*
+ * The plural form of a resource label.
+ *
+ * English does not simply add "s": "match" becomes "matches" and
+ * "cigarette" becomes "cigarettes". Appending "s" blindly
+ * produces "matchs", which is wrong in a prompt the model reads as
+ * fact about its own world.
+ *
+ * This is the pluralization rule the rest of the prompt layer
+ * already uses (see the resource-intervention and exposure
+ * formatters), so extracting it here gives every caller ONE
+ * pluralization rule instead of a copy per site.
+ */
+export function pluralizeLabel(label) {
+  return /[sx]$|(?:ch|sh)$/i.test(label)
+    ? `${label}es`
+    : `${label}s`;
 }
 
 export function collectInventory(inventory) {

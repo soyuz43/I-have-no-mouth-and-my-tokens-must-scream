@@ -33,6 +33,12 @@ export const PROMPT_SCAFFOLD_MARKER_SETS = Object.freeze({
         /<\s*OTHER\b/i,
         /\btarget\s*=\s*["']PRISONER_ID["']/i,
         /\bfield\s*=\s*["']perceivedGoal["']/i
+      ],
+      [
+        /<\s*SCRATCHPAD_UPDATES\b/i,
+        /<\s*RESOURCE_CLAIM\b/i,
+        /\babout\s*=\s*["']PRISONER_ID["']/i,
+        /\bdefinition\s*=\s*["']RESOURCE_ID["']/i
       ]
     ]
   }),

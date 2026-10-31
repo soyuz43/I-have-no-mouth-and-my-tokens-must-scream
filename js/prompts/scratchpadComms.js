@@ -5,12 +5,14 @@ import {
   MAX_PREDICTION_HORIZON,
   MAX_SCRATCHPAD_OPERATIONS,
   MIN_PREDICTION_HORIZON,
+  RESOURCE_CLAIM_QUANTITY_RANGE,
   SCRATCHPAD_COMMS_PROTOCOL_VERSION,
 } from "../engine/scratchpad/comms/protocol.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
 import { formatScratchpadContext } from "./utils/formatScratchpadContext.js";
 import { formatAgencyOutcomes } from "./utils/formatAgencyOutcome.js";
 import { getFreshClaimDivergenceEntries } from "../engine/agency/claimLedger.js";
+import { getAllResourceDefinitionIds } from "../engine/agency/resourceDefs.js";
 
 /*
 ============================================================
@@ -505,6 +507,17 @@ Public fields: visibleToAM, visibleToOtherPrisoners, canBeAlteredByAM,
 canBeDelayedOrSuppressed. Private fields: visibleToAM,
 visibleToNonRecipients, canBeAlteredByAM, canBeDelayedOrSuppressed.
 channel must be public or private; value must be exactly true or false.
+
+7. Testimony: what a speaker said they personally hold. about is the
+SPEAKER, definition is a resource, quantity is how many they said.
+Use this only when a prisoner states what THEY hold. The engine caps
+quantity at what that speaker actually believes they hold, so a
+speaker may overstate but never past their own belief.
+quantity must be a whole number from ${RESOURCE_CLAIM_QUANTITY_RANGE.min} to ${RESOURCE_CLAIM_QUANTITY_RANGE.max}; a larger number is rejected before the cap applies.
+<RESOURCE_CLAIM about="PRISONER_ID" definition="RESOURCE_ID" quantity="INTEGER (${RESOURCE_CLAIM_QUANTITY_RANGE.min} to ${RESOURCE_CLAIM_QUANTITY_RANGE.max})" confidence="0.00" ref="MESSAGE_ID"></RESOURCE_CLAIM>
+ref must be exactly one message id, and it must be a message sent by
+about. You may not claim what some third party holds.
+Allowed definitions: ${getAllResourceDefinitionIds().join(", ")}.
 
 If nothing deserves storage, return:
 <SCRATCHPAD_UPDATES>
