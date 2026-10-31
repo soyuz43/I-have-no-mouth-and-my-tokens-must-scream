@@ -235,19 +235,50 @@ export function computeJournalOptimizationMetrics({
    * This is the cost of the failure, not a saving. It is computed
    * from the calls the phase actually issued, so it reflects what
    * was really spent rather than an assumption that every failed
-   * journal cost exactly two calls. A stats call that threw cost
-   * one; a failure after both calls returned cost two.
+   * journal cost exactly two calls. A narrative call that threw
+   * cost one; a failure after both calls returned cost two.
    *
-   * It is bounded above by the calls a full pipeline would have
-   * cost, so a miscount cannot inflate it.
+   * The COMPLETED journals' calls are subtracted out first.
+   * `modelCallsMade` is the cycle total across every prisoner, so
+   * it includes the calls of the journals that succeeded. Those
+   * calls were spent on WORK THAT WORKED, not on a failure, and
+   * counting them as wasted would inflate the number whenever a
+   * cycle mixed a completed journal with a failed one.
+   *
+   * The subtraction is exact for the completed journals: a journal
+   * that completed made BOTH calls, because the forensic stats call
+   * only runs after the narrative call returns. What remains is
+   * the calls made by the journals that failed.
+   *
+   * The result is bounded above by the calls a full failed pipeline
+   * would have cost, so a miscount cannot inflate it.
    */
   const failedPipelineCalls =
     failedJournals * MODEL_CALLS_PER_JOURNAL;
 
+  /*
+   * The calls made by the journals that completed.
+   */
+  const completedPipelineCalls =
+    prisonersWhoJournaled * MODEL_CALLS_PER_JOURNAL;
+
+  /*
+   * The calls made by the journals that FAILED.
+   *
+   * This is the total minus what the completed journals cost.
+   * Clamped at zero, because the two counts come from independent
+   * sources and a mismatch between them must not produce a
+   * negative population.
+   */
+  const failedCallsIssued = Math.max(
+    0,
+    (Number(modelCallsMade) || 0) - completedPipelineCalls
+  );
+
   const llmCallsWastedOnFailures = Math.max(
     0,
     Math.min(
-      Number(modelCallsMade) || 0,
+      failedCallsIssued,
       failedPipelineCalls
     )
   );

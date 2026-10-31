@@ -869,6 +869,77 @@ test("the wasted-call count is bounded by the calls actually issued", () => {
   );
 });
 
+test("a completed journal's calls are not counted as wasted", () => {
+  /*
+   * The mixed case: ELLEN completes her journal (two calls), while
+   * NIMDOK's narrative call throws (one call issued, then failure).
+   *
+   * The cycle made THREE calls in total. Only ONE of them was
+   * wasted - NIMDOK's. ELLEN's two calls were spent on work that
+   * worked.
+   *
+   * `modelCallsMade` is the cycle TOTAL, so it includes the
+   * completed journal's calls. Subtracting the completed pipeline
+   * first is what keeps those calls from being attributed to the
+   * failure.
+   */
+  const metrics = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: true },
+      ELLEN: { shouldJournal: true },
+      NIMDOK: { shouldJournal: true }
+    },
+    journaledIds: ["ELLEN"],
+    prisonerIds: ["TED", "ELLEN", "NIMDOK"],
+    modelCallsMade: 3,
+    cycle: 11
+  });
+
+  assert.equal(metrics.prisonersWhoJournaled, 1);
+  assert.equal(metrics.failedJournals, 2);
+  assert.equal(metrics.modelCallsMade, 3);
+
+  assert.equal(
+    metrics.llmCallsWastedOnFailures,
+    1,
+    "only NIMDOK's one failed call was wasted"
+  );
+});
+
+test("a completed journal's calls do not inflate the waste count", () => {
+  /*
+   * The same mixed case, with the completed journal's two calls
+   * dominating the total. The old formula took the minimum of the
+   * cycle total and the failed pipeline cost, which reported TWO
+   * wasted calls when only ONE was wasted.
+   *
+   * Two failed journals, each with one issued call, alongside one
+   * completed journal that made two.
+   */
+  const metrics = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: true },
+      ELLEN: { shouldJournal: true },
+      NIMDOK: { shouldJournal: true },
+      GORRISTER: { shouldJournal: true }
+    },
+    journaledIds: ["ELLEN"],
+    prisonerIds: ["TED", "ELLEN", "NIMDOK", "GORRISTER"],
+    modelCallsMade: 4,
+    cycle: 12
+  });
+
+  assert.equal(metrics.prisonersWhoJournaled, 1);
+  assert.equal(metrics.failedJournals, 3);
+  assert.equal(metrics.modelCallsMade, 4);
+
+  assert.equal(
+    metrics.llmCallsWastedOnFailures,
+    2,
+    "only the two failed narrative calls were wasted, not the completed journal's two"
+  );
+});
+
 test("the telemetry reports the issued calls back", () => {
   const metrics = computeJournalOptimizationMetrics({
     decisions: {},
