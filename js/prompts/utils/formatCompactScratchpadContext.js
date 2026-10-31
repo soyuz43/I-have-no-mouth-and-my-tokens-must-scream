@@ -23,6 +23,7 @@
 
 import {
   getResourceLabel,
+  pluralizeLabel,
 } from "./formatResourceLanguage.js";
 
 const OTHER_FIELDS = [
@@ -184,10 +185,20 @@ function formatResourceBeliefsCompact(scratchpad, targetId) {
 
     const noun = getResourceLabel(definitionId);
 
+    /*
+     * The label is pluralized properly here: "match" becomes
+     * "matches", not "matchs". Appending "s" blindly produced a
+     * nonsense word in a prompt the model reads as fact.
+     *
+     * A belief of zero renders as "0 cigarettes" rather than as
+     * "no cigarette": the belief exists, and the count is what
+     * the prisoner believes, so it keeps the same numeric shape
+     * as every other count.
+     */
     const phrase =
       quantity === 1
         ? `1 ${noun}`
-        : `${quantity} ${noun}s`;
+        : `${quantity} ${pluralizeLabel(noun)}`;
 
     let line = `- You believe ${targetId} holds ${phrase}.`;
 

@@ -5,6 +5,7 @@ import {
   MAX_PREDICTION_HORIZON,
   MAX_SCRATCHPAD_OPERATIONS,
   MIN_PREDICTION_HORIZON,
+  RESOURCE_CLAIM_QUANTITY_RANGE,
   SCRATCHPAD_COMMS_PROTOCOL_VERSION,
 } from "../engine/scratchpad/comms/protocol.js";
 import { buildPromptContext } from "./utils/buildPromptContext.js";
@@ -512,7 +513,8 @@ SPEAKER, definition is a resource, quantity is how many they said.
 Use this only when a prisoner states what THEY hold. The engine caps
 quantity at what that speaker actually believes they hold, so a
 speaker may overstate but never past their own belief.
-<RESOURCE_CLAIM about="PRISONER_ID" definition="RESOURCE_ID" quantity="INTEGER" confidence="0.00" ref="MESSAGE_ID"></RESOURCE_CLAIM>
+quantity must be a whole number from ${RESOURCE_CLAIM_QUANTITY_RANGE.min} to ${RESOURCE_CLAIM_QUANTITY_RANGE.max}; a larger number is rejected before the cap applies.
+<RESOURCE_CLAIM about="PRISONER_ID" definition="RESOURCE_ID" quantity="INTEGER (${RESOURCE_CLAIM_QUANTITY_RANGE.min} to ${RESOURCE_CLAIM_QUANTITY_RANGE.max})" confidence="0.00" ref="MESSAGE_ID"></RESOURCE_CLAIM>
 ref must be exactly one message id, and it must be a message sent by
 about. You may not claim what some third party holds.
 Allowed definitions: ${getAllResourceDefinitionIds().join(", ")}.

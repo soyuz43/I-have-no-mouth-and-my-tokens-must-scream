@@ -49,6 +49,18 @@ import {
   formatCompactScratchpadContextWithSections,
 } from "../prompts/utils/formatCompactScratchpadContext.js";
 
+import {
+  RESOURCE_CLAIM_QUANTITY_RANGE,
+} from "../engine/scratchpad/comms/protocol.js";
+
+import {
+  formatScratchpadContext,
+} from "../prompts/utils/formatScratchpadContext.js";
+
+import {
+  buildScratchpadCommsPrompt,
+} from "../prompts/scratchpadComms.js";
+
 import { G } from "../core/state.js";
 import { SIM_IDS } from "../core/constants.js";
 import { makeScratchpad } from "../core/utils.js";
@@ -106,6 +118,7 @@ function makeState() {
 
 function makeMessage({
   messageId = "C5-M000001",
+  sequence = 1,
   from = "TED",
   to = ["ELLEN"],
   visibility = "private",
@@ -113,7 +126,7 @@ function makeMessage({
 } = {}) {
   return {
     messageId,
-    sequence: 1,
+    sequence,
     cycle: 5,
     kind: "MESSAGE",
     from,
@@ -817,28 +830,128 @@ test("a testimony never writes to the objective ledger", () => {
 test("a scratchpad without resourceBeliefs is valid", () => {
   /*
    * A save written before this feature existed has no such
-   * collection. It must still load and still commit.
+   * collection. It must still load and still commit a claim, and
+   * the commit must create the collection rather than fail.
+   *
+   * The old version of this test deleted the field from a DETACHED
+   * copy of the scratchpad and asserted that the copy was truthy,
+   * which said nothing about the engine: any object is truthy.
    */
+  const state = makeState();
+
+  delete state.sims.ELLEN.scratchpad.resourceBeliefs;
+
   const result = commitClaim(
-    claimXml()
+    claimXml(),
+    { state }
   );
 
-  const legacy = { ...result.scratchpad };
-  delete legacy.resourceBeliefs;
+  assert.equal(
+    result.commitResult.committed,
+    true
+  );
 
-  assert.ok(legacy);
+  assert.ok(result.scratchpad.resourceBeliefs);
+  assert.equal(
+    result.scratchpad.resourceBeliefs
+      .TED.cigarette.quantity,
+    3
+  );
 });
 
 test("a later claim replaces the earlier belief for the same pair", () => {
+  /*
+   * The collection holds a CURRENT belief per (target, definition),
+   * not an append-only history. A second testimony about the same
+   * pair must REPLACE the first one entirely, not merge with it.
+   *
+   * The old test committed one claim and asserted its own value, so
+   * it passed whether or not replacement worked at all. This one
+   * commits two claims against the SAME state and asserts that the
+   * second fully supersedes the first.
+   */
+  const state = makeState();
+
   const first = commitClaim(
-    claimXml({ quantity: 1, ref: "C5-M000001" }),
-    { evidence: [makeMessage({ messageId: "C5-M000001" })] }
+    claimXml({
+      quantity: 1,
+      confidence: 0.3,
+      ref: "C5-M000001",
+    }),
+    {
+      state,
+      evidence: [
+        makeMessage({
+          messageId: "C5-M000001",
+          sequence: 1,
+        }),
+      ],
+    }
   );
 
   assert.equal(
     first.scratchpad.resourceBeliefs
       .TED.cigarette.quantity,
     1
+  );
+  assert.equal(
+    first.scratchpad.resourceBeliefs
+      .TED.cigarette.confidence,
+    0.3
+  );
+  assert.equal(
+    first.scratchpad.resourceBeliefs
+      .TED.cigarette.sourceId,
+    "C5-M000001"
+  );
+
+  const second = commitClaim(
+    claimXml({
+      quantity: 2,
+      confidence: 0.9,
+      ref: "C5-M000002",
+    }),
+    {
+      state,
+      evidence: [
+        makeMessage({
+          messageId: "C5-M000001",
+          sequence: 1,
+        }),
+        makeMessage({
+          messageId: "C5-M000002",
+          sequence: 2,
+          text: "I have 2 cigarettes.",
+        }),
+      ],
+    }
+  );
+
+  const belief =
+    second.scratchpad.resourceBeliefs
+      .TED.cigarette;
+
+  assert.ok(belief);
+
+  /*
+   * The second claim replaced the first: quantity, confidence and
+   * source all come from the SECOND testimony, and the first
+   * testimony's id is gone from the record entirely.
+   */
+  assert.equal(belief.quantity, 2);
+  assert.equal(belief.confidence, 0.9);
+  assert.equal(belief.sourceId, "C5-M000002");
+  assert.deepEqual(belief.evidence, ["C5-M000002"]);
+
+  /*
+   * The pair is still a SINGLE slot: the collection holds one
+   * belief per definition, not an array of the two testimonies.
+   */
+  assert.deepEqual(
+    Object.keys(
+      second.scratchpad.resourceBeliefs.TED
+    ),
+    ["cigarette"]
   );
 });
 
@@ -976,5 +1089,191 @@ test("the belief is not shown when speaking to someone else", () => {
       (entry) => entry.section === "resourceBeliefs"
     ),
     undefined
+  );
+});
+
+/* ============================================================
+   L) THE REVIEW CONTEXT (NO DIARY AMNESIA)
+============================================================ */
+
+test("the review prompt shows the prisoner their own recorded peer beliefs", () => {
+  /*
+   * Without this the review prompt shows a prisoner a scratchpad
+   * they cannot remember: the beliefs they formed are written and
+   * then never read back, so the model cannot see its own notes.
+   */
+  const result = commitClaim(
+    claimXml({ confidence: 0.8 })
+  );
+
+  const context = formatScratchpadContext(
+    { id: "ELLEN", scratchpad: result.scratchpad },
+    [],
+    [],
+    [],
+    []
+  );
+
+  assert.match(
+    context,
+    /\[YOUR RECORDED PEER BELIEFS\]/
+  );
+  assert.match(
+    context,
+    /You believe TED holds 3 cigarettes \(confidence 0\.8, source: C5-M000001\)/
+  );
+});
+
+test("the review prompt omits the beliefs block when there are none", () => {
+  const context = formatScratchpadContext(
+    { id: "ELLEN", scratchpad: makeScratchpad("ELLEN") },
+    [],
+    [],
+    [],
+    []
+  );
+
+  assert.doesNotMatch(
+    context,
+    /\[YOUR RECORDED PEER BELIEFS\]/
+  );
+});
+
+test("the review prompt shows only the reviewing prisoner's own beliefs", () => {
+  /*
+   * A belief lives in the LISTENER's scratchpad. Another prisoner's
+   * beliefs live in that prisoner's scratchpad, and reading them
+   * here would cross the isolation boundary between prisoners.
+   */
+  const ellen = commitClaim(claimXml()).scratchpad;
+
+  const tedContext = formatScratchpadContext(
+    { id: "TED", scratchpad: makeScratchpad("TED") },
+    [],
+    [],
+    [],
+    []
+  );
+
+  assert.doesNotMatch(
+    tedContext,
+    /\[YOUR RECORDED PEER BELIEFS\]/
+  );
+
+  const ellenContext = formatScratchpadContext(
+    { id: "ELLEN", scratchpad: ellen },
+    [],
+    [],
+    [],
+    []
+  );
+
+  assert.match(
+    ellenContext,
+    /You believe TED holds 3 cigarettes/
+  );
+});
+
+test("the review prompt renders a definition whose label needs an es plural", () => {
+  /*
+   * The scratchpad is built directly rather than committed through
+   * the engine: this test is about how a LABEL is rendered, and
+   * the clamp would otherwise reduce the count to whatever TED
+   * believes he holds.
+   */
+  const scratchpad = makeScratchpad("ELLEN");
+
+  scratchpad.resourceBeliefs = {
+    TED: {
+      match: {
+        quantity: 2,
+        confidence: 0.8,
+        sourceId: "C5-M000001",
+        evidence: ["C5-M000001"],
+        updatedCycle: 5,
+      },
+    },
+  };
+
+  const context = formatScratchpadContext(
+    { id: "ELLEN", scratchpad },
+    [],
+    [],
+    [],
+    []
+  );
+
+  assert.match(
+    context,
+    /You believe TED holds 2 matches/
+  );
+  assert.doesNotMatch(context, /matchs/);
+});
+
+/* ============================================================
+   M) PLURALIZATION
+============================================================ */
+
+test("the speech prompt pluralizes a match stack correctly", () => {
+  /*
+   * "match" + "s" is "matchs", which is not a word. The prompt is
+   * read by a model as fact about its own world, so the plural has
+   * to be right.
+   */
+  const sim = {
+    id: "ELLEN",
+    scratchpad: {
+      initialized: true,
+      resourceBeliefs: {
+        TED: {
+          match: { quantity: 2, confidence: 0.8 },
+        },
+      },
+    },
+  };
+
+  const { text } =
+    formatCompactScratchpadContextWithSections(
+      sim,
+      { targetId: "TED" }
+    );
+
+  assert.match(text, /holds 2 matches/);
+  assert.doesNotMatch(text, /matchs/);
+});
+
+/* ============================================================
+   N) THE PROMPT STATES THE QUANTITY RANGE
+============================================================ */
+
+test("the prompt states the enforced quantity range", () => {
+  /*
+   * The validator rejects a quantity above the ceiling before the
+   * subjective clamp ever runs. If the prompt does not say so, the
+   * model can follow the prompt exactly and still be rejected.
+   */
+  const prompt = buildScratchpadCommsPrompt(
+    { id: "ELLEN" },
+    []
+  );
+
+  assert.match(
+    prompt,
+    /quantity="INTEGER \(0 to 99\)"/
+  );
+  assert.match(
+    prompt,
+    /whole number from 0 to 99/
+  );
+});
+
+test("the quantity range in the prompt matches the validator's range", () => {
+  assert.equal(
+    RESOURCE_CLAIM_QUANTITY_RANGE.min,
+    0
+  );
+  assert.equal(
+    RESOURCE_CLAIM_QUANTITY_RANGE.max,
+    99
   );
 });
