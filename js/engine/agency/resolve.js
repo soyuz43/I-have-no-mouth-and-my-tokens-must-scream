@@ -252,6 +252,26 @@ function resolveOne(proposal, snapshot, claims, cycle) {
     return base;
   }
 
+  /*
+   * PREPARE_JOURNAL is a COGNITIVE action with no resource and no
+   * capability requirement.
+   *
+   * It produces no operations and no stat effects of its own: the
+   * benefit it buys is delivered by the psychology phase, which
+   * applies the processing bonus to the journal it produces. The
+   * resolver's job here is only to ACCEPT the choice and let the
+   * canonical agency event record it.
+   *
+   * The action carries no `effects` block, so `collectEffects`
+   * contributes nothing and the prisoner is not credited with a
+   * stat change here. The hope recovery is a journal-phase
+   * mechanic, and crediting it in both places would double-count
+   * it.
+   */
+  if (actionType === "PREPARE_JOURNAL") {
+    return base;
+  }
+
   if (actionType === "SEARCH") {
     const sim = snapshot.sims?.[actorId];
     if (!meetsActionRequirements(actionType, sim)) {

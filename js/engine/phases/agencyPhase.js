@@ -52,6 +52,9 @@ import {
 } from "../agency/resourceLedger.js";
 import { formatAgencySummary } from "../agency/formatAgencySummary.js";
 import { deriveActionBudget } from "../agency/budget.js";
+import {
+  FOCUS_PREPARATION_EVIDENCE_KEY
+} from "../psychology/journalGate.js";
 import { collectAgencyProposal } from "../agency/proposal.js";
 import { getTier1Goal } from "../scratchpad/goals/registry.js";
 import {
@@ -345,6 +348,50 @@ export async function runAgencyPhase({
       selectedObjective: proposals[index]?.selectedObjective
     }))
   });
+
+  /*
+   * THE FOCUS PREPARATION BRIDGE
+   * ----------------------------
+   * A prisoner who resolved a PREPARE_JOURNAL action has bought a
+   * focused journal. The record is written to the pending-evidence
+   * channel, and the psychology phase reads it in the NEXT cycle.
+   *
+   * The next cycle is not an accident. The psychology phase runs
+   * BEFORE the agency phase in the cycle pipeline, so the choice
+   * made in cycle N cannot affect the journal for cycle N. The
+   * channel is carried across the cycle boundary by
+   * resetCycleEvidence(), exactly as the concealment-exposure
+   * records are.
+   *
+   * ONLY a successful resolution is recorded. A refused attempt -
+   * no budget, or the action not being legal for that prisoner -
+   * bought nothing, and recording it would grant a journal nobody
+   * paid for.
+   */
+  G.pendingEvidence ??= {};
+  G.pendingEvidence[FOCUS_PREPARATION_EVIDENCE_KEY] ??=
+    Object.create(null);
+
+  for (const resolution of resolutions) {
+    if (resolution?.status !== "success") continue;
+    if (resolution?.action?.type !== "PREPARE_JOURNAL") continue;
+
+    const actorId = resolution.actorId;
+
+    if (typeof actorId !== "string" || actorId.length === 0) {
+      continue;
+    }
+
+    G.pendingEvidence[FOCUS_PREPARATION_EVIDENCE_KEY][actorId] = {
+      cycle: G.cycle,
+      action: "PREPARE_JOURNAL",
+      budgetConsumed: Number(resolution.cost) || 0
+    };
+
+    console.debug(
+      `[AGENCY][${actorId}] prepared a focused journal (next cycle)`
+    );
+  }
 
   const proposalsByActor = new Map(
     proposals.map((proposal) => [proposal.actorId, proposal])

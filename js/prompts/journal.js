@@ -136,7 +136,53 @@ function normalizeAmActionText(amAction) {
     return null;
 }
 
-export function buildSimJournalPrompt(sim, amAction) {
+/*
+ * The INTENTIONAL REFLECTION section.
+ *
+ * Returned as an empty string when the prisoner did not choose to
+ * reflect, so the prompt is byte-identical to the historical prompt
+ * for every stimulus-driven journal. That matters: the prompt is
+ * part of the reproducible run record, and a section that appeared
+ * or vanished for unrelated reasons would change every journal in
+ * the run.
+ */
+function buildIntentionalReflectionSection(
+    intentionalReflection
+) {
+    if (!intentionalReflection) {
+        return "";
+    }
+
+    return `
+---
+
+# INTENTIONAL REFLECTION
+
+You chose to spend time in focused reflection this cycle. This was a deliberate
+decision to process recent events and stabilize your psychological state.
+
+Your mind is actively working through what happened, seeking clarity and emotional
+balance. This focused attention gives you a chance to:
+
+- Reassess your situation with fresh eyes
+- Process difficult emotions before they overwhelm you
+- Identify what truly matters right now
+- Find small sources of hope or stability
+
+This reflection is not passive — it is an act of psychological self-care.
+`.replace(/\n$/, "");
+}
+
+export function buildSimJournalPrompt(
+    sim,
+    amAction,
+    options = {}
+) {
+    const intentionalReflectionSection =
+        buildIntentionalReflectionSection(
+            options?.intentionalReflection === true
+        );
+
     const prevJ = G.journals[sim.id]
         .slice(-2)
         .map(
@@ -346,7 +392,7 @@ Do not manufacture a stylized literary voice.
 
 Character distinction should come from reasoning habits, blind spots, priorities, and attention—not decorative metaphor or generalized suffering language.
 
-${immediateCatalystSection}
+${immediateCatalystSection}${intentionalReflectionSection}
 
 ---
 # CURRENT PSYCHOLOGICAL STATE

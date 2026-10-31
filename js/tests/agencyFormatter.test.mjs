@@ -168,12 +168,23 @@ test("summary omits BLOCKED/CONSTR when those lists are empty", () => {
 
   assert.deepEqual(
     legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
+    [
+      "WAIT",
+      "OBSERVE",
+      "SMOKE",
+      "TRANSFER",
+      "HIDE",
+      "REVEAL",
+      "SEARCH",
+      "CONSUME",
+      "PREPARE_JOURNAL"
+    ]
   );
   assert.equal(lines.length, 2, "empty sections should not add summary lines");
   assert.equal(
     lines[0],
-    "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, REVEAL, SEARCH, CONSUME"
+    "AVAILABLE (legal): WAIT, OBSERVE, SMOKE, TRANSFER, HIDE, REVEAL, " +
+    "SEARCH, CONSUME, PREPARE_JOURNAL"
   );
   assert.equal(
     lines[1],
@@ -1067,7 +1078,7 @@ test("real derivation flows through both new surfaces unchanged", () => {
    */
   assert.equal(
     summary,
-    "AVAILABLE (legal): WAIT, OBSERVE\n" +
+    "AVAILABLE (legal): WAIT, OBSERVE, PREPARE_JOURNAL\n" +
     "BLOCKED (unavailable): SMOKE handUse(0.2), interactionReach(0.2) " +
     "modes:strained|deliberate, " +
     "TRANSFER handUse(0.3), interactionReach(0.3), " +

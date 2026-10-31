@@ -1,5 +1,9 @@
 import { G } from "../../../core/state.js";
 
+import {
+  FOCUS_PREPARATION_EVIDENCE_KEY
+} from "../../psychology/journalGate.js";
+
 export function resetCycleEvidence() {
   G.pendingPsychEvidence = Object.create(null);
   G.recentResourceDiscoveries = Array.isArray(G.pendingResourceDiscoveries)
@@ -18,6 +22,9 @@ export function resetCycleEvidence() {
   };
   G.pendingEvidence.resourceInterventions ??= Object.create(null);
   G.pendingEvidence.exposures ??= Object.create(null);
+  G.pendingEvidence[
+    FOCUS_PREPARATION_EVIDENCE_KEY
+  ] ??= Object.create(null);
 
   /*
    * Capability-Ledger Entanglement records are written by the
@@ -34,6 +41,10 @@ export function resetCycleEvidence() {
    * situation.
    */
   const carriedExposures = G.pendingEvidence.exposures;
+  const carriedJournalPreparations =
+    G.pendingEvidence[
+      FOCUS_PREPARATION_EVIDENCE_KEY
+    ];
   const previousCycle = Number.isFinite(Number(G.cycle))
     ? Number(G.cycle) - 1
     : null;
@@ -54,11 +65,45 @@ export function resetCycleEvidence() {
     }
   }
 
+  /*
+   * The same carry-forward applies to a prisoner's FOCUS
+   * PREPARATION, and for the same reason.
+   *
+   * The agency phase runs AFTER the psychology phase, so the
+   * preparation a prisoner buys in cycle N is written after the
+   * cycle N journal was already decided. It therefore has to
+   * SURVIVE this reset in order to be read by cycle N+1's
+   * psychology phase.
+   *
+   * Only the previous cycle's preparation is carried forward. A
+   * preparation from an older cycle has already been consumed, and
+   * carrying it would let one action credit buy more than one
+   * journal.
+   */
+  const nextJournalPreparations = Object.create(null);
+
+  for (const [simId, record] of Object.entries(
+    carriedJournalPreparations ?? {}
+  )) {
+    if (!record || typeof record !== "object") continue;
+
+    if (
+      previousCycle === null ||
+      Number(record?.cycle) === previousCycle
+    ) {
+      nextJournalPreparations[simId] = { ...record };
+    }
+  }
+
   for (const key of Object.keys(G.pendingEvidence)) {
     G.pendingEvidence[key] = Object.create(null);
   }
 
   G.pendingEvidence.exposures = nextExposures;
+  G.pendingEvidence[
+    FOCUS_PREPARATION_EVIDENCE_KEY
+  ] =
+    nextJournalPreparations;
   /*
    * The review carrier must always be an array. A non-array value
    * causes recordScratchpadReviews() to silently drop records.
