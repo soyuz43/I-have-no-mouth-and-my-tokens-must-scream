@@ -127,12 +127,26 @@ async function withPhase({ cycle, constraints }, body) {
   const previousCycle = G.cycle;
   const previousAgency = G.agency;
   const previousTimeline = G.timeline;
-  const previousConstraints = {};
-  const previousScratchpads = {};
+  const previousSims = {};
 
   for (const simId of SIM_IDS) {
-    previousConstraints[simId] = G.sims[simId].constraints;
-    previousScratchpads[simId] = structuredClone(G.sims[simId].scratchpad);
+    /*
+     * Snapshot the ENTIRE sim, not just the two fields the phase reads.
+     *
+     * Running the phase mutates more than the derived views. An
+     * accepted WAIT increments `sim.waitStreak` in commit.js, and a
+     * second consecutive wait additionally applies a hope/suffering
+     * penalty. Restoring only `constraints` and `scratchpad` would
+     * leave `waitStreak` (and any stat deltas) behind, so a later
+     * `withPhase` case would start from a non-zero streak and diverge
+     * on its very first wait.
+     *
+     * The whole sim is cloned and the entry is REPLACED on restore.
+     * Replacement rather than field-by-field re-assignment matters:
+     * `waitStreak` is absent on a fresh sim and ADDED by the phase, so
+     * an Object.assign-style restore would leave the added key behind.
+     */
+    previousSims[simId] = structuredClone(G.sims[simId]);
 
     if (!G.sims[simId].scratchpad.activeGoal) {
       G.sims[simId].scratchpad.activeGoal = { ...TIER1_GOALS[0] };
@@ -153,8 +167,7 @@ async function withPhase({ cycle, constraints }, body) {
     G.timeline = previousTimeline;
 
     for (const simId of SIM_IDS) {
-      G.sims[simId].constraints = previousConstraints[simId];
-      G.sims[simId].scratchpad = previousScratchpads[simId];
+      G.sims[simId] = previousSims[simId];
     }
 
     restoreDom();
