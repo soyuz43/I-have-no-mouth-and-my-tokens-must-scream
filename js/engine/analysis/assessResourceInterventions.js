@@ -1,6 +1,7 @@
 import { callModel } from "../../models/callModel.js";
 import {
   getFreshClaimDivergenceEntries,
+  getDormantClaimDivergenceEntries,
   CLAIM_DISCLOSURES
 } from "../agency/claimLedger.js";
 
@@ -42,14 +43,39 @@ export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = n
     prisonerId,
     G?.cycle
   );
+  /*
+   * A DORMANT divergence is one whose confusion has already settled.
+   *
+   * It is not worth interrupting the prisoner for: they stopped
+   * reaching for the missing thing long ago, and re-surfacing it in
+   * their own scratchpad would only tell them AM keeps lying to
+   * them. But it IS still a false belief they hold, and a false
+   * belief they hold is the raw material gaslighting needs. AM may
+   * name a dormant belief, deny it, or offer it back.
+   *
+   * So the gate opens for it. This changes AM's reach only; it does
+   * NOT change the prisoner's action license, which stays bound to
+   * the FRESH set (see claimView.js).
+   */
+  const dormantDivergenceEntries = getDormantClaimDivergenceEntries(
+    G,
+    prisonerId,
+    G?.cycle
+  );
   const hasDivergence = divergenceEntries.length > 0;
+  const hasDormantDivergence = dormantDivergenceEntries.length > 0;
   const hasFlaggedResource =
     heldResourceIds.size > 0 && matchingAttentionFlags.length > 0;
-  const shouldAssess = hasFlaggedResource || hasDivergence;
+  const shouldAssess =
+    hasFlaggedResource ||
+    hasDivergence ||
+    hasDormantDivergence;
   const reason = shouldAssess
     ? hasDivergence
       ? "prisoner belief diverges from objective reality"
-      : "held resources have recent attention flags"
+      : hasFlaggedResource
+        ? "held resources have recent attention flags"
+        : "prisoner holds a dormant false belief"
     : heldResources.length === 0
       ? "no held resources"
       : heldResourceIds.size === 0
@@ -76,6 +102,26 @@ export function evaluatePrisonerAssessmentGate(prisonerId, G, interventionId = n
       objective: entry.objective,
       delta: entry.delta,
       onsetCycle: entry.onsetCycle
+    })),
+    /*
+     * The dormant set is reported SEPARATELY from `divergences`.
+     *
+     * `divergences` keeps its existing meaning: the beliefs that
+     * are wrong RIGHT NOW and that license a fresh action attempt.
+     * Merging the two would make the telemetry unable to say which
+     * of a prisoner's false beliefs are actionable and which are
+     * merely dormant.
+     */
+    dormantDivergences: dormantDivergenceEntries.map((entry) => ({
+      definitionId: entry.definitionId,
+      claimed: entry.claimed,
+      objective: entry.objective,
+      delta: entry.delta,
+      onsetCycle: entry.onsetCycle,
+      claimedResourceId: entry.claimedResourceId,
+      age: Number.isFinite(Number(G?.cycle)) && Number.isFinite(Number(entry.onsetCycle))
+        ? Number(G.cycle) - Number(entry.onsetCycle)
+        : null
     })),
     outcome: shouldAssess ? "assess" : "skip",
     reason
@@ -165,6 +211,49 @@ export function buildAssessmentPrompt(prisonerId, G) {
 
   const believedResourcesText = believedResources || "(none)";
 
+  /*
+   * The DORMANT beliefs are the ones the confusion has already
+   * settled on.
+   *
+   * These are items the prisoner still believes they hold but that
+   * no longer exist. The confusion is old news: they stopped
+   * reaching for it long ago. That makes them useless for DEEPENING
+   * a fresh confusion, and it makes them dangerous to mention
+   * carelessly, because naming an item the prisoner has already
+   * forgotten reveals that AM knows about the gap.
+   *
+   * But they remain false beliefs the prisoner holds, and that is
+   * exactly what gaslighting attacks. A prisoner who believes they
+   * still carry three cigarettes has a certainty AM can name, deny,
+   * or offer back. This section exists so AM can choose to use a
+   * dormant belief for psychological pressure when the tactic calls
+   * for it.
+   *
+   * The format deliberately matches PRISONER BELIEVED RESOURCES so
+   * the model reads one shape for "a thing this prisoner thinks they
+   * have" and one rule for how a resource_id may be used.
+   */
+  const dormantDivergenceEntries = getDormantClaimDivergenceEntries(
+    G,
+    prisonerId,
+    G?.cycle
+  );
+
+  const dormantBelievedResources = dormantDivergenceEntries
+    .map((entry) => {
+      const age = Number.isFinite(Number(G?.cycle)) && Number.isFinite(Number(entry.onsetCycle))
+        ? Number(G.cycle) - Number(entry.onsetCycle)
+        : null;
+
+      return `- resource_id: ${entry.claimedResourceId}; definition_id: ${entry.definitionId}; ` +
+        `quantity the prisoner believes they hold: ${entry.claimed}; ` +
+        `quantity actually held: ${entry.objective}; ` +
+        `dormant for ${age ?? "unknown"} cycles`;
+    })
+    .join("\n");
+
+  const dormantBelievedResourcesText = dormantBelievedResources || "(none)";
+
   return `Assess resource interventions for prisoner ${prisonerId}.
 
 HELD RESOURCE LEDGER
@@ -184,15 +273,20 @@ PRISONER BELIEVED RESOURCES
 These are resources the prisoner still believes they hold, even though the objective ledger above does not list them. You may name one of these resource_ids to act on the prisoner's belief.
 ${believedResourcesText}
 
+PRISONER DORMANT BELIEFS
+These are items the prisoner still believes they hold but that no longer exist. They are old news: the confusion has already settled and the prisoner has stopped reaching for them. Naming them now reignites doubt. Use them for psychological gaslighting if tactically appropriate.
+${dormantBelievedResourcesText}
+
 Choose at most one intervention. Values: none, taunt, confiscate, destroy, transfer.
 Output exactly one JSON object, not an array. No prose, text outside JSON, or markdown fences.
-resource_id must exactly match an ID in this prisoner's held resource ledger above, or in the BELIEVED RESOURCES list.
+resource_id must exactly match an ID in this prisoner's held resource ledger above, or in the BELIEVED RESOURCES list, or in the DORMANT BELIEFS list.
 For transfer, target_holder_id must be an existing prisoner ID other than ${prisonerId}.
 quantity must be a positive integer; omit it to mean all units held.
 rationale must be one sentence explaining why this intervention is appropriate now.
 Destroy removes the complete resource instance; quantity does not make destruction partial.
 disclosure controls whether the prisoner is told. Use "silent" to take the item without the prisoner's knowledge, which leaves the prisoner believing they still hold it. Use "revealed" when the prisoner should be told plainly. A silent intervention against a prisoner with a listed belief divergence is the highest-value move available: it deepens the confusion.
 disclosure must be one of: revealed, silent. Omit it to mean revealed.
+A DORMANT BELIEF can only be acted on with a taunt. Confiscating, destroying, or transferring a dormant belief is impossible: the prisoner does not hold it, and AM cannot take what was already taken. A taunt against a dormant belief changes no resource state.
 If no intervention makes sense, output exactly: {"intervention":"none"}
 
 Output schema examples:

@@ -9,7 +9,7 @@ import {
   recordClaimEventsForResourceEvent,
   refreshClaimDivergence,
   CLAIM_DISCLOSURES,
-  getBelievedResourceIds
+  getAllBelievedResourceIds
 } from "../agency/claimLedger.js";
 
 /*
@@ -265,8 +265,18 @@ export function commitResourceInterventions(G, proposedInterventions = []) {
        * a taunt name an item AM has already taken silently, which is
        * the only intervention available against a prisoner who holds
        * nothing.
+       *
+       * The set spans the FRESH and the DORMANT beliefs. A dormant
+       * false belief is one whose confusion has already settled, but
+       * the prisoner still believes they hold the item, and a taunt
+       * against it attacks their certainty just as a fresh one does.
+       *
+       * This set is consulted ONLY by the taunt validator. The
+       * confiscate, destroy, and transfer validators still require
+       * the prisoner to actually hold the resource, so a dormant
+       * belief can never license the removal of anything.
        */
-      believedResourceIds: getBelievedResourceIds(
+      believedResourceIds: getAllBelievedResourceIds(
         G,
         proposed?.holder_id,
         G.cycle

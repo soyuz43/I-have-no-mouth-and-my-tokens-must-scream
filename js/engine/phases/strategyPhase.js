@@ -66,8 +66,7 @@ import {
 } from "../analysis/parseResourceInterventions.js";
 import { getResourceDefinition } from "../agency/resourceDefs.js";
 import {
-  getBelievedResourceIds,
-  getFreshClaimDivergenceEntries
+  getBelievedDivergenceEntries
 } from "../agency/claimLedger.js";
 
 /* ============================================================
@@ -386,21 +385,38 @@ export async function prepareResourceInterventions(prisonerIds, modelCall = call
      * names that item attacks the prisoner's certainty directly, and
      * it is the only intervention available against a prisoner who
      * holds nothing at all.
+     *
+     * The belief being named does NOT have to be fresh. A DORMANT
+     * false belief is one whose confusion has already settled: the
+     * prisoner has stopped reaching for the missing item, but they
+     * still believe they hold it. That belief is still false, and a
+     * false belief they still hold is still something AM can attack
+     * on their own certainty. So the believed set spans the fresh
+     * and the dormant beliefs.
+     *
+     * This widens AM's reach only. It does NOT widen the prisoner's
+     * reach: the prisoner may still only ACT on a fresh belief.
      */
-    const believedResourceIds = getBelievedResourceIds(
+    const believedEntries = getBelievedDivergenceEntries(
       G,
       prisonerId,
       G.cycle
+    );
+
+    const believedResourceIds = new Set(
+      believedEntries.map((entry) => entry.claimedResourceId)
     );
 
     /*
      * A BELIEVED resource is not in the objective ledger, so its
      * definition has to come from the divergence entry that names
      * it. Without this the taunt would be titled with a raw
-     * resource id instead of a readable noun.
+     * resource id instead of a readable noun. The lookup spans the
+     * fresh and the dormant entries, because a dormant believed
+     * item is exactly as namable as a fresh one.
      */
     const believedDefinitionId =
-      getFreshClaimDivergenceEntries(G, prisonerId, G.cycle)
+      believedEntries
         .find((entry) => entry.claimedResourceId === assessment.resource_id)
         ?.definitionId ?? null;
 
@@ -514,7 +530,34 @@ export function commitPendingResourceTaunts(G, pendingTaunts, actions) {
     const resource = G.resources?.instances?.find(
       (instance) => instance?.resourceId === taunt.resource_id
     );
-    if (!resource || !dialogueReferencesResource(actions[taunt.target_id].text, resource)) {
+
+    /*
+     * A BELIEVED resource may have no objective instance at all.
+     *
+     * AM can DESTROY an item, and a destroyed instance leaves the
+     * ledger entirely. The prisoner still believes they hold it, so
+     * the belief is still there to be attacked, but there is no
+     * instance left to look the noun up from.
+     *
+     * The reference check therefore falls back to the DEFINITION the
+     * prisoner believes they hold. That is the same title AM would
+     * use for a live instance, so the dialogue requirement is
+     * unchanged in substance: the dialogue still has to NAME the
+     * item. It simply resolves the name from the belief when the
+     * ledger no longer holds the thing.
+     */
+    const believedDefinitionId =
+      getBelievedDivergenceEntries(G, taunt.holder_id, G.cycle)
+        .find((entry) => entry.claimedResourceId === taunt.resource_id)
+        ?.definitionId ?? null;
+
+    const referenceTarget = resource ?? (
+      believedDefinitionId
+        ? { resourceId: taunt.resource_id, definitionId: believedDefinitionId }
+        : null
+    );
+
+    if (!referenceTarget || !dialogueReferencesResource(actions[taunt.target_id].text, referenceTarget)) {
       rejected.push({
         index,
         reason: `Accepted dialogue for ${taunt.target_id} does not reference resource ${taunt.resource_id}.`,
