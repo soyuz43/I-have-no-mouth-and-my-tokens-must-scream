@@ -145,6 +145,15 @@ function normalizeAmActionText(amAction) {
  * part of the reproducible run record, and a section that appeared
  * or vanished for unrelated reasons would change every journal in
  * the run.
+ *
+ * The section says the choice was made LAST cycle, because that is
+ * when it was made. The psychology phase runs before the agency
+ * phase, so a prisoner who chooses PREPARE_JOURNAL during this
+ * cycle's agency phase has not chosen it yet when this prompt is
+ * built; the reflection they are writing is the one they bought in
+ * the previous cycle. Telling them they chose "this cycle" would
+ * describe a decision that has not happened, and would misattribute
+ * a choice they may make differently later in the same cycle.
  */
 function buildIntentionalReflectionSection(
     intentionalReflection
@@ -158,8 +167,10 @@ function buildIntentionalReflectionSection(
 
 # INTENTIONAL REFLECTION
 
-You chose to spend time in focused reflection this cycle. This was a deliberate
-decision to process recent events and stabilize your psychological state.
+Last cycle, you chose to spend time in focused reflection. That choice is why you
+are writing now. It was a deliberate decision to process recent events and
+stabilize your psychological state, and the effects of it are settling in as you
+write.
 
 Your mind is actively working through what happened, seeking clarity and emotional
 balance. This focused attention gives you a chance to:

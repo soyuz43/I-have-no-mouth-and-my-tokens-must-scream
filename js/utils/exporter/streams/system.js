@@ -104,10 +104,12 @@ export function recordGlobal(G, metrics, cycle) {
      * The journal optimization metrics are computed at EXPORT time
      * rather than read from the psychology phase's record.
      *
-     * The export recomputes them from the same two inputs the
+     * The export recomputes them from the same three inputs the
      * psychology phase used: the gate's decisions, which are
-     * attached to the execution record, and the list of prisoners
-     * that actually wrote, which the phase recorded for this cycle.
+     * attached to the execution record; the list of prisoners whose
+     * journal completed, which the phase recorded for this cycle;
+     * and the model calls the phase actually issued, including the
+     * calls belonging to failed journals.
      *
      * The journal ENTRIES are deliberately not used as the source of
      * truth here. `appendJournalEntry()` only records an entry when
@@ -125,6 +127,9 @@ export function recordGlobal(G, metrics, cycle) {
         prisonerIds: sims
           .map((sim) => sim?.id)
           .filter(Boolean),
+        modelCallsMade:
+          G?.journalOptimizationMetrics?.[cycle]
+            ?.modelCallsMade ?? 0,
         cycle
       });
 
@@ -282,11 +287,20 @@ export function recordGlobal(G, metrics, cycle) {
         journal_written_count:
           journalOptimizationMetrics.prisonersWhoJournaled,
 
+        journal_gate_closed_count:
+          journalOptimizationMetrics.gateClosedJournals,
+
+        journal_failed_count:
+          journalOptimizationMetrics.failedJournals,
+
         journal_skipped_count:
           journalOptimizationMetrics.skippedJournals,
 
         journal_llm_calls_saved:
           journalOptimizationMetrics.llmCallsSaved,
+
+        journal_llm_calls_wasted:
+          journalOptimizationMetrics.llmCallsWastedOnFailures,
 
         journal_estimated_time_saved:
           journalOptimizationMetrics.estimatedTimeSaved,

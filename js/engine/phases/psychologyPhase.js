@@ -1152,6 +1152,16 @@ export async function runPsychologyPhase(
      */
     let journaledIds = [];
 
+    /*
+     * The model calls the journal pipelines actually issued.
+     *
+     * Tracked separately from who wrote, because a failed journal
+     * still consumed the calls it made. The telemetry needs both:
+     * one counts the journals that completed, the other counts the
+     * work that was spent on the ones that did not.
+     */
+    let journalModelCallsMade = 0;
+
     try {
       timelineEvent(
         `>>> SIM JOURNALS`
@@ -1168,6 +1178,8 @@ export async function runPsychologyPhase(
         );
 
         journaledIds = stepResult?.journaledIds ?? [];
+        journalModelCallsMade =
+          stepResult?.modelCallsMade ?? 0;
       } else {
         console.debug(
           "[PSYCHOLOGY] No sims qualified for a journal this cycle."
@@ -1242,6 +1254,7 @@ export async function runPsychologyPhase(
         decisions: journalGateDecisions,
         journaledIds,
         prisonerIds: [...SIM_IDS],
+        modelCallsMade: journalModelCallsMade,
         cycle: G.cycle
       });
 
@@ -1307,6 +1320,7 @@ async function stepSimJournals(
   const prepared = [];
   const skipped = [];
   const journaledIds = [];
+  let modelCallsMade = 0;
 
   for (const sim of targets) {
     const prep = prepareSimJournalCycle(
@@ -1368,12 +1382,23 @@ async function stepSimJournals(
       journaledIds.push(result.simId);
     }
 
+    /*
+     * The calls that were actually issued this cycle.
+     *
+     * A prisoner whose journal FAILED still consumed the calls it
+     * made before failing, so those calls are counted here. The
+     * telemetry needs this to tell work the gate prevented apart
+     * from work that was attempted and lost.
+     */
+    modelCallsMade +=
+      Number(result.modelCallsMade) || 0;
+
     cycleBeliefSummary[result.simId].push(
       ...(result.diff || [])
     );
   }
 
-  return { journaledIds };
+  return { journaledIds, modelCallsMade };
 }
 /* ============================================================
    SIM JOURNAL CYCLE
@@ -1620,6 +1645,22 @@ async function runSimJournalInference(prep) {
   const deferredTimeline = [];
   const deferredLog = [];
 
+  /*
+   * The model calls this prisoner has actually issued.
+   *
+   * A journal is TWO calls: the narrative call and the forensic
+   * stats call. The counter is incremented BEFORE each call, so a
+   * call that was issued and then failed still counts as made. That
+   * distinction matters for the telemetry: a stats call that throws
+   * consumed the time it took, and a commit that throws after both
+   * calls returned consumed both.
+   *
+   * The counter is reported per prisoner and summed by the phase,
+   * so the telemetry can distinguish work the gate PREVENTED from
+   * work that was attempted and failed.
+   */
+  let modelCallsMade = 0;
+
   const deferTimeline = (label) => {
     deferredTimeline.push(label);
   };
@@ -1735,6 +1776,8 @@ async function runSimJournalInference(prep) {
         }
       );
 
+    modelCallsMade += 1;
+
     const rawJournal =
       await callModel(
         sim.id,
@@ -1780,6 +1823,8 @@ async function runSimJournalInference(prep) {
     let rawStatsJson = null;
 
     try {
+      modelCallsMade += 1;
+
       rawStatsJson =
         await callModel(
           "FORENSIC_STATS",
@@ -1843,6 +1888,7 @@ async function runSimJournalInference(prep) {
       journalStatsBefore,
       rawStatsJson,
       sanitizedStatsJson,
+      modelCallsMade,
       deferredTimeline,
       deferredLog,
     };
@@ -1869,6 +1915,7 @@ async function runSimJournalInference(prep) {
       ok: false,
       sim,
       error,
+      modelCallsMade,
       deferredTimeline,
       deferredLog,
     };
@@ -1933,6 +1980,7 @@ function commitSimJournalCycle(inference) {
     return {
       simId: inference?.sim?.id,
       diff: [],
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   }
 
@@ -2065,9 +2113,35 @@ function commitSimJournalCycle(inference) {
     );
 
     /*
+     * The tactic's effect is measured HERE, BEFORE the processing
+     * bonus is added.
+     *
+     * `attachTacticDeltas()` computes the effective deltas by
+     * diffing the prisoner's CURRENT state against the pre-journal
+     * baseline. Any hope added before this point therefore lands
+     * inside the tactic's measured effect, and the export would
+     * credit AM's tactic with hope that the prisoner bought with
+     * their own action credit. A journal that reported no hope
+     * change at all could give a tactic a positive
+     * `effective_hope_delta`, and the reported-versus-effective
+     * ratio would overstate how well the tactic worked.
+     *
+     * The bonus is not the tactic's doing, so it is applied after
+     * the measurement rather than before it.
+     */
+    attachTacticDeltas({
+      sim,
+      statDeltas,
+      currentTacticEntries,
+      journalStatsBefore,
+    });
+
+    /*
      * The guaranteed hope recovery lands AFTER the journal's own
      * deltas, so that a journal which reported a hope LOSS cannot
-     * silently overwrite the guarantee the prisoner paid for.
+     * silently overwrite the guarantee the prisoner paid for, and
+     * AFTER the tactic's effect was measured, so that the bonus is
+     * not credited to AM's tactic.
      *
      * The cap is the same ceiling the journal pipeline uses, and the
      * ACTUAL gain is what gets reported: a prisoner already at 99
@@ -2090,13 +2164,6 @@ function commitSimJournalCycle(inference) {
         `${sim.id} mental focus bonus (+${processingBonus.hopeGain} hope)`
       );
     }
-
-    attachTacticDeltas({
-      sim,
-      statDeltas,
-      currentTacticEntries,
-      journalStatsBefore,
-    });
 
     /*
      * The pressure field echoes this prisoner's deltas into the
@@ -2467,6 +2534,7 @@ function commitSimJournalCycle(inference) {
        * make the reported savings depend on the rendering surface.
        */
       journaled: true,
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   } catch (error) {
     timelineEvent(
@@ -2491,6 +2559,7 @@ function commitSimJournalCycle(inference) {
       simId: sim.id,
       diff: [],
       journaled: false,
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   }
 }

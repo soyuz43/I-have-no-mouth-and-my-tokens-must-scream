@@ -31,25 +31,50 @@
 //   prisonersWithStimulus  how many had something happen to them.
 //   prisonersWhoChoseFocus how many PAID for a focused journal.
 //   prisonersWithStatShock how many crossed a severe stat threshold.
-//   prisonersWhoJournaled  how many actually wrote.
+//   prisonersWhoJournaled  how many actually COMPLETED a journal.
+//   gateClosedJournals     how many the gate did not open for.
+//   failedJournals         how many qualified but did not complete.
 //
 // The middle three are NOT a partition of the last one. A prisoner
 // can have a stimulus AND a stat shock, and a prisoner who chose to
 // focus may also have had a stimulus. They are overlapping
 // descriptions of why people wrote, and the gate reports all
-// applicable reasons for each prisoner. The one count that IS a
-// partition is `skippedJournals`, which is exactly
-// `totalPrisoners - prisonersWhoJournaled`.
+// applicable reasons for each prisoner.
 //
-// THE SKIP COUNT IS A MEASUREMENT, NOT A GUARANTEE
-// -------------------------------------------------
-// `llmCallsSaved` is the number of calls that were NOT made
-// because those prisoners did not write. It is a count of what the
-// gate avoided, not a measurement of wall-clock time. The
-// `estimatedTimeSaved` field converts it using a fixed per-call
-// estimate, and that estimate is an ASSUMPTION, not a measurement.
-// It is reported separately and labelled as such, so no downstream
-// analysis mistakes it for an observed duration.
+// THE THREE OUTCOMES ARE A PARTITION
+// ----------------------------------
+//
+//   prisonersWhoJournaled  the journal completed. Two calls made,
+//                          two calls used.
+//   failedJournals         the gate opened and the journal did not
+//                          complete. The calls were still MADE.
+//   gateClosedJournals     the gate did not open. NO calls were made.
+//
+// Only the last of those is a saving. The middle one is work that
+// was attempted and lost.
+//
+// WHAT "SAVED" COUNTS, AND WHAT IT DOES NOT
+// -----------------------------------------
+// `llmCallsSaved` counts ONLY the calls the GATE prevented: the
+// two-call pipelines for prisoners the gate did not open for.
+//
+// It deliberately does NOT count a journal that was attempted and
+// then failed. Those calls were made. A stats call that threw
+// consumed the time it took, and a commit that threw after both
+// calls returned consumed both. Counting a failed journal as two
+// avoided calls would report a failure as a saving, and the
+// exported time saving would grow every time the provider had a
+// bad minute - which is exactly backwards.
+//
+// The cost of those failures is reported separately, as
+// `llmCallsWastedOnFailures`. Keeping the two apart is the point:
+// one is work avoided, the other is work wasted, and they must
+// never be added together into a single "savings" number.
+//
+// `estimatedTimeSaved` converts `llmCallsSaved` using a fixed
+// per-call estimate, and that estimate is an ASSUMPTION, not a
+// measurement. It is reported separately and labelled as such, so
+// no downstream analysis mistakes it for an observed duration.
 //
 // PURITY
 // ------
@@ -90,17 +115,28 @@ export const MODEL_CALLS_PER_JOURNAL = 2;
  * by the psychology phase: prisoner id -> { shouldJournal,
  * hasStimulus, chosePrepareJournal, hasStatShock, reasons }.
  *
- * `journaledIds` is the list of prisoners who ACTUALLY wrote. It is
- * passed separately because the gate decides who QUALIFIES while
- * the write itself can still fail - a model error, a scaffold
+ * `journaledIds` is the list of prisoners whose journal COMPLETED.
+ * It is passed separately because the gate decides who QUALIFIES
+ * while the write itself can still fail - a model error, a scaffold
  * rejection, or a parse failure can leave a qualified prisoner
  * without a journal. Reporting the gate's opinion as the outcome
  * would overstate the savings.
  *
+ * `modelCallsMade` is the number of model calls the cycle actually
+ * issued across every prisoner's journal pipeline, INCLUDING the
+ * calls belonging to journals that failed. It is what separates
+ * "the gate prevented this work" from "this work was attempted and
+ * lost". Without it, a failed journal would be indistinguishable
+ * from a skipped one, and the reported savings would grow every
+ * time the provider failed.
+ *
  * @param {object} decisions
  *   The gate decisions, keyed by prisoner id.
  * @param {Array<string>} journaledIds
- *   The ids of the prisoners who actually wrote a journal.
+ *   The ids of the prisoners whose journal completed.
+ * @param {number} modelCallsMade
+ *   The model calls actually issued this cycle, including those
+ *   belonging to failed journals.
  * @param {Array<string>} prisonerIds
  *   Every prisoner the cycle considered.
  * @param {number} cycle
@@ -110,6 +146,7 @@ export function computeJournalOptimizationMetrics({
   decisions = {},
   journaledIds = [],
   prisonerIds = [],
+  modelCallsMade = 0,
   cycle = 0
 } = {}) {
   const decisionMap =
@@ -146,18 +183,84 @@ export function computeJournalOptimizationMetrics({
   const prisonersWhoJournaled = journaled.size;
 
   /*
-   * A prisoner who did not write is a skipped journal, whether they
-   * were skipped because the gate closed or because their journal
-   * failed after the gate opened. Both are two-call pipelines that
-   * did not complete.
+   * The gate OPENED for a prisoner when its decision says
+   * `shouldJournal`. That is the population that COULD have had a
+   * two-call pipeline.
+   *
+   * The prisoners who qualified but did not complete are the
+   * failures: their calls were made and then lost.
+   *
+   * The prisoners the gate never opened for are the ones whose
+   * calls were never made at all. Only THESE are a saving.
    */
-  const skippedJournals = Math.max(
+  let gateOpenedCount = 0;
+
+  for (const id of considered) {
+    if (decisionMap[id]?.shouldJournal === true) {
+      gateOpenedCount += 1;
+    }
+  }
+
+  /*
+   * A qualified prisoner whose journal did not complete. Clamped
+   * at zero because the count is derived from two independent
+   * sources - the gate's decisions and the commit stage's report -
+   * and a mismatch between them must not produce a negative
+   * population.
+   */
+  const failedJournals = Math.max(
     0,
-    totalPrisoners - prisonersWhoJournaled
+    gateOpenedCount - prisonersWhoJournaled
   );
 
+  /*
+   * The prisoners the gate did not open for. This is the only
+   * population whose model calls were actually avoided.
+   */
+  const gateClosedJournals = Math.max(
+    0,
+    totalPrisoners - gateOpenedCount
+  );
+
+  /*
+   * The two-call pipelines the gate prevented. This counts ONLY
+   * work that was never started.
+   */
   const llmCallsSaved =
-    skippedJournals * MODEL_CALLS_PER_JOURNAL;
+    gateClosedJournals * MODEL_CALLS_PER_JOURNAL;
+
+  /*
+   * The calls that were made and then lost to a failure.
+   *
+   * This is the cost of the failure, not a saving. It is computed
+   * from the calls the phase actually issued, so it reflects what
+   * was really spent rather than an assumption that every failed
+   * journal cost exactly two calls. A stats call that threw cost
+   * one; a failure after both calls returned cost two.
+   *
+   * It is bounded above by the calls a full pipeline would have
+   * cost, so a miscount cannot inflate it.
+   */
+  const failedPipelineCalls =
+    failedJournals * MODEL_CALLS_PER_JOURNAL;
+
+  const llmCallsWastedOnFailures = Math.max(
+    0,
+    Math.min(
+      Number(modelCallsMade) || 0,
+      failedPipelineCalls
+    )
+  );
+
+  /*
+   * The old, looser count: everyone who did not complete a
+   * journal. It is kept because it is the number a reader wants
+   * when asking "how many prisoners did not write", and because
+   * `skippedJournals = gateClosedJournals + failedJournals` is a
+   * useful cross-check on the three-way partition.
+   */
+  const skippedJournals =
+    gateClosedJournals + failedJournals;
 
   return {
     cycle: Number(cycle) || 0,
@@ -167,8 +270,27 @@ export function computeJournalOptimizationMetrics({
     prisonersWhoChoseFocus,
     prisonersWithStatShock,
     prisonersWhoJournaled,
+
+    /*
+     * The three-outcome partition. `skippedJournals` is their sum
+     * over the non-completed prisoners.
+     */
+    gateOpenedCount,
+    gateClosedJournals,
+    failedJournals,
     skippedJournals,
+
+    /*
+     * The calls the GATE prevented. Only these were never made.
+     */
     llmCallsSaved,
+
+    /*
+     * The calls that were made and lost. Never to be added to
+     * `llmCallsSaved`: one is work avoided, the other is work
+     * wasted.
+     */
+    llmCallsWastedOnFailures,
 
     /*
      * WHO wrote, not just how many.
@@ -177,6 +299,16 @@ export function computeJournalOptimizationMetrics({
      * re-derive the written set from a DOM-dependent structure.
      */
     journaledIds: [...journaled],
+
+    /*
+     * The calls actually issued this cycle, INCLUDING those spent
+     * on journals that failed.
+     *
+     * The exporter reads this back so that it recomputes the same
+     * partition the phase computed, rather than a looser one.
+     */
+    modelCallsMade:
+      Number(modelCallsMade) || 0,
 
     /*
      * The ASSUMED saving, in seconds. See the module header: this

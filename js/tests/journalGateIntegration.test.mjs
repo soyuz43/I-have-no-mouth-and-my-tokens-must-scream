@@ -432,7 +432,7 @@ function makeSim(id) {
  * leave the others without one.
  */
 async function withPsychology(
-  { cycle, stimulusIds, preparations, prepare },
+  { cycle, stimulusIds, preparations, prepare, tacticMap },
   body
 ) {
   const restoreDom = installDom();
@@ -517,7 +517,7 @@ async function withPsychology(
     }
 
     const execution = {
-      tacticMap: {},
+      tacticMap: tacticMap ?? {},
       amExecution: {
         actions,
         perceptions: {},
@@ -755,10 +755,241 @@ test("the telemetry reports the skipped journals and the calls saved", async () 
         (SIM_IDS.length - 1) * 2,
         "each skipped journal is two model calls"
       );
+
+      /*
+       * The written journal cost two calls that were actually
+       * made, so they are not savings.
+       */
+      assert.equal(metrics.modelCallsMade, 2);
+      assert.equal(
+        metrics.llmCallsWastedOnFailures,
+        0,
+        "a completed journal wastes nothing"
+      );
     }
   );
 });
 
+test("a failed journal is never reported as a saved call", async () => {
+  /*
+   * The stats call fails for every prisoner. The narrative call
+   * still ran, so the cycle spent one call per prisoner, but
+   * NOTHING was avoided: the gate opened for everyone.
+   *
+   * Before the fix, each failure was counted as two avoided calls,
+   * so a run where the provider was failing reported a large
+   * "saving" that had never happened.
+   */
+  const restoreDom = installDom();
+
+  const savedFetchDescriptor =
+    Object.getOwnPropertyDescriptor(globalThis, "fetch");
+
+  const saved = {
+    sims: G.sims,
+    cycle: G.cycle,
+    timeline: G.timeline,
+    timelineMax: G.timelineMax,
+    transmissionLog: G.transmissionLog,
+    logCount: G.logCount,
+    journals: G.journals,
+    extractionStats: G.extractionStats,
+    evidenceArchive: G.evidenceArchive,
+    pendingPsychEvidence: G.pendingPsychEvidence,
+    pendingEvidence: G.pendingEvidence,
+    amExecution: G.amExecution,
+    journalOptimizationMetrics: G.journalOptimizationMetrics,
+    backend: G.backend,
+    anthropicKey: G.anthropicKey,
+    DEBUG_PSYCHOLOGY_LOGS: G.DEBUG_PSYCHOLOGY_LOGS,
+    DEBUG_PROMPTS: G.DEBUG_PROMPTS
+  };
+
+  try {
+    G.sims = Object.fromEntries(
+      SIM_IDS.map((id) => [id, makeSim(id)])
+    );
+    G.cycle = 49;
+    G.timeline = [];
+    G.timelineMax = 100;
+    G.transmissionLog = [];
+    G.logCount = 0;
+    G.journals = Object.fromEntries(
+      SIM_IDS.map((id) => [id, []])
+    );
+    G.extractionStats = { cycles: {} };
+    G.evidenceArchive = {};
+    G.pendingPsychEvidence = Object.create(null);
+    G.pendingEvidence = {
+      journal: Object.create(null),
+      comms: Object.create(null),
+      constraints: Object.create(null),
+      am: Object.create(null),
+      resourceInterventions: Object.create(null),
+      exposures: Object.create(null),
+      [FOCUS_PREPARATION_EVIDENCE_KEY]: Object.create(null),
+      system: Object.create(null)
+    };
+    G.amExecution = null;
+    G.journalOptimizationMetrics = {};
+    G.backend = "anthropic";
+    G.anthropicKey = "test-key";
+    G.DEBUG_PSYCHOLOGY_LOGS = false;
+    G.DEBUG_PROMPTS = false;
+
+    /*
+     * Every call fails, so no journal completes.
+     */
+    const failingFetch = async () => {
+      throw new Error("provider unavailable");
+    };
+    globalThis.fetch = failingFetch;
+
+    const actions = {};
+    for (const id of SIM_IDS) {
+      actions[id] = {
+        text: `AM addresses ${id} directly.`,
+        tactic: "isolation",
+        origin: "model"
+      };
+    }
+
+    await runPsychologyPhase({
+      tacticMap: {},
+      amExecution: {
+        actions,
+        perceptions: {},
+        observationRolls: {},
+        targetIds: [...SIM_IDS],
+        actionTargetIds: [...SIM_IDS],
+        constraintTargetIds: [],
+        observerIds: [],
+        missingTargetIds: [],
+        targetSelection: {}
+      }
+    });
+
+    const metrics = G.journalOptimizationMetrics[49];
+
+    assert.equal(metrics.prisonersWhoJournaled, 0);
+    assert.equal(metrics.failedJournals, SIM_IDS.length);
+    assert.equal(metrics.gateClosedJournals, 0);
+
+    assert.equal(
+      metrics.llmCallsSaved,
+      0,
+      "nothing was avoided, so nothing may be reported as saved"
+    );
+    assert.equal(
+      metrics.estimatedTimeSaved,
+      "0s",
+      "the time saving must not grow when the provider fails"
+    );
+
+    /*
+     * Each prisoner issued the narrative call before it failed.
+     */
+    assert.equal(metrics.modelCallsMade, SIM_IDS.length);
+    assert.equal(
+      metrics.llmCallsWastedOnFailures,
+      SIM_IDS.length,
+      "the spent calls are reported as waste, not as savings"
+    );
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      G[key] = value;
+    }
+
+    if (savedFetchDescriptor) {
+      Object.defineProperty(globalThis, "fetch", savedFetchDescriptor);
+    } else {
+      delete globalThis.fetch;
+    }
+
+    restoreDom();
+  }
+});
+
+test("the processing bonus is not credited to AM's tactic", async () => {
+  /*
+   * `attachTacticDeltas()` measures the tactic's effect by diffing
+   * the prisoner's state against the pre-journal baseline. If the
+   * processing bonus were applied before that measurement, the
+   * bonus would land inside the tactic's effective delta, and the
+   * export would credit AM with hope the prisoner bought with their
+   * own action credit.
+   *
+   * The test compares two prisoners who receive the SAME journal
+   * text and the SAME stimulus, and who differ only in whether
+   * they earned the bonus. Their tactic measurements must match:
+   * the bonus is the prisoner's own doing, not AM's.
+   */
+  await withPsychology(
+    {
+      cycle: 50,
+      stimulusIds: ["ELLEN", "TED"],
+      tacticMap: {
+        ELLEN: [
+          {
+            path: "isolation/slow_drip",
+            title: "Slow Drip",
+            currentPhaseId: "phase_1"
+          }
+        ],
+        TED: [
+          {
+            path: "isolation/slow_drip",
+            title: "Slow Drip",
+            currentPhaseId: "phase_1"
+          }
+        ]
+      },
+      preparations: {
+        ELLEN: {
+          cycle: 49,
+          action: "PREPARE_JOURNAL",
+          budgetConsumed: 1
+        }
+      }
+    },
+    async () => {
+      const journal = G.journals.ELLEN[0];
+
+      assert.ok(journal, "the focused prisoner must have written");
+      assert.equal(
+        journal.processingBonus.hopeGain,
+        3,
+        "the prisoner must still receive the guarantee"
+      );
+
+      const focusedEntry = G.sims.ELLEN.tacticHistory.find(
+        (record) => record.cycle === 50
+      );
+      const plainEntry = G.sims.TED.tacticHistory.find(
+        (record) => record.cycle === 50
+      );
+
+      assert.ok(focusedEntry, "the focused prisoner must have a tactic entry");
+      assert.ok(plainEntry, "the plain prisoner must have a tactic entry");
+      assert.ok(focusedEntry.deltas, "the tactic must have measured deltas");
+
+      /*
+       * The bonus DID land on the prisoner's state, so the
+       * comparison below is not vacuous.
+       */
+      assert.ok(
+        G.sims.ELLEN.hope > G.sims.TED.hope,
+        `the focused prisoner must have received the bonus: ${G.sims.ELLEN.hope} vs ${G.sims.TED.hope}`
+      );
+
+      assert.ok(
+        focusedEntry.deltas.effective.hope ===
+          plainEntry.deltas.effective.hope,
+        `the tactic's measured effect must not include the bonus: focused ${focusedEntry.deltas.effective.hope} vs plain ${plainEntry.deltas.effective.hope}`
+      );
+    }
+  );
+});
 test("the telemetry counts the write even without a journal-list element", async () => {
   /*
    * The reported savings must not depend on whether the phase ran

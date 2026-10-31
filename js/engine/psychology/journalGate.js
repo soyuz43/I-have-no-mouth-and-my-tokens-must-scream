@@ -182,9 +182,34 @@ export const FOCUS_PREPARATION_EVIDENCE_KEY =
 export function hasStatShock(sim) {
   if (!sim || typeof sim !== "object") return false;
 
-  const sanity = Number(sim.sanity);
-  const hope = Number(sim.hope);
-  const suffering = Number(sim.suffering);
+  /*
+   * The TYPE is checked before the value is converted.
+   *
+   * `Number()` coerces several non-numeric types into numbers that
+   * pass the threshold test by accident: `Number(null)` is 0,
+   * `Number("")` is 0, `Number(false)` is 0, and `Number([])` is 0.
+   * A prisoner whose `sanity` was somehow set to null would
+   * therefore read as `0 < 30` and be pulled into the expensive
+   * journal pipeline on the strength of a malformed field.
+   *
+   * Only a genuine number is a stat. The engine always stores
+   * these three as numbers, so anything else is a malformed input
+   * and must fail closed. A numeric STRING ("70") is rejected too:
+   * it is not a type the engine produces, and accepting it would
+   * make the accepted input shape wider than the state that is
+   * actually written.
+   */
+  if (
+    typeof sim.sanity !== "number" ||
+    typeof sim.hope !== "number" ||
+    typeof sim.suffering !== "number"
+   ) {
+    return false;
+  }
+
+  const sanity = sim.sanity;
+  const hope = sim.hope;
+  const suffering = sim.suffering;
 
   if (
     !Number.isFinite(sanity) ||

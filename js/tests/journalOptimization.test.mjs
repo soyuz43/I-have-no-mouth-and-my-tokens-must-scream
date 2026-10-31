@@ -349,6 +349,63 @@ test("a malformed stat block is not a stat shock", () => {
   );
 });
 
+test("a stat of a non-numeric type is not a stat shock", () => {
+  /*
+   * `Number()` coerces these into numbers that pass the threshold
+   * test by accident: `Number(null)` is 0, `Number("")` is 0,
+   * `Number(false)` is 0, and `Number([])` is 0. A prisoner whose
+   * `sanity` was somehow null would otherwise read as `0 < 30` and
+   * be pulled into the expensive journal pipeline on the strength
+   * of a malformed field.
+   *
+   * Only a genuine number is a stat. The engine always stores
+   * these three as numbers, so anything else is malformed input and
+   * must fail closed.
+   */
+  const coercions = [
+    { label: "null", value: null },
+    { label: "empty string", value: "" },
+    { label: "false", value: false },
+    { label: "true", value: true },
+    { label: "empty array", value: [] },
+    { label: "numeric string", value: "10" },
+    { label: "object", value: {} }
+  ];
+
+  for (const stat of ["sanity", "hope", "suffering"]) {
+    for (const { label, value } of coercions) {
+      assert.equal(
+        hasStatShock({
+          sanity: 85,
+          hope: 70,
+          suffering: 15,
+          [stat]: value
+        }),
+        false,
+        `${stat} = ${label} must not qualify as a stat shock`
+      );
+    }
+  }
+
+  /*
+   * The whole block being null is the case the old implementation
+   * got wrong in the most damaging way: every stat read as zero,
+   * so the prisoner looked simultaneously sanity-crushed and
+   * hope-crushed.
+   */
+  assert.equal(
+    hasStatShock({ sanity: null, hope: 70, suffering: 15 }),
+    false,
+    "a null sanity must not read as zero and trigger the safety net"
+  );
+
+  assert.equal(
+    hasStatShock({ sanity: 85, hope: null, suffering: 15 }),
+    false,
+    "a null hope must not read as zero and trigger the safety net"
+  );
+});
+
 /* ============================================================
    5. THE FOCUS PREPARATION BRIDGE
 ============================================================ */
@@ -546,6 +603,62 @@ test("the journal prompt acknowledges an intentional reflection", () => {
   }
 });
 
+test("the reflection section says the choice was made LAST cycle", () => {
+  /*
+   * The psychology phase runs BEFORE the agency phase, so a
+   * prisoner who chooses PREPARE_JOURNAL during this cycle's agency
+   * phase has not chosen it yet when this prompt is built. The
+   * reflection being written is the one they bought in the PREVIOUS
+   * cycle.
+   *
+   * Telling them they chose "this cycle" would describe a decision
+   * that has not happened yet, and would misattribute a choice they
+   * may still make differently later in the same cycle.
+   */
+  const previousJournals = G.journals.TED;
+  G.journals.TED = [];
+
+  try {
+    const prompt = buildSimJournalPrompt(
+      calmSim(),
+      null,
+      { intentionalReflection: true }
+    );
+
+    assert.ok(
+      prompt.includes("Last cycle, you chose"),
+      "the prompt must place the choice in the previous cycle"
+    );
+    assert.ok(
+      !/this cycle[^.]*chose/i.test(prompt),
+      "the prompt must not claim the choice was made this cycle"
+    );
+  } finally {
+    G.journals.TED = previousJournals;
+  }
+});
+
+test("the agency prompt says the journal arrives next cycle", () => {
+  /*
+   * The prisoner is the one who pays for the reflection, so the
+   * timing has to be visible to them at the point of purchase.
+   * Without it, the action reads as "I write a journal now", which
+   * is not what happens.
+   */
+  const prompt = buildAgencyProposalPrompt(
+    calmSim(),
+    [legalEntry("WAIT"), legalEntry("PREPARE_JOURNAL")],
+    3,
+    { stacks: [] },
+    null
+  );
+
+  assert.ok(
+    prompt.includes("NEXT cycle"),
+    "the action description must state when the journal is written"
+  );
+});
+
 test("the reflection section does not change the rest of the prompt", () => {
   // The prompt is part of the reproducible run record. The
   // reflection section is the ONLY thing that may differ between a
@@ -632,6 +745,143 @@ test("the telemetry counts who wrote and who did not", () => {
     metrics.llmCallsSaved,
     2,
     "one skipped journal is two model calls"
+  );
+});
+
+test("the telemetry counts a FAILED journal separately from a skipped one", () => {
+  /*
+   * The three outcomes are distinct:
+   *
+   *   ELLEN  the journal completed. Two calls made.
+   *   NIMDOK the gate opened and the journal FAILED. The calls were
+   *          made and lost.
+   *   GORRISTER the gate did not open. No calls were made.
+   *
+   * Only GORRISTER's pipeline was actually avoided. NIMDOK's
+   * failure is work that was spent, and reporting it as a saving
+   * would make the exported time saving grow every time the
+   * provider had a bad minute.
+   */
+  const metrics = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: false },
+      ELLEN: { shouldJournal: true },
+      NIMDOK: { shouldJournal: true },
+      GORRISTER: { shouldJournal: false }
+    },
+    journaledIds: ["ELLEN"],
+    prisonerIds: ["TED", "ELLEN", "NIMDOK", "GORRISTER"],
+    modelCallsMade: 4,
+    cycle: 5
+  });
+
+  assert.equal(metrics.gateOpenedCount, 2, "the gate opened twice");
+  assert.equal(metrics.prisonersWhoJournaled, 1, "one journal completed");
+  assert.equal(metrics.failedJournals, 1, "one journal failed");
+  assert.equal(metrics.gateClosedJournals, 2, "the gate stayed shut twice");
+  assert.equal(
+    metrics.skippedJournals,
+    3,
+    "skipped is the sum of the closed and the failed"
+  );
+
+  assert.equal(
+    metrics.llmCallsSaved,
+    4,
+    "only the two gate-closed prisoners saved calls"
+  );
+  assert.equal(
+    metrics.llmCallsWastedOnFailures,
+    2,
+    "the failed journal consumed its two calls"
+  );
+});
+
+test("the telemetry never counts a failed journal as a saved call", () => {
+  /*
+   * Every prisoner qualified and every journal failed. Nothing was
+   * avoided, so nothing may be reported as saved - even though the
+   * number of prisoners who did not write is the same as in the
+   * all-skipped case.
+   */
+  const allFailed = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: true },
+      ELLEN: { shouldJournal: true }
+    },
+    journaledIds: [],
+    prisonerIds: ["TED", "ELLEN"],
+    modelCallsMade: 4,
+    cycle: 6
+  });
+
+  const allSkipped = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: false },
+      ELLEN: { shouldJournal: false }
+    },
+    journaledIds: [],
+    prisonerIds: ["TED", "ELLEN"],
+    modelCallsMade: 0,
+    cycle: 6
+  });
+
+  assert.equal(allFailed.skippedJournals, 2);
+  assert.equal(allSkipped.skippedJournals, 2);
+
+  assert.equal(
+    allFailed.llmCallsSaved,
+    0,
+    "a failure is not a saving"
+  );
+  assert.equal(
+    allSkipped.llmCallsSaved,
+    4,
+    "a skipped journal saves its two calls"
+  );
+
+  assert.equal(allFailed.estimatedTimeSaved, "0s");
+  assert.equal(allSkipped.estimatedTimeSaved, "160s");
+});
+
+test("the wasted-call count is bounded by the calls actually issued", () => {
+  /*
+   * A stats call that threw cost ONE call, not two. The wasted
+   * count is bounded by what was really issued, so it cannot
+   * overstate the cost of a failure.
+   */
+  const metrics = computeJournalOptimizationMetrics({
+    decisions: {
+      TED: { shouldJournal: true },
+      ELLEN: { shouldJournal: true }
+    },
+    journaledIds: [],
+    prisonerIds: ["TED", "ELLEN"],
+    modelCallsMade: 1,
+    cycle: 7
+  });
+
+  assert.equal(metrics.failedJournals, 2);
+  assert.equal(
+    metrics.llmCallsWastedOnFailures,
+    1,
+    "only the one issued call was spent"
+  );
+});
+
+test("the telemetry reports the issued calls back", () => {
+  const metrics = computeJournalOptimizationMetrics({
+    decisions: {},
+    journaledIds: [],
+    prisonerIds: ["TED"],
+    modelCallsMade: 6,
+    cycle: 8
+  });
+
+  assert.equal(
+    metrics.modelCallsMade,
+    6,
+    "the exporter reads this back to recompute the same partition"
   );
 });
 
