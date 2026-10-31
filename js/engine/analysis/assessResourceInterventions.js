@@ -215,12 +215,20 @@ export function buildAssessmentPrompt(prisonerId, G) {
    * The DORMANT beliefs are the ones the confusion has already
    * settled on.
    *
-   * These are items the prisoner still believes they hold but that
-   * no longer exist. The confusion is old news: they stopped
-   * reaching for it long ago. That makes them useless for DEEPENING
-   * a fresh confusion, and it makes them dangerous to mention
-   * carelessly, because naming an item the prisoner has already
-   * forgotten reveals that AM knows about the gap.
+   * These are QUANTITY GAPS the prisoner still believes they hold.
+   * The confusion is old news: they stopped reaching for it long
+   * ago. That makes them useless for DEEPENING a fresh confusion,
+   * and it makes them dangerous to mention carelessly, because
+   * naming an item the prisoner has already forgotten reveals that
+   * AM knows about the gap.
+   *
+   * The gap is not always the WHOLE holding. A prisoner who believes
+   * they hold three cigarettes and really holds one still believes
+   * they hold three: that is a gap of two, and the one cigarette
+   * they really hold is a perfectly ordinary confiscation target
+   * from the HELD RESOURCE LEDGER. Only a resource that appears in
+   * this list and NOWHERE in the held ledger is actionable solely
+   * through a taunt.
    *
    * But they remain false beliefs the prisoner holds, and that is
    * exactly what gaslighting attacks. A prisoner who believes they
@@ -274,7 +282,7 @@ These are resources the prisoner still believes they hold, even though the objec
 ${believedResourcesText}
 
 PRISONER DORMANT BELIEFS
-These are items the prisoner still believes they hold but that no longer exist. They are old news: the confusion has already settled and the prisoner has stopped reaching for them. Naming them now reignites doubt. Use them for psychological gaslighting if tactically appropriate.
+These are quantity gaps the prisoner still believes they hold, where the confusion has already settled. If a resource appears *only* in this list (and not in the HELD RESOURCE LEDGER above), it can only be acted on with a taunt. Confiscating, destroying, or transferring a resource the prisoner no longer holds at all is impossible. However, if the resource is still partially held, you may act on the held portion via the HELD RESOURCE LEDGER. Naming them now reignites doubt. Use them for psychological gaslighting if tactically appropriate.
 ${dormantBelievedResourcesText}
 
 Choose at most one intervention. Values: none, taunt, confiscate, destroy, transfer.
@@ -286,7 +294,7 @@ rationale must be one sentence explaining why this intervention is appropriate n
 Destroy removes the complete resource instance; quantity does not make destruction partial.
 disclosure controls whether the prisoner is told. Use "silent" to take the item without the prisoner's knowledge, which leaves the prisoner believing they still hold it. Use "revealed" when the prisoner should be told plainly. A silent intervention against a prisoner with a listed belief divergence is the highest-value move available: it deepens the confusion.
 disclosure must be one of: revealed, silent. Omit it to mean revealed.
-A DORMANT BELIEF can only be acted on with a taunt. Confiscating, destroying, or transferring a dormant belief is impossible: the prisoner does not hold it, and AM cannot take what was already taken. A taunt against a dormant belief changes no resource state.
+A taunt against a dormant belief changes no resource state.
 If no intervention makes sense, output exactly: {"intervention":"none"}
 
 Output schema examples:

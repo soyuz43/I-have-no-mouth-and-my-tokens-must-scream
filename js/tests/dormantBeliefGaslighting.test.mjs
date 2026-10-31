@@ -218,6 +218,42 @@ function makeBelievesNoneState() {
   return state;
 }
 
+/*
+ * Swap the global state for the duration of a callback.
+ *
+ * `prepareResourceInterventions` reads and writes the global state,
+ * so a test that drives it has to install its own state and put the
+ * old one back afterwards.
+ */
+async function withGlobalState(state, callback) {
+  const previous = {
+    cycle: G.cycle,
+    sims: G.sims,
+    resources: G.resources,
+    claimEvents: G.claimEvents,
+    claimEventSequence: G.claimEventSequence,
+    claimState: G.claimState,
+    claimDivergence: G.claimDivergence,
+    pendingEvidence: G.pendingEvidence,
+    recentResourceDiscoveries: G.recentResourceDiscoveries,
+    pendingResourceDiscoveries: G.pendingResourceDiscoveries,
+    amTacticRuntime: G.amTacticRuntime,
+    amStrategy: G.amStrategy,
+    resourceEvents: G.resourceEvents,
+    resourceEventSequence: G.resourceEventSequence,
+    timeline: G.timeline
+  };
+
+  Object.assign(G, state);
+  G.timeline = [];
+
+  try {
+    return await callback();
+  } finally {
+    Object.assign(G, previous);
+  }
+}
+
 /* ============================================================
    1) THE DORMANT READER
 ============================================================ */
@@ -471,8 +507,24 @@ test("the assessment prompt lists the prisoner's dormant beliefs", () => {
   assert.match(prompt, /quantity the prisoner believes they hold: 3/);
   assert.match(prompt, /quantity actually held: 0/);
   assert.match(prompt, /dormant for \d+ cycles/);
-  assert.match(prompt, /old news/);
+  assert.match(prompt, /quantity gaps the prisoner still believes they hold/);
   assert.match(prompt, /psychological gaslighting/);
+});
+
+test("the dormant section states the partial-holding rule", () => {
+  const state = makeDormantState();
+
+  const prompt = buildAssessmentPrompt("TED", state);
+
+  /*
+   * The rule has to distinguish a resource that is ONLY a quantity
+   * gap from one that is still partially held, because the second
+   * can still be confiscated through the HELD RESOURCE LEDGER.
+   */
+  assert.match(prompt, /appears \*only\* in this list/);
+  assert.match(prompt, /it can only be acted on with a taunt/);
+  assert.match(prompt, /if the resource is still partially held/);
+  assert.match(prompt, /act on the held portion via the HELD RESOURCE LEDGER/);
 });
 
 test("the assessment prompt offers no dormant section content when there is none", () => {
@@ -481,7 +533,7 @@ test("the assessment prompt offers no dormant section content when there is none
   const prompt = buildAssessmentPrompt("ELLEN", state);
 
   assert.match(prompt, /PRISONER DORMANT BELIEFS/);
-  assert.match(prompt, /PRISONER DORMANT BELIEFS\nThese are items[^\n]*\n\(none\)/);
+  assert.match(prompt, /PRISONER DORMANT BELIEFS\nThese are quantity gaps[^\n]*\n\(none\)/);
 });
 
 test("the assessment prompt keeps the fresh divergence section intact", () => {
@@ -498,7 +550,7 @@ test("the assessment prompt keeps the fresh divergence section intact", () => {
    */
   assert.match(
     prompt,
-    /PRISONER DORMANT BELIEFS\nThese are items[^\n]*\n\(none\)/
+    /PRISONER DORMANT BELIEFS\nThese are quantity gaps[^\n]*\n\(none\)/
   );
 });
 
@@ -509,28 +561,7 @@ test("the assessment prompt keeps the fresh divergence section intact", () => {
 test("AM prepares a taunt against a dormant believed resource", async () => {
   const state = makeDormantState();
 
-  const previous = {
-    cycle: G.cycle,
-    sims: G.sims,
-    resources: G.resources,
-    claimEvents: G.claimEvents,
-    claimEventSequence: G.claimEventSequence,
-    claimState: G.claimState,
-    claimDivergence: G.claimDivergence,
-    pendingEvidence: G.pendingEvidence,
-    recentResourceDiscoveries: G.recentResourceDiscoveries,
-    pendingResourceDiscoveries: G.pendingResourceDiscoveries,
-    amTacticRuntime: G.amTacticRuntime,
-    amStrategy: G.amStrategy,
-    resourceEvents: G.resourceEvents,
-    resourceEventSequence: G.resourceEventSequence,
-    timeline: G.timeline
-  };
-
-  Object.assign(G, state);
-  G.timeline = [];
-
-  try {
+  await withGlobalState(state, async () => {
     const prepared = await prepareResourceInterventions(
       ["TED"],
       async () => JSON.stringify({
@@ -557,9 +588,7 @@ test("AM prepares a taunt against a dormant believed resource", async () => {
       prepared.pendingTaunts[0].resource_id,
       "cigarette_stack_01"
     );
-  } finally {
-    Object.assign(G, previous);
-  }
+  });
 });
 
 test("a taunt against a dormant resource commits without touching the ledger", () => {
@@ -633,6 +662,102 @@ test("a taunt against a dormant resource whose instance was destroyed also commi
     state.pendingEvidence.resourceInterventions.TED[0].interventionType,
     "taunt"
   );
+});
+
+test("a taunt against a destroyed dormant resource validates dialogue via believed definition", async () => {
+  /*
+   * AM can DESTROY an item, which leaves the ledger entirely. There
+   * is then no resource instance to look the noun up from, so
+   * `commitPendingResourceTaunts` has to fall back to the definition
+   * the prisoner BELIEVES they hold.
+   *
+   * The taunt is prepared here, but the dialogue that validates it
+   * is only checked at commit time. This test therefore drives the
+   * preparation, then commits the pending taunt against a dialogue
+   * that names the definition.
+   */
+  const state = makeDormantState("destroy");
+
+  assert.equal(
+    state.resources.instances.some(
+      (instance) => instance.resourceId === "cigarette_stack_01"
+    ),
+    false,
+    "the destroyed instance must be absent from the ledger"
+  );
+
+  await withGlobalState(state, async () => {
+    const prepared = await prepareResourceInterventions(
+      ["TED"],
+      async () => JSON.stringify({
+        intervention: "taunt",
+        resource_id: "cigarette_stack_01",
+        rationale: "Deny the cigarettes they still believe they carry."
+      })
+    );
+
+    assert.equal(prepared.committed.length, 0);
+    assert.equal(prepared.pendingTaunts.length, 1);
+    assert.deepEqual(prepared.rejected, []);
+
+    const taunt = prepared.pendingTaunts[0];
+
+    assert.equal(taunt.resource_id, "cigarette_stack_01");
+    assert.equal(taunt.definitionTitle, "Cigarette");
+
+    /*
+     * The dialogue names the DEFINITION ("Cigarette"), not the
+     * resource id. The instance is gone, so only the believed
+     * definition can supply the noun for the reference check.
+     */
+    const accepted = commitPendingResourceTaunts(G, [taunt], {
+      TED: { text: "Where are your Cigarette? I took them days ago." }
+    });
+
+    assert.equal(accepted.committed.length, 1);
+    assert.deepEqual(accepted.rejected, []);
+    assert.equal(
+      G.pendingEvidence.resourceInterventions.TED[0].interventionType,
+      "taunt"
+    );
+  });
+});
+
+test("a destroyed dormant taunt is rejected when the dialogue does not name the item", async () => {
+  /*
+   * The fallback resolves the NAME the dialogue has to contain. It
+   * does not relax the requirement: a dialogue that never mentions
+   * the item is still refused.
+   */
+  const state = makeDormantState("destroy");
+
+  await withGlobalState(state, async () => {
+    const prepared = await prepareResourceInterventions(
+      ["TED"],
+      async () => JSON.stringify({
+        intervention: "taunt",
+        resource_id: "cigarette_stack_01",
+        rationale: "Deny the cigarettes they still believe they carry."
+      })
+    );
+
+    const rejected = commitPendingResourceTaunts(
+      G,
+      prepared.pendingTaunts,
+      { TED: { text: "You have no protection from me." } }
+    );
+
+    assert.equal(rejected.committed.length, 0);
+    assert.equal(rejected.rejected.length, 1);
+    assert.match(
+      rejected.rejected[0].reason,
+      /does not reference resource/
+    );
+    assert.equal(
+      G.pendingEvidence.resourceInterventions.TED,
+      undefined
+    );
+  });
 });
 
 test("a dormant taunt still requires the dialogue to name the item", () => {
