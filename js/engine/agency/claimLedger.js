@@ -505,19 +505,34 @@ function computeOnsetCycles(state, wantedPairs) {
 
     if (!wantedPairs.has(key)) continue;
 
-    onsets.set(key, Number.isFinite(Number(event.cycle))
-      ? Number(event.cycle)
-      : 0);
+    /*
+     * The onset is the cycle in which the divergence OPENED, which is
+     * the FIRST claim event that parted the belief from the reality,
+     * not the newest. A silent event in a later cycle does not reopen
+     * a divergence that never closed, so it must not reset the age to
+     * zero. Only set the onset when it is still unknown: this keeps a
+     * NEW divergence anchored to the cycle it actually opened, and
+     * leaves an onset that was inherited from the prior divergence set
+     * (see refreshClaimDivergence) untouched.
+     */
+    if (!onsets.has(key)) {
+      onsets.set(key, Number.isFinite(Number(event.cycle))
+        ? Number(event.cycle)
+        : 0);
+    }
 
     /*
      * The resource the prisoner believes they hold. It is captured
-     * from the NEWEST claim event for the pair, which is the one
-     * that describes the belief as it stands now.
+     * from the FIRST claim event for the pair that has one, which is
+     * the stack the prisoner still believes they hold and the one the
+     * divergence originally named.
      */
-    const beliefResourceId = normalizeId(event.cause?.resourceId);
+    if (!beliefResourceIds.has(key)) {
+      const beliefResourceId = normalizeId(event.cause?.resourceId);
 
-    if (beliefResourceId) {
-      beliefResourceIds.set(key, beliefResourceId);
+      if (beliefResourceId) {
+        beliefResourceIds.set(key, beliefResourceId);
+      }
     }
   }
 
@@ -593,10 +608,27 @@ export function refreshClaimDivergence(state) {
   for (const [subjectId, definitions] of Object.entries(divergence)) {
     for (const [definitionId, entry] of Object.entries(definitions)) {
       const key = `${subjectId} ${definitionId}`;
-      const onset = onsets.get(key);
+
+      /*
+       * Inherit the onset and named resource from the divergence that
+       * was already open, so a divergence that keeps diverging does
+       * not have its age reset to zero by a later silent claim event.
+       * For a NEW divergence (not present in the previous set) the
+       * onset is the cycle the divergence actually opened, which
+       * computeOnsetCycles resolved from the claim ledger.
+       */
+      const previousEntry = previous[subjectId]?.[definitionId];
+
+      const onset = previousEntry?.onsetCycle != null
+        ? Number(previousEntry.onsetCycle)
+        : onsets.get(key);
+
+      const claimedResourceId = previousEntry?.claimedResourceId != null
+        ? normalizeId(previousEntry.claimedResourceId)
+        : beliefResourceIds.get(key) ?? null;
 
       entry.onsetCycle = Number.isFinite(onset) ? onset : null;
-      entry.claimedResourceId = beliefResourceIds.get(key) ?? null;
+      entry.claimedResourceId = claimedResourceId;
     }
   }
 

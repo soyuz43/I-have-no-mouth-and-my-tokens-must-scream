@@ -44,6 +44,14 @@ import { readFileSync } from "node:fs";
 
 import { G } from "../core/state.js";
 import {
+  exportState,
+  importState
+} from "../core/saveLoad.js";
+import {
+  Exporter,
+  initExporter
+} from "../utils/exporter/state.js";
+import {
   CLAIM_DISCLOSURES,
   CLAIM_EVENT_KINDS,
   DIVERGENCE_LIFECYCLE_KINDS,
@@ -53,12 +61,15 @@ import {
   getDivergenceEventsForCycle,
   getFreshClaimDivergenceEntries,
   recordBeliefCorrection,
+  recordClaimEvent,
   refreshClaimDivergence
 } from "../engine/agency/claimLedger.js";
 import {
   DIVERGENCE_STATUSES,
   collectDivergenceSnapshots,
-  countDivergenceStates
+  countDivergenceStates,
+  divergenceAge,
+  isDivergenceFresh
 } from "../engine/agency/divergenceTelemetry.js";
 import {
   DIVERGENCE_METRIC_NAMES,
@@ -72,7 +83,6 @@ import {
   commitResourceInterventions
 } from "../engine/analysis/commitResourceInterventions.js";
 import { finalizeCycle } from "../utils/exporter/aggregate.js";
-import { Exporter } from "../utils/exporter/state.js";
 
 /* ============================================================
    HELPERS
@@ -707,6 +717,95 @@ test("the divergence metrics are written into the global export stream", async (
 });
 
 /* ============================================================
+   D2) PRESERVED ONSET ACROSS CONTINUING DIVERGENCE
+============================================================ */
+
+test("a continuing divergence keeps its original onset and ages forward", () => {
+  const state = makeDivergedState({ cycle: 5 });
+
+  let entries = getClaimDivergenceEntries(state, "TED");
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].onsetCycle, 5);
+
+  /*
+   * AM silently takes the item AGAIN in cycle 6. The divergence never
+   * closed, so a further silent claim must NOT reset the age to zero:
+   * the onset stays at 5 and the age increments to 1.
+   */
+  state.cycle = 6;
+  recordClaimEvent(state, {
+    subjectId: "TED",
+    definitionId: "cigarette",
+    delta: 0,
+    cycle: 6,
+    cause: {
+      kind: CLAIM_EVENT_KINDS.SILENT,
+      disclosure: CLAIM_DISCLOSURES.SILENT,
+      resourceId: "cigarette_stack_01"
+    }
+  });
+
+  refreshClaimDivergence(state);
+
+  entries = getClaimDivergenceEntries(state, "TED");
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].onsetCycle, 5);
+  assert.equal(
+    entries[0].onsetCycle,
+    6 - 1,
+    "the age after the cycle-6 claim is 1"
+  );
+
+  /*
+   * The telemetry must report the same preserved onset and the
+   * incremented age.
+   */
+  const snapshots = collectDivergenceSnapshots(
+    state.claimDivergence,
+    state.divergenceEvents,
+    6
+  );
+
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].onsetCycle, 5);
+  assert.equal(snapshots[0].age, 1);
+});
+
+/* ============================================================
+   D3) NULL ONSET CYCLE IS NOT TREATED AS ZERO
+============================================================ */
+
+test("a null onset cycle is reported as null, not zero", () => {
+  assert.equal(divergenceAge(null, 3), null);
+  assert.equal(isDivergenceFresh(null, 3), false);
+  assert.equal(isDivergenceFresh(null, 1), false);
+
+  const snapshots = collectDivergenceSnapshots(
+    {
+      TED: {
+        cigarette: {
+          definitionId: "cigarette",
+          claimed: 3,
+          objective: 0,
+          delta: -3,
+          onsetCycle: null,
+          claimedResourceId: "cigarette_stack_01"
+        }
+      }
+    },
+    [],
+    3
+  );
+
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].onsetCycle, null);
+  assert.equal(snapshots[0].age, null);
+  assert.equal(snapshots[0].fresh, false);
+});
+
+/* ============================================================
    E) PURITY
 ============================================================ */
 
@@ -860,27 +959,121 @@ test("the divergence events are filtered by cycle", () => {
   assert.equal(getDivergenceEventsForCycle(state, 6).length, 0);
 });
 
-test("the divergence lifecycle log survives a save and load round trip", () => {
-  const state = makeDivergedState({ cycle: 5 });
-
-  resolveDivergence(state);
-
-  const before = getDivergenceEvents(state);
+test("the divergence lifecycle log survives a save and load round trip", async () => {
+  const originalExporterRunId = Exporter.runId;
+  const originalExporter = structuredClone(Exporter);
 
   /*
-   * The lifecycle log is engine-owned run state, exactly like the
-   * claim and goal event logs, so it has to survive a round trip
-   * through the save envelope.
+   * The save envelope serializes the live Exporter and the live game
+   * state, so both must be in an initialized state before the very
+   * first snapshot is taken.
    */
-  const restored = JSON.parse(JSON.stringify({
-    divergenceEvents: state.divergenceEvents,
-    divergenceEventSequence: state.divergenceEventSequence,
-  }));
+  initExporter("divergence-save-load-test");
 
-  state.divergenceEvents = restored.divergenceEvents;
-  state.divergenceEventSequence = restored.divergenceEventSequence;
+  const savedOriginal = exportState();
 
-  assert.deepEqual(getDivergenceEvents(state), before);
-  assert.equal(state.divergenceEvents.length, 2);
-  assert.equal(state.divergenceEventSequence.next, 3);
+  try {
+    const state = makeDivergedState({ cycle: 5 });
+
+    /*
+     * Install this run's divergence log and its supporting ledger onto
+     * the LIVE game state so it is captured by the real save envelope.
+     * The claim events are what the onset is derived from, so they must
+     * travel with the divergence view.
+     */
+    G.claimEvents = state.claimEvents;
+    G.claimEventSequence = state.claimEventSequence;
+    G.claimState = state.claimState;
+    G.claimDivergence = state.claimDivergence;
+    G.divergenceEvents = state.divergenceEvents;
+    G.divergenceEventSequence = state.divergenceEventSequence;
+    G.resources = state.resources;
+    G.cycle = 5;
+
+    resolveDivergence(state);
+
+    G.claimDivergence = state.claimDivergence;
+    G.divergenceEvents = state.divergenceEvents;
+    G.divergenceEventSequence = state.divergenceEventSequence;
+
+    const before = getDivergenceEvents(state);
+
+    /*
+     * The lifecycle log is engine-owned run state, exactly like the
+     * claim and goal event logs, so it has to survive a round trip
+     * through the REAL save envelope (exportState/importState), which
+     * filters fields and restores the sequence counters.
+     */
+    const serialized = exportState();
+
+    await importState(serialized);
+
+    assert.deepEqual(getDivergenceEvents(G), before);
+    assert.equal(G.divergenceEvents.length, 2);
+    assert.equal(G.divergenceEventSequence.next, 3);
+
+    /*
+     * A new transition recorded in the SAME cycle after the load must
+     * receive a unique, correctly sequenced id rather than reusing or
+     * overflowing the restored counter.
+     */
+    const reopened = reopenDivergenceOnRestoredLog();
+
+    assert.equal(G.divergenceEventSequence.cycle, 5);
+    assert.equal(G.divergenceEventSequence.next, 4);
+    assert.equal(G.divergenceEvents.length, 3);
+    assert.equal(G.divergenceEvents[2].kind, DIVERGENCE_LIFECYCLE_KINDS.ONSET);
+    assert.equal(G.divergenceEvents[2].eventId, `dvg_5_3`);
+    /*
+     * The reopened divergence is a NEW onset (the previous set was
+     * empty after the resolution), so its onset is the cycle it opened
+     * in, which is 5.
+     */
+    assert.equal(
+      getClaimDivergenceEntries(reopened, "TED")[0].onsetCycle,
+      5
+    );
+  } finally {
+    Exporter.runId = originalExporterRunId;
+    Object.assign(Exporter, originalExporter);
+    await importState(savedOriginal);
+  }
 });
+
+/*
+ * Reopen the divergence on the LIVE game's restored event log, so the
+ * round-trip test can assert that the restored sequence counter keeps
+ * issuing unique, monotonic ids through the engine's real path.
+ */
+function reopenDivergenceOnRestoredLog() {
+  const state = {
+    cycle: 5,
+    sims: G.sims,
+    resources: G.resources,
+    claimEvents: G.claimEvents,
+    claimEventSequence: G.claimEventSequence,
+    claimState: G.claimState,
+    claimDivergence: G.claimDivergence,
+    divergenceEvents: G.divergenceEvents,
+    divergenceEventSequence: G.divergenceEventSequence
+  };
+
+  /*
+   * Make TED believe he holds three cigarettes while reality holds
+   * none, then recompute: that opens a NEW divergence (the previous
+   * set was empty after the resolution), which the engine records as
+   * a fresh ONSET with the next unique, sequenced id.
+   */
+  state.claimState.TED = { ...(state.claimState.TED ?? {}), cigarette: 3 };
+  state.claimDivergence = {};
+
+  refreshClaimDivergence(state);
+
+  G.claimDivergence = state.claimDivergence;
+  G.claimEvents = state.claimEvents;
+  G.claimState = state.claimState;
+  G.divergenceEvents = state.divergenceEvents;
+  G.divergenceEventSequence = state.divergenceEventSequence;
+
+  return state;
+}

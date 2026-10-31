@@ -120,7 +120,7 @@ function normalizeQuantity(value) {
  * A divergence with no onset cycle has no age, so it is never fresh.
  */
 export function isDivergenceFresh(onsetCycle, currentCycle) {
-  if (!Number.isFinite(Number(onsetCycle))) return false;
+  if (onsetCycle == null || !Number.isFinite(Number(onsetCycle))) return false;
 
   return (
     Number(currentCycle) - Number(onsetCycle) <=
@@ -136,7 +136,7 @@ export function isDivergenceFresh(onsetCycle, currentCycle) {
  * cycle.
  */
 export function divergenceAge(onsetCycle, currentCycle) {
-  if (!Number.isFinite(Number(onsetCycle))) return null;
+  if (onsetCycle == null || !Number.isFinite(Number(onsetCycle))) return null;
   if (!Number.isFinite(Number(currentCycle))) return null;
 
   return Number(currentCycle) - Number(onsetCycle);
@@ -246,9 +246,10 @@ function buildSnapshot({
   currentCycle,
   status
 }) {
-  const onsetCycle = Number.isFinite(Number(entry?.onsetCycle))
-    ? Number(entry.onsetCycle)
-    : null;
+  const onsetCycle =
+    entry?.onsetCycle == null || !Number.isFinite(Number(entry?.onsetCycle))
+      ? null
+      : Number(entry.onsetCycle);
   const age = divergenceAge(onsetCycle, currentCycle);
 
   /*
