@@ -1516,6 +1516,30 @@ test("the phase writes one entry per sim into G.agency", async () => {
   });
 });
 
+test("the phase stores a degraded budget for a restrained sim", async () => {
+  /*
+   * R5: the budget is now a function of physical capability bands.
+   * palestinian_chair drives handUse to `unavailable`, concentration
+   * to `severely_impaired`, and stability to `severely_impaired` --
+   * three deductions floored at 1. The unrestrained case above still
+   * asserts 3, so this pair brackets the dynamic range.
+   */
+  await withPhase(
+    { cycle: 16, constraints: [restraint("palestinian_chair")] },
+    async ({ G, runAgencyPhase }) => {
+      await runAgencyPhase({ proposalCollector: waitProposal });
+
+      for (const simId of SIM_IDS) {
+        assert.equal(
+          G.agency.budgets[simId],
+          1,
+          `${simId} should have a floored budget of 1 under palestinian_chair`
+        );
+      }
+    }
+  );
+});
+
 test("the phase derives against capabilities, not the derive envelope", async () => {
   /*
    * Regression guard. Passing the whole deriveCapabilities() envelope

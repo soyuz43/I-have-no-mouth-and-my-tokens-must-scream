@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { SIM_IDS } from "../core/constants.js";
 import { ACTION_DEFINITIONS } from "../engine/agency/actionDefs.js";
 import { deriveActionBudget } from "../engine/agency/budget.js";
+import { deriveCapabilities } from "../engine/agency/capabilities.js";
 import { commitAgencyResolution } from "../engine/agency/commit.js";
 import {
   getAgencyEventsForReview
@@ -86,8 +87,27 @@ function transferProposal(game, actorId, resourceId, targetId) {
   });
 }
 
-test("budget and proposal validation enforce one legal in-budget action", async () => {
-  assert.equal(deriveActionBudget({ id: "TED" }), 3);
+test("budget derives from capability bands and validation enforces it", async () => {
+  /*
+   * Unrestrained: no constraints means all bands are `normal`, so the
+   * full budget of 3 survives. The budget now reads the deriveCapabilities()
+   * envelope, not the raw sim.
+   */
+  const unrestrained = deriveCapabilities({ id: "TED", constraints: [] });
+  assert.equal(deriveActionBudget(unrestrained), 3);
+
+  /*
+   * restrained: palestinian_chair drives handUse to `unavailable`,
+   * concentration to `severely_impaired`, and stability to
+   * `severely_impaired` -- three deductions, floored at 1.
+   */
+  const restrained = deriveCapabilities({
+    id: "TED",
+    constraints: [
+      { id: "palestinian_chair", remaining: 0, stacks: 1, intensity: 1, elapsed: 0 }
+    ]
+  });
+  assert.equal(deriveActionBudget(restrained), 1);
 
   const sim = {
     id: "TED",
