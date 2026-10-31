@@ -22,7 +22,6 @@ import {
 import { appendAttentionFlag } from "./attentionFlags.js";
 
 const MAX_GOAL_HISTORY = 5;
-const RESOURCE_DISCOVERY_CHANCE = 0.3;
 
 const MUTABLE_STATS = new Set([
   "hope",
@@ -443,6 +442,18 @@ export function commitAgencyResolution(
     .filter((actorId) => G.sims?.[actorId])
     .sort();
 
+  const currentCycleTransferKeys = new Set(
+    stagedResourceEvents
+      .filter((event) =>
+        event.kind === RESOURCE_EVENT_KINDS.PRISONER_ACTION &&
+        event.cycle === G.cycle &&
+        event.fromHolderId != null &&
+        event.toHolderId != null &&
+        event.fromHolderId !== event.toHolderId
+      )
+      .map((event) => `${event.toHolderId}\u0000${event.resourceId}`)
+  );
+
   for (const actorId of actorIds) {
     const heldResources = stagedInstances
       .filter((instance) =>
@@ -454,21 +465,20 @@ export function commitAgencyResolution(
       );
 
     for (const instance of heldResources) {
-      if (engineRng.next() >= RESOURCE_DISCOVERY_CHANCE) continue;
+      const provenance = instance.provenance ?? {};
+      const isNewlyFound =
+        provenance.source === "environment_search" &&
+        provenance.cycle === G.cycle;
+      const isRecentlyTransferred =
+        provenance.transferredAtCycle === G.cycle ||
+        (
+          provenance.interventionCycle === G.cycle &&
+          typeof provenance.transferredFrom === "string"
+        ) ||
+        currentCycleTransferKeys.has(`${actorId}\u0000${instance.resourceId}`);
 
-      /*
-       * The roll and the capability-concealment rule write to the
-       * same attention channel, so both go through the same writer.
-       * The writer deduplicates on cycle + actor + resource, which
-       * matters here: an item exposed earlier in this cycle by the
-       * concealment rule is already flagged, and the roll must not
-       * add a second flag for the same attention event.
-       *
-       * The RNG is consumed above, BEFORE the duplicate check, so
-       * the roll's draw sequence is unchanged by whether the flag
-       * was already raised. Deduplication must not perturb the
-       * deterministic random stream.
-       */
+      if (!isNewlyFound && !isRecentlyTransferred) continue;
+
       const raised = appendAttentionFlag(G, {
         cycle: G.cycle,
         actorId,

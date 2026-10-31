@@ -1044,10 +1044,18 @@ test("enumerating actions never mutates the authoritative ledger", () => {
   assert.equal(JSON.stringify(ledger), before);
 });
 
-test("agency commit flags an openly held resource without removing it", () => {
+test("agency commit flags a current-cycle SEARCH acquisition without removing it", () => {
   const game = discoveryGame();
+  game.resources.instances[0].provenance = {
+    source: "environment_search",
+    cycle: game.cycle
+  };
   const originalNext = engineRng.next;
-  engineRng.next = () => 0;
+  let draws = 0;
+  engineRng.next = () => {
+    draws += 1;
+    return 0;
+  };
 
   try {
     commitDiscoveryGame(game);
@@ -1058,6 +1066,7 @@ test("agency commit flags an openly held resource without removing it", () => {
       resourceId: "cigarette_stack_01",
       definitionId: "cigarette"
     }]);
+    assert.equal(draws, 0);
     assert.equal(game.resources.instances.length, 1);
     assert.equal(game.resources.instances[0].quantity, 2);
   } finally {
@@ -1065,7 +1074,7 @@ test("agency commit flags an openly held resource without removing it", () => {
   }
 });
 
-test("agency commit rolls attention for concealed and unconcealed held resources", () => {
+test("agency commit ignores untouched concealed and unconcealed resources without RNG", () => {
   const game = discoveryGame();
   game.resources.instances[0].accessible = true;
   game.resources.instances.push({
@@ -1077,30 +1086,17 @@ test("agency commit rolls attention for concealed and unconcealed held resources
     concealed: true
   });
   const originalNext = engineRng.next;
-  let rolls = 0;
+  let draws = 0;
   engineRng.next = () => {
-    rolls += 1;
+    draws += 1;
     return 0;
   };
 
   try {
     commitDiscoveryGame(game);
 
-    assert.deepEqual(game.pendingResourceDiscoveries, [
-      {
-        cycle: 3,
-        actorId: "TED",
-        resourceId: "cigarette_stack_01",
-        definitionId: "cigarette"
-      },
-      {
-        cycle: 3,
-        actorId: "TED",
-        resourceId: "match_stack_00",
-        definitionId: "match"
-      }
-    ]);
-    assert.equal(rolls, 2);
+    assert.deepEqual(game.pendingResourceDiscoveries, []);
+    assert.equal(draws, 0);
     assert.equal(game.resources.instances.length, 2);
   } finally {
     engineRng.next = originalNext;

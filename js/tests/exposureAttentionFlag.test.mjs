@@ -23,15 +23,14 @@
 //   - The exposure flag being written to a channel that
 //     `resetCycleEvidence()` clears before AM reads it. The flag
 //     would exist and yet never reach the gate.
-//   - The exposure flag being raised but the attention ROLL
-//     clobbering it, or vice versa. Both write to the same channel
-//     and both must survive.
+//   - The exposure flag being raised alongside a causal salience
+//     flag. Both write to the same channel and must deduplicate or
+//     coexist according to their resource identity.
 //   - A DUPLICATE flag for the same resource in the same cycle. The
-//     exposure rule runs before the roll in the agency phase, so an
-//     exposed item is in the roll's pool too.
+//     exposure rule runs before the agency commit, so an exposed item
+//     may also qualify through current-cycle transfer provenance.
 //   - The exposure flag consuming RNG. Exposure is deterministic,
-//     so its flag must be deterministic, and the roll's draw
-//     sequence must be unchanged by the dedup check.
+//     and causal salience must not consume an attention RNG draw.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -372,8 +371,14 @@ test("re-running the concealment rule creates no second event or flag", async ()
   });
 });
 
-test("the attention roll does not add a second flag for an exposed resource", async () => {
-  const game = createGame(5, [cigaretteStack()]);
+test("causal salience does not duplicate an exposed transferred resource", async () => {
+  const game = createGame(5, [cigaretteStack({
+    provenance: {
+      source: "scenario_seed",
+      transferredAtCycle: 5,
+      transferredFromHolderId: "ELLEN"
+    }
+  })]);
 
   await withGame(game, async (state) => {
     const derived = deriveCapabilities(simWith([BROKEN_HANDS_CONSTRAINT]));
@@ -385,13 +390,12 @@ test("the attention roll does not add a second flag for an exposed resource", as
       state.resources.instances
     );
 
-    /*
-     * The exposed item is still in the roll's pool, so the roll
-     * draws it too. The roll is forced to succeed; the dedup check
-     * must keep the channel to one flag.
-     */
     const originalNext = engineRng.next;
-    engineRng.next = () => 0;
+    let draws = 0;
+    engineRng.next = () => {
+      draws += 1;
+      return 0;
+    };
 
     try {
       commitAgencyResolution(state, [{
@@ -408,6 +412,7 @@ test("the attention roll does not add a second flag for an exposed resource", as
 
     const flags = flagsFor(state, "cigarette_stack_01");
 
+    assert.equal(draws, 0);
     assert.equal(flags.length, 1);
     assert.equal(flags[0].source, "exposure");
   });
@@ -439,28 +444,23 @@ test("a concealed resource with adequate capability raises no flag", async () =>
 });
 
 /* ============================================================
-   TEST 7: THE EXISTING ROLL STILL WORKS AND MERGES
+   TEST 7: SEARCH PROVENANCE RAISES A SALIENCE FLAG
 ============================================================ */
 
-test("the attention roll still raises its own flags", async () => {
-  const game = createGame(3, [cigaretteStack()]);
+test("a current-cycle SEARCH raises a causal salience flag", async () => {
+  const game = createGame(3, [cigaretteStack({
+    provenance: { source: "environment_search", cycle: 3 }
+  })]);
 
   await withGame(game, async (state) => {
-    const originalNext = engineRng.next;
-    engineRng.next = () => 0;
-
-    try {
-      commitAgencyResolution(state, [{
-        cycle: state.cycle,
-        actorId: "TED",
-        action: { type: "USE" },
-        status: "success",
-        operations: [],
-        provenance: { source: "agency_resolver" }
-      }]);
-    } finally {
-      engineRng.next = originalNext;
-    }
+    commitAgencyResolution(state, [{
+      cycle: state.cycle,
+      actorId: "TED",
+      action: { type: "USE" },
+      status: "success",
+      operations: [],
+      provenance: { source: "agency_resolver" }
+    }]);
 
     assert.equal(state.pendingResourceDiscoveries.length, 1);
     assert.deepEqual(state.pendingResourceDiscoveries[0], {
@@ -472,20 +472,15 @@ test("the attention roll still raises its own flags", async () => {
   });
 });
 
-test("an exposure flag and a roll flag for different resources both survive", async () => {
+test("exposure and salience flags for different resources both survive", async () => {
   const game = createGame(5, [
     cigaretteStack(),
     cigaretteStack({
       resourceId: "match_stack_01",
       definitionId: "match",
       quantity: 2,
-      /*
-       * This one is ALREADY open, so the concealment rule has
-       * nothing to expose. It reaches the attention roll instead,
-       * which is the point of the test: an exposure flag and a roll
-       * flag have to coexist on the same channel.
-       */
-      concealed: false
+      concealed: false,
+      provenance: { source: "environment_search", cycle: 5 }
     })
   ]);
 
@@ -499,35 +494,28 @@ test("an exposure flag and a roll flag for different resources both survive", as
       state.resources.instances
     );
 
-    const originalNext = engineRng.next;
-    engineRng.next = () => 0;
-
-    try {
-      commitAgencyResolution(state, [{
-        cycle: state.cycle,
-        actorId: "TED",
-        action: { type: "USE" },
-        status: "success",
-        operations: [],
-        provenance: { source: "agency_resolver" }
-      }]);
-    } finally {
-      engineRng.next = originalNext;
-    }
+    commitAgencyResolution(state, [{
+      cycle: state.cycle,
+      actorId: "TED",
+      action: { type: "USE" },
+      status: "success",
+      operations: [],
+      provenance: { source: "agency_resolver" }
+    }]);
 
     /*
-     * The exposure flag is not clobbered by the roll, and the roll's
-     * flag for the other resource is not dropped.
+     * The exposure flag and the independent SEARCH salience flag
+     * coexist on the same channel.
      */
     assert.equal(state.pendingResourceDiscoveries.length, 2);
 
     const exposed = flagsFor(state, "cigarette_stack_01");
-    const rolled = flagsFor(state, "match_stack_01");
+    const salient = flagsFor(state, "match_stack_01");
 
     assert.equal(exposed.length, 1);
     assert.equal(exposed[0].source, "exposure");
-    assert.equal(rolled.length, 1);
-    assert.equal(rolled[0].source, undefined);
+    assert.equal(salient.length, 1);
+    assert.equal(salient[0].source, undefined);
   });
 });
 
@@ -563,14 +551,10 @@ test("the exposure flag consumes no randomness and is deterministic", async () =
   assert.deepEqual(second.rngState, first.rngState);
 });
 
-test("the attention roll's draw sequence is unchanged by the dedup check", async () => {
-  /*
-   * The roll consumes its RNG draw BEFORE the duplicate check, so a
-   * resource that is already flagged still costs a draw. If the
-   * check ran first, the deterministic random stream would shift
-   * and every downstream roll in the cycle would differ.
-   */
-  const game = createGame(3, [cigaretteStack()]);
+test("causal salience does not consume engine RNG", async () => {
+  const game = createGame(3, [cigaretteStack({
+    provenance: { source: "environment_search", cycle: 3 }
+  })]);
 
   await withGame(game, async (state) => {
     const originalNext = engineRng.next;
@@ -590,7 +574,8 @@ test("the attention roll's draw sequence is unchanged by the dedup check", async
         provenance: { source: "agency_resolver" }
       }]);
 
-      assert.equal(draws, 1);
+      assert.equal(draws, 0);
+      assert.equal(flagsFor(state, "cigarette_stack_01").length, 1);
     } finally {
       engineRng.next = originalNext;
     }
@@ -780,45 +765,45 @@ function captureDebug(action) {
 }
 
 test("the attention debug line is emitted when a flag is inserted", async () => {
-  const game = createGame(3, [cigaretteStack()]);
+  const game = createGame(3, [cigaretteStack({
+    provenance: { source: "environment_search", cycle: 3 }
+  })]);
 
   await withGame(game, async (state) => {
-    const originalNext = engineRng.next;
-    engineRng.next = () => 0;
+    const messages = captureDebug(() => {
+      commitAgencyResolution(state, [{
+        cycle: state.cycle,
+        actorId: "TED",
+        action: { type: "USE" },
+        status: "success",
+        operations: [],
+        provenance: { source: "agency_resolver" }
+      }]);
+    });
 
-    try {
-      const messages = captureDebug(() => {
-        commitAgencyResolution(state, [{
-          cycle: state.cycle,
-          actorId: "TED",
-          action: { type: "USE" },
-          status: "success",
-          operations: [],
-          provenance: { source: "agency_resolver" }
-        }]);
-      });
-
-      assert.equal(
-        messages.some((message) =>
-          message.includes("AM attention drawn to cigarette held by TED")
-        ),
-        true
-      );
-    } finally {
-      engineRng.next = originalNext;
-    }
+    assert.equal(
+      messages.some((message) =>
+        message.includes("AM attention drawn to cigarette held by TED")
+      ),
+      true
+    );
   });
 });
 
-test("the attention debug line is suppressed when a duplicate is dropped", async () => {
-  const game = createGame(3, [cigaretteStack()]);
+test("the salience debug line is suppressed when an exposure duplicate is dropped", async () => {
+  const game = createGame(3, [cigaretteStack({
+    provenance: {
+      source: "scenario_seed",
+      transferredAtCycle: 3,
+      transferredFromHolderId: "ELLEN"
+    }
+  })]);
 
   await withGame(game, async (state) => {
     /*
      * The concealment rule has already flagged this resource this
-     * cycle, so the roll's flag is a duplicate. The roll still draws
-     * (the RNG comes first), but no new flag is inserted, so the
-     * debug line must not claim one was.
+     * cycle. Its retained transfer provenance also qualifies it for
+     * salience, but deduplication prevents a second flag and log line.
      */
     const derived = deriveCapabilities(simWith([BROKEN_HANDS_CONSTRAINT]));
 
@@ -829,33 +814,24 @@ test("the attention debug line is suppressed when a duplicate is dropped", async
       state.resources.instances
     );
 
-    const originalNext = engineRng.next;
-    engineRng.next = () => 0;
+    const messages = captureDebug(() => {
+      commitAgencyResolution(state, [{
+        cycle: state.cycle,
+        actorId: "TED",
+        action: { type: "USE" },
+        status: "success",
+        operations: [],
+        provenance: { source: "agency_resolver" }
+      }]);
+    });
 
-    try {
-      const messages = captureDebug(() => {
-        commitAgencyResolution(state, [{
-          cycle: state.cycle,
-          actorId: "TED",
-          action: { type: "USE" },
-          status: "success",
-          operations: [],
-          provenance: { source: "agency_resolver" }
-        }]);
-      });
+    assert.equal(
+      messages.some((message) =>
+        message.includes("AM attention drawn to cigarette held by TED")
+      ),
+      false
+    );
 
-      assert.equal(
-        messages.some((message) =>
-          message.includes("AM attention drawn to cigarette held by TED")
-        ),
-        false
-      );
-
-      /* The channel still holds exactly one flag. */
-      assert.equal(flagsFor(state, "cigarette_stack_01").length, 1);
-    } finally {
-      engineRng.next = originalNext;
-    }
+    assert.equal(flagsFor(state, "cigarette_stack_01").length, 1);
   });
 });
-
