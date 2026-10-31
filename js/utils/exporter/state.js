@@ -34,6 +34,7 @@ export const EXPORT_STREAM_KEYS = Object.freeze([
     "observability_unknowns",
     "resource_events",
     "claim_events",
+    "claim_divergence",
     "scratchpad",
     "goal_events",
 ]);

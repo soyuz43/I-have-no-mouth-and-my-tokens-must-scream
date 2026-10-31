@@ -49,6 +49,9 @@ import {
     recordClaimEvents,
 } from "./streams/claimEvents.js";
 import {
+    recordClaimDivergence,
+} from "./streams/claimDivergence.js";
+import {
     recordScratchpadReviews,
 } from "./streams/scratchpad.js";
 import {
@@ -374,6 +377,9 @@ export function exportAllAsJSON(cycle, clearAfter = false) {
             claim_events:
                 Exporter.buffers.claim_events,
 
+            claim_divergence:
+                Exporter.buffers.claim_divergence,
+
             scratchpad:
                 Exporter.buffers.scratchpad,
 
@@ -498,6 +504,7 @@ export function finalizeCycle(G, metrics) {
     recordObservabilityUnknowns(G, cycle);
     recordResourceEvents(G, cycle);
     recordClaimEvents(G, cycle);
+    recordClaimDivergence(G, cycle);
     recordScratchpadReviews(G, cycle);
     recordGoalEvents(G, cycle);
 

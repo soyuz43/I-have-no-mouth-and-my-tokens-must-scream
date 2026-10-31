@@ -59,6 +59,10 @@ export {
 } from "./exporter/streams/resourceEvents.js";
 
 export {
+  recordClaimDivergence,
+} from "./exporter/streams/claimDivergence.js";
+
+export {
   toCSV,
   exportAllAsJSON,
   snapshotPrevState,

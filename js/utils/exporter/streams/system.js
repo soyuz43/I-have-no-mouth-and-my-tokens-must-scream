@@ -6,6 +6,10 @@ import { Exporter } from "../state.js";
 import { attachRecordMeta } from "../metadata.js";
 import { asArray, finiteOrDefault } from "../format.js";
 import { getExecutionForCycle } from "../executionContext.js";
+import {
+    computeDivergenceMetrics,
+    DIVERGENCE_METRIC_NAMES,
+} from "../../../engine/metrics/divergenceMetrics.js";
 
 /* ============================================================
    GLOBAL STREAM
@@ -77,6 +81,19 @@ export function recordGlobal(G, metrics, cycle) {
     const execution =
         getExecutionForCycle(
             G,
+            cycle
+        );
+
+    /*
+     * The divergence metrics are the scalar readout of the Dual
+     * Ledger's divergence loop: how many divergences are open, how
+     * many are still fresh, how many have aged out, and how many
+     * have appeared and closed over the run so far.
+     */
+    const divergenceMetrics =
+        computeDivergenceMetrics(
+            G?.claimDivergence,
+            G?.divergenceEvents,
             cycle
         );
 
@@ -193,5 +210,30 @@ export function recordGlobal(G, metrics, cycle) {
                     execution.journalTargetIds
                 ).length
                 : null,
+
+        divergence_onsets_total:
+            divergenceMetrics[
+                DIVERGENCE_METRIC_NAMES.ONSETS_TOTAL
+            ],
+
+        divergence_resolved_total:
+            divergenceMetrics[
+                DIVERGENCE_METRIC_NAMES.RESOLVED_TOTAL
+            ],
+
+        divergence_active_count:
+            divergenceMetrics[
+                DIVERGENCE_METRIC_NAMES.ACTIVE_COUNT
+            ],
+
+        divergence_fresh_count:
+            divergenceMetrics[
+                DIVERGENCE_METRIC_NAMES.FRESH_COUNT
+            ],
+
+        divergence_stale_count:
+            divergenceMetrics[
+                DIVERGENCE_METRIC_NAMES.STALE_COUNT
+            ],
     }, cycle));
 }
