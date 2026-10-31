@@ -911,6 +911,85 @@ export function getFreshClaimDivergenceEntries(
 }
 
 /*
+ * The divergences for one prisoner that have gone DORMANT.
+ *
+ * A dormant divergence is one whose confusion has already settled:
+ * the belief and the reality parted company more than
+ * DIVERGENCE_RECENCY_WINDOW cycles ago, so the prisoner has long
+ * since stopped reaching for the missing thing. The divergence is
+ * still REAL and still recorded, and the prisoner still believes
+ * they hold the item, but the confusion is no longer news.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM `getFreshClaimDivergenceEntries`
+ * ------------------------------------------------------------------
+ * Freshness is a RECENCY judgement, and the two sets partition the
+ * open divergences: fresh plus dormant plus the no-onset remainder
+ * equals every divergence the ledger knows about.
+ *
+ * Freshness answers "is this worth interrupting the prisoner for?".
+ * Dormancy answers "can AM still NAME this false belief to attack
+ * it?". Those are different questions with different consumers:
+ *
+ *   - the prisoner may only ACT on a FRESH belief, because a stale
+ *     misremembering would manufacture a wave of blocked proposals;
+ *   - AM may name ANY believed item, fresh or dormant, because a
+ *     dormant false belief is exactly the raw material gaslighting
+ *     needs: a prisoner who still believes they hold something AM
+ *     took can be attacked on their own certainty.
+ *
+ * So this reader is deliberately NOT a relaxation of the freshness
+ * window. It is a second, orthogonal view over the same divergence
+ * set, and it changes nothing about the prisoner's action license.
+ *
+ * WHAT COUNTS AS DORMANT
+ * ----------------------
+ * A dormant entry is one the prisoner still believes they HOLD:
+ * the claimed quantity is positive and the belief names the stack
+ * they remember. A divergence in the other direction (they believe
+ * they hold LESS than they do) is not a thing they could be
+ * gaslit about, because there is no missing item in their hands to
+ * name. Those are excluded here for the same reason the believed
+ * resource ids exclude them.
+ *
+ * PURITY
+ * ------
+ * The cycle is passed in, never read from a global. No mutation, no
+ * I/O, no randomness, no clock.
+ */
+export function getDormantClaimDivergenceEntries(
+  state,
+  subjectId,
+  cycle
+) {
+  const currentCycle = Number.isFinite(Number(cycle))
+    ? Number(cycle)
+    : Number(state?.cycle) || 0;
+
+  return getClaimDivergenceEntries(state, subjectId).filter((entry) => {
+    /*
+     * A divergence with no onset cycle has no AGE, so it can never
+     * be judged old. Note that `Number(null)` is 0 and therefore
+     * finite, so the null case is rejected explicitly rather than
+     * through the numeric check alone.
+     */
+    if (entry?.onsetCycle == null) return false;
+    if (!Number.isFinite(Number(entry.onsetCycle))) return false;
+
+    if (
+      currentCycle - Number(entry.onsetCycle) <=
+      DIVERGENCE_RECENCY_WINDOW
+    ) {
+      return false;
+    }
+
+    if (Number(entry.claimed) <= 0) return false;
+    if (!entry.claimedResourceId) return false;
+
+    return true;
+  });
+}
+
+/*
  * Whether a prisoner currently believes something they do not have.
  *
  * This is the gate AM's assessment uses: a prisoner who is wrong
@@ -927,10 +1006,13 @@ export function hasFreshClaimDivergence(state, subjectId, cycle) {
  * The resource ids a prisoner still BELIEVES they hold.
  *
  * When AM takes an item silently, the item leaves the held ledger but
- * stays in the prisoner's expectation. This is the set AM needs in
- * order to name the resource in a taunt, and the set the engine uses
- * to decide whether a proposed intervention is aimed at something the
- * prisoner actually thinks is theirs.
+ * stays in the prisoner's expectation.
+ *
+ * This is the FRESH-scoped set: it names only the beliefs whose
+ * confusion is still news. The wider set, which spans the fresh and
+ * the dormant beliefs, is `getBelievedDivergenceEntries`; that is the
+ * one AM's taunt path uses, because a dormant false belief is still
+ * nameable.
  */
 export function getBelievedResourceIds(state, subjectId, cycle) {
   const entries = getFreshClaimDivergenceEntries(
@@ -951,6 +1033,63 @@ export function getBelievedResourceIds(state, subjectId, cycle) {
   return ids;
 }
 
+/*
+ * EVERY divergence entry describing a thing the prisoner still
+ * believes they HOLD, whether the confusion about it is fresh or
+ * dormant.
+ *
+ * `getBelievedResourceIds` answers a POLICY question: which
+ * believed items are worth acting on right now, and that answer is
+ * deliberately limited to the fresh ones. This function answers a
+ * DIFFERENT question: which items exist in the prisoner's mind as
+ * things they hold. That set is the union of the fresh beliefs and
+ * the dormant ones, because a settled confusion is still a false
+ * belief the prisoner carries.
+ *
+ * The filter matches the one `getBelievedResourceIds` applies: a
+ * positive CLAIMED quantity and a named stack. A divergence in the
+ * other direction (the prisoner believes they hold LESS than they
+ * do) describes nothing missing from their hands, so there is no
+ * item for a taunt to name.
+ *
+ * The only consumer is the TAUNT path, which asks "is this a thing
+ * the prisoner thinks they have?" when the objective ledger no
+ * longer lists the resource. It is deliberately NOT used by the
+ * confiscate, destroy, or transfer validators: those still require
+ * the prisoner to actually hold the item, so a dormant belief can
+ * never license the removal of a resource.
+ */
+export function getBelievedDivergenceEntries(
+  state,
+  subjectId,
+  cycle
+) {
+  const entries = [
+    ...getFreshClaimDivergenceEntries(state, subjectId, cycle),
+    ...getDormantClaimDivergenceEntries(state, subjectId, cycle)
+  ];
+
+  return entries.filter((entry) => {
+    if (Number(entry?.claimed) <= 0) return false;
+    if (!entry?.claimedResourceId) return false;
+
+    return true;
+  });
+}
+
+/*
+ * EVERY resource id the prisoner still BELIEVES they hold, whether
+ * the confusion about it is fresh or dormant.
+ *
+ * The reader counterpart of `getBelievedDivergenceEntries`, for the
+ * callers that need the id alone.
+ */
+export function getAllBelievedResourceIds(state, subjectId, cycle) {
+  return new Set(
+    getBelievedDivergenceEntries(state, subjectId, cycle)
+      .map((entry) => entry.claimedResourceId)
+  );
+}
 /* ============================================================
    DIVERGENCE LIFECYCLE READING
 ============================================================ */

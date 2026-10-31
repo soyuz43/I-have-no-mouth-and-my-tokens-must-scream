@@ -776,7 +776,7 @@ test("a prisoner with neither a flag nor a divergence is not assessed", () => {
   assert.equal(shouldAssessPrisoner("ELLEN", state), false);
 });
 
-test("a stale divergence does not open the assessment gate", () => {
+test("a dormant divergence opens the assessment gate but is not a fresh divergence", () => {
   const state = makeState();
   state.cycle = 5;
   state.resources.instances = [cigaretteStack()];
@@ -793,7 +793,30 @@ test("a stale divergence does not open the assessment gate", () => {
 
   state.cycle = 5 + DIVERGENCE_RECENCY_WINDOW + 1;
 
-  assert.equal(shouldAssessPrisoner("TED", state), false);
+  /*
+   * G5: a dormant false belief is still a false belief the prisoner
+   * holds, so AM must be able to reach the prisoner to gaslight it.
+   * The gate therefore OPENS for it.
+   */
+  const gate = evaluatePrisonerAssessmentGate("TED", state);
+
+  assert.equal(gate.shouldAssess, true);
+  assert.equal(gate.reason, "prisoner holds a dormant false belief");
+
+  /*
+   * But it is NOT a fresh divergence. The fresh set stays empty, so
+   * the prisoner still has no license to attempt an action on the
+   * belief, and the telemetry can still tell the two apart.
+   */
+  assert.equal(gate.divergences.length, 0);
+  assert.equal(gate.dormantDivergences.length, 1);
+  assert.equal(gate.dormantDivergences[0].definitionId, "cigarette");
+  assert.equal(gate.dormantDivergences[0].claimed, 3);
+  assert.equal(gate.dormantDivergences[0].objective, 0);
+  assert.equal(gate.dormantDivergences[0].claimedResourceId, "cigarette_stack_01");
+
+  assert.equal(hasFreshClaimDivergence(state, "TED", state.cycle), false);
+  assert.equal(shouldAssessPrisoner("ELLEN", state), false);
 });
 
 test("the believed resources are the ones the prisoner still expects to hold", () => {
