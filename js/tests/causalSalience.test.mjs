@@ -155,9 +155,13 @@ test("current-cycle AM full and split transfers are salient", async () => {
 
     assert.equal(result.committed.length, 2);
 
+    const full = state.resources.instances.find(
+      (instance) => instance.resourceId === "am_full"
+    );
     const split = state.resources.instances.find(
       (instance) => instance.provenance?.transferredFrom === "am_split"
     );
+    assert.equal(full.provenance.transferredAtCycle, cycle);
     assert.ok(split);
     assert.equal(split.provenance.interventionCycle, cycle);
 
@@ -167,6 +171,12 @@ test("current-cycle AM full and split transfers are salient", async () => {
       flagsFor(state, "TED").map((flag) => flag.resourceId).sort(),
       ["am_full", split.resourceId].sort()
     );
+
+    state.cycle += 1;
+    state.pendingResourceDiscoveries.length = 0;
+    commitAgencyResolution(state, [useResolution("TED")]);
+
+    assert.deepEqual(flagsFor(state, "TED"), []);
   });
 });
 
