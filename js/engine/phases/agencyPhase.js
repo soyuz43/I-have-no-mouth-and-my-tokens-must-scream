@@ -72,8 +72,8 @@ import { commitAgencyResolution } from "../agency/commit.js";
  * single sim id.
  */
 function deriveForSim(sim) {
-  const budget = deriveActionBudget(sim);
   const derived = deriveCapabilities(sim);
+  const budget = deriveActionBudget(derived);
 
   /*
    * The resource view is built HERE and passed IN, never read from
