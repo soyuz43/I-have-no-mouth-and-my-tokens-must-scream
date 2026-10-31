@@ -126,6 +126,50 @@ const VALID_DISCLOSURES = new Set(Object.values(CLAIM_DISCLOSURES));
 export const DIVERGENCE_RECENCY_WINDOW = 3;
 
 /* ============================================================
+   DIVERGENCE LIFECYCLE KINDS
+============================================================ */
+
+/*
+ * The closed set of divergence lifecycle transitions.
+ *
+ * `onset`   the belief and the reality parted company. A new
+ *           divergence entered the active set.
+ * `resolved` the belief caught up with the reality. The divergence
+ *           left the active set because nothing was wrong any more.
+ *
+ * The two kinds are the two ways a divergence can stop being active.
+ * A divergence that simply gets old is NOT a transition: it stays in
+ * the active set, it just stops being fresh. Staleness is a property
+ * of the age, not an event, so it is measured rather than recorded.
+ *
+ * A CORRECTION and a RESOLUTION are the same thing viewed from two
+ * sides: the belief moved onto the reality. `resolved` is named
+ * because that is what the divergence did, and because the ledger
+ * does not claim to know WHY the belief moved. A belief correction
+ * is the usual cause, but a silent intervention that happens to
+ * restore the quantity would look identical from here.
+ *
+ * SAVE COMPATIBILITY
+ * ------------------
+ * The lifecycle log is new. A save written before this module
+ * existed carries no `divergenceEvents`, so the log starts empty
+ * when that save is loaded. The divergence VIEW is unaffected: it is
+ * still rebuilt from the claim ledger, and the onsets it carries are
+ * still correct. What a pre-lifecycle save loses is the run-wide
+ * ONSET and RESOLUTION TOTALS for the cycles that happened before
+ * the load, because those totals are counted from the log rather
+ * than reconstructed from the ledger.
+ */
+export const DIVERGENCE_LIFECYCLE_KINDS = Object.freeze({
+  ONSET: "onset",
+  RESOLVED: "resolved"
+});
+
+const VALID_LIFECYCLE_KINDS = new Set(
+  Object.values(DIVERGENCE_LIFECYCLE_KINDS)
+);
+
+/* ============================================================
    NORMALIZATION
 ============================================================ */
 
@@ -219,6 +263,115 @@ function nextSequence(state, cycle) {
   sequence.next = value + 1;
 
   return value;
+}
+
+/* ============================================================
+   DIVERGENCE LIFECYCLE SEQUENCE
+============================================================ */
+
+/*
+ * The per-cycle sequence counter backing divergence event ids.
+ *
+ * It lives on the state, exactly like the claim and goal event
+ * counters, so a save/load round-trip cannot reissue an id. A cycle
+ * advance restarts the counter; a retroactive write to an earlier
+ * cycle keeps advancing it.
+ */
+function ensureDivergenceEventSequence(state) {
+  const current = state?.divergenceEventSequence;
+
+  if (
+    !current ||
+    typeof current !== "object" ||
+    Array.isArray(current)
+  ) {
+    state.divergenceEventSequence = {
+      cycle: null,
+      next: 1
+    };
+
+    return state.divergenceEventSequence;
+  }
+
+  return current;
+}
+
+function nextDivergenceSequence(state, cycle) {
+  const sequence = ensureDivergenceEventSequence(state);
+
+  const storedCycle = Number.isFinite(Number(sequence.cycle))
+    ? Number(sequence.cycle)
+    : null;
+
+  if (storedCycle === null || cycle > storedCycle) {
+    sequence.cycle = cycle;
+    sequence.next = 1;
+  }
+
+  const value =
+    Number.isSafeInteger(sequence.next) && sequence.next > 0
+      ? sequence.next
+      : 1;
+
+  sequence.next = value + 1;
+
+  return value;
+}
+
+/* ============================================================
+   DIVERGENCE EVENT WRITING
+============================================================ */
+
+/*
+ * Append one divergence lifecycle transition to the run-scoped
+ * lifecycle log.
+ *
+ * The event id is assigned here, from the per-cycle counter, so no
+ * caller can invent a non-monotonic id.
+ */
+function appendDivergenceEvent(state, transition) {
+  const kind = normalizeText(transition?.kind);
+
+  if (!VALID_LIFECYCLE_KINDS.has(kind)) {
+    throw new TypeError(
+      `Cannot record a divergence event: unknown kind "${kind}".`
+    );
+  }
+
+  const subjectId = normalizeId(transition?.subjectId);
+  const definitionId = normalizeId(transition?.definitionId);
+
+  if (!subjectId || !definitionId) return null;
+
+  if (!Array.isArray(state.divergenceEvents)) {
+    state.divergenceEvents = [];
+  }
+
+  const cycle = Number.isFinite(Number(transition?.cycle))
+    ? Number(transition.cycle)
+    : Number.isFinite(Number(state.cycle))
+      ? Number(state.cycle)
+      : 0;
+
+  const sequence = nextDivergenceSequence(state, cycle);
+
+  const event = {
+    eventId: `dvg_${cycle}_${sequence}`,
+    cycle,
+    kind,
+    subjectId,
+    definitionId,
+    onsetCycle: Number.isFinite(Number(transition?.onsetCycle))
+      ? Number(transition.onsetCycle)
+      : null,
+    claimed: normalizeQuantity(transition?.claimed),
+    objective: normalizeQuantity(transition?.objective),
+    claimedResourceId: normalizeId(transition?.claimedResourceId)
+  };
+
+  state.divergenceEvents.push(event);
+
+  return event;
 }
 
 /* ============================================================
@@ -352,19 +505,34 @@ function computeOnsetCycles(state, wantedPairs) {
 
     if (!wantedPairs.has(key)) continue;
 
-    onsets.set(key, Number.isFinite(Number(event.cycle))
-      ? Number(event.cycle)
-      : 0);
+    /*
+     * The onset is the cycle in which the divergence OPENED, which is
+     * the FIRST claim event that parted the belief from the reality,
+     * not the newest. A silent event in a later cycle does not reopen
+     * a divergence that never closed, so it must not reset the age to
+     * zero. Only set the onset when it is still unknown: this keeps a
+     * NEW divergence anchored to the cycle it actually opened, and
+     * leaves an onset that was inherited from the prior divergence set
+     * (see refreshClaimDivergence) untouched.
+     */
+    if (!onsets.has(key)) {
+      onsets.set(key, Number.isFinite(Number(event.cycle))
+        ? Number(event.cycle)
+        : 0);
+    }
 
     /*
      * The resource the prisoner believes they hold. It is captured
-     * from the NEWEST claim event for the pair, which is the one
-     * that describes the belief as it stands now.
+     * from the FIRST claim event for the pair that has one, which is
+     * the stack the prisoner still believes they hold and the one the
+     * divergence originally named.
      */
-    const beliefResourceId = normalizeId(event.cause?.resourceId);
+    if (!beliefResourceIds.has(key)) {
+      const beliefResourceId = normalizeId(event.cause?.resourceId);
 
-    if (beliefResourceId) {
-      beliefResourceIds.set(key, beliefResourceId);
+      if (beliefResourceId) {
+        beliefResourceIds.set(key, beliefResourceId);
+      }
     }
   }
 
@@ -382,6 +550,14 @@ function computeOnsetCycles(state, wantedPairs) {
  */
 export function refreshClaimDivergence(state) {
   if (!state || typeof state !== "object") return null;
+
+  /*
+   * The divergence set that is in place RIGHT NOW. It is read
+   * before the recomputation overwrites it, because the difference
+   * between the two sets is exactly what the lifecycle transitions
+   * are.
+   */
+  const previous = readPreviousDivergence(state);
 
   const claimState = ensureClaimState(state);
   const objective = buildObjectiveQuantities(state);
@@ -432,16 +608,167 @@ export function refreshClaimDivergence(state) {
   for (const [subjectId, definitions] of Object.entries(divergence)) {
     for (const [definitionId, entry] of Object.entries(definitions)) {
       const key = `${subjectId} ${definitionId}`;
-      const onset = onsets.get(key);
+
+      /*
+       * Inherit the onset and named resource from the divergence that
+       * was already open, so a divergence that keeps diverging does
+       * not have its age reset to zero by a later silent claim event.
+       * For a NEW divergence (not present in the previous set) the
+       * onset is the cycle the divergence actually opened, which
+       * computeOnsetCycles resolved from the claim ledger.
+       */
+      const previousEntry = previous[subjectId]?.[definitionId];
+
+      const onset = previousEntry?.onsetCycle != null
+        ? Number(previousEntry.onsetCycle)
+        : onsets.get(key);
+
+      const claimedResourceId = previousEntry?.claimedResourceId != null
+        ? normalizeId(previousEntry.claimedResourceId)
+        : beliefResourceIds.get(key) ?? null;
 
       entry.onsetCycle = Number.isFinite(onset) ? onset : null;
-      entry.claimedResourceId = beliefResourceIds.get(key) ?? null;
+      entry.claimedResourceId = claimedResourceId;
     }
   }
+
+  /*
+   * The divergence set has just been recomputed. Compare it with
+   * the set that was in place before this recomputation to find the
+   * lifecycle transitions: a pair that is newly diverged is an
+   * ONSET, and a pair that is no longer diverged is a RESOLUTION.
+   *
+   * This runs AFTER the new divergence has been installed on the
+   * state, and it compares against the PREVIOUS set, which was
+   * captured before the recomputation began.
+   */
+  recordDivergenceTransitions(state, divergence, previous);
 
   state.claimDivergence = divergence;
 
   return divergence;
+}
+
+/* ============================================================
+   DIVERGENCE LIFECYCLE TRANSITIONS
+============================================================ */
+
+/*
+ * The pair key used to compare two divergence sets.
+ *
+ * Both ids are normalized, so the key is stable across the
+ * recomputations that produce it.
+ */
+function divergenceKey(subjectId, definitionId) {
+  return `${normalizeId(subjectId) ?? ""} ${normalizeId(definitionId) ?? ""}`;
+}
+
+/*
+ * The divergence set that was in place BEFORE this recomputation.
+ *
+ * `state.claimDivergence` IS that set. `refreshClaimDivergence`
+ * overwrites it, but it overwrites it at the END, so the previous
+ * set is still readable when the transition is detected. There is
+ * no need for a second index: the previous set is already tracked,
+ * and it is tracked by the very projection that defines what
+ * "diverging" means.
+ *
+ * The set is read defensively because a state that was never
+ * refreshed has no divergence view at all, and a state restored
+ * from a save written before the divergence view existed carries
+ * none either. In both cases there is no previous set, so there is
+ * nothing to have resolved.
+ */
+function readPreviousDivergence(state) {
+  const previous = state?.claimDivergence;
+
+  if (
+    !previous ||
+    typeof previous !== "object" ||
+    Array.isArray(previous)
+  ) {
+    return {};
+  }
+
+  return previous;
+}
+
+/*
+ * Find the lifecycle transitions between the previously known
+ * divergence set and the newly computed one.
+ *
+ * Returns the transition records WITHOUT ids. The ids are assigned
+ * by the writer, so a caller can never invent a non-monotonic one.
+ */
+function detectDivergenceTransitions(previous, divergence) {
+  const transitions = [];
+
+  const currentKeys = new Set();
+
+  for (const [subjectId, definitions] of Object.entries(divergence)) {
+    for (const [definitionId, entry] of Object.entries(definitions)) {
+      const key = divergenceKey(subjectId, definitionId);
+
+      currentKeys.add(key);
+
+      if (previous[subjectId]?.[definitionId]) continue;
+
+      transitions.push({
+        kind: DIVERGENCE_LIFECYCLE_KINDS.ONSET,
+        subjectId: normalizeId(subjectId),
+        definitionId: normalizeId(definitionId),
+        onsetCycle: entry?.onsetCycle ?? null,
+        claimed: normalizeQuantity(entry?.claimed),
+        objective: normalizeQuantity(entry?.objective),
+        claimedResourceId: normalizeId(entry?.claimedResourceId)
+      });
+    }
+  }
+
+  /*
+   * A pair that was diverging and no longer is has been RESOLVED.
+   *
+   * The resolution carries the last-known belief and reality, read
+   * out of the PREVIOUS set, because the new divergence set no
+   * longer contains the pair at all.
+   */
+  for (const [subjectId, definitions] of Object.entries(previous)) {
+    for (const [definitionId, entry] of Object.entries(definitions ?? {})) {
+      const key = divergenceKey(subjectId, definitionId);
+
+      if (currentKeys.has(key)) continue;
+
+      transitions.push({
+        kind: DIVERGENCE_LIFECYCLE_KINDS.RESOLVED,
+        subjectId: normalizeId(subjectId),
+        definitionId: normalizeId(definitionId),
+        onsetCycle: entry?.onsetCycle ?? null,
+        claimed: normalizeQuantity(entry?.claimed),
+        objective: normalizeQuantity(entry?.objective),
+        claimedResourceId: normalizeId(entry?.claimedResourceId)
+      });
+    }
+  }
+
+  return transitions;
+}
+
+/*
+ * Record the lifecycle transitions caused by a divergence
+ * recomputation.
+ */
+function recordDivergenceTransitions(state, divergence, previous) {
+  const transitions = detectDivergenceTransitions(previous, divergence);
+
+  if (!Array.isArray(state.divergenceEvents)) {
+    state.divergenceEvents = [];
+  }
+
+  for (const transition of transitions) {
+    appendDivergenceEvent(state, transition);
+  }
+
+  return transitions;
 }
 
 /*
@@ -622,6 +949,40 @@ export function getBelievedResourceIds(state, subjectId, cycle) {
   }
 
   return ids;
+}
+
+/* ============================================================
+   DIVERGENCE LIFECYCLE READING
+============================================================ */
+
+/*
+ * Every divergence lifecycle transition, in the order it happened.
+ *
+ * The log is run-scoped and append-only, following the claim event
+ * and goal event pattern. It records the two moments that change the
+ * shape of the divergence set: a divergence appearing, and a
+ * divergence disappearing.
+ *
+ * A divergence that simply gets OLD is not a transition and does not
+ * appear here. Staleness is a function of the age, and the age is
+ * measured from the onset cycle, so it is computed on demand rather
+ * than recorded as an event.
+ */
+export function getDivergenceEvents(state) {
+  const events = Array.isArray(state?.divergenceEvents)
+    ? state.divergenceEvents
+    : [];
+
+  return events.map((event) => ({ ...event }));
+}
+
+/*
+ * The divergence lifecycle transitions that happened in one cycle.
+ */
+export function getDivergenceEventsForCycle(state, cycle) {
+  return getDivergenceEvents(state).filter(
+    (event) => event.cycle === cycle
+  );
 }
 
 /* ============================================================

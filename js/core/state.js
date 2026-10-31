@@ -359,6 +359,36 @@ export const G = {
   },
 
   /*
+   * Observability ledger for the DIVERGENCE LOOP.
+   *
+   * `claimDivergence` is a DERIVED VIEW: it says which pairs are
+   * diverging right now, but it is recomputed from the claim ledger
+   * and replaced wholesale every time. It therefore cannot answer
+   * "how many divergences have there been, and how long did they
+   * last?".
+   *
+   * This append-only log records the two moments that change the
+   * shape of the divergence set: a divergence appearing (an onset)
+   * and a divergence disappearing (a resolution). It is run-scoped
+   * and filtered by cycle at export time, following the existing
+   * `claimEvents` and `goalEvents` pattern.
+   */
+
+  divergenceEvents: [],
+
+  /*
+   * Per-cycle sequence counter backing divergence event ids. Like the
+   * claim and goal event counters, it lives on the state so a
+   * save/load round-trip cannot reissue an id, and a cycle advance
+   * restarts the counter without resetting it retroactively.
+   */
+
+  divergenceEventSequence: {
+    cycle: null,
+    next: 1
+  },
+
+  /*
    * Observability ledger for Tier-1 goal transitions.
    *
    * `goalHistory` is deliberately a bounded rolling window, so it
