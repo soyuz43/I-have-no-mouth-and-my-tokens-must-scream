@@ -321,6 +321,41 @@ const ACTION_DEFINITIONS = Object.freeze({
     }),
     executionModes: Object.freeze({})
   }),
+
+  /*
+   * PREPARE_JOURNAL buys the prisoner the deep, belief-updating
+   * journal that the psychology phase would otherwise only write
+   * in reaction to a stimulus.
+   *
+   * WHY IT COSTS AN ACTION CREDIT
+   * -----------------------------
+   * The action budget is a CEILING on the cost of the single action
+   * a prisoner proposes per cycle. Charging this action 1 credit
+   * is what makes reflection a genuine trade-off against SEARCH,
+   * SMOKE, and TRANSFER rather than a free extra.
+   *
+   * WHY IT HAS NO REQUIREMENTS
+   * --------------------------
+   * Reflection is a cognitive act, and it must remain available to
+   * a prisoner whose body is failing but whose mind is intact. A
+   * capability gate here would make the action unavailable exactly
+   * to the prisoners most likely to want it, so the gate is
+   * deliberately empty. The budget, not the body, is the limit.
+   *
+   * WHY IT CARRIES NO RESOURCE REQUIREMENTS
+   * --------------------------------------
+   * Reflection consumes nothing the prisoner holds. The action is
+   * about attention, not inventory.
+   */
+  PREPARE_JOURNAL: Object.freeze({
+    type: "PREPARE_JOURNAL",
+    title: "Prepare a journal entry",
+    baseCost: 1,
+    requirements: Object.freeze({}),
+    effortDomains: Object.freeze(["cognitive"]),
+    resourceRequirements: Object.freeze({}),
+    executionModes: Object.freeze({})
+  }),
 });
 
 /* ============================================================

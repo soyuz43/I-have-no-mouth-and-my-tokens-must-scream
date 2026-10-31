@@ -218,6 +218,7 @@ export function buildAgencyProposalPrompt(
     "For CONSUME, name one dirty_water resourceId from your inventory. Cigarettes can only be consumed through SMOKE.",
     "SEARCH: Scavenges the immediate area. 35% success. Yields cigarettes, wet cigarettes (2 turns to dry), or matches. Triggers a 4-cycle cooldown on use. Cannot be used while on cooldown.",
     "SEARCH does not target other prisoners.",
+    "PREPARE_JOURNAL: Spend this cycle in focused reflection. The private journal entry it buys is written NEXT cycle, not this one - reflection needs a cycle to settle. Then the deliberate effort stabilizes you: your suffering is dampened and you regain a little hope. Costs 1 action credit.",
     "An omitted mode selects the action's default form.",
     "An action marked claimedButAbsent rests on something you believe you still have. You may choose it, but you may find nothing there.",
     "If you choose WAIT, return {\"type\":\"WAIT\",\"selected_objective\":\"<id>\"}.",

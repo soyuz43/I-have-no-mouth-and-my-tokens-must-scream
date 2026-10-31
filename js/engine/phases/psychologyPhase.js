@@ -56,6 +56,22 @@ import {
   CONSTRAINT_MAP,
 } from "../constraints/index.js";
 
+import {
+  evaluateJournalGate,
+  findFocusPreparations,
+  hasStatShock,
+  selectJournalTargetIds,
+  hasProcessingBonus,
+  buildProcessingBonusRecord,
+  applyFocusHopeRecovery,
+  dampenSufferingDelta,
+  FOCUS_PREPARATION_EVIDENCE_KEY,
+} from "../psychology/journalGate.js";
+
+import {
+  computeJournalOptimizationMetrics
+} from "../metrics/journalOptimizationMetrics.js";
+
 import { safeExtractJSON } from "../state/utils/safeExtract.js";
 import { logBeliefDistance } from "../state/utils/beliefDistance.js";
 
@@ -788,13 +804,37 @@ function buildJournalTargetIds(
   const activeConstraintTargetIds =
     collectActiveConstraintTargetIds();
 
+  /*
+   * The prisoners who bought a focused journal in the PREVIOUS
+   * cycle.
+   *
+   * The psychology phase runs BEFORE the agency phase, so a choice
+   * made this cycle cannot affect this cycle's journal. The choice
+   * is therefore read from the previous cycle's agency record. See
+   * js/engine/psychology/journalGate.js for why, and
+   * js/engine/agency/capabilityConcealmentRule.js for the same
+   * one-cycle-latency decision made elsewhere in the engine.
+   */
+  const focusPreparations =
+    findFocusPreparations(
+      G.pendingEvidence?.[
+        FOCUS_PREPARATION_EVIDENCE_KEY
+      ],
+      G.cycle
+    );
+
   const candidateIds =
     normalizeSimIdList([
       ...amExecution.journalTargetIds,
       ...activeConstraintTargetIds,
+      ...Object.keys(focusPreparations),
+      ...SIM_IDS.filter(
+        (id) =>
+          hasStatShock(G.sims?.[id])
+      ),
     ]);
 
-  const journalTargetIds = [];
+  const decisions = {};
 
   for (const id of candidateIds) {
     const sim = G.sims?.[id];
@@ -813,9 +853,22 @@ function buildJournalTargetIds(
       context.constraint?.text
     );
 
-    if (!hasStimulus) {
+    const chosePrepareJournal =
+      Boolean(focusPreparations[id]);
+
+    const shocked = hasStatShock(sim);
+
+    const gate = evaluateJournalGate({
+      hasStimulus,
+      chosePrepareJournal,
+      hasStatShock: shocked
+    });
+
+    decisions[id] = gate;
+
+    if (!gate.shouldJournal) {
       console.warn(
-        "[PSYCHOLOGY] Excluding journal candidate with no actual stimulus",
+        "[PSYCHOLOGY] Excluding journal candidate that failed the journal gate",
         {
           sim: id,
 
@@ -839,18 +892,37 @@ function buildJournalTargetIds(
               context.constraint
                 ?.text
             ),
+
+          chosePrepareJournal,
+
+          hasStatShock: shocked,
         }
       );
 
       continue;
     }
-
-    journalTargetIds.push(id);
   }
+
+  /*
+   * The target list is rebuilt from the DECISIONS in canonical
+   * prison order, rather than pushed in candidate-discovery order.
+   *
+   * The candidate list is now assembled from four independent
+   * sources, so its order depends on which source contributed the
+   * prisoner. The journal phase commits its results in target
+   * order, and the psychological pressure field writes into OTHER
+   * prisoners' stats, so the commit order is part of the
+   * simulation's semantics. Normalizing the order here keeps the
+   * committed state independent of the candidate assembly order.
+   */
+  const journalTargetIds =
+    selectJournalTargetIds(decisions);
 
   return {
     journalTargetIds,
     activeConstraintTargetIds,
+    journalGateDecisions: decisions,
+    focusPreparations,
   };
 }
 
@@ -968,6 +1040,8 @@ export async function runPsychologyPhase(
     const {
       journalTargetIds,
       activeConstraintTargetIds,
+      journalGateDecisions,
+      focusPreparations,
     } = buildJournalTargetIds(
       amExecution
     );
@@ -994,6 +1068,22 @@ export async function runPsychologyPhase(
         (id) =>
           !journalTargetIds.includes(id)
       );
+
+    /*
+     * The gate's per-prisoner decisions are attached to the
+     * execution record so the exporter can report WHY each journal
+     * was written without having to re-derive the gate.
+     *
+     * The decision map is keyed by prisoner id and holds the three
+     * overlapping reasons. It is a plain object so it survives the
+     * save/load round trip that the execution record already goes
+     * through.
+     */
+    amExecution.journalGateDecisions =
+      journalGateDecisions;
+
+    amExecution.focusPreparations =
+      focusPreparations;
 
     G.amExecution = amExecution;
     execution.amExecution =
@@ -1052,19 +1142,44 @@ export async function runPsychologyPhase(
        SIM JOURNAL PHASE
     ------------------------------------------------------------ */
 
+    /*
+     * The prisoners who actually wrote a journal this cycle.
+     *
+     * Declared OUTSIDE the journal try/catch, because the telemetry
+     * below is computed even when the journal phase threw. A phase
+     * failure must not be reported as "no prisoners wrote", so the
+     * list starts empty and is only filled by a successful commit.
+     */
+    let journaledIds = [];
+
+    /*
+     * The model calls the journal pipelines actually issued.
+     *
+     * Tracked separately from who wrote, because a failed journal
+     * still consumed the calls it made. The telemetry needs both:
+     * one counts the journals that completed, the other counts the
+     * work that was spent on the ones that did not.
+     */
+    let journalModelCallsMade = 0;
+
     try {
       timelineEvent(
         `>>> SIM JOURNALS`
       );
 
       if (journalTargets.length) {
-        await stepSimJournals(
+        const stepResult = await stepSimJournals(
           journalTargets,
           tacticMap,
           amExecution,
           phaseStatsBefore,
-          cycleBeliefSummary
+          cycleBeliefSummary,
+          journalGateDecisions
         );
+
+        journaledIds = stepResult?.journaledIds ?? [];
+        journalModelCallsMade =
+          stepResult?.modelCallsMade ?? 0;
       } else {
         console.debug(
           "[PSYCHOLOGY] No sims qualified for a journal this cycle."
@@ -1124,6 +1239,34 @@ export async function runPsychologyPhase(
       cycleBeliefSummary
     );
 
+    /* ------------------------------------------------------------
+       JOURNAL OPTIMIZATION METRICS
+
+       The gate decides who qualifies for the journal; the WRITE is
+       a separate fact, because a qualified prisoner can still fail
+       to produce one. The metrics therefore report both, and the
+       skipped count is derived from the prisoners who ACTUALLY
+       wrote rather than from the prisoners who qualified.
+    ------------------------------------------------------------ */
+
+    const journalOptimizationMetrics =
+      computeJournalOptimizationMetrics({
+        decisions: journalGateDecisions,
+        journaledIds,
+        prisonerIds: [...SIM_IDS],
+        modelCallsMade: journalModelCallsMade,
+        cycle: G.cycle
+      });
+
+    G.journalOptimizationMetrics ??= {};
+    G.journalOptimizationMetrics[G.cycle] =
+      journalOptimizationMetrics;
+
+    console.debug(
+      `[JOURNAL OPTIMIZATION][Cycle ${G.cycle}]`,
+      journalOptimizationMetrics
+    );
+
     // ------------------------------------------------------------
     // OPTIONAL: Print extraction stats for the current cycle
     // ------------------------------------------------------------
@@ -1153,7 +1296,8 @@ async function stepSimJournals(
   tacticMap,
   amExecution,
   phaseStatsBefore,
-  cycleBeliefSummary
+  cycleBeliefSummary,
+  journalGateDecisions
 ) {
   /*
    * The journal phase runs in three stages so that the slow part
@@ -1175,13 +1319,16 @@ async function stepSimJournals(
 
   const prepared = [];
   const skipped = [];
+  const journaledIds = [];
+  let modelCallsMade = 0;
 
   for (const sim of targets) {
     const prep = prepareSimJournalCycle(
       sim,
       tacticMap,
       amExecution,
-      phaseStatsBefore?.[sim.id]
+      phaseStatsBefore?.[sim.id],
+      journalGateDecisions?.[sim.id]
     );
 
     if (!prep) continue;
@@ -1226,10 +1373,32 @@ async function stepSimJournals(
       cycleBeliefSummary[result.simId] = [];
     }
 
+    /*
+     * The prisoners who actually wrote. The commit stage reports
+     * this directly, so the telemetry does not have to infer it
+     * from the DOM-dependent journals array.
+     */
+    if (result.journaled === true) {
+      journaledIds.push(result.simId);
+    }
+
+    /*
+     * The calls that were actually issued this cycle.
+     *
+     * A prisoner whose journal FAILED still consumed the calls it
+     * made before failing, so those calls are counted here. The
+     * telemetry needs this to tell work the gate prevented apart
+     * from work that was attempted and lost.
+     */
+    modelCallsMade +=
+      Number(result.modelCallsMade) || 0;
+
     cycleBeliefSummary[result.simId].push(
       ...(result.diff || [])
     );
   }
+
+  return { journaledIds, modelCallsMade };
 }
 /* ============================================================
    SIM JOURNAL CYCLE
@@ -1247,7 +1416,8 @@ function prepareSimJournalCycle(
   sim,
   tacticMap,
   amExecution,
-  phaseStatSnapshot
+  phaseStatSnapshot,
+  journalGate
 ) {
   /* ------------------------------------------------------------
      PHASE GUARD
@@ -1267,7 +1437,22 @@ function prepareSimJournalCycle(
       amExecution
     );
 
-  if (!amContext.text) {
+  /*
+   * A prisoner with no AM context is normally blocked here, because
+   * the historical journal was a REACTION and needed something to
+   * react to.
+   *
+   * The gate has already decided who writes, so a prisoner who
+   * qualified through PREPARE_JOURNAL or through a stat shock is
+   * not blocked. Their journal has no AM intervention to react to,
+   * and the prompt says so explicitly, but they still have a mind to
+   * write from. An empty context is a legitimate prompt input; it is
+   * not a malformed one.
+   */
+  const hasGateEntry =
+    journalGate?.shouldJournal === true;
+
+  if (!amContext.text && !hasGateEntry) {
     console.warn(
       "[BLOCKED] journal target has no action, perception, or constraint context",
       {
@@ -1421,6 +1606,7 @@ function prepareSimJournalCycle(
     currentTacticEntries,
     tacticLabel,
     hasAMAction,
+    journalGate,
   };
 }
 
@@ -1444,6 +1630,7 @@ async function runSimJournalInference(prep) {
     tacticLabel,
     hasAMAction,
     journalStatsBefore,
+    journalGate,
   } = prep;
 
   /*
@@ -1457,6 +1644,22 @@ async function runSimJournalInference(prep) {
 
   const deferredTimeline = [];
   const deferredLog = [];
+
+  /*
+   * The model calls this prisoner has actually issued.
+   *
+   * A journal is TWO calls: the narrative call and the forensic
+   * stats call. The counter is incremented BEFORE each call, so a
+   * call that was issued and then failed still counts as made. That
+   * distinction matters for the telemetry: a stats call that throws
+   * consumed the time it took, and a commit that throws after both
+   * calls returned consumed both.
+   *
+   * The counter is reported per prisoner and summed by the phase,
+   * so the telemetry can distinguish work the gate PREVENTED from
+   * work that was attempted and failed.
+   */
+  let modelCallsMade = 0;
 
   const deferTimeline = (label) => {
     deferredTimeline.push(label);
@@ -1566,8 +1769,14 @@ async function runSimJournalInference(prep) {
     const narrativePrompt =
       buildSimJournalPrompt(
         sim,
-        cleanAM
+        cleanAM,
+        {
+          intentionalReflection:
+            journalGate?.chosePrepareJournal === true
+        }
       );
+
+    modelCallsMade += 1;
 
     const rawJournal =
       await callModel(
@@ -1614,6 +1823,8 @@ async function runSimJournalInference(prep) {
     let rawStatsJson = null;
 
     try {
+      modelCallsMade += 1;
+
       rawStatsJson =
         await callModel(
           "FORENSIC_STATS",
@@ -1673,9 +1884,11 @@ async function runSimJournalInference(prep) {
       currentTacticEntries,
       tacticLabel,
       hasAMAction,
+      journalGate,
       journalStatsBefore,
       rawStatsJson,
       sanitizedStatsJson,
+      modelCallsMade,
       deferredTimeline,
       deferredLog,
     };
@@ -1702,6 +1915,7 @@ async function runSimJournalInference(prep) {
       ok: false,
       sim,
       error,
+      modelCallsMade,
       deferredTimeline,
       deferredLog,
     };
@@ -1766,6 +1980,7 @@ function commitSimJournalCycle(inference) {
     return {
       simId: inference?.sim?.id,
       diff: [],
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   }
 
@@ -1779,6 +1994,7 @@ function commitSimJournalCycle(inference) {
     currentTacticEntries,
     tacticLabel,
     hasAMAction,
+    journalGate,
     journalStatsBefore,
     rawStatsJson,
     sanitizedStatsJson,
@@ -1819,6 +2035,45 @@ function commitSimJournalCycle(inference) {
       statDeltas
     );
 
+    /*
+     * THE PROCESSING BONUS
+     * --------------------
+     * A prisoner who PAID for reflection gets a mechanical benefit
+     * that a stimulus-driven journal never receives: their reported
+     * suffering delta is halved, and they are guaranteed a small
+     * hope recovery on top of whatever the journal itself produced.
+     *
+     * The reported deltas are kept intact for the record. The
+     * journal entry's `deltas` and the evidence trace both describe
+     * what the FORENSIC MODEL said, and rewriting that number would
+     * mislabel the model's output as an engine decision. The
+     * dampened set is a separate, explicitly named thing: it is
+     * what was APPLIED, and it is what the pressure field echoes
+     * to the other prisoners.
+     *
+     * `attachTacticDeltas` already distinguishes reported from
+     * effective deltas by diffing the prisoner's state, so the
+     * applied effect is observable without either number having to
+     * be rewritten.
+     */
+    const earnsBonus =
+      hasProcessingBonus(journalGate);
+
+    const effectiveStatDeltas =
+      earnsBonus
+        ? dampenSufferingDelta(statDeltas)
+        : statDeltas;
+
+    if (earnsBonus) {
+      console.log(
+        `[PROCESSING BONUS][${sim.id}] suffering delta dampened`,
+        {
+          reported: statDeltas.suffering,
+          effective: effectiveStatDeltas.suffering
+        }
+      );
+    }
+
     console.debug(
       `[STATE] ${sim.id}`,
       {
@@ -1854,9 +2109,26 @@ function commitSimJournalCycle(inference) {
 
     applyJournalStatDeltas(
       sim,
-      statDeltas
+      effectiveStatDeltas
     );
 
+    /*
+     * The tactic's effect is measured HERE, BEFORE the processing
+     * bonus is added.
+     *
+     * `attachTacticDeltas()` computes the effective deltas by
+     * diffing the prisoner's CURRENT state against the pre-journal
+     * baseline. Any hope added before this point therefore lands
+     * inside the tactic's measured effect, and the export would
+     * credit AM's tactic with hope that the prisoner bought with
+     * their own action credit. A journal that reported no hope
+     * change at all could give a tactic a positive
+     * `effective_hope_delta`, and the reported-versus-effective
+     * ratio would overstate how well the tactic worked.
+     *
+     * The bonus is not the tactic's doing, so it is applied after
+     * the measurement rather than before it.
+     */
     attachTacticDeltas({
       sim,
       statDeltas,
@@ -1864,13 +2136,53 @@ function commitSimJournalCycle(inference) {
       journalStatsBefore,
     });
 
+    /*
+     * The guaranteed hope recovery lands AFTER the journal's own
+     * deltas, so that a journal which reported a hope LOSS cannot
+     * silently overwrite the guarantee the prisoner paid for, and
+     * AFTER the tactic's effect was measured, so that the bonus is
+     * not credited to AM's tactic.
+     *
+     * The cap is the same ceiling the journal pipeline uses, and the
+     * ACTUAL gain is what gets reported: a prisoner already at 99
+     * hope receives nothing, and saying they received three would
+     * misdescribe what happened.
+     */
+    const processingBonus = earnsBonus
+      ? buildProcessingBonusRecord({
+        hopeGain: applyFocusHopeRecovery(sim)
+      })
+      : null;
+
+    if (processingBonus) {
+      console.log(
+        `[PROCESSING BONUS][${sim.id}]`,
+        processingBonus
+      );
+
+      timelineEvent(
+        `${sim.id} mental focus bonus (+${processingBonus.hopeGain} hope)`
+      );
+    }
+
+    /*
+     * The pressure field echoes this prisoner's deltas into the
+     * others, and it echoes the EFFECTIVE ones.
+     *
+     * The damping is a statement about the prisoner's own
+     * experience: the reflection reduced how much the suffering
+     * moved them, so the echo of that reduced movement is what the
+     * other prisoners actually felt. Echoing the undamped number
+     * would leak a suffering that the prisoner did not carry.
+     */
+
     /* ------------------------------------------------------------
        PSYCHOLOGICAL PRESSURE FIELD
     ------------------------------------------------------------ */
 
     applyPsychologicalPressureField(
       sim,
-      statDeltas
+      effectiveStatDeltas
     );
 
     timelineEvent(
@@ -2037,6 +2349,23 @@ function commitSimJournalCycle(inference) {
         deltas:
           statDeltas,
 
+        /*
+         * The ENGINE's own adjustments, kept separate from the
+         * model's reported deltas above. `deltas` is what the
+         * forensic model said; this is what the engine then did to
+         * it, and why.
+         */
+        effectiveDeltas:
+          effectiveStatDeltas,
+
+        processingBonus:
+          processingBonus ?? null,
+
+        journalGateReasons:
+          [
+            ...(journalGate?.reasons ?? []),
+          ],
+
         journalReasons: [
           ...amContext
             .journalReasons,
@@ -2192,6 +2521,20 @@ function commitSimJournalCycle(inference) {
     return {
       simId: sim.id,
       diff,
+      /*
+       * Whether a journal was ACTUALLY written this cycle.
+       *
+       * The gate's decision and the write are separate facts, and
+       * the telemetry needs the write. This flag is reported by the
+       * commit stage rather than inferred from `G.journals`, because
+       * `appendJournalEntry()` only records an entry when the
+       * journal-list element exists in the DOM. Reading the
+       * journals array would therefore report a written journal as
+       * missing whenever the phase runs without a DOM, which would
+       * make the reported savings depend on the rendering surface.
+       */
+      journaled: true,
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   } catch (error) {
     timelineEvent(
@@ -2215,6 +2558,8 @@ function commitSimJournalCycle(inference) {
     return {
       simId: sim.id,
       diff: [],
+      journaled: false,
+      modelCallsMade: inference?.modelCallsMade ?? 0,
     };
   }
 }

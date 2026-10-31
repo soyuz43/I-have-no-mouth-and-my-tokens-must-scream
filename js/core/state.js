@@ -67,6 +67,15 @@ export const G = {
 
   globalMetrics: null,
 
+  /*
+   * Per-cycle journal optimization metrics, keyed by cycle.
+   *
+   * This is the measurement of the Mental Focus Gate: how many
+   * prisoners wrote, how many did not, and how many two-call
+   * journal pipelines that avoided.
+   */
+  journalOptimizationMetrics: {},
+
   /* ============================================================
      AM PSYCHOLOGICAL PROFILES
      ============================================================ */
@@ -444,6 +453,7 @@ export const G = {
     am: Object.create(null),
     resourceInterventions: Object.create(null),
     exposures: Object.create(null),
+    journalPreparations: Object.create(null),
     system: Object.create(null),
   },
 

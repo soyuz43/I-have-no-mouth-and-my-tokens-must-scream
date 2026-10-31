@@ -197,7 +197,17 @@ function modedRegistry(extra = {}) {
 test("the registry contains the floor, sensory, and first physical actions", () => {
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
+    [
+      "WAIT",
+      "OBSERVE",
+      "SMOKE",
+      "TRANSFER",
+      "HIDE",
+      "REVEAL",
+      "SEARCH",
+      "CONSUME",
+      "PREPARE_JOURNAL"
+    ]
   );
 });
 
@@ -337,7 +347,17 @@ test("getAllActionTypes returns a fresh array each call", () => {
 
   assert.deepEqual(
     getAllActionTypes(),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
+    [
+      "WAIT",
+      "OBSERVE",
+      "SMOKE",
+      "TRANSFER",
+      "HIDE",
+      "REVEAL",
+      "SEARCH",
+      "CONSUME",
+      "PREPARE_JOURNAL"
+    ]
   );
 });
 
@@ -366,7 +386,17 @@ test("an unconstrained prisoner can take every registered action", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SMOKE", "TRANSFER", "HIDE", "REVEAL", "SEARCH", "CONSUME"]
+    [
+      "WAIT",
+      "OBSERVE",
+      "SMOKE",
+      "TRANSFER",
+      "HIDE",
+      "REVEAL",
+      "SEARCH",
+      "CONSUME",
+      "PREPARE_JOURNAL"
+    ]
   );
 
   const legal = legalByType(result);
@@ -408,7 +438,7 @@ test("a fully unconstrained sim agrees with the real deriver", () => {
     fullResourceView()
   );
 
-  assert.equal(result.legal.length, 8);
+  assert.equal(result.legal.length, 9);
   assert.equal(result.blocked.length, 0);
 });
 
@@ -555,7 +585,7 @@ test("concentration 0.05 leaves only WAIT legal", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT"]
+    ["WAIT", "PREPARE_JOURNAL"]
   );
 
   const blocked = blockedByType(result);
@@ -563,7 +593,10 @@ test("concentration 0.05 leaves only WAIT legal", () => {
   /*
    * OBSERVE and SEARCH close on concentration. SMOKE, TRANSFER, HIDE,
    * and REVEAL close on RESOURCES; CONSUME has adequate capabilities
-   * but no supplied dirty water. All seven non-WAIT actions are
+   * but no supplied dirty water. PREPARE_JOURNAL declares no
+   * requirements, so it stays legal: reflection is a cognitive act
+   * and remains available to a prisoner whose concentration has
+   * collapsed. All seven capability-or-resource-gated actions are
    * refused.
    */
   assert.equal(blocked.size, 7);
@@ -640,6 +673,12 @@ test("WAIT is legal at zero on every capability", () => {
       title: "Wait",
       cost: 0,
       availableModes: []
+    },
+    {
+      type: "PREPARE_JOURNAL",
+      title: "Prepare a journal entry",
+      cost: 1,
+      availableModes: []
     }
   ]);
 });
@@ -701,7 +740,8 @@ test("palestinian_chair keeps WAIT/OBSERVE legal and blocks physical actions", (
 
   assert.deepEqual(result.legal.map((entry) => entry.type), [
     "WAIT",
-    "OBSERVE"
+    "OBSERVE",
+    "PREPARE_JOURNAL"
   ]);
 
   /*
@@ -742,7 +782,7 @@ test("overhead_restraint allows SEARCH and blocks other physical actions", () =>
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT", "OBSERVE", "SEARCH"]
+    ["WAIT", "OBSERVE", "SEARCH", "PREPARE_JOURNAL"]
   );
 
   assert.deepEqual(result.blocked.length, 5);
@@ -1152,7 +1192,7 @@ test("a missing capabilities object blocks everything except WAIT", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT"]
+    ["WAIT", "PREPARE_JOURNAL"]
   );
 
   /*
@@ -1180,7 +1220,7 @@ test("an absent capability key is unmet, not full", () => {
 
   assert.deepEqual(
     result.legal.map((entry) => entry.type),
-    ["WAIT"]
+    ["WAIT", "PREPARE_JOURNAL"]
   );
 });
 
@@ -1194,7 +1234,7 @@ test("a non-finite capability is unmet", () => {
 
     assert.deepEqual(
       result.legal.map((entry) => entry.type),
-      ["WAIT"]
+      ["WAIT", "PREPARE_JOURNAL"]
     );
   }
 });
@@ -1561,7 +1601,7 @@ test("the phase derives against capabilities, not the derive envelope", async ()
        */
       assert.deepEqual(
         legal.map((entry) => entry.type),
-        ["WAIT", "OBSERVE", "SEARCH"]
+        ["WAIT", "OBSERVE", "SEARCH", "PREPARE_JOURNAL"]
       );
     }
   );

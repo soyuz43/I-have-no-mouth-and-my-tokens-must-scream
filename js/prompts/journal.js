@@ -136,7 +136,64 @@ function normalizeAmActionText(amAction) {
     return null;
 }
 
-export function buildSimJournalPrompt(sim, amAction) {
+/*
+ * The INTENTIONAL REFLECTION section.
+ *
+ * Returned as an empty string when the prisoner did not choose to
+ * reflect, so the prompt is byte-identical to the historical prompt
+ * for every stimulus-driven journal. That matters: the prompt is
+ * part of the reproducible run record, and a section that appeared
+ * or vanished for unrelated reasons would change every journal in
+ * the run.
+ *
+ * The section says the choice was made LAST cycle, because that is
+ * when it was made. The psychology phase runs before the agency
+ * phase, so a prisoner who chooses PREPARE_JOURNAL during this
+ * cycle's agency phase has not chosen it yet when this prompt is
+ * built; the reflection they are writing is the one they bought in
+ * the previous cycle. Telling them they chose "this cycle" would
+ * describe a decision that has not happened, and would misattribute
+ * a choice they may make differently later in the same cycle.
+ */
+function buildIntentionalReflectionSection(
+    intentionalReflection
+) {
+    if (!intentionalReflection) {
+        return "";
+    }
+
+    return `
+---
+
+# INTENTIONAL REFLECTION
+
+Last cycle, you chose to spend time in focused reflection. That choice is why you
+are writing now. It was a deliberate decision to process recent events and
+stabilize your psychological state, and the effects of it are settling in as you
+write.
+
+Your mind is actively working through what happened, seeking clarity and emotional
+balance. This focused attention gives you a chance to:
+
+- Reassess your situation with fresh eyes
+- Process difficult emotions before they overwhelm you
+- Identify what truly matters right now
+- Find small sources of hope or stability
+
+This reflection is not passive — it is an act of psychological self-care.
+`.replace(/\n$/, "");
+}
+
+export function buildSimJournalPrompt(
+    sim,
+    amAction,
+    options = {}
+) {
+    const intentionalReflectionSection =
+        buildIntentionalReflectionSection(
+            options?.intentionalReflection === true
+        );
+
     const prevJ = G.journals[sim.id]
         .slice(-2)
         .map(
@@ -346,7 +403,7 @@ Do not manufacture a stylized literary voice.
 
 Character distinction should come from reasoning habits, blind spots, priorities, and attention—not decorative metaphor or generalized suffering language.
 
-${immediateCatalystSection}
+${immediateCatalystSection}${intentionalReflectionSection}
 
 ---
 # CURRENT PSYCHOLOGICAL STATE

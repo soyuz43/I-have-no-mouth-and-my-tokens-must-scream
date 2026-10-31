@@ -130,7 +130,13 @@ const ACTION_VERBS = Object.freeze({
   TRANSFER: "hand over",
   HIDE: "conceal",
   REVEAL: "reveal",
-  SEARCH: "search for"
+  SEARCH: "search for",
+  /*
+   * Without this entry, a refused focus attempt would render as
+   * "your attempt to prepare_journal", which reads like a
+   * catalogue identifier rather than something the prisoner did.
+   */
+  PREPARE_JOURNAL: "reflect"
 });
 
 /*

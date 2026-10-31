@@ -10,6 +10,9 @@ import {
     computeDivergenceMetrics,
     DIVERGENCE_METRIC_NAMES,
 } from "../../../engine/metrics/divergenceMetrics.js";
+import {
+  computeJournalOptimizationMetrics
+} from "../../../engine/metrics/journalOptimizationMetrics.js";
 
 /* ============================================================
    GLOBAL STREAM
@@ -96,6 +99,39 @@ export function recordGlobal(G, metrics, cycle) {
             G?.divergenceEvents,
             cycle
         );
+
+    /*
+     * The journal optimization metrics are computed at EXPORT time
+     * rather than read from the psychology phase's record.
+     *
+     * The export recomputes them from the same three inputs the
+     * psychology phase used: the gate's decisions, which are
+     * attached to the execution record; the list of prisoners whose
+     * journal completed, which the phase recorded for this cycle;
+     * and the model calls the phase actually issued, including the
+     * calls belonging to failed journals.
+     *
+     * The journal ENTRIES are deliberately not used as the source of
+     * truth here. `appendJournalEntry()` only records an entry when
+     * the journal-list element exists in the DOM, so reading the
+     * journals array would report a written journal as missing
+     * whenever the phase runs without a rendering surface.
+     */
+    const journalOptimizationMetrics =
+      computeJournalOptimizationMetrics({
+        decisions:
+          execution?.journalGateDecisions ?? {},
+        journaledIds:
+          G?.journalOptimizationMetrics?.[cycle]
+            ?.journaledIds ?? [],
+        prisonerIds: sims
+          .map((sim) => sim?.id)
+          .filter(Boolean),
+        modelCallsMade:
+          G?.journalOptimizationMetrics?.[cycle]
+            ?.modelCallsMade ?? 0,
+        cycle
+      });
 
     Exporter.buffers.global.push(attachRecordMeta({
         run_id: Exporter.runId,
@@ -235,5 +271,38 @@ export function recordGlobal(G, metrics, cycle) {
             divergenceMetrics[
                 DIVERGENCE_METRIC_NAMES.STALE_COUNT
             ],
+
+        journal_total_prisoners:
+          journalOptimizationMetrics.totalPrisoners,
+
+        journal_with_stimulus_count:
+          journalOptimizationMetrics.prisonersWithStimulus,
+
+        journal_chose_focus_count:
+          journalOptimizationMetrics.prisonersWhoChoseFocus,
+
+        journal_stat_shock_count:
+          journalOptimizationMetrics.prisonersWithStatShock,
+
+        journal_written_count:
+          journalOptimizationMetrics.prisonersWhoJournaled,
+
+        journal_gate_closed_count:
+          journalOptimizationMetrics.gateClosedJournals,
+
+        journal_failed_count:
+          journalOptimizationMetrics.failedJournals,
+
+        journal_skipped_count:
+          journalOptimizationMetrics.skippedJournals,
+
+        journal_llm_calls_saved:
+          journalOptimizationMetrics.llmCallsSaved,
+
+        journal_llm_calls_wasted:
+          journalOptimizationMetrics.llmCallsWastedOnFailures,
+
+        journal_estimated_time_saved:
+          journalOptimizationMetrics.estimatedTimeSaved,
     }, cycle));
 }

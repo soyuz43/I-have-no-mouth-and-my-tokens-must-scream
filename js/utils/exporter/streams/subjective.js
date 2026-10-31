@@ -197,6 +197,35 @@ export function recordJournalEvents(G, cycle) {
                             reasons
                         ),
 
+                    /*
+                     * The GATE reasons, kept separate from the
+                     * historical `journal_reasons`.
+                     *
+                     * `journal_reasons` describes what happened to
+                     * the prisoner: an AM action, a constraint, a
+                     * successful observation. The gate reasons
+                     * describe why the journal was WRITTEN at all,
+                     * which now includes a deliberate choice and
+                     * the stat-shock safety net.
+                     */
+                    journal_gate_reasons:
+                        joinList(
+                            entry.journalGateReasons
+                        ),
+
+                    journal_chose_focus:
+                        entry.processingBonus != null,
+
+                    focus_hope_gain:
+                        finiteOrNull(
+                            entry.processingBonus
+                                ?.hopeGain
+                        ),
+
+                    focus_suffering_dampened:
+                        entry.processingBonus
+                            ?.sufferingDampened === true,
+
                     action_present:
                         Boolean(
                             entry.amActionPresent ??
