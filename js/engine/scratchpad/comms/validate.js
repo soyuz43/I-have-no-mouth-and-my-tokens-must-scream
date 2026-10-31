@@ -21,6 +21,8 @@ import {
   isAllowedScratchpadChannel,
   isAllowedChannelField,
   isAllowedBooleanValue,
+  isAllowedResourceClaimDefinition,
+  RESOURCE_CLAIM_QUANTITY_RANGE,
 } from "./protocol.js";
 
 import {
@@ -613,6 +615,13 @@ function getOperationDestinationKey(
         `channel:` +
         `${operation.channel}:` +
         `${operation.field}`
+      );
+
+    case "resource_claim":
+      return (
+        `resource_claim:` +
+        `${operation.about}:` +
+        `${operation.definition}`
       );
 
     case "question":
@@ -1402,6 +1411,166 @@ function validateAndNormalizeOperation({
         reason:
           text,
 
+        refs,
+      };
+
+      break;
+    }
+
+    case "RESOURCE_CLAIM": {
+      const about =
+        String(
+          attributes.about ?? ""
+        )
+          .trim()
+          .toUpperCase();
+
+      if (
+        !isAllowedScratchpadTarget(
+          about
+        )
+      ) {
+        reasons.push(
+          `Unknown prisoner target: ${about || "(missing)"}.`
+        );
+      }
+
+      if (about === simId) {
+        reasons.push(
+          "RESOURCE_CLAIM cannot describe the reviewing prisoner."
+        );
+      }
+
+      const definition =
+        String(
+          attributes.definition ?? ""
+        ).trim();
+
+      if (
+        !isAllowedResourceClaimDefinition(
+          definition
+        )
+      ) {
+        reasons.push(
+          `Unknown resource definition: ${definition || "(missing)"}.`
+        );
+      }
+
+      const quantity =
+        parseIntegerInRange(
+          attributes.quantity,
+          {
+            name:
+              "quantity",
+
+            min:
+              RESOURCE_CLAIM_QUANTITY_RANGE.min,
+
+            max:
+              RESOURCE_CLAIM_QUANTITY_RANGE.max,
+
+            reasons,
+          }
+        );
+
+      const confidence =
+        parseNumberInRange(
+          attributes.confidence,
+          {
+            name:
+              "confidence",
+
+            min:
+              CONFIDENCE_RANGE.min,
+
+            max:
+              CONFIDENCE_RANGE.max,
+
+            reasons,
+          }
+        );
+
+      const refs =
+        parseReferenceList(
+          attributes.ref,
+          {
+            attributeName:
+              "ref",
+
+            requireExactlyOne:
+              true,
+
+            visibleMessageMap,
+            visibleEventMap,
+            visibleAgencyEventMap,
+            simId,
+            reasons,
+          }
+        );
+
+      /*
+       * THE FIRST-HAND RULE.
+       *
+       * A RESOURCE_CLAIM is testimony: the prisoner states what they
+       * personally hold. The claim is only admissible when the
+       * message it cites was actually SENT by the prisoner the claim
+       * is about.
+       *
+       * Without this check a prisoner could assert anything about
+       * anyone, and the belief would be second-hand with no
+       * provenance chain to describe who said what. The rule makes
+       * the operation first-hand by construction, which is what lets
+       * the claim be CLAMPED to the speaker's own belief later.
+       *
+       * The reference must resolve to a visible MESSAGE. An
+       * overhearing event or an agency event names no sender in the
+       * same way, and neither can carry a personal holdings claim.
+       */
+      if (refs.length === 1) {
+        const citedMessage =
+          visibleMessageMap.get(
+            refs[0]
+          );
+
+        if (citedMessage) {
+          const speaker =
+            String(
+              citedMessage.from ?? ""
+            )
+              .trim()
+              .toUpperCase();
+
+          if (
+            about &&
+            speaker !== about
+          ) {
+            reasons.push(
+              `RESOURCE_CLAIM must describe the speaker of the cited message ` +
+              `(${speaker || "unknown"}), not ${about}.`
+            );
+          }
+        } else {
+          reasons.push(
+            "RESOURCE_CLAIM must cite a prisoner message, not an " +
+            "overhearing event or an agency event."
+          );
+        }
+      }
+
+      normalized = {
+        type:
+          "resource_claim",
+
+        tag:
+          "RESOURCE_CLAIM",
+
+        sourceIndex:
+          operation.sourceIndex,
+
+        about,
+        definition,
+        quantity,
+        confidence,
         refs,
       };
 

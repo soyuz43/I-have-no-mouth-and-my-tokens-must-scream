@@ -35,6 +35,7 @@ export const EXPORT_STREAM_KEYS = Object.freeze([
     "resource_events",
     "claim_events",
     "claim_divergence",
+    "social_beliefs",
     "scratchpad",
     "goal_events",
 ]);

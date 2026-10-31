@@ -78,6 +78,7 @@ const KNOWN_TOP_LEVEL_FIELDS = new Set([
   "messageNotes",
   "hypothesesAboutAM",
   "hypothesesAboutOthers",
+  "resourceBeliefs",
   "informationModel",
   "activeGoal",
   "goalHistory",
@@ -100,6 +101,14 @@ const RECORD_FIELD_ORDER = {
     "intent",
     "note",
     "confidence",
+  ],
+  resource_belief: [
+    "definitionId",
+    "quantity",
+    "confidence",
+    "evidence",
+    "sourceId",
+    "updatedCycle",
   ],
   prediction: [
     "about",
@@ -1816,6 +1825,177 @@ function renderMessageNotes(
   );
 }
 
+/*
+ * Beliefs about a PEER's holdings, formed from that peer's own
+ * testimony.
+ *
+ * These are NOT the prisoner's own inventory. They are what the
+ * prisoner believes somebody ELSE is carrying, which is why they
+ * live outside `claimState` and outside the subjective ledger
+ * entirely.
+ *
+ * A belief may be WRONG: it is clamped to what the speaker believed,
+ * not to what is true. The renderer reports it as the prisoner's
+ * belief and never corrects it.
+ */
+function renderResourceBeliefs(
+  beliefs,
+  highlightState,
+  availableMessageIds
+) {
+  const parentOptions =
+    getHighlightOptions(
+      highlightState,
+      "resourceBeliefs",
+      false
+    );
+
+  /*
+   * The collection is OPTIONAL: a scratchpad written before the
+   * RESOURCE_CLAIM operation existed has none. An absent collection
+   * is not a malformed one, so it renders as an empty section rather
+   * than a warning.
+   */
+  if (
+    beliefs === undefined ||
+    beliefs === null
+  ) {
+    return section(
+      "resource_beliefs",
+      "",
+      {
+        attributes: {
+          count:
+            0,
+        },
+
+        highlight:
+          parentOptions.highlight,
+      }
+    );
+  }
+
+  if (!isRecord(beliefs)) {
+    return section(
+      "resource_beliefs",
+      warning(
+        "resourceBeliefs is not an object.",
+        beliefs
+      ),
+      {
+        attributes: {
+          status:
+            "malformed",
+        },
+
+        highlight:
+          parentOptions.highlight,
+      }
+    );
+  }
+
+  const targets =
+    sortHighlightedItems(
+      Object.entries(beliefs)
+        .map(([targetId, definitions]) => {
+          const options =
+            getHighlightOptions(
+              highlightState,
+              (
+                "resourceBeliefs." +
+                targetId
+              ),
+              true
+            );
+
+          return {
+            targetId,
+            definitions,
+            options,
+            highlight: options.highlight,
+          };
+        })
+    );
+
+  const content =
+    targets.length
+      ? targets
+        .map(({ targetId, definitions, options }) =>
+          subsection(
+            "target",
+            isRecord(definitions)
+              ? Object.keys(definitions)
+                .sort()
+                .map((definitionId) => {
+                  const belief =
+                    definitions[definitionId];
+
+                  if (!isRecord(belief)) {
+                    return warning(
+                      `resourceBeliefs.${targetId}.${definitionId} is not an object.`,
+                      belief
+                    );
+                  }
+
+                  return entry(
+                    "resource_belief",
+                    renderRecord(
+                      "resource_belief",
+                      {
+                        definitionId,
+                        ...belief,
+                      },
+                      availableMessageIds
+                    ),
+                    {
+                      id:
+                        definitionId,
+
+                      definition:
+                        definitionId,
+
+                      quantity:
+                        belief.quantity ?? null,
+
+                      updatedCycle:
+                        belief.updatedCycle ?? null,
+                    }
+                  );
+                })
+                .join("")
+              : warning(
+                `resourceBeliefs.${targetId} is not an object.`,
+                definitions
+              ),
+            {
+              attributes: {
+                id:
+                  targetId,
+              },
+
+              highlight:
+                options.highlight,
+            }
+          )
+        )
+        .join("")
+      : "";
+
+  return section(
+    "resource_beliefs",
+    content,
+    {
+      attributes: {
+        count:
+          targets.length,
+      },
+
+      highlight:
+        parentOptions.highlight,
+    }
+  );
+}
+
 function renderOtherModels(
   models,
   highlightState,
@@ -2395,6 +2575,13 @@ function buildContentSections(
       false
     );
 
+  const resourceBeliefsOptions =
+    getHighlightOptions(
+      highlightState,
+      "resourceBeliefs",
+      false
+    );
+
   const informationModelOptions =
     getHighlightOptions(
       highlightState,
@@ -2456,6 +2643,20 @@ function buildContentSections(
         renderOtherModels(
           scratchpad
             .hypothesesAboutOthers,
+          highlightState,
+          availableMessageIds
+        ),
+    },
+
+    {
+      highlight:
+        resourceBeliefsOptions
+          .highlight,
+
+      html:
+        renderResourceBeliefs(
+          scratchpad
+            .resourceBeliefs,
           highlightState,
           availableMessageIds
         ),

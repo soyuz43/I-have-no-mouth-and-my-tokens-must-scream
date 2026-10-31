@@ -24,6 +24,10 @@ import {
   generatePhysicalStateUpdate,
 } from "../physicalState.js";
 
+import {
+  getClaimQuantity,
+} from "../../agency/claimLedger.js";
+
 /*
 ============================================================
 SCRATCHPAD COMMUNICATION COMMIT LAYER
@@ -269,6 +273,30 @@ function assertScratchpadShape(
   ) {
     throw new TypeError(
       `${simId}.scratchpad.unresolvedQuestions must be an array.`
+    );
+  }
+
+  /*
+   * resourceBeliefs is an OPTIONAL engine-owned collection of
+   * beliefs about a PEER's holdings, formed from that peer's own
+   * testimony. It is optional because a scratchpad written before
+   * the RESOURCE_CLAIM operation existed does not have one, and such
+   * a scratchpad is still valid.
+   *
+   * It is NOT part of the subjective ledger. It never appears in
+   * `claimState`, never produces a divergence, and never grants
+   * permission to act.
+   */
+  if (
+    scratchpad.resourceBeliefs !== undefined &&
+    (
+      !scratchpad.resourceBeliefs ||
+      typeof scratchpad.resourceBeliefs !== "object" ||
+      Array.isArray(scratchpad.resourceBeliefs)
+    )
+  ) {
+    throw new TypeError(
+      simId + ".scratchpad.resourceBeliefs must be an object when present."
     );
   }
 }
@@ -1357,6 +1385,135 @@ function applyChannelOperation({
    OPERATION DISPATCH
 ============================================================ */
 
+/* ============================================================
+   RESOURCE CLAIM COMMITTING
+   ------------------------------------------------------------
+   A prisoner states what they personally hold, and the listener
+   forms a belief about the speaker's holdings.
+
+   THE CLAMP
+   --------
+   The claimed quantity is reduced to what the SPEAKER themselves
+   believe they hold. The clamp reads the speaker's SUBJECTIVE
+   belief (`getClaimQuantity`), never the objective quantity
+   (`getObjectiveQuantity`).
+
+   This is the whole point of the mechanism. A speaker may overstate
+   their holdings to bluff, bargain, or deceive, but never beyond
+   what they believe to be true. A speaker whose OWN belief has
+   diverged from reality transmits that diverged belief, which is
+   exactly the behavior the dual ledger exists to produce.
+
+   Clamping to the objective truth instead would turn speech into a
+   truth oracle: only a speaker who knows the truth could testify,
+   and every belief formed from testimony would be a fact rather than
+   a belief.
+
+   The clamp reads the UNFILTERED belief. The fresh-scoped readers
+   (`getBelievedResourceIds`) would silence a speaker whose belief
+   has gone dormant, and the filtered `believed` map would erase a
+   speaker claiming zero of something.
+
+   WHERE IT IS WRITTEN
+   ------------------
+   It is written to the OPTIONAL `resourceBeliefs` collection on the
+   scratchpad. It is NEVER written to `claimState`, `claimEvents`, or
+   `claimDivergence`.
+
+   That separation is load-bearing. `claimState` is egocentric: it
+   records what a prisoner believes they PERSONALLY hold. Writing a
+   peer's holdings there would not record "ELLEN believes TED has 3
+   cigarettes"; it would record "ELLEN believes SHE holds 3
+   cigarettes", which manufactures a false divergence naming TED's
+   stack and licenses ELLEN to reach for a resource she does not
+   hold.
+ ============================================================ */
+
+function applyResourceClaimOperation({
+  scratchpad,
+  operation,
+  cycle,
+  changedPaths,
+}) {
+  const about =
+    String(
+      operation.about ?? ""
+    ).trim();
+
+  const definition =
+    String(
+      operation.definition ?? ""
+    ).trim();
+
+  const requestedQuantity =
+    Number(operation.quantity);
+
+  /*
+   * The SPEAKER's own belief. This is the clamp source, and it is
+   * the only truth source this operation is allowed to consult.
+   */
+  const speakerQuantity =
+    getClaimQuantity(
+      G,
+      about,
+      definition
+    );
+
+  const effectiveQuantity =
+    Math.max(
+      0,
+      Math.min(
+        Number.isFinite(requestedQuantity)
+          ? requestedQuantity
+          : 0,
+        speakerQuantity
+      )
+    );
+
+  const clamped =
+    effectiveQuantity !== requestedQuantity;
+
+  if (!scratchpad.resourceBeliefs ||
+      typeof scratchpad.resourceBeliefs !== "object") {
+    scratchpad.resourceBeliefs = {};
+  }
+
+  if (!scratchpad.resourceBeliefs[about] ||
+      typeof scratchpad.resourceBeliefs[about] !== "object") {
+    scratchpad.resourceBeliefs[about] = {};
+  }
+
+  const belief = {
+    quantity: effectiveQuantity,
+    confidence: Number.isFinite(Number(operation.confidence))
+      ? Number(operation.confidence)
+      : 0,
+    evidence: [...(operation.refs ?? [])],
+    sourceId: operation.refs?.[0] ?? null,
+    updatedCycle: cycle
+  };
+
+  scratchpad.resourceBeliefs[about][definition] = belief;
+
+  const path =
+    `resourceBeliefs.` +
+    `${about}.` +
+    `${definition}`;
+
+  changedPaths.push(path);
+
+  return {
+    changed: true,
+    path,
+    reason: clamped
+      ? "resource_claim_clamped"
+      : null,
+    requestedQuantity,
+    effectiveQuantity,
+    clamped
+  };
+}
+
 function applyOperation({
   scratchpad,
   operation,
@@ -1431,6 +1588,14 @@ function applyOperation({
       return applyChannelOperation({
         scratchpad,
         operation,
+        changedPaths,
+      });
+
+    case "resource_claim":
+      return applyResourceClaimOperation({
+        scratchpad,
+        operation,
+        cycle,
         changedPaths,
       });
 
@@ -1634,7 +1799,7 @@ export function commitScratchpadCommsOperations({
         noOpOperationCount++;
       }
 
-      operationReports.push({
+      const report = {
         type:
           operation.type,
 
@@ -1649,7 +1814,32 @@ export function commitScratchpadCommsOperations({
 
         reason:
           result.reason ?? null,
-      });
+      };
+
+      /*
+       * The CLAMP is reported so the export shows that a claim was
+       * reduced to the speaker's own belief. Without it, a stored
+       * quantity that differs from what the speaker said would be
+       * indistinguishable from a stored quantity they actually
+       * said.
+       *
+       * These fields are added ONLY for the operation that clamps.
+       * Every other operation's report keeps the shape it has
+       * always had, because the report is consumed by tests and by
+       * the export as a stable record.
+       */
+      if (operation.type === "resource_claim") {
+        report.requestedQuantity =
+          result.requestedQuantity ?? null;
+
+        report.effectiveQuantity =
+          result.effectiveQuantity ?? null;
+
+        report.clamped =
+          Boolean(result.clamped);
+      }
+
+      operationReports.push(report);
     }
 
     /*
