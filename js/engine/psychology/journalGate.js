@@ -383,16 +383,13 @@ export function dampenSufferingDelta(
     return statDeltas;
   }
 
-  const suffering = Number(statDeltas.suffering);
-
-  if (!Number.isFinite(suffering) || suffering === 0) {
-    return statDeltas;
+  const dampened = { ...statDeltas };
+  if (dampened.suffering != null && dampened.suffering > 0) {
+    // Only dampen when suffering is INCREASING.
+    // Leave negative deltas (suffering decreasing) alone.
+    dampened.suffering = dampened.suffering / 2;
   }
-
-  return {
-    ...statDeltas,
-    suffering: suffering / 2
-  };
+  return dampened;
 }
 
 /*

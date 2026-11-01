@@ -1100,3 +1100,15 @@ test("a refused focus attempt renders as a readable refusal", () => {
     "the raw action type must not leak into the prisoner's prose"
   );
 });
+
+test("dampenSufferingDelta halves positive suffering increase", () => {
+  const statDeltas = { suffering: 6, hope: 0, sanity: 0 };
+  const dampened = dampenSufferingDelta(statDeltas);
+  assert.equal(dampened.suffering, 3);
+});
+
+test("dampenSufferingDelta leaves negative suffering delta untouched", () => {
+  const statDeltas = { suffering: -4, hope: 0, sanity: 0 };
+  const dampened = dampenSufferingDelta(statDeltas);
+  assert.equal(dampened.suffering, -4);
+});
