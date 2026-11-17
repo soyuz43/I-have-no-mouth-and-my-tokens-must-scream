@@ -96,7 +96,7 @@ subgraph GENERATION
 
   SIM_JOURNAL[Sim Journal<br/>role: sim id]
 
-  PRIOR_STATE[Prior State<br/>stats + belief bounds<br/>+ last 4 journals]
+  CURRENT_STATE[Current State<br/>stats + beliefs + drives + anchors<br/>+ prior entries]
 
   AM_PLAN_RAW --> PLAN_PARSE
   PLAN_PARSE --> PLAN_REPAIR --> PLAN_VALIDATE --> PLAN
@@ -105,7 +105,7 @@ subgraph GENERATION
   TACTICS --> AM_EXEC
 
   AM_EXEC --> SIM_JOURNAL
-  PRIOR_STATE --> SIM_JOURNAL
+  CURRENT_STATE --> SIM_JOURNAL
 
 end
 
@@ -137,7 +137,6 @@ end
 
 SIM_JOURNAL --> EXTRACT_PROMPT
 SIM_JOURNAL --> STATS_CALL
-PRIOR_STATE --> STATS_CALL
 
 %% ========================
 %% SOCIAL + LOOP
@@ -537,100 +536,76 @@ These are separate systems.
 
 ---
 
-# Journal → Stats: What Separation Actually Buys
+# How a Journal Becomes Stats
 
-Each agent's cycle involves **two model calls**, not one:
+Each agent uses two separate model calls during the psychology phase:
 
-| Call | Role key | Resolves to | Purpose |
-|------|----------|-------------|---------|
-| Journal | `sim.id` (`TED`, `ELLEN`, ...) | `G.models[sim.id]` | Narrate the private entry |
-| Stats extraction | `FORENSIC_STATS` | `G.models.FORENSIC_STATS` | Measure the entry into structured deltas |
+| Call | Role | What it does |
+|------|------|--------------|
+| Journal | The agent's role, such as `TED` | Writes the private journal entry |
+| Stats extraction | `FORENSIC_STATS` | Reads the finished entry and returns structured changes |
 
-These are separate prompts with genuinely different objectives: one narrates, one
-measures. The extractor also runs *after* the journal exists, so it evaluates an
-artifact rather than generating alongside it. Its prompt additionally carries hard
-validation rules the journal prompt does not — a nonzero belief delta requires a
-matching forensic observation with confidence >= 0.55, and stat direction
-`unchanged` requires magnitude 0.
+The first model writes. The second model measures.
 
-Two qualifications matter when interpreting the result as an independent opinion.
+The stats extractor runs only after the journal exists. It also has stricter output rules. For example, a belief change needs supporting evidence with confidence of at least `0.55`, and an unchanged stat must have a magnitude of `0`.
 
-### The extractor is anchored on prior state
+## What the stats extractor sees
 
-The stats prompt is **not** given the journal alone. `buildSimJournalStatsPrompt()`
-(`js/prompts/stats.js`) interpolates the agent's current state directly:
+The stats prompt receives:
 
-```
-Previous State:
-- Suffering: ${sim.suffering}% | Hope: ${sim.hope}% | Sanity: ${sim.sanity}%
-```
+- the current journal
+- the current AM action
+- active constraints
+- objective history
+- relevant resource-belief evidence
 
-It also receives current belief percentages rendered as **hard boundary limits**
-(`TED.escape_possible: 43%   (max +57 / -43)`), and the **last 4 prior journals**
-with explicit temporal weighting (high / medium / low) and truncation.
+## What the stats extractor does not see
 
-So the extractor sees prior state three ways: as stat levels, as belief bounds, and
-as the agent's own prior self-reports. The prompt counteracts this — "Treat the
-current journal as the primary source", "Prefer 0 over speculative 1–2 point
-changes" — and the boundary limits mean it *cannot* emit an out-of-range belief
-delta regardless of anchoring. But the prior state is structurally present, and
-near extremes (0–10 or 90–100) deltas default to 0–2.
+The stats prompt does **not** receive:
 
-One caveat on the prior-journals channel specifically: `G.journals` is only appended
-to when the agent's journal-list element exists in the DOM (`appendJournalEntry()`
-returns early otherwise). Running headless, the stat levels and belief bounds are
-still fed to the extractor, but the prior-journal excerpts are not.
+- current suffering, hope, or sanity levels
+- current belief levels or belief-derived limits
+- previous journal entries
+- current drives or anchors
 
-### The extractor is usually the same model as the writer
+This means the extractor cannot directly copy or adjust its measurement using the agent's previous psychological state.
 
-The role keys differ, but `js/core/state.js` defaults **every** entry in `G.models`
-— `FORENSIC_STATS` and all five agents — to the same model string
-(`claude-sonnet-4-20250514`). In single-model mode the UI assigns one shared model
-to all roles explicitly.
+State still matters later, when the changes are committed. The engine applies belief boundaries, stat resistance, per-change caps, and final clamps. Blind measurement does not mean blind state transitions.
 
-To route the extractor to a genuinely different model, enable **split-model mode**,
-which exposes a separate `model-FORENSIC_STATS` selector alongside the per-agent
-and AM selectors.
+## What "blind" does not mean
 
-One asymmetry runs the opposite direction from what you might expect: **only the
-journal call is state-conditioned.** The narrative call passes
-`samplingContext: { callType: "journal", sanity, suffering }`, and
-`js/models/sampling.js` scopes the temperature override to `callType === "journal"`
-exclusively — the extractor always runs at the backend default. The narrator's
-temperature rises (0.85 → 1.0) as sanity falls and suffering rises; the measurer
-does not move with state.
+The journal writer still knows the agent's current state. State can therefore change the wording, tone, or conclusions of the journal itself. The stats extractor can still be influenced indirectly through that text.
 
-### Summary
+So the guarantee is precise but limited: **the stats prompt has no explicit prior-state channel**. The journal-to-stats path as a whole is not statistically independent.
 
-The separation is a **measurement** separation, not an **independence** separation.
-It isolates the analytic task from the generative task. It does not by itself
-provide a second opinion from a different mind — for that you need split-model mode
-with a different model on `FORENSIC_STATS`, and you would also want to remove the
-`Previous State` block, which is the primary anchoring channel.
+`js/tests/statsPromptBlindness.test.mjs` protects this guarantee. It verifies that changing prior stats, beliefs, drives, anchors, or journal history does not change the stats prompt when current-cycle inputs stay the same.
 
-## Attribution Tracking System
+## Same model or different model?
 
-The engine employs a rigorous attribution system to distinguish between direct AM influence and communication-mediated belief changes.
+The journal and stats extractor use different role keys, but by default they can still run on the same underlying model. Single-model mode explicitly assigns one model to every role.
 
-This is achieved by taking belief snapshots at three key points in each cycle:
+To use a genuinely different model for measurement, enable **split-model mode**. That exposes a separate `model-FORENSIC_STATS` selector alongside the per-agent and AM selectors.
 
-  - **prePsychology**: beliefs before AM input (start of cycle)
-  - **postPsychology**: beliefs after AM journal input, before communication/contagion
-  - **final**: beliefs after contagion (end of social phase)
+Sampling behavior is also asymmetric. Only the journal call receives a state-conditioned temperature. As sanity falls or suffering rises, the journal gets hotter and less stable. The stats extractor always uses the backend default.
 
-From these snapshots, we compute two distinct effects:
+## Bottom line
 
-  - **amEffect** = postPsychology - prePsychology
-    * Represents the direct psychological impact of AM's inputs on each agent's beliefs
-  - **contagionEffect** = final - postPsychology
-    * Represents the belief changes resulting from inter-agent communication and belief contagion
+The split gives the system **separate writing and measurement roles**. It removes direct prior-state anchoring from the extractor, but it does not create a fully independent second opinion. A different model can provide that separation; the remaining state influence arrives through the journal text.
 
-This separation allows the assessment system to evaluate:
-  * How effective AM's direct interventions are
-  * How beliefs spread through the agent network independently of AM
-  * Whether communication amplifies or dampens AM's intended effects
+## Tracking Where Belief Changes Come From
 
-The attribution metrics are logged per cycle and available for export to analyze the relative contributions of direct manipulation versus social diffusion in shaping agent beliefs over time.
+The engine records beliefs at three points in each cycle:
+
+- **before psychology**: beliefs at the start of the cycle
+- **after psychology**: beliefs after the agent's journal, before communication
+- **after communication**: beliefs after agents have talked and influenced each other
+
+Comparing these snapshots separates two causes:
+
+- **AM effect**: the change from before psychology to after psychology
+- **communication effect**: the change from after psychology to after communication
+
+This lets later analysis compare AM's direct influence with beliefs that spread through the agent network. The results are logged each cycle and included in exports.
 
 ---
 

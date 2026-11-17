@@ -48,46 +48,7 @@ function buildConstraintExecutionContext(sim) {
   }).join("\n\n");
 }
 
-function buildRecentJournalContext(sim) {
-  const journals = G.journals?.[sim.id] || [];
-  const prior = journals.slice(-4).reverse();
-
-  if (!prior.length) return "(none)";
-
-  return prior.map((j, index) => {
-    const weight = index === 0 ? "high" : index === 1 ? "medium" : "low";
-    const limit = index === 0 ? 700 : index === 1 ? 450 : 250;
-    const text = String(j.text || "").replace(/\s+/g, " ").slice(0, limit);
-
-    return [
-      `Prior journal ${index + 1}`,
-      `Cycle: ${j.cycle ?? "unknown"}`,
-      `Temporal weight: ${weight}`,
-      `Excerpt: "${text}"`
-    ].join("\n");
-  }).join("\n\n");
-}
-
 export function buildSimJournalStatsPrompt(sim, journalText, amAction) {
-
-  // Build belief lines with safe delta limits
-  const beliefKeys = [
-    'escape_possible',
-    'others_trustworthy',
-    'self_worth',
-    'reality_reliable',
-    'guilt_deserved',
-    'resistance_possible',
-    'am_has_limits'
-  ];
-
-  const beliefLines = beliefKeys.map(key => {
-    const current = Math.round(sim.beliefs[key] * 100);
-    const maxIncrease = 100 - current;
-    const maxDecrease = current;
-    return `${sim.id}.${key}: ${current}%   (max +${maxIncrease} / -${maxDecrease})`;
-  }).join('\n');
-
   const believedInventory = G.claimState?.[sim.id];
   const hasBelievedInventoryLedger =
     believedInventory &&
@@ -118,18 +79,18 @@ export function buildSimJournalStatsPrompt(sim, journalText, amAction) {
 
 
 **Core Directive**: You are a **psychological state measurement system**, not a narrator. Your sole function: estimate *minimal, evidence-proportional transitions* in psychological variables based on a private journal entry. Prioritize:  
-1. Internal consistency across simulation steps  
-2. Long-term stability via inertia modeling  
-3. Fidelity to strong textual signals (never suppress genuine breaks)  
+1. Internal consistency within the current journal evidence
+2. Minimal, non-speculative transitions
+3. Fidelity to strong textual signals (never suppress genuine breaks)
 
 ---
 
 **Forensic Measurement Frame**
 You are performing forensic psychological inference from written evidence.
 
-Treat the current journal as the primary source.
-Treat prior journals as longitudinal context only.
-Older journals have weaker evidentiary weight.
+Treat the current journal as the primary evidence for measured psychological change.
+Treat current-cycle event context as corroborative evidence.
+Do not infer, reconstruct, or assume prior psychological levels.
 
 You are not diagnosing globally.
 You are estimating what changed this cycle.
@@ -142,21 +103,13 @@ If evidence is weak, ambiguous, or non-causal, use 0 or a smaller delta.
 **Input Context**
 
 Journal Author: ${sim.id}  
-Most Recent Journal Text — PRIMARY EVIDENCE:
+Current Journal Text — PRIMARY EVIDENCE:
 '''
 ${journalText}
 '''
 
-Prior Journal Context — SECONDARY EVIDENCE, TEMPORALLY DECAYED:
-'''
-${buildRecentJournalContext(sim)}
-'''
-
-Previous State:  
-- Suffering: ${sim.suffering}% | Hope: ${sim.hope}% | Sanity: ${sim.sanity}%  
-- Drives: Primary="${sim.drives.primary}", Secondary="${sim.drives.secondary || "none"}"  
-- Anchors: ${sim.anchors?.length ? sim.anchors.map(a => '"' + a + '"').join(", ") : "(none)"}  
-- AM Action Context: ${amAction}  
+Current-Cycle Event Context — CORROBORATIVE CONTEXT:
+- AM Action Context: ${amAction}
 
 **Stress Position Context (Active Constraints)**  
 '''
@@ -196,13 +149,10 @@ ${resourceBeliefEvidence ? `${resourceBeliefEvidence}\n` : ""}
 - Never reduce magnitude to preserve stability—stability emerges from accurate measurement.  
 
 **Change Scaling Protocol** (apply in priority order)  
-1. **Boundary Check**: Belief deltas MUST respect hard limits:  
-
-${beliefLines}  
-
-   - If inferred delta exceeds bounds, REDUCE magnitude to fit within bounds.
-   - Do not assume clamping will correct invalid outputs.  
-   - Near extremes (<10 or >90): changes default to 0–2 pts unless text is overwhelming.  
+1. **Blind Baseline**: Use the current journal and current-cycle corroborative context, never prior psychological state.
+   - Do not assume the current journal describes continuity with any prior self-report.
+   - Do not use unknown prior levels to suppress, amplify, or reinterpret a supported change.
+   - The engine applies current-state boundaries, resistance, and clamping after measurement.
 
 2. **Stress-Position Modulation**:  
    - If active constraints have intensity ≥3 AND remaining cycles ≤2:  
@@ -256,7 +206,7 @@ Ambiguity resolution:
 {
   "forensic_observations": [
     {
-      "source": "current_journal | prior_journal | am_action | constraint_context | goal_history | resource_belief",
+      "source": "current_journal | am_action | constraint_context | goal_history | resource_belief",
       "signal": "brief exact/paraphrased cue from evidence",
       "target": "escape_possible | others_trustworthy | self_worth | reality_reliable | guilt_deserved | resistance_possible | am_has_limits",
       "direction": "increase | decrease | unchanged | unobserved | unclear",
@@ -323,7 +273,7 @@ Ambiguity resolution:
 - stat direction="increased/decreased" → stat magnitude MUST be >0  
 - forensic_observation direction="unobserved" or "unclear" → matching belief delta MUST be 0
 - Every nonzero belief_delta MUST have at least one matching forensic_observation with confidence >= 0.55
-- All belief_deltas MUST respect per-belief bounds in ${beliefLines}  
+- All belief_deltas MUST be finite numeric deltas; the engine enforces current-state bounds during commit
 - Output MUST be valid, machine-parseable JSON with no extra text  
 - If constraint context conflicts with journal, journal ALWAYS takes precedence  
 
