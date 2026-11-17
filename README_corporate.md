@@ -96,7 +96,7 @@ subgraph GENERATION
 
   SIM_JOURNAL[Stakeholder Journal<br/>role: stakeholder id]
 
-  PRIOR_STATE[Prior State<br/>metrics + belief bounds<br/>+ last 4 journals]
+  CURRENT_STATE[Current State<br/>metrics + beliefs + drives + anchors<br/>+ prior entries]
 
   AM_PLAN_RAW --> PLAN_PARSE
   PLAN_PARSE --> PLAN_REPAIR --> PLAN_VALIDATE --> PLAN
@@ -105,7 +105,7 @@ subgraph GENERATION
   TACTICS --> AM_EXEC
 
   AM_EXEC --> SIM_JOURNAL
-  PRIOR_STATE --> SIM_JOURNAL
+  CURRENT_STATE --> SIM_JOURNAL
 
 end
 
@@ -137,7 +137,6 @@ end
 
 SIM_JOURNAL --> EXTRACT_PROMPT
 SIM_JOURNAL --> STATS_CALL
-PRIOR_STATE --> STATS_CALL
 
 %% ========================
 %% SOCIAL + LOOP
@@ -561,31 +560,34 @@ matching forensic observation with confidence >= 0.55, and stat direction
 
 Two qualifications matter when interpreting the result as an independent review.
 
-### The extractor is anchored on prior state
+### The extractor does not receive explicit prior psychological state
 
-The metrics prompt is **not** given the journal alone. `buildSimJournalStatsPrompt()`
-(`js/prompts/stats.js`) interpolates the stakeholder's current state directly:
+`buildSimJournalStatsPrompt()` (`js/prompts/stats.js`) receives the current journal,
+current-cycle event context, active constraints, objective history, and relevant
+resource-belief evidence. It does **not** receive:
 
 ```
-Previous State:
-- Suffering: ${sim.suffering}% | Hope: ${sim.hope}% | Sanity: ${sim.sanity}%
+- current stat levels
+- current belief levels or belief-derived delta bounds
+- prior journal entries
+- current drives or anchors
 ```
 
-It also receives current belief percentages rendered as **hard boundary limits**
-(`TED.escape_possible: 43%   (max +57 / -43)`), and the **last 4 prior journals**
-with explicit temporal weighting (high / medium / low) and truncation.
+This makes the measurement step **blind to explicit prior psychological state**.
+The commit layer remains state-aware: `applyBeliefUpdates()` enforces current
+belief boundaries, and `applyJournalStatDeltas()` applies stat resistance,
+per-step caps, and final state clamps. Centralized commit semantics were not
+removed or relocated.
 
-So the extractor sees prior state three ways: as metric levels, as belief bounds, and
-as the stakeholder's own prior self-reports. The prompt counteracts this — "Treat the
-current journal as the primary source", "Prefer 0 over speculative 1–2 point changes" —
-and the boundary limits mean it *cannot* emit an out-of-range belief delta regardless of
-anchoring. But the prior state is structurally present, and near extremes (0–10 or
-90–100) deltas default to 0–2.
+This is not full statistical independence. The journal writer is itself
+state-conditioned: it receives current stats, beliefs, drives, anchors, and prior
+entries. State can therefore still affect the extractor **indirectly through the
+journal text**. The implemented guarantee is narrower and concrete: no explicit
+prior-state channel exists in the forensic prompt.
 
-One caveat on the prior-journals channel specifically: `G.journals` is only appended to
-when the agent's journal-list element exists in the DOM (`appendJournalEntry()` returns
-early otherwise). Running headless, the metric levels and belief bounds are still fed
-to the extractor, but the prior-journal excerpts are not.
+The regression contract in `js/tests/statsPromptBlindness.test.mjs` verifies that
+changing prior stats, beliefs, drives, anchors, or journal history does not change
+the forensic prompt when current-cycle inputs are held constant.
 
 ### The extractor is usually the same model as the writer
 
@@ -609,10 +611,11 @@ not move with state.
 ### Summary
 
 The separation is a **measurement** separation, not an **independence** separation.
-It isolates the analytic task from the generative task. It does not by itself provide a
-second opinion from a different mind — for that you need split-model mode with a
-different model on `FORENSIC_STATS`, and you would also want to remove the
-`Previous State` block, which is the primary anchoring channel.
+It isolates the analytic task from the generative task and removes explicit
+prior-state anchoring from the extractor. It does not by itself provide a second
+opinion from a different mind — for that you need split-model mode with a
+different model on `FORENSIC_STATS`. Journal-mediated state conditioning also
+remains unless the journal writer is changed separately.
 
 ---
 
